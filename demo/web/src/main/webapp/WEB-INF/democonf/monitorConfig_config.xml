@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <delay value="4" />
+        <modules value="appCenter;cache;website;qqdbserver;abMsgtable;
+        log;urlMap;velocity;servletCache;clientGsonToMsg;webauth;webUser;memberControl;userInPutFilter"   />
+        <modulesInThread value="website;urlMap;clientGsonToMsg;webauth;webUser;memberControl;velocity;userInPutFilter"  />
+    </params>
+
+</moduleConfig>

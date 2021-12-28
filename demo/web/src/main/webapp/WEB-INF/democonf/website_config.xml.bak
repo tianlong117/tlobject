@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <name    value="demo"/>
+        <verison value="1"/>
+        <!-- serverName 如果定义，则只有该名字才能访问-->
+        <serverName value="localhost;mysite"/>
+        <!-- website 是否运行-->
+        <status value="on"/>
+        <!-- 禁止的ip-->
+        <prohibitIp value="0:0:0:0:1:*;127.0.0.5;192.168.0.*"/>
+        <!-- 允许的ip，服务关闭后也可以访问-->
+        <permitIp value="127.0.0.1;192.168.0.*"/>
+    </params>
+</moduleConfig>

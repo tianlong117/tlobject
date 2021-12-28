@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+        <!-- 系统模块 -->
+     <!-- servletutils -->
+        <module name="appCenter"  classfile="cn.tianlong.tlobject.servletutils.TLWAPPCenter" configfile="appConfig.xml"/>
+        <module name="urlMap"  classfile="cn.tianlong.tlobject.servletutils.TLWUrlMap" />
+        <module name="error"  classfile="cn.tianlong.tlobject.servletutils.TLWError" />
+        <module name="webServiceProxy"  classfile="cn.tianlong.tlobject.servletutils.TLWWebServiceProxy" />
+        <module name="msgMap"  classfile="cn.tianlong.tlobject.servletutils.TLWClientMsgMap" />
+        <module name="tlwmsglog" classfile="cn.tianlong.tlobject.servletutils.TLWMsgLog" />
+        <module name="sessionData" classfile="cn.tianlong.tlobject.servletutils.TLWModuleInContext" />
+        <module name="servletCache"  classfile="cn.tianlong.tlobject.servletutils.TLWServletCache" configfile="servletCache_config.xml"/>
+        <module name="tableCacheBefore"   proxyModule="servletCache" configfile="servletCache_config.xml"/>
+        <module name="tableCacheAfter"   proxyModule="servletCache" configfile="servletCache_config.xml"/>
+        <module name="website"  classfile="cn.tianlong.tlobject.servletutils.TLWWebSite" />
+        <module name="webUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserInSession"
+                client="webClient" timeout="60" />
+        <module name="jsonUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserInSession"
+                client="jsonClient" timeout="60" />
+        <module name="tokenUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserByToken"
+                configfile="tokenUser_config.xml" client="tokenClient"/>
+        <module name="webClient"  classfile="cn.tianlong.tlobject.servletutils.TLWClient"
+                inInterface="directInInterface" outInterface="velocity"/>
+        <module name="tokenClient"  proxyModule="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="outJsonClient"  proxyModule="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="jsonClient"  proxyModule="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="directInInterface"  classfile="cn.tianlong.tlobject.servletutils.TLWDirectInInterface" />
+        <module name="jsonInInterface"  classfile="cn.tianlong.tlobject.servletutils.TLWJsonInInterface" />
+        <module name="uploadInInterface"  classfile="cn.tianlong.tlobject.servletutils.TLWUploadInInterface" />
+        <module name="directOutInterface"  classfile="cn.tianlong.tlobject.servletutils.TLWDirectOutInterface" />
+        <module name="jsonDataOutInterface"  classfile="cn.tianlong.tlobject.servletutils.TLWJsonDataOutInterface" charset="text/html;charset=utf-8" />
+        <module name="velocity"  classfile="cn.tianlong.tlobject.servletutils.TLWVelocityOutInterface" />
+        <module name="thymeleaf"  classfile="cn.tianlong.tlobject.servletutils.TLThymeleafOutInterface" />
+        <module name="webauth" proxyModule="auth"  configfile="auth_config.xml"/>
+        <module name="auth"   classfile="cn.tianlong.tlobject.servletutils.application.TLWAuth" />
+        <module name="clientJsonToMsg"  classfile="cn.tianlong.tlobject.servletutils.TLWClientJsonToMsg" configfile="clientJsonToMsg_config.xml"/>
+        <module name="uploadFile"  classfile="cn.tianlong.tlobject.servletutils.utils.uploadFile" fileSizeMax="1" fileTypes="image/jpeg"/>
+        <module name="urlFileCache"  classfile="cn.tianlong.tlobject.servletutils.utils.TLUrlFileCache" />
+        <module name="urlImageCache" classfile="cn.tianlong.tlobject.servletutils.utils.TLUrlImageCache" />
+        <module name="moduleMonitor" classfile="cn.tianlong.tlobject.modules.TLModuleMonitor" />
+
+    </modules>
+</moduleConfig>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <defaultServer value="clientSocketServe0" />
+    </params>
+    <startMsg>
+        <msg  action="getModuleByModule"   moduleName="webSocketReceiveFIleModule" usePreReturnMsg="false" />
+    </startMsg>
+    <msgTable>
+        <msgid  value="fromServerWife" >
+            <msg  destination="xiaoming" action="sing" />
+        </msgid>
+        <msgid  value="receiveBinaryFile"  >
+            <msg  destination="webSocketReceiveFIleModule" action="receiveBinaryFile" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="receiveBinary"   >
+            <msg   action="receiveBinary" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="receiveFileFromClient"  >
+            <msg  destination="xiaoming" action="receiveFileFromClient" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="getFile"   >
+            <msg  destination="xiaoming" action="getFileByServer"  msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="getUrlFile"  >
+            <msg  destination="httpProxy" action="getUrlFile"
+                  waitFlag="false" inthreadPool="true" threadPoolName="soceketClientThreadPool" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="getUrlImageAndCompress"  >
+            <msg  destination="httpProxy" action="getUrlImageAndCompress"
+                  waitFlag="false" inthreadPool="true" threadPoolName="soceketClientThreadPool" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="postReturnDoc"   >
+            <msg  destination="httpProxy" action="postReturnDoc"  msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="postFormReturnDoc"   >
+            <msg  destination="httpProxy" action="postFormReturnDoc"  msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="post"  >
+            <msg  destination="httpProxy" action="post"  msgTableUseType="useMsg" />
+        </msgid>
+    </msgTable>
+    <servers>
+        <!-- 如设定cerFile ，并且协议为wss 则启动ssl传输  -->
+        <server name="clientSocketServe0"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+
+     </servers>
+    <servers1>
+        <!-- 如设定cerFile ，并且协议为wss 则启动ssl传输  -->
+        <server name="clientSocketServe0"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe1"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe2"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe3"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe4"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe5"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe6"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe7"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe8"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+        <server name="clientSocketServe9"  userType="username"  cerFile__="/mycerts.cer"
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+    </servers1>
+</moduleConfig>

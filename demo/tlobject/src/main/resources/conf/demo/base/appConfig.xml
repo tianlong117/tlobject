@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<appConfig>
+    <params>
+        <verison value="1"/>
+        <package value="cn.tianlong.java.demo"/>
+        <poolNumber value="2"/>
+    </params>
+    <msgTable>
+        <msgid  value="setup" >
+            <msg action="getModule" destination="moduleFactory" moduleName="house"/>
+            <msg action="getModule" destination="moduleFactory" moduleName="wife"/>
+            <msg action="getModule" destination="moduleFactory" moduleName="xiaoming"/>
+        </msgid>
+    </msgTable>
+    <initMsg>
+        <msg msgid="setup" />
+    </initMsg>
+</appConfig>

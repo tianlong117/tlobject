@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+    1111111111112222222222
+   查询时间 $time
+    #foreach($data in $datas)
+        $data[0]     $data[1]    $data[2] <br>
+    #end
+</head>
+<body>
+
+</body>
+</html>

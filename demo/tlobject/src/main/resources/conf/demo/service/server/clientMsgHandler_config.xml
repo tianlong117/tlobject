@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <!-- 目录相对于filter配置目录下-->
+    <params>
+        <msgidInPool   value="getFile;findUser;fromXiaoMing1" />
+    </params>
+    <modulesParams>
+        <module name="reUsedSingleThreadPoolGroup"
+                initModuleNumbs="100"
+                maxModuleNumbs="500"
+                waitPoolTime="8000"
+                maxUserNumber="200000"/>
+    </modulesParams>
+    <startMsg>
+        <msg  action="getModuleByModule"   moduleName="webSocketReceiveFIleModule"  usePreReturnMsg="false" />
+    </startMsg>
+    <msgTable>
+        <msgid  value="login" >
+            <msg  destination="userManagerModule" action="login"  msgTableUseType="useMsg" />
+         </msgid>
+        <msgid  value="logout" >
+            <msg  destination="userManagerModule" action="logout" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="findUser" msgTableUseType="useMsg" >
+            <msg  destination="membersModle" action="findUser" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="receiveBinaryFile"  msgTableUseType="useMsg" >
+            <msg  destination="webSocketReceiveFIleModule" action="receiveBinaryFile"   msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="receiveBinary"  msgTableUseType="useMsg" >
+            <msg   action="receiveBinary"   msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="receiveFileFromClient"  msgTableUseType="useMsg" >
+            <msg  destination="wife" action="receiveFileFromClient" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="getFile"  msgTableUseType="useMsg" >
+            <msg  destination="wife" action="getFile" waitFlag="false" inthreadPool="true" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="fromXiaoMing"  msgTableUseType="useMsg" >
+            <msg  destination="wife" action="fromXiaoMing" waitFlag="false" msgTableUseType="useMsg" />
+        </msgid>
+    </msgTable>
+
+</moduleConfig>

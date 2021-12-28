@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <msgTable>
+        <!-- client的msgid 对应的服务msg-->
+        <msgid value="house" >
+            <msg  destination="wife"  action="house" />
+        </msgid>
+    </msgTable>
+</moduleConfig>

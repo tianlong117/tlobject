@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <!--fieldsInModule value="policies" /-->
+        <defaultPolicy value="anonymous" />
+        <defaultDenyMsg value="deny" />
+    </params>
+    <msgTable>
+        <msgid  value="anonymousDeny" >
+            <msg action="anonymousDeny" destination="authModule"/>
+        </msgid>
+        <msgid  value="loginDeny" >
+            <msg action="loginDeny" destination="authModule" />
+        </msgid>
+    </msgTable>
+    <!-- 安全策略定义
+     检查顺：ip token过期 user role group  拒绝用户的msg 。group 为role下的子定义
+     ip:  ip 如果定义，则允许才进行下一步 .通配符 * 允许所有
+     user: 如果定义，没有登录则直接禁止。对于包含的userid直接跳出检测、允许。 如果不在定义中而且没有定义通配符 *，则禁止。
+           定义了通配符* ，则进行下一步  例如 "*;xiaoming" ,xiaoming 直接允许，其他登录用户进行下一步检测
+     role：如果定义，对于符合role的进行下一步  匿名组默认为 "guest"
+     -->
+    <policies>
+        <policy name="homepage:baidu"
+                parent="wwwwwwwloginvip"
+                ip="10.0.0.1"
+                group="superman" />
+        <policy name="aasuperman"
+                parent="wwwwwwwloginvip"
+                ip="10.0.0.1"
+                group="superman" />
+        <policy name="anonymous"
+                  denyMsg="anonymousDeny"
+                 />
+        <policy name="login"
+                role="user"
+                denyMsg="loginDeny" />
+        <policy name="wwwwwwwloginvip"
+                parent="login"
+                group="vip" />
+        <policy name="123"
+                parent="aasuperman"
+                user="dongq" />
+
+    </policies >
+    <authModules>
+        <module name="homepage"    defaultPolicy="anonymous"  denyMsg="" http="login"  getuser="login" />
+        <module name="servletDbTest"    defaultPolicy="anonymous"    />
+
+    </authModules>
+</moduleConfig>

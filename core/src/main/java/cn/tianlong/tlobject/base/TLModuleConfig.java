@@ -1,0 +1,582 @@
+package cn.tianlong.tlobject.base;
+
+
+import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+import org.xmlpull.v1.XmlPullParserFactory;
+
+import java.io.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+
+/**
+ * 创建日期：2018/4/11 on 8:50
+ * 描述:
+ * 作者:tianlong
+ */
+
+public  class TLModuleConfig extends TLBaseModule {
+    protected String configDir ;
+    protected HashMap<String, HashMap<String, String>> modulesClass;
+    protected HashMap<String, HashMap<String, String>> modulesParams;
+    protected HashMap<String, HashMap<String, String>> paramsModules;
+    protected ArrayList<TLMsg> initMsgTable ;          //初始化时的消息队列
+    protected ArrayList<TLMsg> startMsgTable ;
+    protected HashMap<String, String> params ;
+    protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable ;           //前期执行msg
+    protected HashMap<String, ArrayList<TLMsg>> afterMsgTable ;          //后期执行msg
+    protected HashMap<String, ArrayList<TLMsg>> msgTable ;
+    protected String configFile;
+    public TLModuleConfig(String configFile ,String configDir) {
+        this.configFile = configFile;
+        this.configDir = configDir ;
+    }
+    public TLModuleConfig() {        ;
+    }
+    public void init(String configFile){
+        if(configFile !=null)
+            this.configFile=configFile;
+        init();
+    }
+    protected TLBaseModule init(){
+        InputStream xmlData= setFileInputStream(null);
+        parseconfig(xmlData,null);
+        return  this ;
+    }
+
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        return null;
+    }
+
+    public   InputStream setFileInputStream(String file) {
+        if(file ==null)
+            file =configFile ;
+        if (file == null)
+            return null;
+     //   return TLModuleConfig.class.getResourceAsStream(file);
+        InputStream InputStream;
+        try {
+            InputStream= new FileInputStream(file);
+        } catch (FileNotFoundException e) {
+           // e.printStackTrace();
+            InputStream =TLModuleConfig.class.getResourceAsStream(file);
+        }
+        return InputStream ;
+    }
+    public Object parseParamFromConfig (String paramName ){
+        return  parseFile(paramName,null) ;
+    }
+    public void parseFile(File file){
+        try {
+            InputStream in = new FileInputStream(file);
+            parseconfig(in,null);
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+    }
+    public Object parseFile (String paramName ,String file){
+        if(file ==null)
+            file = configFile ;
+        InputStream xmlData= setFileInputStream(file);
+         return parseconfig(xmlData,paramName);
+    }
+    public HashMap getModulesClass() {
+        return modulesClass;
+    }
+    public HashMap getModulesParams() {
+        return modulesParams;
+    }
+    public HashMap getParamsModules() {
+        return paramsModules;
+    }
+    public HashMap getParams() {
+        return params;
+    }
+    public ArrayList<TLMsg> getInitMsg() {
+        return initMsgTable;
+    }
+    public ArrayList<TLMsg> getStartMsgTable() {
+        return startMsgTable;
+    }
+    public HashMap getMsgTable() {
+        return msgTable;
+    }
+    public HashMap getBeforeMsgTable() {
+        return beforeMsgTable;
+    }
+    public HashMap getAfterMsgTable() {
+        return afterMsgTable;
+    }
+    protected Object parseconfig(InputStream xmlData ,String paramName) {
+        try {
+            Object returnObj =null;
+            /* 步骤2：获取xml文件，并给给出XmlPullParser对象*/
+            XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
+            XmlPullParser xpp = factory.newPullParser();
+            xpp.setInput(xmlData, "UTF-8");
+            /* 步骤3：通过循环，逐步解析XML，直至xml文件结束，对应第1点和第2点*/
+            while (xpp.getEventType() != XmlPullParser.END_DOCUMENT) {
+                /* 步骤4：获取目标ListItems的解析，并将之用method：ListItems来处理，对应第3点 */
+                if (xpp.getEventType() == XmlPullParser.START_TAG)
+                {
+                    String tagName = xpp.getName();
+                    if(paramName !=null && !tagName.equals(paramName))
+                    {
+                        xpp.next();
+                        continue;
+                    }
+                   else if (tagName.equals("params")) {
+                       HashMap cparams=getParam(xpp,"params");
+                       if(cparams !=null)
+                       {
+                           if(paramName !=null )
+                               returnObj =cparams ;
+                           else {
+                               if(params ==null)
+                                   params =new HashMap<>();
+                               params.putAll(cparams);
+                           }
+
+                       }
+                    }
+                    else if (tagName.equals("initMsg")) {
+                        ArrayList cinitMsgTable=getMsgList(xpp,"initMsg");
+                        if(cinitMsgTable !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =cinitMsgTable ;
+                            else
+                            {
+                                if(initMsgTable==null)
+                                    initMsgTable = new ArrayList<>();
+                                initMsgTable.addAll(cinitMsgTable);
+                            }
+
+                        }
+
+                    }
+                    else if (tagName.equals("startMsg")) {
+                        ArrayList cstartMsgTable=getMsgList(xpp,"startMsg");
+                        if(cstartMsgTable !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj = cstartMsgTable ;
+                            else {
+                                if(startMsgTable==null)
+                                    startMsgTable = new ArrayList<>();
+                                startMsgTable.addAll(cstartMsgTable);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("msgTable")) {
+                        HashMap cmsgTable=getMsgTable(xpp,"msgTable","msgid");
+                        if(cmsgTable!=null)
+                        {
+                            if(paramName !=null )
+                                returnObj = cmsgTable ;
+                            else
+                            {
+                                if(msgTable ==null)
+                                    msgTable =new HashMap<>();
+                                msgTable.putAll(cmsgTable);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("beforeMsgTable")) {
+                        HashMap cbeforeMsgTable=getMsgTable(xpp,"beforeMsgTable","action");
+                        if(cbeforeMsgTable !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =cbeforeMsgTable ;
+                            else {
+                                if(beforeMsgTable ==null)
+                                    beforeMsgTable =new HashMap<>();
+                                beforeMsgTable.putAll(cbeforeMsgTable);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("afterMsgTable")) {
+                        HashMap cafterMsgTable= getMsgTable(xpp,"afterMsgTable","action");
+                        if(cafterMsgTable !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =  cafterMsgTable ;
+                            else{
+                                if(afterMsgTable ==null)
+                                    afterMsgTable =new HashMap<>();
+                                afterMsgTable.putAll(cafterMsgTable);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("modules")) {
+                        HashMap cmodulesClass = getHashMap(xpp, "modules", "module");
+                        if(cmodulesClass !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =  cmodulesClass ;
+                            else {
+                                if(modulesClass ==null)
+                                    modulesClass =new HashMap<>();
+                                modulesClass.putAll(cmodulesClass);
+                            }
+                        }
+                    }
+                    else if (tagName.equals("modulesParams")) {
+                        HashMap cmodulesParams= getHashMap(xpp, "modulesParams", "module");
+                        if(cmodulesParams !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =  cmodulesParams ;
+                            else {
+                                if(modulesParams ==null)
+                                    modulesParams =new HashMap<>();
+                                modulesParams.putAll(cmodulesParams);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("paramsModules")) {
+                        HashMap cparamModules= getHashMap(xpp, "paramsModules", "param");
+                        if(cparamModules !=null)
+                        {
+                            if(paramName !=null )
+                                returnObj =  cparamModules ;
+                            else {
+                                if(paramsModules ==null)
+                                    paramsModules =new HashMap<>();
+                                paramsModules.putAll(cparamModules);
+                            }
+
+                        }
+                    }
+                    else if (tagName.equals("include")) {
+                       include(xpp,"include");
+                    }
+                    else
+                    {
+                        myConfig(xpp);
+                        returnObj= moduleConfig(xpp,paramName) ;
+                    }
+                    if(paramName !=null && tagName.equals(paramName))
+                        return  returnObj ;
+                }
+               xpp.next();
+            }
+        } catch (XmlPullParserException e) {
+            putLog("解析配置错误,Xml解析错误:"+configFile,LogLevel.ERROR);
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+            putLog("解析配置错误，IO错误:"+configFile,LogLevel.ERROR);
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+            putLog("解析配置错误:"+configFile,LogLevel.ERROR);
+        }
+        return null ;
+    }
+
+    protected Object moduleConfig(XmlPullParser xpp, String paramName) {
+        return null ;
+    }
+
+    protected  void   include(XmlPullParser xpp, String tag) throws IOException, XmlPullParserException {
+        String[] sysunits ={"modules","params","initMsg","modulesParams","paramsModules","msgTable","beforeMsgTable","afterMsgTable"};
+        TLModuleConfig includeConfig = null;
+        String[]units = new String[10];
+        for (int i = 0; i < xpp.getAttributeCount(); i++) {
+            String name =xpp.getAttributeName(i);
+            if (name.equals("file")) {
+                String fileName = xpp.getAttributeValue(i);
+                fileName =getRealPath(fileName,configDir) ;
+                File cfile = new File(fileName);
+                if (!cfile.exists())
+                    return;
+                includeConfig = new TLModuleConfig(fileName,configDir);
+                includeConfig.setFactory(moduleFactory);
+                includeConfig.init(fileName);
+            }
+            else if(name.equals("includeUnit")){
+                String includeUnit = xpp.getAttributeValue(i);
+                units = includeUnit.split(";");
+                if(units.length>0)
+                {
+                    for(int j=0;i< units.length;j++) {
+                        units[i] =  units[j].trim();
+                    }
+                }
+            }
+        }
+        if(includeConfig ==null)
+            return;
+        if(units ==null || units.length==0)
+            includeParams(includeConfig,sysunits);
+        else
+            includeParams(includeConfig,units);
+    }
+
+    private void includeParams(TLModuleConfig config,String[] units) {
+        for(String s :units){
+            String[] array =s.split(":");
+            String includeUnits =(array.length==1)?null:array[1];
+            switch (array[0].trim()) {
+                case "modules":
+                    String[] includeModules=checkUnit(includeUnits);
+                    modulesClass =mapCopy(modulesClass,config.getModulesClass(),includeModules);
+                    break;
+                case "modulesParams":
+                    String[] includeModulesParams=checkUnit(includeUnits);
+                    modulesParams =mapCopy(modulesParams,config.getModulesClass(),includeModulesParams);
+                    break;
+                case "paramsModules":
+                    String[] includeParamsModules=checkUnit(includeUnits);
+                    modulesParams =mapCopy(paramsModules,config.getModulesClass(),includeParamsModules);
+                    break;
+                case "params":
+                    String[] includeParams=checkUnit(includeUnits);
+                    params =mapCopy(params,config.getParams(),includeParams);
+                    break;
+                case "initMsg":
+                    if(initMsgTable ==null)
+                        initMsgTable=new ArrayList<>();
+                    initMsgTable.addAll(config.getInitMsg());
+                    break;
+                case "startMsg":
+                    if(startMsgTable ==null)
+                        startMsgTable=new ArrayList<>();
+                    startMsgTable.addAll(config.getInitMsg());
+                    break;
+                case "msgTable":
+                    if(msgTable ==null)
+                        msgTable=new HashMap<>();
+                    msgTable.putAll(config.getMsgTable());
+                    break;
+                case "beforeMsgTable":
+                    if(beforeMsgTable ==null)
+                        beforeMsgTable=new HashMap<>();
+                    beforeMsgTable.putAll(config.getBeforeMsgTable());
+                    break;
+                case "afterMsgTable":
+                    if(afterMsgTable ==null)
+                        afterMsgTable=new HashMap<>();
+                    afterMsgTable.putAll(config.getAfterMsgTable());
+                    break;
+                default:
+                   ;
+            }
+        }
+    }
+
+    private String[]  checkUnit(String str){
+        if(str==null || str.isEmpty())
+            return null ;
+        String[] array =str.split(",");
+        if(array == null || array.length==0)
+            return null ;
+        for(int i=0 ;i<array.length ; i++)
+            array[i]=array[i].trim();
+        return array;
+    }
+    private HashMap mapCopy( HashMap map , HashMap source , String[] keys){
+        if(map ==null)
+            map =new HashMap();
+        if(keys==null || keys.length==0)
+            map.putAll(source);
+        else{
+            for(String key : keys){
+                map.put(key,source.get(key));
+            }
+        }
+        return map ;
+    }
+    protected HashMap<String,String> getMap(XmlPullParser xpp)throws Throwable {
+
+        HashMap<String,String>Map = new HashMap<>();
+        if (xpp.getEventType() == XmlPullParser.START_TAG) {
+            String name = xpp.getName();
+            if (name.equals("Map")) {
+                for (int i = 0; i < xpp.getAttributeCount(); i++) {
+                    String arrName =xpp.getAttributeName(i) ;
+                    String arrValue =xpp.getAttributeValue(i) ;
+                    if(arrName !=null)
+                      Map.put(arrName, arrValue);
+                }
+            }
+        }
+        return  Map;
+    }
+
+    protected HashMap<String,HashMap<String,String>> getHashMap(XmlPullParser xpp, String firstTag, String tag)throws Throwable {
+        HashMap<String,HashMap<String,String>> hashMap=null;
+        String findex = null;
+        HashMap<String,String> sonMap = null;
+        while (true) {
+            xpp.next();
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(firstTag))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag)))
+            {
+                if (findex != null && sonMap!= null)
+                    if(hashMap ==null)
+                        hashMap =new HashMap<>();
+                    hashMap.put(findex, sonMap);
+            }
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+                String name = xpp.getName();
+                if (name.equals(tag)) {
+                    sonMap = new HashMap<>();
+                    findex = xpp.getAttributeValue(0);
+                }
+                for (int i = 1; i < xpp.getAttributeCount(); i++) {
+                    sonMap.put(xpp.getAttributeName(i), xpp.getAttributeValue(i));
+                }
+            }
+        }
+        return  hashMap;
+    }
+
+    protected void myConfig(XmlPullParser xpp) {
+    }
+
+    protected  HashMap<String, ArrayList<TLMsg>> getMsgTable(XmlPullParser xpp, String table, String tag) throws Throwable {
+        LinkedHashMap<String, ArrayList<TLMsg>> linkedHashMap =getLinkHashMsgList(xpp,table,tag);
+        if(linkedHashMap ==null)
+            return null ;
+        HashMap<String, ArrayList<TLMsg>> msgTable=new HashMap<>();
+        msgTable.putAll(linkedHashMap);
+        return  msgTable;
+    }
+    protected  LinkedHashMap<String, ArrayList<TLMsg>> getLinkHashMsgList(XmlPullParser xpp, String table, String tag) throws Throwable {
+        LinkedHashMap<String, ArrayList<TLMsg>> msgTable=null;
+        String msgid = null;
+        ArrayList<TLMsg> msglist = null;
+        while (true) {
+            xpp.next();
+            /*<ListItems> ...</ListItems>的内容已经检索完毕，或者文件结束，都退出处理*/
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(table))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag)))
+            {
+                if (msgid != null && msglist != null)
+                    if(msgTable ==null)
+                        msgTable =new LinkedHashMap<>();
+                msgTable.put(msgid, msglist);
+            }
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+                String name = xpp.getName();
+                if (name.equals(tag)) {
+                    msglist = new ArrayList<>();
+                    msgid = xpp.getAttributeValue(0);
+                }
+                if (name.equals("msg")) {
+                    TLMsg msg = getMsg(xpp);
+                    if(msg !=null)
+                        msglist.add(msg);
+                }
+            }
+        }
+        return  msgTable;
+    }
+
+    protected  HashMap<String, String>  getParam(XmlPullParser xpp, String tag) throws IOException, XmlPullParserException {
+        HashMap<String, String> params=null;
+        while (true) {
+            xpp.next();
+			/*<ListItems> ...</ListItems>的内容已经检索完毕，或者文件结束，都退出处理*/
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+				/*读出属性的名字和数值*/
+                if(params ==null)
+                    params=new HashMap<>();
+                String key = xpp.getName();
+                String value = xpp.getAttributeValue(0);
+                params.put(key, value);
+            }
+        }
+        return  params;
+    }
+
+    protected ArrayList<TLMsg> getMsgList(XmlPullParser xpp, String tag) throws Throwable {
+        ArrayList<TLMsg> fMsgTable=null;
+        while (true) {
+            xpp.next();
+			/*<ListItems> ...</ListItems>的内容已经检索完毕，或者文件结束，都退出处理*/
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+
+                String name = xpp.getName();
+                if (name.equals("msg")) {
+                    TLMsg msg = getMsg(xpp);
+                    if(msg !=null)
+                    {
+                        if(fMsgTable ==null)
+                            fMsgTable =new ArrayList<>();
+                        fMsgTable.add(msg);
+                    }
+                }
+            }
+        }
+        return  fMsgTable;
+    }
+    protected  ArrayList<HashMap<String,String>>  getListMap(XmlPullParser xpp, String tag) throws Throwable {
+        ArrayList<HashMap<String,String>> fMsgTable=null;
+        while (true) {
+            xpp.next();
+            /*<ListItems> ...</ListItems>的内容已经检索完毕，或者文件结束，都退出处理*/
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+
+                String name = xpp.getName();
+                if (name.equals("Map")) {
+                   HashMap<String ,String> map = getMap(xpp);
+                    if(map !=null && !map.isEmpty())
+                    {
+                        if(fMsgTable ==null)
+                            fMsgTable =new ArrayList<>();
+                        fMsgTable.add(map);
+                    }
+                }
+            }
+        }
+        return  fMsgTable;
+    }
+
+    protected TLMsg getMsg(XmlPullParser xpp) throws Throwable {
+        TLMsg msg =null;
+        while (true) {
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals("msg")))
+                return msg;
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+                String name = xpp.getName();
+                if (name.equals("msg")) {
+                    msg = new TLMsg();
+                    for (int i = 0; i < xpp.getAttributeCount(); i++)
+                    {
+                        String key =xpp.getAttributeName(i) ;
+                        String value =xpp.getAttributeValue(i) ;
+                        if(value==null || value.isEmpty())
+                            continue;
+                        msg=TLMsgUtils.strToMsg(msg,key,value);
+                    }
+                }
+            }
+            xpp.next();
+        }
+    }
+
+}

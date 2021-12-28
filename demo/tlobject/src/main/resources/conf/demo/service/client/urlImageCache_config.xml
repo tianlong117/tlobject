@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+   <params>
+       <cachePath value="/tomcatweb/cache/client/image"/>
+   </params>
+    <caches>
+        <cacheName name="imagecache"  width="800" height="800" exptime="0"/>
+    </caches>
+</moduleConfig>

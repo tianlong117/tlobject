@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <resource.loader    value="file"/>
+        <input.encoding value="UTF-8"/>
+        <output.encoding value="UTF-8"/>
+        <resource.loader    value="file"/>
+        <file.resource.loader.class value="org.apache.velocity.runtime.resource.loader.FileResourceLoader"/>
+    </params>
+
+    <templates>
+        <dataid name="homepage.velocity"  template="homepage.velocity.vm" />
+        <dataid name="servletTest1.index" template="servletTest1.index.vm" />
+        <dataid name="servletTest1.user" template="servletTest1.user.vm" />
+        <dataid name="servletDbTest.dbmodle" template="servletDbTest.db.user.vm" />
+    </templates>
+</moduleConfig>

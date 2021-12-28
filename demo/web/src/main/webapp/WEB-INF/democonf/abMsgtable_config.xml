@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <!-- 当模块创立时动态加入before 和after msgTable-->
+
+    <msgTable>
+        <!--
+     <msgid  value="urlMap" >
+         <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" postion="1" />
+     </msgid>
+
+     <msgid  value="velocity" >
+         <msg action="addAfterMsg"  maction="putDataToUser"
+              daction="writeCache" ddestination="servletCache" />
+     </msgid>
+     <msgid  value="appCenter" >
+         <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" postion="1"/>
+         <msg action="addBeforeMsg"  maction="velocity" daction="getCache" ddestination="servletCache" />
+     </msgid>
+     <msgid  value="servletDbTest" >
+         <msg action="addBeforeMsg"  maction="find" daction="getCache" ddestination="servletCache" />
+         <msg action="addBeforeMsg"  maction="dbmodle" daction="getCache" ddestination="servletCache" />
+     </msgid>
+      -->
+    </msgTable>
+</moduleConfig>

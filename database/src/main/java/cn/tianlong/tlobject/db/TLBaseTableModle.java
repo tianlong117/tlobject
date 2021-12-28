@@ -1,0 +1,124 @@
+package cn.tianlong.tlobject.db;
+
+
+import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.base.TLMsg;
+import cn.tianlong.tlobject.base.TLObjectFactory;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+
+/**
+ * 创建日期：${Date}${time}
+ * 描述:
+ * 作者:tianlong
+ */
+public abstract class TLBaseTableModle extends TLBaseModule {
+
+    protected String tableName;
+    protected TLDataBase dataBase;
+    protected String databaseName = DEFAULTDATABASE;
+    protected TLBaseDataUnit table;
+    public TLBaseTableModle() {
+        super();
+    }
+    public TLBaseTableModle(String name ) {
+        super(name);
+    }
+    public TLBaseTableModle(String name , TLObjectFactory modulefactory){
+        super(name,modulefactory);
+    }
+
+    @Override
+    protected void initProperty() {
+        super.initProperty();
+        if(params!=null && params.get("tableName")!=null)
+            tableName=params.get("tableName");
+        if(params!=null && params.get("databaseName")!=null)
+            databaseName=params.get("databaseName");
+    }
+    @Override
+    protected TLBaseModule init() {
+        if(table !=null)
+            return this ;
+        setTable(null);
+        return  this ;
+    }
+    protected TLBaseDataUnit getTable(String tableName){
+        if(dataBase ==null)
+            dataBase = (TLDataBase) getModule(databaseName);
+        TLMsg tmsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME,tableName);
+        TLMsg returnmsg =putMsg(dataBase,tmsg);
+        table= (TLBaseDataUnit) returnmsg.getParam(INSTANCE);
+        return table ;
+    }
+    protected TLBaseDataUnit setTable(String tableName){
+        if(tableName!=null)
+            this.tableName=tableName;
+        dataBase = (TLDataBase) getModule(databaseName);
+        return  getTable(this.tableName) ;
+    }
+    public  String getTableName(){
+        return  tableName ;
+    }
+    public  TLBaseDataUnit getTable(){
+        return table ;
+    }
+    public  void openConn(){
+        putMsg(table,createMsg().setAction(DB_SETCONNECTION));
+    }
+    public  void closeConn(){
+        putMsg(table,createMsg().setAction(DB_CLOSECONNECTION));
+    }
+    protected  TLMsg total(Object fromWho, TLMsg msg){
+        TLMsg totalMsg =createMsg().setAction("total");
+        List totalDatas = (List) putMsg(table,totalMsg).getParam("result");
+        Long totalNumber= Long.valueOf(0);
+        for(int i=0;i< totalDatas.size();i++){
+            Object [] unit= (Object[]) totalDatas.get(i);
+            totalNumber=totalNumber + (Long)unit[0];
+        }
+        return createMsg().setParam("result",totalNumber);
+    }
+    protected TLMsg queryBy(String fieldName,Object fieldValue,String[] fields,TLDataBase.RESULT_TYPE resultType ,String action_tag ){
+       if(resultType ==null )
+           resultType =TLDataBase.RESULT_TYPE.MAP;
+        String  queryfields ="*" ;
+       if( fields !=null)
+          queryfields = StringUtils.join(fields, ",");
+        String sql="select "+queryfields+" from [table] where "+fieldName+"=?";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put(fieldName, fieldValue);
+        TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL,sql)
+                .setParam(DB_P_FIELDS, fields)
+                .setParam(DB_P_RESULTTYPE, resultType)
+                .setParam(DB_P_PARAMS, sqlparams);
+         if(action_tag !=null)
+             sqlmsg.setParam(DB_P_ACTIONTAG, action_tag);
+        return putMsg(table,sqlmsg);
+    }
+     protected TLMsg insertHashMap(LinkedHashMap<String, Object> data ,String tableName) {
+        String insertSql = TLDBUtilis.createInsertSql(data,tableName);
+        TLMsg insertmsg = createMsg().setAction(DB_INSERT)
+                    .setParam(DB_P_SQL, insertSql)
+                    .setParam(DB_P_PARAMS, data);
+        return putMsg(table, insertmsg);
+    }
+    protected TLMsg insertHashMap(LinkedHashMap<String, Object> data) {
+        return insertHashMap(data ,"[table]");
+    }
+    protected TLMsg replaceHashMap(LinkedHashMap<String, Object> data) {
+        return replaceHashMap(data ,"[table]");
+    }
+
+    private TLMsg replaceHashMap(LinkedHashMap<String,Object> data, String tableName) {
+        String insertSql = TLDBUtilis.createReplaceSql(data,tableName);
+        TLMsg insertmsg = createMsg().setAction(DB_INSERT)
+                .setParam(DB_P_SQL, insertSql)
+                .setParam(DB_P_PARAMS, data);
+        return putMsg(table, insertmsg);
+    }
+
+}

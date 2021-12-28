@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+       <!-- 系统模块 -->
+        <!-- network -->
+        <module name="webServerClient"                classfile="cn.tianlong.tlobject.network.client.http.TLWebServerClient" />
+        <module name="httpClient"                     classfile="cn.tianlong.tlobject.network.client.http.TLHttpClient" />
+        <module name="webSeviceClient"                classfile="cn.tianlong.tlobject.network.client.http.TLWebSeviceClient"/>
+        <module name="httpProxy"                      classfile="cn.tianlong.tlobject.network.proxy.TLHttpProxy" />
+        <module name="socketClientAgentPool"          classfile="cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool" />
+        <module name="serviceGateWayInterface"        classfile="cn.tianlong.tlobject.network.client.websocket.TLServiceGateWayInterface" />
+        <module name="serviceClientInterface"         classfile="cn.tianlong.tlobject.network.client.websocket.TLServiceClientInterface" />
+        <module name="webSocketClientAgent"           classfile="cn.tianlong.tlobject.network.client.websocket.TLWebSocketClientAgent" />
+        <module name="socketClientAgentPool"          classfile="cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool" />
+        <module name="webSocketClient"                classfile="cn.tianlong.tlobject.network.client.websocket.TLWebSocketClient" singleton="false"/>
+        <module name="HSServer"                       classfile="cn.tianlong.tlobject.network.server.http.HttpServiceServer" port="9081"/>
+        <module name="webSocketServer"                classfile="cn.tianlong.tlobject.network.server.websocket.TLWebSocketServer" port="9081" hostname="127.0.0.1" />
+        <module name="clientMsgHandler"               classfile="cn.tianlong.tlobject.network.server.websocket.TLClientMsgHandler" />
+        <module name="serviceGateWayClientMsgHandler" classfile="cn.tianlong.tlobject.network.server.websocket.TLServiceGateWayClientMsgHandler" />
+        <module name="userManagerModule"              classfile="cn.tianlong.tlobject.network.server.websocket.TLUserManagerModule" />
+        <module name="userRouterModule"               classfile="cn.tianlong.tlobject.network.server.websocket.TLUserRouterModule" />
+        <module name="serverManagerModule"            classfile="cn.tianlong.tlobject.network.server.websocket.TLServerManagerModule" />
+        <module name="serverManagerClientModule"      classfile="cn.tianlong.tlobject.network.server.websocket.TLServerManagerClientModule" />
+        <module name="jettyServer"                    classfile="cn.tianlong.tlobject.network.server.jetty.TLJettyServer"/>
+        <module name="webSocketReceiveFIleModule"     classfile="cn.tianlong.tlobject.network.common.TLWebSocketReceiveFIleModule" />
+       </modules>
+</moduleConfig>

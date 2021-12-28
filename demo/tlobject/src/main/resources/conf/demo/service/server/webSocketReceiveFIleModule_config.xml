@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <msgHandler value="clientMsgHandler"  />
+        <fileSessionPoolName value="reUsedSingleThreadPoolGroup" />
+        <filePath   value="data/wsserver\" />
+        <maxSessions   value="100" />
+    </params>
+    <modulesParams>
+        <module name="reUsedSingleThreadPoolGroup"
+                initModuleNumbs="50"
+                maxModuleNumbs="100"
+                waitPoolTime="8000"
+                maxUserNumber="5000"/>
+    </modulesParams>
+    <msgTable>
+        <msgid  value="startPutFile" >
+            <msg  destination="clientMsgHandler" action="toClientAndWait" />
+        </msgid>
+        <msgid  value="sendFile" >
+            <msg  destination="clientMsgHandler" action="sendFile" />
+        </msgid>
+        <msgid  value="endFile" >
+            <msg  destination="clientMsgHandler" action="toClient" />
+        </msgid>
+        <msgid  value="getFile" >
+            <msg  destination="clientMsgHandler" action="toClient" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="sendBinary" >
+            <msg  destination="clientMsgHandler" action="sendBinary" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="returnAppResult" >
+            <msg  destination="clientMsgHandler" action="toClient" sesstionType="server" />
+        </msgid>
+    </msgTable>
+
+</moduleConfig>

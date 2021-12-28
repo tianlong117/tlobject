@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+       <!-- 系统模块 -->
+           <!-- modules -->
+     <module name="managerModle" classfile="cn.tianlong.java.application.webmanager.dbmodle.managerModle" />
+     <module name="managerControl" classfile="cn.tianlong.java.application.webmanager.managerControl"   />
+     <module name="adminMemberControl" classfile="cn.tianlong.java.application.webmanager.adminMemberControl"  />
+     <module name="menuManagerControl" classfile="cn.tianlong.java.application.webmanager.menuManagerControl" />
+     <module name="rolesManagerControl" classfile="cn.tianlong.java.application.webmanager.rolesManagerControl" />
+     <module name="moduleManagerControl" classfile="cn.tianlong.java.application.webmanager.moduleManagerControl" />
+     <module name="managersManagerControl" classfile="cn.tianlong.java.application.webmanager.managersManagerControl" />
+     <module name="appClientAgent" classfile="cn.tianlong.java.application.webmanager.appClientAgent" />
+     <module name="systemManagerControl" classfile="cn.tianlong.java.application.webmanager.systemManagerControl" />
+    </modules>
+</moduleConfig>

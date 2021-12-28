@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+       <!-- 系统模块 -->
+     <!-- Redis-->
+     <module name="redisString" classfile="cn.tianlong.tlobject.redis.TLRedisString" />
+     <module name="redisList" classfile="cn.tianlong.tlobject.redis.TLRedisList" />
+     <module name="redisMap" classfile="cn.tianlong.tlobject.redis.TLRedisMap" />
+     <module name="redisSet" classfile="cn.tianlong.tlobject.redis.TLRedisSet" />
+     <module name="redisZset" classfile="cn.tianlong.tlobject.redis.TLRedisZSet" />
+     <module name="redisGeo" classfile="cn.tianlong.tlobject.redis.TLRedisGeo" />
+     <module name="redisconnect" classfile="cn.tianlong.tlobject.redis.TLRedisconnect" singleton="false" />
+     <module name="redisServer" classfile="cn.tianlong.tlobject.db.TLDBServer" configfile="database_config.xml" />
+    </modules>
+</moduleConfig>

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.cache_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.servletutils_config.xml" includeUnit="modules"/>
+    <params>
+        <ifLog value="true"/>
+        <loglevel value="debug"/>
+        <package value="cn.tianlong.java.demo"/>
+        <ifModuleMonitor value="false"/>
+        <applicationId value="demo"/>
+    </params>
+    <commonParams>
+        <ifLog value="true"/>
+        <loglevel value="trace"/>
+        <applicationId value="demo"/>
+    </commonParams>
+
+    <modules>
+        <!-- 用户自定义模块 -->
+        <module name="appCenter" classfile=".base.MyAppCenter" configfile="appConfig.xml"/>
+        <module name="house" classfile=".base.House"  singleton="true" />
+        <module name="light" classfile="cn.tianlong.java.demo.base.Light" singleton="ture"/>
+        <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
+        <!--module name="wife" classfile="cn.tianlong.java.demo.base.Person" /-->
+        <module name="wife" proxyModule="socketClientAgentPool" configfile="socketClientAgentPool_config.xml" />
+        <module name="soceketClientThreadPool" proxyModule="fixedThreadPool" poolSize="100" />
+    </modules>
+        <factoryBoot>
+            <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="soceketClientThreadPool" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="socketClientAgentPool"  waitFlag11="false" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="httpProxy"  waitFlag11="false" usePreReturnMsg="false" />
+        </factoryBoot>
+</moduleConfig>

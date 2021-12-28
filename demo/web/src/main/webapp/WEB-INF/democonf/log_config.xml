@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <ifLog value="true" />
+        <reload value="false" />
+        <logModules value=""/>
+        <level value="info" />
+        <noLogModules value="appCenter;httpClient;myhttpClient;myserviceRegistTask;
+        userw;HttpJsonClientHandler;ConnectionWatchdogConnectionWatchdog;info_reply1;members"/>
+    </params>
+    <moduleSetting>
+        <module name="TLFilterWithFactoryPool"  levels="debug;info;warn"  tags="" ></module>
+        <module name="webServiceCustomerPool"  levels="debug;info;warn"  tags="" ></module>
+    </moduleSetting>
+
+</moduleConfig>

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+        <defaultDBserver value="dbserver1" />
+        <dbPackageName value="cn.tianlong.java.servletdemo" />
+    </params>
+    <dbservers>
+        <dbserver name="dbserver1"             proxyModule="dbserver"
+                  driver="com.mysql.jdbc.Driver"
+                  dburl="jdbc:mysql://127.0.0.1:3306/weishengju?characterEncoding=utf8"
+                  dbuser="root" dbpass="123456"
+                  connector="c3p0Conn"
+                  initPoolSize="5" maxPoolSize="100" maxIdleTime="60" />
+        <dbserver name="dbserver2"             proxyModule="dbserver"
+                  driver="com.mysql.jdbc.Driver"
+                  dburl="jdbc:mysql://127.0.0.1:3306/test?characterEncoding=utf8"
+                  dbuser="root" dbpass="123456"
+                  connector="c3p0Conn"
+                  initPoolSize="5" maxPoolSize="100" maxIdleTime="60" />
+    </dbservers>
+    <tables>
+        <table name="user"  dbtable="user"  dbserver="dbserver2" beforeTrigger="userTableSplitTrigger"  classfile="" />
+        <table name="userm" dbtable="userm"  dbserver="dbserver1" beforeTrigger1="tableCacheBefore"
+               afterTrigger1="tableCacheAfter" classfile="cn.tianlong.java.servletdemo.dbtableTest"/>
+        <table name="userw" dbtable="userw"  dbserver="dbserver2" beforeTrigger1="tableCacheBefore"
+               afterTrigger1="tableCacheAfter" classfile="cn.tianlong.java.servletdemo.dbtableTest" />
+    </tables>
+    <views>
+        <view name="vusers"  sql="select * from user where number < ?" dbserver="dbserver1" resultType="arrayList"
+              cacheName="vusers" beforeTrigger="cachetrigger"
+              afterTrigger="aftercachetrigger"/>
+        <view name="vmessages"  sql="select * from messages" dbserver="dbserver2" />
+    </views>
+    <triggers>
+        <trigger name="tableCacheBefore"    query="getCacheBeforeModle"  />
+        <trigger name="tableCacheAfter"    query="writeCacheAfterModle"  update="deleteCacheAfterModle" delete="deleteCacheAfterModle" />
+        <trigger name="userTableSplitTrigger"   delete="onDelete"  insert="onInsert" query="onQuery"  update="onUpdate"
+                 classfile="cn.tianlong.java.servletdemo.UserTableSplitTrigger" />
+    </triggers>
+</moduleConfig>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+        <defaultPolicy value="anonymous" />
+        <defaultDenyMsg value="deny" />
+    </params>
+    <msgTable>
+        <msgid  value="anonymousDeny" >
+            <msg action="anonymousDeny" destination="authModule"/>
+        </msgid>
+        <msgid  value="loginDeny" >
+            <msg action="loginDeny" destination="authModule" />
+        </msgid>
+    </msgTable>
+    <policies>
+        <policy name="anonymous"
+                  ip="*"
+                  denyMsg="anonymousDeny"
+                 />
+        <policy name="login"
+                user="*"
+                denyMsg="loginDeny"
+        />
+    </policies>
+    <authModules>
+        <module name="homepage"    defaultPolicy="anonymous"  denyMsg="" http="login"  baidu11="login" />
+        <module name="servletDbTest"    defaultPolicy="anonymous"    />
+
+    </authModules>
+</moduleConfig>

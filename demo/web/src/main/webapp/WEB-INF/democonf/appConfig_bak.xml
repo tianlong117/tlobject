@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<appConfig>
+    <params>
+        <name    value="demo"/>
+        <verison value="1"/>
+        <!-- 模块默认包前缀 -->
+        <package value="cn.tianlong.java"/>
+        <charset value="text/html;charset=utf-8"/>
+        <!-- 框架url路径 -->
+        <tlobjectPath value="/tlobject"/>
+        <!-- 默认输出接口，volectiy -->
+        <outInterface value="velocity"/>
+        <!-- 默认输入接口，volectiy -->
+        <inInterface value="driectFromUserInterface"/>
+        <!-- 打开全msg日志
+        <msgLog value="enable"></msgLog>
+        -->
+    </params>
+ 
+    <modules>
+        <!-- 系统模块，不要去掉！以都点.开始的类在默认包下 -->
+        <module name="appCenter"  classfile=".servletdemo.MyAPPCenter" />
+        <module name="broadcast" classfile="cn.tianlong.tlobject.base.TLMsgBroadCast" />
+        <module name="log" classfile="cn.tianlong.tlobject.base.TLLog" logConfigFile="config/person/log4j.properties"/>
+        <module name="msgbus"  classfile="cn.tianlong.tlobject.base.TLMsgBus" />
+        <module name="webServer" classfile="cn.tianlong.tlobject.utils.TLWebServer" />
+        <module name="webSevice" classfile="cn.tianlong.tlobject.utils.TLWebSevice" />
+        <module name="mconfig" classfile=".servletutils.TLWAppConfig" singleton="false"/>
+        <module name="client"  classfile=".servletutils.TLWClient" />
+        <module name="driectFromUserInterface"  classfile=".servletutils.TLWNomalDataFromUser" />
+        <module name="driectToUserInterface"  classfile=".servletutils.TLWDirectToUser" />
+        <module name="urlMap" classfile=".servletutils.TLWUrlMap" />
+        <module name="error"  classfile=".servletutils.TLWError" />
+        <module name="msglog" classfile="cn.tianlong.tlobject.base.TLMsgLog" configfile="msglog_config.xml"/>
+        <module name="webServiceProxy"  classfile=".servletutils.TLWWebServiceProxy" />
+        <module name="msgMap"  classfile=".servletutils.TLWClientMsgMap" />
+        <module name="velocity"  classfile=".servletutils.TLWVelocityOutInterface" />
+        <module name="rfilecache" classfile=".servletutils.utils.TLWFileCache" />
+        <module name="abMsgtable" classfile="cn.tianlong.tlobject.base.TLABMsgTableAdd"
+                configfile="abMsgtable_config.xml"/>
+        <module name="database" classfile="cn.tianlong.tlobject.db.TLDataBase" configfile="database_config.xml"/>
+        <module name="dbserver" inSession="true" classfile="cn.tianlong.tlobject.db.TLDBServer" />
+        <module name="dbtable" classfile="cn.tianlong.tlobject.db.TLTable" />
+        <module name="dbview" classfile="cn.tianlong.tlobject.db.TLDBView" />
+        <module name="fileCache" classfile="cn.tianlong.tlobject.cache.TLFileCache" />
+        <module name="EhCache" classfile="cn.tianlong.tlobject.cache.TLEhcache" />
+        <module name="cachetrigger"  classfile="cn.tianlong.tlobject.db.TLDBTriggerForCache" />
+        <module name="aftercachetrigger"  proxyModule="cachetrigger" />
+        <module name="c3p0Conn" inSession="true" classfile="cn.tianlong.tlobject.db.TLC3P0connect" singleton="false" />
+        <module name="cache" proxyModule="EhCache" inSession="true" configfile="filecache_config.xml"/>
+        <module name="sessionData" classfile=".servletutils.TLWModuleInContext" />
+        <module name="servletCache" classfile=".servletutils.utils.TLWServletCache" />
+
+        <!-- 用户自定义模块 -->
+        <module name="dbserver1" inSession="true" proxyModule="dbserver" configfile="database_config.xml"/>
+        <module name="dbserver2" inSession="true" proxyModule="dbserver" configfile="database_config.xml"/>
+        <module name="servletTest1" classfile=".servletdemo.servletTest1" singleton="true" />
+        <module name="userTableSplitTrigger"  classfile=".servletdemo.UserTableSplitTrigger" />
+        <module name="serv1C3p0" inSession="true" classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
+        <module name="serv2C3p0" inSession="true" classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
+        <module name="myservice" proxyModule="webSevice"  serverAddress1 ="http://localhost:8080/tltest/tlobject/service"/>
+        <module name="userModle" classfile=".servletdemo.userModle" />
+        <module name="servletDbTest"  classfile=".servletdemo.servletDbTest" />
+
+    </modules>
+    <!-- 消息路由表-->
+
+    <msgTable>
+        <msgid  value="setup" >
+            <msg action="getModule" destination="moduleFactory" moduleName="volecity"/>
+        </msgid>
+    </msgTable>
+    <!-- 初始运行消息表-->
+    <initMsg>
+        <!-- 启动日志，根据msgtable 动态加入监听对象-->
+        <msg action="startLogOnRun" destination="msglog" useInputMsg="false" usePreReturnMsg="false"/>
+        <!-- 启动abmsgTable 管理对象，动态给其他模块添加abmsgtable  -->
+        <msg action="addMsg" destination="abMsgtable" useInputMsg="false" usePreReturnMsg="false"/>
+        <!-- 启动日志，监听webserver的"doWithUrl99" 方法-->
+        <msg action="addLogModule" destination="msglog"  logModule="moduleFactory" maction ="doWithUrl99"
+             type="addAfterMsg"  />
+        <msg msgid="setup11" />
+</initMsg>
+
+    <!-- 方法运行前执行消息表-->
+    <!--
+    <beforeMsgTable>
+        <action  value="baidu" >
+            <msg   action="startLog" destination="tllog" waitFlag="false"></msg>
+        </action>
+         <action  value="*" >//所有方法
+            <msg   action="startLog" destination="tllog" waitFlag="false"></msg>
+        </action>
+    </beforeMsgTable>
+    -->
+    <!-- 方法运行后执行消息表-->
+   <afterMsgTable>
+       <action  value="baidu1" >
+           <msg   action="startLog" destination="tllog" waitFlag="false"/>
+       </action>
+   </afterMsgTable>
+    <factoryBoot>
+        <msg action="getModule"  moduleName="cache" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="dbserver1" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="dbserver2" usePreReturnMsg="false" />
+    </factoryBoot>
+
+</appConfig>

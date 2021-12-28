@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+    </params>
+    <beforeMsgTable>
+
+        <action  value="toServlet" >
+
+            <!--
+           <msg   action="auToLogin" destination="webUser" useInputMsg="false" usePreReturnMsg ="false"/>
+           <msg   action="authInUrlMap" destination="webauth"  useInputMsg="false" usePreReturnMsg ="false"/>
+             <msg   action="getCache" destination="servletCache" useInputMsg="false" usePreReturnMsg ="false" ></msg>
+    -->
+</action>
+</beforeMsgTable>
+<!-- 目录相对于filter配置目录下  -->
+    <!-- 目录相对于filter配置目录下
+ 对于每个映射，可以更改user，client类型。
+ clientUser : user类型
+ clientType : client接口类型
+ clientVars : 客户端输入的变量列表，自动获取后传给后端模块
+ varType ： 客户端变量类型  目前仅为 json
+ -->
+    <url-mapping>
+        <url  value="*" >
+            <!-- 对于目录设置*，该目录下只能为同一个servmodule处理 。
+            map方式： 该目录后下url=“方法” ，如/home  对应 index 方法。没有map的方法无法访问-->
+            <msg  destination="homepage"  default="index"   upload="upload"
+                  bd="baidu" home="index" input="input" content="content"
+                  getmsg="getmsg"   ve="velocity" http="http"  getuser="getuser"
+                  getParam="getWebParam" putapp="putapp" />
+        </url>
+        <url  value="/th" >
+            <msg action="thymeleaf" destination="homepage" clientUser="myUser" />
+        </url>
+        <url  value="/baidu" >
+            <msg action="baidu" destination="homepage" />
+        </url>
+        <url  value="/getf" >
+            <msg action="getUrlFile" destination="homepage" />
+        </url>
+        <url  value="/cache" >
+            <msg action="fileCache" destination="homepage" />
+        </url>
+        <url  value="/getm" >
+            <msg action="getUrlImage" destination="homepage" />
+        </url>
+        <url  value="/service" >
+            <msg action="service" destination="msgMap" />
+        </url>
+        <url  value="/index" >
+            <msg action="index" destination="homepage" />
+        </url>
+        <url  value="/test/*" >
+            <msg  destination="servletTest1" getuser="user" index="index" />
+        </url>
+        <url  value="/db/*" >
+            <msg  destination="servletDbTest" find="find" findall="findall"
+                  query="query" clientUser="tokenUser" />
+        </url>
+        <url  value="/db/dbmodle" >
+            <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
+        </url>
+        <url  value="/login" >
+            <msg action="regist" destination="loginModule" />
+        </url>
+
+    </url-mapping>
+</moduleConfig>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+   <params>
+       <cachePath value="cache_dir"/>
+   </params>
+    <caches>
+        <cacheName name="table_user"   params="" exptime="50" />
+        <cacheName name="gonggao"  exptime="3"/>
+        <cacheName name="newsimage"  width="1200" height="1200" exptime="5"/>
+
+    </caches>
+</moduleConfig>

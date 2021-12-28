@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <beforeMsgTable>
+        <action  value="baidu" >
+            <msg   action="login" destination="tokenUser" useInputMsg="false" usePreReturnMsg ="false" />
+            <msg   action="authInModule" destination="webauth" useInputMsg="false" usePreReturnMsg ="false" />
+        </action>
+    </beforeMsgTable>
+
+</moduleConfig>
+

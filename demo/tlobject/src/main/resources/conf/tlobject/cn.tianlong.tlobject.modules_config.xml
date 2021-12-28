@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+       <!-- 系统模块 -->
+           <!-- modules -->
+        <module name="log" classfile="cn.tianlong.tlobject.modules.TLLog" ifMonitor="false" />
+        <module name="monitorConfig" classfile="cn.tianlong.tlobject.modules.TLMonitorConfigModule" />
+        <module name="msgBroadCast" classfile="cn.tianlong.tlobject.modules.TLMsgBroadCast" />
+        <module name="msgTask" classfile="cn.tianlong.tlobject.modules.TLMsgTask" />
+        <module name="msgBus" classfile="cn.tianlong.tlobject.modules.TLMsgBus" />
+        <module name="sessionData"  classfile="cn.tianlong.tlobject.modules.TLSessionData" expire="30"/>
+        <module name="msgScanner"  classfile="cn.tianlong.tlobject.modules.TLMsgScanner" />
+        <module name="msgTaskConsole"  classfile="cn.tianlong.tlobject.modules.TLMsgTaskConsole" msgTaskModule="myTaskManger" />
+        <module name="threadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="fixed" poolSize="10"/>
+        <module name="singleThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="single" />
+        <module name="cachedThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="cached" />
+        <module name="fixedThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="fixed" poolSize="10"/>
+        <module name="logThreadPool" proxyModule="threadPool" poolType="single" ifLog="false" ifMonitor="false"/>
+        <module name="moduleMonitor" classfile="cn.tianlong.tlobject.modules.TLModuleMonitor" />
+        <module name="msgRouter" classfile="cn.tianlong.tlobject.modules.TLMsgRouter" />
+        <module name="modulePool" classfile="cn.tianlong.tlobject.modules.TLModulePool" />
+        <module name="exceptionHandler" classfile="cn.tianlong.tlobject.modules.TLExecptionHandler" />
+        <module name="msgBlockingQueue" classfile="cn.tianlong.tlobject.modules.TLMsgBlockingQueue" />
+        <module name="paramValidation" classfile="cn.tianlong.tlobject.modules.TLParamValidation" />
+        <module name="reUsedModulePool" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" />
+       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedSingleThreadPoolGroup" />
+    </modules>
+</moduleConfig>

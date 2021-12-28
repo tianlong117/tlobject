@@ -1,0 +1,443 @@
+package cn.tianlong.tlobject.base;
+
+/**
+ * 创建日期：2018/4/5 on 8:47
+ * 描述:
+ * 作者:tianlong
+ */
+
+public interface TLParamString {
+
+    final String FENHAO = ";" ;
+    final String MAOHAO = ":" ;
+    /**    默认模块名 *      */
+    final String MODULEFACTORY = "moduleFactory";
+    final String DEFAULTTHREADPOOL = "threadPool";
+    final String DEFAULTLOGTTHREADPOOL = "logThreadPool";
+    final String DEFAULTLOG = "log";
+    final String DEFAULTDATABASE = "database";
+    final String DEFAULTMODULEMONITOR = "moduleMonitor";
+    /**    模块名 *      */
+    final String M_MSGBROADCAST = "msgBroadCast";
+    final String M_HTTPCLIENT = "httpClient";
+    final String M_SOCKETCLIENTAGENTPOOL = "socketClientAgentPool";
+
+    /**    字符串常量 *      */
+    final String C_MESSAGETYPE_LOGOUT = "logout";
+    final String C_MESSAGETYPE_LOGIN = "login";
+
+    final String CLASSPATH = "CLASSPATH";
+    final String ERRORSTR = "error";
+    final String FALSESTR = "false";
+    final String TRUESTR = "true";
+    final String INSTANCE = "instance";
+    final String MSG = "msg";
+    final String MSG_CONTENT = "content";
+    final String RESULT = "result";
+    final String RETURNMSG = "returnMsg";
+    final String EXCEPTION = "exceptionHappen";
+    final String WEBSERVERCLIENT = "webServerClient";
+    final String SERVICE = "service";
+
+    final String MSG_P_ACTION = "action";
+    final String MSG_P_MSGID = "msgid";
+    final String MSG_P_DESTINATION = "destination";
+    final String MSG_P_SOURCE = "source";
+    final String MSG_P_WAITFLAG = "waitFlag";
+    final String MSG_P_NEXTMSGID= "nextMsgid";
+    final String MSG_P_MODULE= "module";
+    final String MSG_P_PARAMS= "params";
+
+    final String FACTORY_ADDFACTORY = "addFactory";
+    final String FACTORY_GETMODULE = "getModule";
+    final String FACTORY_GETMODULEPARAM = "getModuleParam";
+    final String FACTORY_RELOADMODULE = "reloadModule";
+    final String FACTORY_REGISTINFACTORY = "registInFactory";
+    final String FACTORY_REMOVEFROMFACTORY = "removeFromFactory";
+    final String FACTORY_GETRUNMODULES = "getRunModulesInFactory";
+    final String FACTORY_R_MODULEINSTANCE = "instance";
+    final String FACTORY_P_MODULENAME = "moduleName";
+    final String FACTORY_P_NEWMODULENAME = "newModuleName";
+    final String FACTORY_P_MODULECONFIG = "moduleConfig";
+    final String FACTORY_P_PARENTFACTORY = "parentFactory";
+    final String SESSIONDATAMODULE="sessionData";
+    final String MODULE_INITACTION = "runInit";
+    final String ADDMODULE = "addModule";
+    final String ADDMODULECLASS = "addModuleClass";
+    final String RESETMODULE = "setModule";
+    final String GETMODULES = "getModules";
+    final String GETMODULE = "getModule";
+    final String MODULENAME = "moduleName";
+    final String MODULE_ONFACTORY = "onfactory";
+    final String MODULE_TOMODULE = "toModule";
+    final String MODULE_PROXYMODULE = "proxyModule";
+    final String MODULE_CONFIGFILE = "configfile";
+    final String MODULE_CONFIGDIR = "configdir";
+    final String MODULE_CLASSFILE = "classfile";
+    final String MODULE_PARAMS = "params";
+    final String MODULE_SINGLETON = "singleton";
+    final String MODULE_ADDMSGTABLE = "addMsgTable";
+    final String MODULE_DONEXTMSG = "donextMsg";
+    final String MODULE_IFONLYCREATE = "ifOnlyCreate";
+    final String STOPAFTERMSG = "stopaftermsg";
+    final String CLASSNAME = "classname";
+    final String MODULE_SLEEP = "sleep";
+    final String MODULE_P_SLEEPTIME = "sleepTime";
+    final String MODULE_GETRUNMODULES = "getRunModules";
+    final String MODULE_GETMODULECLASS = "getModuleClass";
+    final String MODULE_ADDINITMSG = "addInitMsg";
+    final String MODULE_ADDBEFOREMSG = "addBeforeMsg";
+    final String MODULE_GETBEFOREMSG = "getBeforeMsg";
+    final String MODULE_ADDAFTERMSG = "addAfterMsg";
+    final String MODULE_GETAFTERMSG = "getAfterMsg";
+    final String MODULE_RELOADCONFIG = "reloadConfig";
+    final String MODULE_SETFACTORY = "setFactory";
+    final String DOWITHMAG = "doWiThMsg";
+    final String MODULE_GETMODULEBYMODULE = "getModuleByModule";
+    final String MODULE_GETPARAM = "getParam";
+    final String MODULE_SETPARAM = "setParam";
+    final String MODULE_SETFIELD = "setField";
+    final String MODULE_MSGTRANSFER = "msgTransfer";
+    final String IFLOADMODULE = "ifLoadModule";       //true or false .当putmsg ,当模块不存在时，是否通过工厂创建 ,默认创建
+    final String IGNOREMODULEISNULL = "ignoreModuleIsNull";
+    final String MODULE_DESTROY = "destroy";
+    final String SESSIONDEAMON = "sessiondeamon";
+    final String EXCEPTIONHANDLER = "exceptionhandler";
+    final String SESSIONJOIN = "sessionjoin";
+    final String JOINTIME = "jointime";
+    final String EXCEPTIONMSG = "exceptionMsg";
+    final String INTHREADPOOL = "inthreadPool";         //msg 是否在线程池中运行
+    final String IFDOMSGTRANSFERACTION = "ifDoMsgTransfer";    //对于desitination 不是自身的msg，是否执行msgTransfer 动作
+    final String THREADPOOLNAME = "threadPoolName";
+    final String WEBRESPONSE = "response";
+    final String RESULTFOR = "resultFor";
+    final String RESULTACTION = "resultAction";
+    final String RESULTMSG = "resultMsg";
+    final String PARAMSFROMMSG = "paramsFromMsg";      //  采用msg中参数项  ,分号隔开
+    final String MSGTABLEUSETYPE= "msgTableUseType";           //msgtable 使用方式 分别为:   MSGTABLEONLY MSGTABLECOPY USEMSG 默认 MSGTABLECOPY
+    final String MSGTABLEONLY= "msgTableOnly";                //只使用msgtable中的msg
+    final String MSGTABLECOPY= "msgTableCopy";                //根据msgtable 的msg创建新对象
+    final String USEMSG= "useMsg";                //使用传入的msg
+    final String USEINPUTMSG = "useInputMsg";        //是否使用执行msg其中的参数
+    final String USEPRERETURNMSG = "usePreReturn";   //是否使用前一个运行后的返回结果
+    final String USEACTIONRETURNMSG = "useActionReturn";  //是否使用执行msg的返回结果
+    final String RETURNACTIONRETURNMSG = "returnActionReturn";
+    final String RESULTFORNEXTMSG = "resultForNext";
+    final String IGNOREBEFORE = "ignoreBefore";
+    final String IGNOREAFTER = "ignoreAfter";
+    final String TASKRESULTFOR = "taskResultFor";
+    final String TASKRESULTACTION = "taskResultAction";
+    final String TASKRESULTMSG = "taskResultMsg";
+    final String TASKRESESSIONDATA= "taskSessionData";
+    final String TASKDELAYTIME = "taskDelayTime";
+    final String TASKWAITTIME = "taskWaitTime";
+    final String TASKMAINTHREAD = "taskMainThread";
+    final String FIELDNAME = "fieldName";
+    final String FIELDVALUE = "fieldValue";
+
+    final String EXCEPTIONHANDLER_HANDLER = "exceptionHandler";
+    final String EXCEPTIONHANDLER_P_MODULE ="module";
+    final String EXCEPTIONHANDLER_P_MSG ="msg"    ;
+    final String EXCEPTIONHANDLER_P_EXCEPTION ="exception" ;
+
+    final String LOG_PUTLOG = "setLog";
+    final String LOG_P_LOGMODULE = "module";
+    final String LOG_P_LOGTAG = "tag";
+    final String LOG_P_LOGONTENT = "content";
+    final String LOG_P_LOGLEVEL = "logLevel";
+
+    final String MSGBROADCAST_REGISTRECEIVER = "registReceiver";
+    final String MSGBROADCAST_BROADCAST = "broadcast";
+    final String MSGBROADCAST_UNREGISTRECEIVER = "unregistReceiver";
+    final String MSGBROADCAST_P_MESSAGETYPE = "messageType";
+    final String MSGBROADCAST_P_RECEIVEMSG = "receiveMsg";
+    final String MSGBROADCAST_P_RECEIVER= "receiver";
+    final String MSGBROADCAST_P_RECEIVEACTION = "receiveAction";
+
+    final String TASK_REGISTTASK = "registTask";
+    final String TASK_STARTTASK = "startTask";
+    final String TASK_SETTASKSTATUS = "setTaskStatus";
+    final String TASK_UNREGISTTASK = "unRegistTask";
+    final String TASK_GETTASK = "getTasks";
+    final String TASK_SHUTDOWN = "shutdown";
+    final String TASK_STOPTASK = "stopTask";
+    final String TASK_RUNTASK = "runTask";
+    final String TASK_P_TASKID = "taskid";
+    final String TASK_P_TASKMSG = "msg";
+    final String TASK_P_STATUS = "status";
+    final String TASK_P_CRON = "cronExp";
+    final String TASK_P_RUNTIMES = "times";
+    final String TASK_P_BEGINTIME = "begin";
+    final String TASK_P_DELAYTIME = "delay";
+    final String TASK_P_TIMEUNIT = "timeUnit";
+    final String TASK_V_STATUS_RUN = "run";
+    final String TASK_V_STATUS_STOP = "stop";
+    final String TASK_V_TIMEUNIT_MS = "ms";
+    final String TASK_V_TIMEUNIT_S = "s";
+    final String TASK_V_TIMEUNIT_M = "m";
+    final String TASK_V_TIMEUNIT_H = "h";
+
+
+
+    final String THREADPOOL_EXECUTE = "execute";
+    final String THREADPOOL_GETPOOL = "getPool";
+    final String THREADPOOL_SHUTDOWN ="shutdown";
+    final String THREADPOOL_POOL = "threadPool";
+    final String THREADPOOL_TASK = "task";
+    final String THREADPOOL_P_POOLTYPE = "poolType";
+    final String THREADPOOL_P_POOLSIZE = "poolSize";
+    final String THREADPOOL_P_TASKMODULE = "taskModule";
+
+    final String MODULEPOOL_DOMSGUSEPOOL = "doMsgUsePool";
+    final String MODULEPOOL_GETMODULE = "get";
+    final String MODULEPOOL_PUTMODULE = "put";
+    final String MODULEPOOL_REMOVEUSER = "removeUser";
+    final String MODULEPOOL_MAKEPOOL = "makePool";
+    final String MODULEPOOL_GETPOOLNUMB = "getPoolNumb";
+    final String MODULEPOOL_P_MODULE = "module";
+    final String MODULEPOOL_P_MODULEUSER= "moduleUser";
+
+    final String SSL_SCERFILE = "sslCerFile";
+    final String SSL_SCERFILE_PWD = "sslCerFilePwd";
+    final String NETTY_CHANNEL = "channel";
+    final String NETTY_CHANNELOBJ = "channelObject";
+    final String URL = "url";
+    final String HTTP_P_URL = "url";
+    final String HTTP_POST = "post";
+    final String HTTP_GET = "get";
+    final String HTTP_POSSTRING = "postString";
+    final String HTTP_POSTJSON = "postJson";
+    final String HTTP_POSTFILE = "postFile";
+    final String HTTP_DOWNLOAD = "download";
+    final String HTTP_CANCEL = "cancel";
+    final String HTTP_P_DOWNLOAD_FILENAME = "filename";
+    final String HTTP_P_DOWNLOAD_SAVEPATH = "path";
+    final String HTTP_P_UPFILE = "file";
+    final String HTTP_P_ISHTTPS = "isHttps";
+    final String HTTP_ERROR = "error";
+    final String HTTP_P_POSTCONTENT = "content";
+    final String HTTP_P_POSTPARAMS = "params";
+    final String HTTP_P_REQUESTHEADER = "requestHeader";
+    final String HTTP_P_TAG = "tag";
+    final String HTTP_P_SESSIONDATA = "sessionData";
+    final String HTTP_P_FILE_PROGRESSMSG = "progressMsg";
+    final String HTTP_R_FILE_PROGRESS = "progress";
+    final String HTTP_R_FILE_TOTAL = "total";
+    final String HTTP_R_REPONSE = "httpResponse";
+
+    final String SOCKETSERVER_R_IFRETURN = "ifReturnClient";
+    final String SOCKETSERVER_PUTTOCLIENT = "putToClient";
+    final String SOCKETSERVER_PUTFILETOCLIENT = "putFileToClient";
+    final String SOCKETSERVER_GETCHANNEL = "getChannel";
+    final String WEBSOCKET_CONNECT = "connect";
+    final String WEBSOCKET_SEND = "send";
+    final String WEBSOCKET_SENDFILE = "sendFile";
+    final String WEBSOCKET_SENDBINARY = "sendBinary";
+    final String WEBSOCKET_SETRESULTFOR = "setResultFor";
+    final String WEBSOCKET_CANCEL = "cancel";
+    final String WEBSOCKET_CLOSE = "close";
+    final String WEBSOCKET_P_CONTENT = "content";
+    final String WEBSOCKET_P_SESSION = "socketSession";
+    final String WEBSOCKET_P_BINARYSESSION = "binarySession";
+    final String WEBSOCKET_P_BINARYCMDCODE = "cmdcode";
+    final String WEBSOCKET_P_IFMAKESESSION = "ifMakeSession";
+    final String WEBSOCKET_P_BINARYDATAORDER = "order";
+    final String WEBSOCKET_P_BINARYDATAIFRETURNSTREAM ="ifReturnStream";
+    final String WEBSOCKET_P_SENDFILEAPPWAITTIMEONSEND ="appWaitTimeOnSend";
+    final String WEBSOCKET_P_BINARYDATASIZE = "bytesSize";
+    final String WEBSOCKET_P_NOTIFYID = "notifyId";
+    final String WEBSOCKET_P_APPSESSIONID = "appSessionId";
+    final String WEBSOCKET_P_SENDINPUTSTREAM = "inputStream";
+    final String WEBSOCKET_P_SENDFILENAME = "fileName";
+    final String WEBSOCKET_R_SENDREALFILENAME = "realFileName";
+    final String WEBSOCKET_P_SENDFILEGROUP = "fileGroup";
+    final String WEBSOCKET_P_SENDFILEIWITHDATAS = "datas";
+    final String WEBSOCKET_R_RECEIVEDFILEGROUP = "receivedfileGroup";
+    final String WEBSOCKET_R_SENDFILEGROUPRESULT = "fileGroupStatus";
+    final String WEBSOCKET_V_BINARYRECEIVEFILEMSGID = "receiveBinaryFile";
+    final String WEBSOCKET_V_BINARYRECEIVEMSGID = "receiveBinary";
+    final int    WEBSOCKET_V_BINARYMFILEDATACMDCODE = 1;
+    final int    WEBSOCKET_V_BINARYMFILEDATACMDERRORCODE =2;
+    final int    WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE =3;
+    final String WEBSOCKET_P_BINARYMSGID = "binaryMsgid";
+    final String WEBSOCKET_P_STATUS = "status";
+    final String WEBSOCKET_R_OPEN = "open";
+    final String WEBSOCKET_R_FAILURE = "failure";
+    final String WEBSOCKET_R_CLOSED = "closed";
+    final String WEBSOCKET_R_CLOSEING = "closeing";
+    final String WEBSOCKET_R_MESSAGE = "message";
+    final String WEBSOCKET_P_CONNNECTNOTIFYMSG = "connectNotifyMsg";
+    final String WEBSOCKET_R_CLIENTAGENT = "agent";
+
+    final String SERVICEGATEMAY_P_USERID = "userid";
+    final String SERVICEGATEMAY_P_USERINFO = "userInfoInGeteWay";
+
+    final String WEBSOCKETCLIENTAGENT_GETLOGINSTATE = "getLoginState";
+    final String WEBSOCKETCLIENTAGENT_PUTTOSOCKET = "postToSocket";
+    final String WEBSOCKETCLIENTAGENT_PUTTOSERVICE = "postToService";
+    final String WEBSOCKETCLIENTAGENT_ISWAIT = "isWaitService";
+
+    final String SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT = "putToServerAndWait";
+    final String SOCKETCLIENTAGENTPOOL_PUTMSGTOSERVER = "putMsgToServer";
+    final String SOCKETCLIENTAGENTPOOL_ADDSERVER = "addServer";
+    final String SOCKETCLIENTAGENTPOOL_REMOVESERVER= "removeServer";
+    final String SOCKETCLIENTAGENTPOOL_GETSERVER = "getServer";
+    final String SOCKETCLIENTAGENTPOOL_CLOSESERVER ="closeServer" ;
+    final String SOCKETCLIENTAGENTPOOL_P_SERVERNAME = "serverName";
+    final String SOCKETCLIENTAGENTPOOL_P_SERVERPARAM = "serverParam";
+
+    final String NETSESSION_P_WAITTIME = "waittimeOnNetSession";
+    final String ETSESSION_P_RETRYTIMES = "retrytimesOnNetSession";
+
+    final String USERMANAGER_SETSERVER= "setServer";
+    final String USERMANAGER_LOGIN= "login";
+    final String USERMANAGER_LOGOUT= "logout";
+    final String USERMANAGER_PUTTOUSER = "putToUser";
+    final String USERMANAGER_SENDFILE = "sendFile";
+    final String USERMANAGER_SENDBINARY = "sendBinary";
+    final String USERMANAGER_RECEIVEBINARY = "receiveBinary";
+    final String USERMANAGER_SENDFILEERROR = "sendFileError";
+    final String USERMANAGER_GETUSERBYCHANNEL = "getUserByChannel";
+    final String USERMANAGER_GETUSERINFOBYCHANNEL = "getUserInfoByChannel";
+    final String USERMANAGER_GETUSERIPBYCHANNEL = "getUserIpByChannel";
+    final String USERMANAGER_GETUSERCHANNELS = "getUserChannels";
+    final String USERMANAGER_GETUSERCHANNELOBJ = "getUserChannelObjs";
+    final String USERMANAGER_GETUSERS = "getUsers";
+    final String USERMANAGER_P_CLIENTMSG = "clientMsg";
+    final String USERMANAGER_P_ANONYMOUS = "anonymous";
+    final String USERMANAGER_P_USERID = "userid";
+    final String USERMANAGER_P_SERVERNAME = "serverName";
+    final String USERMANAGER_P_SERVERMODULE = "serverModule";
+    final String USERMANAGER_P_USERCHANNEL = "channel";
+    final String USERMANAGER_P_CHANNELDATA = "channelData";
+    final String USERMANAGER_R_USERCHANNELOBJ = "channelOBJ";
+    final String USERMANAGER_P_USERIP = "clientIP";
+    final String USERMANAGER_P_USERSOURCE = "userSource";
+    final String USERMANAGER_P_USERNAME = "username";
+    final String USERMANAGER_P_USERPASSWORD= "passwd";
+    final String USERMANAGER_R_USERCHANNEL = "channels";
+    final String USERMANAGER_R_LOGINRESULT = "code";
+    final String USERMANAGER_R_USERINFO = "userInfo";
+    final String USERMANAGER_R_USERIP = "clientIP";
+    final String CLIENTMSGHANDLER_TOCLIENTANDWWAIT = "toClientAndWait";
+    final String CLIENTMSGHANDLER_TOCLIENT = "toClient";
+
+    final String USERROUTE_ROUSER = "toUser";
+    final String USERROUTE_TOSERVER= "toServer";
+    final String USERROUTE_SET= "SET";
+    final String USERROUTE_P_SERVERUSERMANAGERMODULE = "serverUserManagerModule";
+    final String USERROUTE_P_USERLOGINMODLE = "userLoginModle";
+
+
+    final String DB_DBTABLEMODULENAME = "dbtable";
+    final String DB_DBTVIEWMODULENAME = "dbview";
+    final String DB_DBSEVERMODULENAME = "serverName";
+    final String DB_DBSERVER = "dbserver";
+    final String DB_GETSERVER = "getServer";
+    final String DB_GETCONN = "getConnection";
+    final String DB_GETCONNECTOR= "getConnector";
+    final String DB_GETTABLE = "getTable";
+    final String DB_CREATEDBTABLE = "createDBTable";
+    final String DB_GETVIEW = "getView";
+    final String DB_EXECSQL = "execSql";
+    final String DB_GETTABLEDBNAME= "getTableDbName";
+    final String DB_GETTABLEPARAMS= "getTableParams";
+    final String DB_P_COPYTABLE = "copyTable";
+    final String DB_P_SERVERNAME = "serverName";
+    final String DB_P_TABLENAME = "tableName";
+    final String DB_P_VIEWNAME = "viewName";
+    final String DB_P_SQL = "sql";
+    final String DB_P_MSGLIST = "db_p_msgList";
+    final String DB_P_SQLTYPE = "sqlType";
+    final String DB_P_CONNECTION = "CONNECTION";
+    final String DB_P_RETURNRECORD = "returnRecord";
+    final String DB_P_IFCLOSECONNECTION = "ifCloseConnection";
+    final String DB_P_IFTRANSACTION = "ifTRANSACTION";
+    final String DB_P_INSERTANDIGNORE = "insertorignore";
+    final String DB_P_INSERTANDREPLACE = "insertorreplacee";
+    final String DB_P_PARAMS = "params";
+    final String DB_SETCONNECTION = "setConnection";
+    final String DB_CLOSECONNECTION = "closeConnection";
+    final String DB_GETCOLUMLIST = "getColumList";
+    final String DB_INSERT = "insert";
+    final String DB_QUERY= "query";
+    final String DB_UPDATE = "update";
+    final String DB_STARTTRANSACTION = "STARTTRANSACTION";
+    final String DB_UPDATEUNIT = "updateUnit";
+    final String DB_SETSQL= "setSql";
+    final String DB_GETSQL= "getSql";
+    final String DB_REPLACESQL= "replaceSql";
+    final String DB_KEYNAME = "keyName";
+    final String DB_P_SQLCONDITION = "sqlCondition";
+    final String DB_BATCh = "batch";
+    final String DB_FINDALL = "findall";
+    final String DB_DELETE = "delete";
+    final String DB_DELETERTURN = "deleteReturn";
+    final String DB_FIND = "find";
+    final String DB_TOTAL = "total";
+    final String DB_P_HANDERKEY = "handerkey";
+    final String DB_P_BEANCLASS = "beanClass";
+    final String DB_P_RESULTTYPE = "resultType";
+    final String DB_R_RESULT = "result";
+    final String DB_R_CONNECTOR = "connector";
+    final String DB_R_CONN= "connection";
+    final String DB_R_RECORD = "record";
+    final String DB_P_ORDERBY = "orderBy";
+    final String DB_P_POSITION = "position";
+    final String DB_P_POSITION_TOP = "top";
+    final String DB_P_ACTIONTAG = "actionTag";
+    final String DB_P_LIMITSTART = "limitStart";
+    final String DB_P_LIMITNUMB = "limitNumb";
+    final String DB_FINDKEY = "findKey";
+    final String DB_FINDKEYVALUE = "KeyValue";
+    final String DB_P_FIELDS = "fields";
+    final String DB_P_COUNTS = "counts";
+    final String DB_P_SPLITKEY = "splitkey";
+    final String DB_P_FIELDNAME = "fieldName";
+    final String DB_P_FIELDVALUE = "fieldValue";
+    final String DB_P_KEYNAME = "keyName";
+    final String DB_P_KEYVALUE = "keyValue";
+    final String DB_P_ORDERTYPE = "orderType";
+    final String DB_V_DESC = "desc";
+    final String DB_V_ASC = "asc";
+
+    final String REDIS_OBJ = "redis_obj";
+    final String REDIS_KEY = "redis_key";
+    final String REDIS_VALUE = "redis_value";
+    final String REDIS_SCORE = "redis_score";
+    final String REDIS_MAX = "redis_max";
+    final String REDIS_MIN = "redis_min";
+    final String REDIS_EXPIRE = "redis_expire";
+    final String REDIS_FIELD = "redis_field";
+    final String REDIS_TYPE = "redis_type";
+    final String REDIS_DOTYPE = "redis_dotype";
+    final String REDIS_RESULT = "redis_result";
+    final String REDIS_SETIFNOTEXISTS = "redis_setIfNoExist";
+    final String REDIS_LEFTADD = "redis_leftadd";
+    final String REDIS_STRING = "redis_string";
+    final String REDIS_MAP = "redis_map";
+    final String REDIS_LIST= "redis_list";
+    final String REDIS_SET = "redis_set";
+    final String REDIS_START = "redis_start";
+    final String REDIS_END = "redis_end";
+    final String REDIS_DATAINDEX = "redis_dataIndex";
+    final String REDIS_INSERT = "redis_INSERT";
+    final String REDIS_PIVOT = "redis_pivot";
+    final String REDIS_COUNT = "redis_count";
+    final String REDIS_ACTION = "redis_action";
+    final String REDIS_HINCRBY = "redis_hincrby";
+    final String REDIS_MAXSCORE = "maxScore";
+    final String REDIS_EQALMAXSCORE = "=maxScore";
+    final String REDIS_MINSCORE = "minScore";
+    final String REDIS_EQALMINSCORE = "=minScore";
+    final String REDIS_MAXVALUE = "max";
+    final String REDIS_EQALMAXVALUE = "=max";
+    final String REDIS_MINVALUE = "min";
+    final String REDIS_EQALMINVALUE = "=min";
+
+    final String GEO_RADIUS = "geo_radius";
+    final String GEO_LNG = "geo_lng";
+    final String GEO_LAT = "geo_lat";
+    final String GEO_DISTANCE = "distance";
+
+}

@@ -1,0 +1,16 @@
+#过滤文件夹target,.idea
+target
+/out
+
+#编译文件
+*.class
+
+#包文件
+*.jar
+*.war
+*.zip
+*.rar
+*.tar.gz
+
+!.gitignore
+!okhttputils-2_6_2.jar

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<appConfig>
+    <appModules>
+        <!--app name="startup1"  waitFlag="true"  sessiondeamon="true"
+                   startUpclass="cn.tianlong.java.demo.base.startup1"  /-->
+        <app name="startup1"  waitFlag="true"  sessiondeamon="true"
+             configPath="CLASSPATH/conf/demo/base/" factoryConfigFile="moduleFactory_config.xml" configFile="demoappstart1.xml"   />
+    </appModules>
+    <startMsg>
+        <msg action="getModule" destination="moduleFactory" moduleName="appCenter"/>
+    </startMsg>
+</appConfig>

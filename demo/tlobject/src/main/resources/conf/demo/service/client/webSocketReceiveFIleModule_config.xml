@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <msgHandler value="socketClientAgentPool"  />
+        <fileSessionPoolName value="reUsedSingleThreadPoolGroup" />
+        <filePath   value="data/wsclient\" />
+        <maxSessions   value="100" />
+    </params>
+    <modulesParams>
+        <module name="reUsedSingleThreadPoolGroup"
+                initModuleNumbs="50"
+                maxModuleNumbs="100"
+                waitPoolTime="8000"
+                maxUserNumber="5000"/>
+    </modulesParams>
+    <msgTable>
+        <msgid  value="startPutFile" >
+            <msg  destination="socketClientAgentPool" action="putToServerAndWait" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="sendFile" >
+            <msg  destination="socketClientAgentPool" action="sendFile" msgTableUseType="useMsg"/>
+        </msgid>
+        <msgid  value="endFile" >
+            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="getFile" >
+            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="sendBinary" >
+            <msg  destination="socketClientAgentPool" action="sendBinary" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid  value="returnAppResult" >
+            <msg  destination="socketClientAgentPool"  sesstionType="client" action="putMsgToServer" msgTableUseType="useMsg" />
+        </msgid>
+    </msgTable>
+
+</moduleConfig>

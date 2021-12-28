@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <params>
+        <package value="cn.tianlong.java"/>
+        <ifModuleMonitor value="false"/>
+        <applicationId value="jettyserver"/>
+    </params>
+    <modulesParams>
+        <module name="jettyServer"
+                port="8081"
+                contextType="webapp"
+                resourceBase="D:\javaweb\web"
+                loglevel="debug"
+                connector="http;https"
+                httpsPort="8443"
+                sslCerFile="D:\javaweb\web\WEB-INF\classes\tomcat.keystore"
+                sslCerFilePwd="dqqaz123"
+        />
+    </modulesParams>
+    <factoryBoot>
+        <msg destination="jettyServer" action="run"  waitFlag="false"  usePreReturnMsg="false"/>
+    </factoryBoot>
+</moduleConfig>

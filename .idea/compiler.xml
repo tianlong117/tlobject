@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="app-webmanager" />
+        <module name="cache-common" />
+        <module name="cache-ehcache" />
+        <module name="cache-filecache" />
+        <module name="core" />
+        <module name="database" />
+        <module name="demotlobject" />
+        <module name="execl" />
+        <module name="network-client" />
+        <module name="network-common" />
+        <module name="network-proxy" />
+        <module name="network-server-jetty" />
+        <module name="network-server-websocket" />
+        <module name="redis" />
+        <module name="servletutils" />
+        <module name="tlobject-all" />
+        <module name="web" />
+      </profile>
+    </annotationProcessing>
+  </component>
+</project>

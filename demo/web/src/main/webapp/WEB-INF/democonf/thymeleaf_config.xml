@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <resource.loader    value="file"/>
+        <input.encoding value="UTF-8"/>
+        <output.encoding value="UTF-8"/>
+        <resource.loader    value="file"/>
+        <file.resource.loader.class value="org.apache.velocity.runtime.resource.loader.FileResourceLoader"/>
+    </params>
+
+    <templates>
+        <dataid name="homepage.thymeleaf"  template="thymeleaf" />
+    </templates>
+</moduleConfig>
