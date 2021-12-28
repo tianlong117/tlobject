@@ -90,7 +90,7 @@ public class BeanTable extends TLBaseTableModle {
         if(sqlparams !=null)
             sqlmsg.setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table,sqlmsg);
-        return (ArrayList<Map<String, Object>>) returnMsg.getParam(DB_R_RESULT);
+        return (ArrayList<Map<String, Object>>) returnMsg.getListParam(DB_R_RESULT,null);
     }
     public int updateBySql(String sql, LinkedHashMap<String, Object> sqlparams ) {
         TLMsg sqlmsg =createMsg().setAction(DB_UPDATE)
