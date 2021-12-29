@@ -85,7 +85,11 @@ public class TLServletDispatch extends GenericServlet {
             return ;
         String url;
         if(prefixUrl !=null)
+        {
+            if(uri.length() < prefixUrl.length())
+                return;
             url=uri.substring(prefixUrl.length());
+        }
         else
             url =uri;
         TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri).setParam("url",url);
