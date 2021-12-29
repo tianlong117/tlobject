@@ -12,6 +12,8 @@
         <module name="cache-filecache" />
         <module name="core" />
         <module name="database" />
+        <module name="demo-tlobject" />
+        <module name="demo-web" />
         <module name="demotlobject" />
         <module name="execl" />
         <module name="network-client" />

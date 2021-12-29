@@ -15,7 +15,7 @@
                 loglevel="debug"
                 connector="http;https"
                 httpsPort="8443"
-                sslCerFile="TLOBJECT_HOME\demo\tlobject\src\main\resources\tomcat.keystore"
+                sslCerFile="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\classes\tomcat.keystore"
                 sslCerFilePwd="dqqaz123"
         />
     </modulesParams>
