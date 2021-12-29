@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <params>
+        <package value="cn.tianlong.java"/>
+        <ifModuleMonitor value="false"/>
+        <applicationId value="jettyserver"/>
+    </params>
+    <modulesParams>
+        <module name="jettyServer"
+                port="8081"
+                contextType="webapp"
+                resourceBase="TLOBJECT_HOME\demo\web\src\main\webapp"
+                loglevel="debug"
+                connector="http;https"
+                httpsPort="8443"
+                sslCerFile="TLOBJECT_HOME\demo\tlobject\src\main\resources\tomcat.keystore"
+                sslCerFilePwd="dqqaz123"
+        />
+    </modulesParams>
+    <modules>
+
+        <!-- 用户自定义模块 -->
+        <!-- 数据库表modle操纵类-->
+        <!-- 用户自定义模块 "appCenter" 为系统主启动模块，必须定义-->
+        <module name="homepage"  classfile=".servletdemo.homePageControl" />
+        <module name="dbserver1"  proxyModule="dbserver" configfile="database_config.xml"/>
+        <module name="dbserver2"  proxyModule="dbserver" configfile="database_config.xml"/>
+        <module name="servletTest1" classfile=".servletdemo.servletTest1" singleton="true" />
+        <module name="userTableSplitTrigger"  classfile=".servletdemo.UserTableSplitTrigger" />
+        <module name="serv1C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
+        <module name="serv2C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
+        <module name="myservice" proxyModule="webSevice"  serverAddress1 ="http://localhost:8080/tltest/tlobject/service"/>
+        <module name="userModle" classfile=".servletdemo.userModle" />
+        <module name="servletDbTest"  classfile=".servletdemo.servletDbTest" />
+        <module name="myhttpClient"  classfile=".servletdemo.myhttpClientWithkeepalive" singleton="false"
+                appid="demo-app" secret="demo-secret" port="8081" hostname="127.0.0.1"/>
+        <module name="cacheKeyModule"  classfile=".servletdemo.cacheKeyModule" />
+        <module name="authModule"  classfile=".servletdemo.authModule" />
+        <module name="loginModule"  classfile=".servletdemo.loginModule" />
+        <module name="thymeleafClient"  classfile="cn.tianlong.tlobject.servletutils.TLWClient"
+                inInterface="directInInterface" outInterface="thymeleaf"/>
+        <module name="myUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserInSession"
+                client="thymeleafClient" timeout="60" />
+    </modules>
+    <factoryBoot>
+        <msg destination="jettyServer" action="run"  waitFlag="false"  usePreReturnMsg="false"/>
+    </factoryBoot>
+</moduleConfig>
