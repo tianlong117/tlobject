@@ -38,7 +38,7 @@
         <!-- 用户自定义模块 -->
             <!-- 数据库表modle操纵类-->
         <!-- 用户自定义模块 "appCenter" 为系统主启动模块，必须定义-->
-        <module name="homepage"  classfile=".servletdemo.homePageControl" />
+        <module name="homepage"  classfile="cn.tianlong.java.servletdemo.homePageControl" />
 
     </modules>
     <!-- 线程中的公共模块要在工厂启动时启动，放入主线程中，否则出错-->
