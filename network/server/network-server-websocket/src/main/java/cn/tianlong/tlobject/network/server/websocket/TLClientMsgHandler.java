@@ -180,7 +180,11 @@ public class TLClientMsgHandler extends TLBaseModule {
         if(result ==false)
             return resultMsg ;
         TLBaseModule umodule = (TLBaseModule) getModule(userManagerModule);
-        return netSession.waitServerReturnUntilTimeOut(sessionId,umodule,cmsg,waitTime,retryTimes) ;
+        TLMsg clientReturnMsg = netSession.waitServerReturnUntilTimeOut(sessionId,umodule,cmsg,waitTime,retryTimes) ;
+        if(clientReturnMsg.getMsgId() !=null)
+            return getMsg(this,clientReturnMsg);
+        else
+            return clientReturnMsg ;
     }
 
     protected TLMsg fromClient(Object fromWho, TLMsg msg) {

@@ -239,7 +239,11 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         Boolean result = (Boolean) resultMsg.getParam(RESULT);
         if(result ==false)
             return resultMsg ;
-        return netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
+        TLMsg serverReturnMsg = netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
+        if(serverReturnMsg.getMsgId() !=null)
+            return getMsg(this,serverReturnMsg);
+        else
+            return serverReturnMsg ;
     }
 
     private TLMsg proxyPut(Object fromWho, TLMsg msg) {
@@ -267,7 +271,11 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         Boolean result = (Boolean) resultMsg.getParam(RESULT);
         if(result ==false)
             return resultMsg ;
-        return netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
+        TLMsg serverReturnMsg = netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
+        if(serverReturnMsg.getMsgId() !=null)
+            return getMsg(this,serverReturnMsg);
+        else
+            return serverReturnMsg ;
     }
     private TLMsg getServer(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);

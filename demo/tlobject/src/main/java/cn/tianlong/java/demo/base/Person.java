@@ -419,7 +419,7 @@ public class Person extends TLBaseModule {
     }
 
     private TLMsg sing(Object fromWho, TLMsg msg) {
-        System.out.println(name+" sing....");
+        System.out.println(name+" 开心的唱起了歌....");
         return  createMsg().setParam(RESULT,"from client "+name+" sing");
     }
 
