@@ -89,6 +89,7 @@ public class Person extends TLBaseModule {
     }
 
     private TLMsg fromXiaoMing(Object fromWho, TLMsg msg) {
+        System.out.print("收到小明的Msg：");
          TLMsgUtils.printMsg(msg);
          return createMsg().setParam("data"," yes") ;
     }
@@ -301,17 +302,9 @@ public class Person extends TLBaseModule {
     }
 
     private void putFile() {
-   // sendFile("D:\\数据恢复R-Studio.rar") ;
-   //   sendFile("D:\\企政通fromclient.txt");
-   //   sendFile("D:\\nmap-7.40-setup.exe");
-   // sendFile("D:\\winweb.rar");
-        //    sendFileFromServer("D:\\web并发＆压力测试工具http_loadWin32.zip");
-  // sendFile("D:\\apache-maven-3.5.3-bin.zip");
-       // sendFiles1() ;
-    //  sendFilesByClient() ;
-  sendFile("D:\\apache-maven-3.5.3-bin.zip");
- //   sendFile("D:\\BaiduNetdisk_7.6.0.13.exe");
-    //    sendFile("D:\\qinqin.txt");
+
+  sendFile("D:\\apache-tomcat-9.0.1.zip");
+
     }
     private void sendFiles1() {
         TLMsg msg1 =createMsg().setDestination("socketClientAgentPool")
@@ -419,7 +412,11 @@ public class Person extends TLBaseModule {
     }
 
     private TLMsg sing(Object fromWho, TLMsg msg) {
-        System.out.println(name+" 开心的唱起了歌....");
+        System.out.println(name+" 听见老婆的声音，小明开心的唱起了歌....");
+        TLMsg wmsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("content","来自小明的消息")
+                .setParam(MSG_P_MSGID,"fromXiaoMing");
+        putMsg("wife",wmsg);
+        System.out.println(name+" 给老婆发送消息");
         return  createMsg().setParam(RESULT,"from client "+name+" sing");
     }
 

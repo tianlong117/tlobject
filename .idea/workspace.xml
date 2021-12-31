@@ -7,10 +7,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="">
+      <change afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientPutFileStartup.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" beforeDir="false" afterPath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/target/" />
     <ignored path="$PROJECT_DIR$/cache/filecache/target/" />
@@ -43,16 +42,29 @@
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
-      <file leaf-file-name="Person.java" pinned="false" current-in-tab="false">
+      <file leaf-file-name="Person.java" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="849">
-              <caret line="421" column="41" selection-start-line="421" selection-start-column="41" selection-end-line="421" selection-end-column="41" />
+            <state relative-caret-position="189">
+              <caret line="414" column="58" lean-forward="true" selection-start-line="414" selection-start-column="58" selection-end-line="414" selection-end-column="58" />
+              <folding>
+                <element signature="method#sendFilesByClient#0;class#Person#0" />
+                <element signature="method#sendFile#0;class#Person#0" />
+              </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLSocketClientAgentPool.java" pinned="false" current-in-tab="true">
+      <file leaf-file-name="appConfig.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/appConfig.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="250">
+              <caret line="10" column="84" selection-start-line="10" selection-start-column="84" selection-end-line="10" selection-end-column="84" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLSocketClientAgentPool.java" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="207">
@@ -64,8 +76,33 @@
       <file leaf-file-name="TLClientMsgHandler.java" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="287">
+            <state relative-caret-position="212">
               <caret line="182" column="20" selection-start-line="182" selection-start-column="20" selection-end-line="182" selection-end-column="20" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="clientPutFileStartup.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientPutFileStartup.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="246">
+              <caret line="24" column="71" selection-start-line="24" selection-start-column="71" selection-end-line="24" selection-end-column="71" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="moduleFactory_config.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/moduleFactory_config.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="-604" />
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="xiaoming_config.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/xiaoming_config.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="175">
+              <caret line="7" column="31" selection-start-line="7" selection-start-column="31" selection-end-line="7" selection-end-column="31" />
             </state>
           </provider>
         </entry>
@@ -97,40 +134,6 @@
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="moduleFactory_config.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/moduleFactory_config.xml">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="139">
-              <caret line="31" column="100" selection-start-line="31" selection-start-column="100" selection-end-line="31" selection-end-column="100" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="socketClientAgentPool_config.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/socketClientAgentPool_config.xml">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-75" />
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="xiaoming_config.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/xiaoming_config.xml">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="175">
-              <caret line="7" column="72" selection-start-line="7" selection-start-column="72" selection-end-line="7" selection-end-column="72" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="appConfig.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/appConfig.xml">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="121">
-              <caret line="12" column="44" selection-start-line="12" selection-start-column="43" selection-end-line="12" selection-end-column="44" />
-            </state>
-          </provider>
-        </entry>
-      </file>
     </leaf>
   </component>
   <component name="Git.Settings">
@@ -154,9 +157,12 @@
         <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/moduleFactory_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/xiaoming_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/client/appConfig.xml" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java" />
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" />
         <option value="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientPutFileStartup.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/xiaoming_config.xml" />
+        <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/appConfig.xml" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java" />
       </list>
     </option>
   </component>
@@ -186,20 +192,20 @@
       <expand>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="demo" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="network-client" type="9519ce18:MavenProjectsStructure$ProjectNode" />
         </path>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="demo" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="network-client" type="9519ce18:MavenProjectsStructure$ProjectNode" />
           <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
         </path>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="demo-tlobject" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="network-server-websocket" type="9519ce18:MavenProjectsStructure$ProjectNode" />
         </path>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="demo-tlobject" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="network-server-websocket" type="9519ce18:MavenProjectsStructure$ProjectNode" />
           <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
         </path>
       </expand>
@@ -394,19 +400,7 @@
               <item name="conf" type="462c0819:PsiDirectoryNode" />
               <item name="demo" type="462c0819:PsiDirectoryNode" />
               <item name="service" type="462c0819:PsiDirectoryNode" />
-              <item name="client" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
-              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="demo" type="462c0819:PsiDirectoryNode" />
-              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="target" type="462c0819:PsiDirectoryNode" />
-              <item name="classes" type="462c0819:PsiDirectoryNode" />
-              <item name="conf" type="462c0819:PsiDirectoryNode" />
-              <item name="demo" type="462c0819:PsiDirectoryNode" />
-              <item name="service" type="462c0819:PsiDirectoryNode" />
-              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="clientputfile" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
@@ -543,6 +537,7 @@
       <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf" />
     </key>
     <key name="CopyClassDialog.RECENTS_KEY">
+      <recent name="cn.tianlong.java.demo.service.client" />
       <recent name="cn.tianlong.java.demo.jettyserver" />
     </key>
     <key name="MoveFile.RECENT_KEYS">
@@ -564,6 +559,17 @@
   <component name="RunManager" selected="Application.clientStartup">
     <configuration default="true" type="Application" factoryName="Application">
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+    </configuration>
+    <configuration name="clientPutFileStartup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.service.client.clientPutFileStartup" />
+      <module name="demotlobject" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="cn.tianlong.java.demo.service.client.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
     </configuration>
     <configuration name="clientStartup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.service.client.clientStartup" />
@@ -605,17 +611,6 @@
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="cn.tianlong.java.demo.jettyserver.*" />
-          <option name="ENABLED" value="true" />
-        </pattern>
-      </extension>
-    </configuration>
-    <configuration name="startup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.base.startup" />
-      <module name="demo-tlobject" />
-      <option name="WORKING_DIRECTORY" value="file://$PROJECT_DIR$" />
-      <extension name="coverage">
-        <pattern>
-          <option name="PATTERN" value="cn.tianlong.java.demo.base.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -732,19 +727,19 @@
     </configuration>
     <list>
       <item itemvalue="Tomcat Server.tomcat" />
-      <item itemvalue="Application.startup" />
       <item itemvalue="Application.serverStartup" />
       <item itemvalue="Application.clientStartup" />
       <item itemvalue="Application.serverstart" />
       <item itemvalue="Application.startup (1)" />
+      <item itemvalue="Application.clientPutFileStartup" />
     </list>
     <recent_temporary>
       <list>
         <item itemvalue="Application.clientStartup" />
+        <item itemvalue="Application.clientPutFileStartup" />
         <item itemvalue="Application.serverStartup" />
         <item itemvalue="Application.startup (1)" />
         <item itemvalue="Application.serverstart" />
-        <item itemvalue="Application.startup" />
       </list>
     </recent_temporary>
   </component>
@@ -798,20 +793,26 @@
       <option name="project" value="LOCAL" />
       <updated>1640785613765</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="增加返回消息处理">
+      <created>1640938441587</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1640938441588</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="34065000" />
+    <option name="totallyTimeSpent" value="36303000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="-8" y="-8" width="1456" height="876" extended-state="6" />
-    <editor active="true" />
     <layout>
       <window_info anchor="right" id="Palette" order="3" />
       <window_info anchor="bottom" id="Event Log" order="7" side_tool="true" />
       <window_info anchor="bottom" id="Application Servers" order="8" weight="0.32867134" />
-      <window_info anchor="right" id="Maven Projects" order="3" visible="true" weight="0.0" />
+      <window_info anchor="right" id="Maven Projects" order="3" visible="true" weight="0.0981241" />
       <window_info anchor="bottom" id="Database Changes" order="7" show_stripe_button="false" />
       <window_info id="Capture Tool" order="2" />
       <window_info id="Designer" order="2" />
@@ -827,11 +828,11 @@
       <window_info anchor="bottom" id="Java Enterprise" order="8" />
       <window_info anchor="right" id="Capture Analysis" order="3" />
       <window_info anchor="bottom" id="Version Control" order="7" weight="0.40552327" />
-      <window_info anchor="bottom" id="Run" order="2" weight="0.32267442" />
+      <window_info active="true" anchor="bottom" id="Run" order="2" visible="true" weight="0.35901162" />
       <window_info anchor="bottom" id="Terminal" order="7" />
-      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.22005773" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.18542568" />
       <window_info id="Web" order="2" side_tool="true" />
-      <window_info active="true" anchor="bottom" id="Find" order="1" visible="true" weight="0.34302327" />
+      <window_info anchor="bottom" id="Find" order="1" weight="0.34302327" />
       <window_info anchor="right" id="Theme Preview" order="3" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
@@ -877,7 +878,8 @@
     <MESSAGE value="添加jetty server demo" />
     <MESSAGE value="修改 uri长度bug" />
     <MESSAGE value="修改 jettyserver demo" />
-    <option name="LAST_COMMIT_MESSAGE" value="修改 jettyserver demo" />
+    <MESSAGE value="增加返回消息处理" />
+    <option name="LAST_COMMIT_MESSAGE" value="增加返回消息处理" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>
@@ -885,24 +887,6 @@
     </breakpoint-manager>
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/../tlobjectdemo/pom.xml" />
-    <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="275">
-          <caret line="32" column="13" selection-start-line="32" selection-start-column="13" selection-end-line="32" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/pom.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/House.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="125">
-          <caret line="7" column="13" selection-start-line="7" selection-start-column="13" selection-end-line="7" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/http/TLHttpClient.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="300">
@@ -1172,13 +1156,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="849">
-          <caret line="421" column="41" selection-start-line="421" selection-start-column="41" selection-end-line="421" selection-end-column="41" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLBaseWebSocketSendFile.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="121">
@@ -1186,17 +1163,54 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="287">
-          <caret line="182" column="20" selection-start-line="182" selection-start-column="20" selection-end-line="182" selection-end-column="20" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="207">
           <caret line="247" lean-forward="true" selection-start-line="247" selection-end-line="247" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="212">
+          <caret line="182" column="20" selection-start-line="182" selection-start-column="20" selection-end-line="182" selection-end-column="20" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/xiaoming_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="175">
+          <caret line="7" column="31" selection-start-line="7" selection-start-column="31" selection-end-line="7" selection-end-column="31" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/appConfig.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="250">
+          <caret line="10" column="84" selection-start-line="10" selection-start-column="84" selection-end-line="10" selection-end-column="84" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/service/clientputfile/moduleFactory_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-604" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientPutFileStartup.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="246">
+          <caret line="24" column="71" selection-start-line="24" selection-start-column="71" selection-end-line="24" selection-end-column="71" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="189">
+          <caret line="414" column="58" lean-forward="true" selection-start-line="414" selection-start-column="58" selection-end-line="414" selection-end-column="58" />
+          <folding>
+            <element signature="method#sendFilesByClient#0;class#Person#0" />
+            <element signature="method#sendFile#0;class#Person#0" />
+          </folding>
         </state>
       </provider>
     </entry>
