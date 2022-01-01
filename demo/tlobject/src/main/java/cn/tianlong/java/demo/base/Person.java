@@ -378,13 +378,14 @@ public class Person extends TLBaseModule {
 
     private void onHouse(Object fromWho, TLMsg msg) {
         //注册到广播接收者
+        System.out.println(name+" 在屋里。注册广播");
         TLMsg receivermsg = createMsg().setDestination(name).setAction("house");
         putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
                 .setParam(MSGBROADCAST_P_MESSAGETYPE, "house").setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
     }
 
     private TLMsg sing(Object fromWho, TLMsg msg) {
-        System.out.println(name+" 听见老婆的声音，小明开心的唱起了歌....");
+        System.out.println(name+" 开心的唱起了歌....");
         TLMsg wmsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("content","来自小明的消息")
                 .setParam(MSG_P_MSGID,"fromXiaoMing");
         putMsg("wife",wmsg);
@@ -448,6 +449,7 @@ public class Person extends TLBaseModule {
         System.out.println( "看看百度!");
         String response = (String) resultMsg.getParam(WEBRESPONSE);
         System.out.println(response);
+    putMsg("wife@module1",createMsg().setAction("cook"));
     }
 
 }

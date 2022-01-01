@@ -283,12 +283,9 @@ public class TLAppStartUp extends TLBaseModule {
         startAppModule(argsMap);
     }
 
-    protected void registInfactory(TLObjectFactory modulefactory, String name, Object object)
+    protected void registInfactory(TLObjectFactory modulefactory, String name, TLBaseModule object)
     {
-        TLMsg registInFactoryMsg = new TLMsg().setAction(FACTORY_REGISTINFACTORY)
-                .setParam(FACTORY_P_MODULENAME, name)
-                .setParam(INSTANCE, object);
-        modulefactory.putMsg(modulefactory, registInFactoryMsg);
+        modulefactory.addFactory(name,object);
     }
     protected class myConfig extends TLModuleConfig {
         protected HashMap<String, HashMap<String, String>> appModules;

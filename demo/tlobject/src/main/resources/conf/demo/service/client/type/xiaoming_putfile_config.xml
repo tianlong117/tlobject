@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <name    value="demo1"></name>
+        <verison value="71"></verison>
+    </params>
+    <startMsg>
+           <msg action="putFile"   ></msg>
+    </startMsg>
+</moduleConfig>
