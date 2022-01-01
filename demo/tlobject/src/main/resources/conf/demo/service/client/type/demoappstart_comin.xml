@@ -1,17 +1,12 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
-    <params>
-        <verison value="1"/>
-        <package value="cn.tianlong.java.demo"/>
-        <poolNumber value="2"/>
-    </params>
     <msgTable>
         <msgid  value="setup" >
             <msg action="getModule"  moduleName="msgBroadCast" usePreReturnMsg="false" />
             <msg action="getModule" destination="moduleFactory" moduleName="house"/>
-            <msg action="getModule1" destination="moduleFactory" moduleName="wife"/>
+            <msg action="getModule" destination="moduleFactory" moduleName="wife"/>
             <msg action="sleep" sleepTime="5000"/>
-            <msg action="getModule" destination="moduleFactory"  waitFlag11="false" moduleName="xiaoming"/>
+            <msg action="getModule" destination="moduleFactory"  moduleName="xiaoming" configfile="type/xiaoming_comin_config.xml"/>
         </msgid>
     </msgTable>
     <startMsg>

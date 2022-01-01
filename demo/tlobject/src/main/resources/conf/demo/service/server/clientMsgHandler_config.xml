@@ -3,6 +3,7 @@
     <!-- 目录相对于filter配置目录下-->
     <params>
         <msgidInPool   value="getFile;findUser;fromXiaoMing1" />
+        <directToModule value="wife" />
     </params>
     <modulesParams>
         <module name="reUsedSingleThreadPoolGroup"

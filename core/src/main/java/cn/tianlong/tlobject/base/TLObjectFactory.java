@@ -429,8 +429,8 @@ public class TLObjectFactory extends TLBaseModule {
            return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null);
     }
     protected TLMsg getModule(Object fromWho, TLMsg msg) {
-        String moduleName = (String) msg.getParam(FACTORY_P_MODULENAME);
-        String newModuleName = (String) msg.getParam(FACTORY_P_NEWMODULENAME);
+        String moduleName =  msg.getStringParam(FACTORY_P_MODULENAME,null);
+        String newModuleName = msg.getStringParam(FACTORY_P_NEWMODULENAME,null);
         if (newModuleName == null)
             newModuleName = moduleName;
         int position =moduleName.indexOf("@");
@@ -447,7 +447,7 @@ public class TLObjectFactory extends TLBaseModule {
         }
         if(moduleName.equals(MODULEFACTORY) || moduleName.equals(name))
              return createMsg().setParam(FACTORY_R_MODULEINSTANCE, this).setParam(FACTORY_P_MODULENAME, newModuleName);
-        HashMap<String, String> moduleConfig = (HashMap<String, String>) msg.getParam(FACTORY_P_MODULECONFIG);
+        HashMap<String, String> moduleConfig = (HashMap<String, String>) msg.getMapParam(FACTORY_P_MODULECONFIG,null);
         if (moduleConfig == null)
         {
             moduleConfig = modulesClass.get(moduleName);
@@ -529,12 +529,14 @@ public class TLObjectFactory extends TLBaseModule {
             cparams.putAll(newModuleParams);
         }
         if (!msg.isNull(MODULE_PARAMS)) {
-            HashMap<String, String> paramsInMsg = (HashMap<String, String>) msg.getParam(MODULE_PARAMS);
+            HashMap<String, String> paramsInMsg = (HashMap<String, String>) msg.getMapParam(MODULE_PARAMS,null);
             if (paramsInMsg != null)
                 cparams.putAll(paramsInMsg);       //添加 执行msg里面的参数
         }
         String moduleConfigFile = null;
-        if (cparams.get(MODULE_CONFIGFILE) != null)
+        if(!msg.isNull(MODULE_CONFIGFILE))
+            moduleConfigFile =msg.getStringParam(MODULE_CONFIGFILE,null) ;
+        else if (cparams.get(MODULE_CONFIGFILE) != null)
             moduleConfigFile = cparams.get(MODULE_CONFIGFILE);
         else if (moduleConfig != null)
               moduleConfigFile = moduleConfig.get(MODULE_CONFIGFILE);

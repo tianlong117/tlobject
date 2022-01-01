@@ -23,7 +23,7 @@ public class clientPutFileStartup extends TLAppStartUp {
     }
     public static TLObjectFactory   startModule (String[] args  ) {
         String[] appArgs = {CLASSPATH+"/conf/demo/service/clientputfile/","moduleFactory_config.xml","demoappstart.xml","demo"};
-        clientPutFileStartup instance = new clientPutFileStartup("clientStartup");
+        clientPutFileStartup instance = new clientPutFileStartup("cominStartup");
         appFactory=  instance.startup(appArgs);
         return appFactory ;
     }
