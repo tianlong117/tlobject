@@ -17,11 +17,6 @@
             <artifactId>tlobject-all</artifactId>
             <version>1.0</version>
         </dependency>
-        <dependency>
-            <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>demo-web</artifactId>
-            <version>1.0</version>
-        </dependency>
     </dependencies>
     <build>
         <!--在父类Maven中使用pluginManagement管理插件便于子类Module继承使用,也便于进行依赖版本控制-->

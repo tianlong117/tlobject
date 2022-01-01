@@ -130,7 +130,7 @@ public class TLAppStartUp extends TLBaseModule {
         String realConfigDir = getRealPath(configdir,null);
         System.setProperty("log4j.configurationFile", realConfigDir + "log4j2.xml");
         moduleFactory = TLObjectFactory.getInstance(realConfigDir, factoryConfigFile);
-        moduleFactory.startFactory();
+        moduleFactory.startFactory(null,null);
         moduleFactory.boot();
         appFactory =moduleFactory ;
         modules.put(MODULEFACTORY,moduleFactory);
@@ -192,7 +192,7 @@ public class TLAppStartUp extends TLBaseModule {
          TLObjectFactory factory =appStartUp.startup(appConfig);
          if(factory ==null)
              return;
-         putLog(this.appName+" 加载app模块:"+appName,LogLevel.INFO,"addAppModules");
+         putLog(this.appName+" 加载app模块:"+appName,LogLevel.DEBUG,"addAppModules");
          registInfactory(moduleFactory, appName, factory);
          registInfactory(factory,  registAppName, moduleFactory);
      }

@@ -100,11 +100,11 @@ public abstract class TLBaseModule extends TLBaseObject {
         return configFile;
     }
 
-    public TLBaseModule start(String configFile, HashMap<String, String> params) {
+    public TLBaseModule start(String configFile, HashMap<String, String> startParams) {
         if (configFile != null)
             this.configFile = configFile;
-        if (params != null)
-            this.params = params;
+        if (startParams != null)
+            params = startParams;
         configure();
         StringBuilder logBuffer0 = new StringBuilder().append(name).append(" begin start init ,params:\n\r");
         if(params !=null && !params.isEmpty())

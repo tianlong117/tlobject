@@ -62,7 +62,7 @@ public class TLServletFactory extends GenericServlet {
             initConfigFile="moduleFactory_config.xml";
         String factoryConfigFile = configDir +File.separator + initConfigFile;
         moduleFactory = new TLObjectFactory(servletName,factoryConfigFile,configDir);
-        moduleFactory.startFactory();
+        moduleFactory.startFactory(null,null);
         context.setAttribute( servletName, moduleFactory);
         registInfactory(moduleFactory, "servletContext", context);
         registInfactory(moduleFactory, "servletRequest", requestMap);

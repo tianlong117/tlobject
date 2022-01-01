@@ -61,7 +61,7 @@ public class TLFilterWithSingleFactory implements Filter{
             initConfigFile="moduleFactory_config.xml";
         String factoryConfigFile = configDir +File.separator + initConfigFile;
         moduleFactory = new TLObjectFactory(filterName,factoryConfigFile,configDir);
-        moduleFactory.startFactory();
+        moduleFactory.startFactory(null,null);
         context.setAttribute( filterName, moduleFactory);
         registInfactory(moduleFactory, "servletContext", context);
         registInfactory(moduleFactory, "servletRequest", requestMap);

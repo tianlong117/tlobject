@@ -44,13 +44,13 @@ public class TLObjectFactory extends TLBaseModule {
         this.parentFactory =parentFactory;
         factorys.put(parentFactory.getName(),parentFactory);
     }
-    public void startFactory() {
+    public void startFactory(String startConfigFile, HashMap<String, String> startParams) {
         moduleFactory = this;
         ifMonitor = false;
         String lastChar = (String) configDir.subSequence(configDir.length() - 1, configDir.length());
         if (!lastChar.equals("/"))
             configDir = configDir + "/";
-        start(null, null);
+        start(startConfigFile,  startParams);
     }
     public void addConfig( String addConfigFile, String addConfigDir){
         if(addConfigDir ==null)
@@ -295,7 +295,7 @@ public class TLObjectFactory extends TLBaseModule {
         TLObjectFactory factory =getInstance(factoryName , configdir,  configfile,this);
         if(factory ==null)
             return null;
-        factory.startFactory();
+        factory.startFactory(null,null);
         factorys.put(factoryName,factory) ;
         factory.boot();
         return factory ;
@@ -322,7 +322,7 @@ public class TLObjectFactory extends TLBaseModule {
         TLObjectFactory factory =getInstance(moduleName , fconfigdir,  fconfigfile,this);
         if(factory ==null)
             return null;
-        factory.startFactory();
+        factory.startFactory(null,null);
         factorys.put(moduleName,factory) ;
         factory.boot();
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE,factory).setParam(FACTORY_P_MODULENAME, moduleName);
@@ -577,6 +577,7 @@ public class TLObjectFactory extends TLBaseModule {
     public   HashMap<String, String> getModuleParam(String moduleName){
         HashMap<String, String> moduleConfig = modulesClass.get(moduleName);
         HashMap<String, String> cparams = new HashMap<>();
+        cparams.put("applicationId",applicationId);
         if (commonParams != null && !commonParams.isEmpty())   //添加commonParams里面公共参数
             cparams.putAll(commonParams);
         if (moduleConfig != null) {

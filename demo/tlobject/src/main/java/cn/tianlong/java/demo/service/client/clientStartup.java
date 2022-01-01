@@ -18,8 +18,7 @@ public class clientStartup extends TLAppStartUp {
     }
     @Override
     protected void run() {
-  //      moduleFactory.shutdown(1);
-  //      putMsg("wife",createMsg().setAction("sing"));
+
     }
     public static TLObjectFactory   startModule (String[] args  ) {
         String[] appArgs = {CLASSPATH+"/conf/demo/service/client/","moduleFactory_config.xml","demoappstart.xml","demo"};

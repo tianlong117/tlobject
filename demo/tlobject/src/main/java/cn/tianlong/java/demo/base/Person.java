@@ -5,8 +5,6 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.common.FileClass;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 
 import java.io.File;
 import java.io.IOException;
@@ -274,32 +272,6 @@ public class Person extends TLBaseModule {
          //  putMsg("socketClientAgentPool",msg);
          putMsg("webSocketReceiveFIleModule",gmsg);
      }
-    private void getUrlByProxy(String url ,TLMsg msg) {
-        TLMsg gmsg =createMsg().setAction("getFile").setArgs(msg.getArgs())
-                .setParam("url",url).setParam(MSG_P_MSGID,"getUrlFile")
-                .setParam(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM,true)
-                .setParam("fileName",url)
-           //     .setWaitFlag(false)
-                .setParam(INTHREADPOOL,true)
-                .setParam(TASKWAITTIME,15000);
-       TLMsg returnMsg = putMsg("webSocketReceiveFIleModule",gmsg);
-        FileClass file = (FileClass) returnMsg.getParam("file");
-        if(file ==null )
-            return;
-        InputStream inputStream = file.getInputStream();
-        if(inputStream ==null)
-        {
-            System.out.println("geturl error"+url);
-            return;
-        }
-        try {
-            Document document = Jsoup.parse(inputStream,"utf-8",url);
-            String content =document.toString();
-            System.out.println(content);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
 
     private void putFile() {
 
@@ -422,22 +394,22 @@ public class Person extends TLBaseModule {
 
     private TLMsg cook(Object fromWho, TLMsg msg) {
         try {
-            System.out.println(name+" is cooking"+ " 进程id: " + Thread.currentThread().getName() );
+            System.out.println(" applicationid:"+applicationId+"  ;"+name+" is cooking"+ " 进程id: " + Thread.currentThread().getName() );
             sleep(5000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        System.out.println(name+" cook over");
+        System.out.println(" applicationid:"+applicationId+"  ;"+name+" cook over");
         return createMsg().setParam("content","return from "+name+" cook");
     }
 
     private void comein(Object fromWho, TLMsg msg) {
-        System.out.println(name + "说：我回家了，开灯啦 ");
+        System.out.println(" applicationid:"+applicationId+"  ;"+name + "说：我回家了，开灯啦 ");
         putMsg("light", createMsg().setAction("on"));
     }
     private void ssleep(Object fromWho, TLMsg msg) {
         sleep = true;
-        System.out.println(name + " 在睡觉 ");
+        System.out.println(" applicationid:"+applicationId+"  ;"+name + " 在睡觉 ");
     }
     private TLMsg house(Object fromWho, TLMsg msg) {
         String housestatus = (String) msg.getParam("status");

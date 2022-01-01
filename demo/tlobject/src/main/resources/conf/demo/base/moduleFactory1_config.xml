@@ -7,7 +7,7 @@
         <loglevel value="debug"/>
         <package value="cn.tianlong.java.demo"/>
         <ifModuleMonitor value="false"/>
-        <applicationId value="demo"/>
+        <applicationId value="module1"/>
     </params>
     <commonParams>
         <loglevel value="trace"/>
