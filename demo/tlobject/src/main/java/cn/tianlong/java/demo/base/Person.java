@@ -32,7 +32,8 @@ public class Person extends TLBaseModule {
         putMsg(this,createMsg().setAction("toClient").setWaitFlag(false));
         TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
         putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN ).setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
+                .setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
 
         return  this ;
     }
@@ -172,9 +173,7 @@ public class Person extends TLBaseModule {
                 return;
             ifput =true ;
           String fileName ="D:\\winweb.rar";
-     getFileFromclient(fileName,msg);
-            fileName ="D:\\IMG_0433.JPG";
-    //        getFileFromclient(fileName,msg);
+          getFileFromclient(fileName,msg);
             String Url1 ="http://www.daqing.gov.cn/index.html";
             TLMsg msg1=createMsg().addMap(msg.getArgs());
             TLMsg msg2=createMsg().addMap(msg.getArgs());
