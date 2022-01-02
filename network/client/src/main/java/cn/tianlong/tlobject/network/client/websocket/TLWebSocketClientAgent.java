@@ -203,6 +203,12 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                     putMsg(this,createMsg().setMsgId(connectNotifyMsgId)
                             .setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_OPEN).setParam(WEBSOCKET_R_CLIENTAGENT,name));
                 putLog("登陆成功",LogLevel.DEBUG,"login");
+                String mchannel =Thread.currentThread().getId()+"";
+                TLMsg mmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
+                        .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
+                        .setParam(USERMANAGER_P_USERID, userName)
+                        .setParam(USERMANAGER_P_USERCHANNEL, mchannel);
+                putMsg(M_MSGBROADCAST, mmsg);
                 break;
             case "message":
                 if(resultFor!=null )
@@ -212,10 +218,10 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                 connected =false ;
                 String channel =Thread.currentThread().getId()+"";
                 TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
-                        .setParam(MSGBROADCAST_P_MESSAGETYPE, "logout")
+                        .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGOUT)
                         .setParam(USERMANAGER_P_USERID, userName)
                         .setParam(USERMANAGER_P_USERCHANNEL, channel);
-                putMsg("msgBroadCast", bmsg);
+                putMsg(M_MSGBROADCAST, bmsg);
                 Response response = (Response) msg.getParam(WEBRESPONSE);
                 if(response !=null)
                 {

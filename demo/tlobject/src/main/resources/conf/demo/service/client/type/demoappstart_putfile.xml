@@ -3,10 +3,8 @@
     <msgTable>
         <msgid  value="setup" >
             <msg action="getModule"  moduleName="msgBroadCast" usePreReturnMsg="false" />
-            <msg action="getModule" destination="moduleFactory" moduleName="house"/>
             <msg action="getModule"  moduleName="socketClientAgentPool"   usePreReturnMsg="false" />
-            <msg action="sleep" sleepTime="5000"/>
-            <msg action="getModule" destination="moduleFactory"  moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/>
+            <msg action="getModule" destination="moduleFactory" waitFlag="false" moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/>
         </msgid>
     </msgTable>
     <startMsg>

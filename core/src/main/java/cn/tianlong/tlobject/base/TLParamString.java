@@ -25,6 +25,8 @@ public interface TLParamString {
     /**    字符串常量 *      */
     final String C_MESSAGETYPE_LOGOUT = "logout";
     final String C_MESSAGETYPE_LOGIN = "login";
+    final String C_MESSAGETYPE_CLIENTLOGOUT = "clientlogout";
+    final String C_MESSAGETYPE_CLIENTLOGIN = "clientlogin";
 
     final String CLASSPATH = "CLASSPATH";
     final String ERRORSTR = "error";
@@ -269,6 +271,8 @@ public interface TLParamString {
     final String WEBSOCKET_P_CONNNECTNOTIFYMSG = "connectNotifyMsg";
     final String WEBSOCKET_R_CLIENTAGENT = "agent";
 
+
+
     final String SERVICEGATEMAY_P_USERID = "userid";
     final String SERVICEGATEMAY_P_USERINFO = "userInfoInGeteWay";
 
@@ -276,7 +280,6 @@ public interface TLParamString {
     final String WEBSOCKETCLIENTAGENT_PUTTOSOCKET = "postToSocket";
     final String WEBSOCKETCLIENTAGENT_PUTTOSERVICE = "postToService";
     final String WEBSOCKETCLIENTAGENT_ISWAIT = "isWaitService";
-
     final String SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT = "putToServerAndWait";
     final String SOCKETCLIENTAGENTPOOL_PUTMSGTOSERVER = "putMsgToServer";
     final String SOCKETCLIENTAGENTPOOL_ADDSERVER = "addServer";

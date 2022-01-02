@@ -2,9 +2,10 @@
 <moduleConfig>
     <params>
         <name    value="demo1"></name>
-        <verison value="71"></verison>
+        <putfileName value="filedemo.sql"></putfileName>
     </params>
     <startMsg>
+           <msg action="sleep" sleepTime="8000"/>
            <msg action="putFile"   ></msg>
     </startMsg>
 </moduleConfig>

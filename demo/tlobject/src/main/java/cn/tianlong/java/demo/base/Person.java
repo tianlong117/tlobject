@@ -32,7 +32,7 @@ public class Person extends TLBaseModule {
         putMsg(this,createMsg().setAction("toClient").setWaitFlag(false));
         TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
         putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, "login").setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN ).setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
 
         return  this ;
     }
@@ -171,17 +171,6 @@ public class Person extends TLBaseModule {
             if(ifput ==true)
                 return;
             ifput =true ;
-     //  sendFileFromServer("D:\\weixin.apk");
-    //   sendFileFromServer("D:\\微信测试工具20141116.exe");
-   //   sendFileFromServer("D:\\企政通.txt");
-   //sendFileFromServer("D:\\nmap-7.40-setup.exe");
-     //  sendFileFromServer("D:\\web并发＆压力测试工具http_loadWin32.zip");
-    //sendFileFromServer("D:\\apache-maven-3.5.3-bin.zip");
-      //      sendFileFromServer("D:\\微信图片_20210819084148.jpg");
-   // sendFileFromServer("D:\\BaiduNetdisk_7.6.0.13.exe");
- //   sendFileFromServer("D:\\qinqin.txt");
-   //   sendFilesByServer();
-      //      sendFilesByServerToHttpProxy();
           String fileName ="D:\\winweb.rar";
      getFileFromclient(fileName,msg);
             fileName ="D:\\IMG_0433.JPG";
@@ -274,35 +263,25 @@ public class Person extends TLBaseModule {
      }
 
     private void putFile() {
-
-  sendFile("D:\\apache-tomcat-9.0.1.zip");
+     String fileName =moduleFactory.getConfigDir()+params.get("putfileName");
+        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE)
+                .setParam("parama","a")
+                .setParam("paramb",true)
+                .setParam("paramc",12)
+                .setParam("paramd",99.1)
+                .setParam(MSG_P_MSGID,"receiveFileFromClient")
+                .setParam("fileName",fileName);
+        //    .setWaitFlag(false);
+        TLMsg returnmsg =putMsg("socketClientAgentPool",msg);
+        if(returnmsg.parseBoolean(RESULT,false)==true)
+        {
+            System.out.println("file is send sucessfuliy "+fileName);
+        }
+        else
+            System.out.println("file is send failure "+fileName);
 
     }
-    private void sendFiles1() {
-        TLMsg msg1 =createMsg().setDestination("socketClientAgentPool")
-                .setAction(WEBSOCKET_SENDFILE)
-                .setParam(INTHREADPOOL,true)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileName","D:\\javaweb.jar").setWaitFlag(false);
-        TLMsg msg2 =createMsg()
-                .setDestination("socketClientAgentPool")
-                .setParam(INTHREADPOOL,true)
-                .setAction(WEBSOCKET_SENDFILE)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileName","D:\\数据恢复R-Studio.rar").setWaitFlag(false);
-        TLMsg msg3 =createMsg()
-                .setDestination("socketClientAgentPool")
-                .setParam(INTHREADPOOL,true)
-                .setAction(WEBSOCKET_SENDFILE)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileName","D:\\微信图片_20210819084148.jpg").setWaitFlag(false);
-        ArrayList<TLMsg> msgList =new ArrayList<>() ;
-        msgList.add(msg1)        ;
-        msgList.add(msg2);
-        msgList.add(msg3);
-        TLMsg returnMsg = putMsgGroupByThread(msgList,0);
-        System.out.print("x");
-    }
+
     private void  sendFilesByClient() {
           ArrayList<String> fileList =new ArrayList<>() ;
         fileList.add("D:\\Art-Kins.-.[唤醒超觉].唤醒超觉盛夏版.mp3")        ;
@@ -321,23 +300,7 @@ public class Person extends TLBaseModule {
             System.out.println("file is send failure ");
         TLMsgUtils.printMap(returnMsg.getArgs());
     }
-    private void sendFile(String fileName) {
-        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE)
-                .setParam("parama","a")
-                .setParam("paramb",true)
-                .setParam("paramc",12)
-                .setParam("paramd",99.1)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileName",fileName);
-            //    .setWaitFlag(false);
-      TLMsg returnmsg =putMsg("socketClientAgentPool",msg);
-      if(returnmsg.parseBoolean(RESULT,false)==true)
-      {
-          System.out.println("file is send sucessfuliy "+fileName);
-      }
-      else
-          System.out.println("file is send failure "+fileName);
-    }
+
 
     private void toClient() {
        while (true){

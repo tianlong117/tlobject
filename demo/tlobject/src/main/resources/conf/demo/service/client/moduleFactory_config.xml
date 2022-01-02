@@ -29,7 +29,5 @@
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
-            <msg action="getModule"  moduleName="soceketClientThreadPool" usePreReturnMsg="false" />
-            <msg action="getModule"  moduleName="httpProxy"  waitFlag11="false" usePreReturnMsg="false" />
         </factoryBoot>
 </moduleConfig>
