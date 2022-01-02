@@ -5,6 +5,11 @@
         <defaultDBserver value="dbserver1" />
         <dbPackageName value="cn.tianlong.java.servletdemo" />
     </params>
+    <!--
+参数说明：name：数据库server模块名字，用于程序中指向，非数据库中的实体库名
+         statup:database初始化时是否初始化
+         proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
+-->
     <dbservers>
         <dbserver name="dbserver1"             proxyModule="dbserver"
                   driver="com.mysql.jdbc.Driver"
@@ -19,6 +24,14 @@
                   connector="c3p0Conn"
                   initPoolSize="5" maxPoolSize="100" maxIdleTime="60" />
     </dbservers>
+    <!--
+参数说明：name：程序中的表名字，非数据库中实体表名
+        dbtable:对应数据库中实际的表名字
+        proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
+        dbserver ：存在哪个数据库中，如果存在readserver 配置，则为写数据库
+        readserver ：读数据库
+         statup:database初始化时是否初始化 ，如果没有则在访问是初始化
+-->
     <tables>
         <table name="user"  dbtable="user"  dbserver="dbserver2" beforeTrigger="userTableSplitTrigger"  classfile="" />
         <table name="userm" dbtable="userm"  dbserver="dbserver1" beforeTrigger1="tableCacheBefore"

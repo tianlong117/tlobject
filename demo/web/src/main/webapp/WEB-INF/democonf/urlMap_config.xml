@@ -15,8 +15,7 @@
     -->
 </action>
 </beforeMsgTable>
-<!-- 目录相对于filter配置目录下  -->
-    <!-- 目录相对于filter配置目录下
+  <!-- 目录相对于filter配置目录下
  对于每个映射，可以更改user，client类型。
  clientUser : user类型
  clientType : client接口类型

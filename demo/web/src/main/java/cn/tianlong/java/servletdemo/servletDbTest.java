@@ -100,10 +100,9 @@ public class servletDbTest extends TLWServModule {
         long startTime =System.currentTimeMillis();
         outData odata =  creatOutDataMsg("dbmodle");
         String name= (String) msg.getParam("name");
-        userModle modle= (userModle) getModule("userModle");
-        TLMsg total =putMsg(modle,createMsg().setAction("total"));
+        TLMsg total =putMsg("userModle",createMsg().setAction("total"));
         odata.addData("总数:"+total.getParam("result"));
-        TLMsg returnMsg =putMsg(modle,createMsg().setAction("findUser").setParam("userName",name));
+        TLMsg returnMsg =putMsg("userModle",createMsg().setAction("findUser").setParam("userName",name));
         List datas = (List) returnMsg.getParam("result");
         Long nowTime =System.currentTimeMillis();
         Long runtime=nowTime-startTime;
