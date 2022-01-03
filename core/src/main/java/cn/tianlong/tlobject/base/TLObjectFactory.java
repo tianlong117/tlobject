@@ -196,13 +196,16 @@ public class TLObjectFactory extends TLBaseModule {
             module = modules.get(key);
             if (module instanceof IObject) {
                 putMsg((IObject) module, msg);
-                putLog(((IObject) module).getName() + " is destoryed", LogLevel.WARN);
+                putLog(((IObject) module).getName() + " is destoryed", LogLevel.DEBUG);
             }
         }
     }
 
     public void shutdown() {
+        System.out.println("start shutdown...");
+        putLog("start shutdown...",LogLevel.DEBUG,"shutdown");
         destroyModule();
+        System.out.println("game is over,bye !");
         System.exit(0);
     }
 

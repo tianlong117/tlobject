@@ -10,29 +10,28 @@ import java.util.HashMap;
  * 描述:
  * 作者:tianlong
  */
-public class startup extends TLAppStartUp {
+public class sonstartup extends TLAppStartUp {
     public static   TLObjectFactory appFactory ;
-    public startup(String name) {
+    public sonstartup(String name) {
         super( name);
+    }
+    public sonstartup(String name, TLObjectFactory moduleFactory) {
+        super(name, moduleFactory);
     }
     public static void  main (String[] args ) {
         HashMap<String,String> argsMap = null;
         if(args !=null && args.length >0){
             TLAppStartUp.main(args);
-          return;
+            return;
         }
         startModule (argsMap );
     }
-    @Override
-    protected void run() {
-
-    }
     public static TLObjectFactory   startModule (HashMap<String,String> configMap  ) {
         HashMap<String,Object> argsMap =new HashMap<>() ;
-        argsMap.put("appName","demo0");
+        argsMap.put("appName","demo1");
         argsMap.put("configPath",CLASSPATH+"/conf/demo/base/");
-        argsMap.put("factoryConfigFile","moduleFactory_config.xml");
-        argsMap.put("configFile","demoappstart.xml");
+        argsMap.put("factoryConfigFile","moduleFactory1_config.xml");
+        argsMap.put("configFile","demoappstart1.xml");
         if(configMap !=null)
             argsMap.putAll(configMap);
         startup instance = new startup("startup");

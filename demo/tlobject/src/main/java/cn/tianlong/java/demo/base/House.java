@@ -5,7 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
-public class House extends TLBaseModule {
+public class House extends DemoCommon {
 
     public House(String name) {
         super(name);
@@ -17,11 +17,13 @@ public class House extends TLBaseModule {
 
     @Override
     protected TLBaseModule init() {
-        System.out.println("---模块创建: "+name + " 创建 ");
         return this;
     }
+
+
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        printAction(msg);
         switch (msg.getAction()) {
             case "light":
                 light(fromWho, msg);
@@ -35,16 +37,17 @@ public class House extends TLBaseModule {
     }
     private void light(Object fromWho, TLMsg msg) {
 
-        System.out.println("屋子亮了");
+        printState("屋子亮了");
         toPerson("light");
     }
     private void dark(Object fromWho, TLMsg msg) {
-        System.out.println("屋子黑了 ");
+        printState("屋子黑了 ");
         toPerson("dark");
     }
     private void toPerson(String status) {
+        printState("屋子发送广播消息,消息类型:"+status);
         TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, "house")
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, "light")
                 .setParam("status", status);
         putMsg("msgBroadCast", bmsg);
     }

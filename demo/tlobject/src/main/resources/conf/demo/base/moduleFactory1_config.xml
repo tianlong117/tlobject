@@ -19,6 +19,7 @@
         <module name="light" classfile="cn.tianlong.java.demo.base.Light" singleton="ture"/>
         <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
         <module name="wife" classfile="cn.tianlong.java.demo.base.Person" />
+        <module name="son" classfile="cn.tianlong.java.demo.base.Person" mood="沮丧" />
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="log" usePreReturnMsg="false" />

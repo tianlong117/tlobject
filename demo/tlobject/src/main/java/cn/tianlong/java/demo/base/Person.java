@@ -3,21 +3,19 @@ package cn.tianlong.java.demo.base;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.network.common.FileClass;
+import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
 import static java.lang.Thread.sleep;
 
-public class Person extends TLBaseModule {
-    boolean sleep;
-    boolean  toClient =false ;
+public class Person extends DemoCommon {
+    boolean   sleep = false;
     boolean  ifput =false ;
     public Person(String name) {
         super(name);
@@ -26,10 +24,14 @@ public class Person extends TLBaseModule {
         super(name, moduleFactory);
     }
     @Override
+    protected void initProperty() {
+        super.initProperty();
+        String mood =TLMapUtils.getStringParam(params,"mood",null);
+        if(mood !=null)
+            printState(mood);
+    }
+    @Override
     protected TLBaseModule init() {
-        System.out.println("---模块创建: "+name + " 创建 ");
-        sleep = false;
-        putMsg(this,createMsg().setAction("toClient").setWaitFlag(false));
         TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
         putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
                 .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
@@ -39,8 +41,12 @@ public class Person extends TLBaseModule {
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        printAction(msg);
         TLMsg returnMsg =null ;
         switch (msg.getAction()) {
+            case "study":
+                study(msg);
+                break;
             case "getFileByServer":
                 getFileByServer(msg);
                 break;
@@ -50,13 +56,11 @@ public class Person extends TLBaseModule {
             case "putFile":
                 putFile();
                 break;
-            case "toClient":
-                toClient();
             case "onHouse":
                 onHouse(fromWho, msg);
                 break;
-            case "house":
-                returnMsg = house(fromWho, msg);
+            case "onLight":
+                returnMsg = onLight(fromWho, msg);
                 break;
             case "cook":
                 returnMsg=cook(fromWho, msg);
@@ -87,6 +91,88 @@ public class Person extends TLBaseModule {
         return  returnMsg;
     }
 
+    private void study(TLMsg msg) {
+        printState(" 应用id:"+applicationId+"  ;"+name+" 学习中。。。");
+    }
+
+    private void onHouse(Object fromWho, TLMsg msg) {
+        //注册到广播接收者
+        printState(" 在屋里。注册接受广播消息,消息类型：light");
+        TLMsg receivermsg = createMsg().setDestination(name).setAction("onLight");
+        putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, "light").setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+    }
+
+    private TLMsg sing(Object fromWho, TLMsg msg) {
+        printState(" 开心的唱起了歌....");
+        TLMsg wmsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("content","来自小明的消息")
+                .setParam(MSG_P_MSGID,"fromXiaoMing");
+        putMsg("wife",wmsg);
+        say(" 给老婆发送个消息");
+        return  createMsg().setParam(RESULT,"from client "+name+" sing");
+    }
+
+    private TLMsg cook(Object fromWho, TLMsg msg) {
+        printState(" applicationid:"+applicationId+"  ;"+name+" 做饭..."+ " 进程id: " + Thread.currentThread().getName() );
+
+        return createMsg().setParam("content","return from "+name+" cook");
+    }
+
+    private void comein(Object fromWho, TLMsg msg) {
+        say("我回家了，开灯啦 ");
+        putMsg("light", createMsg().setAction("on"));
+    }
+    private void ssleep(Object fromWho, TLMsg msg) {
+        sleep = true;
+        System.out.println(" applicationid:"+applicationId+"  ;"+name + " 在睡觉 ");
+    }
+    private TLMsg onLight(Object fromWho, TLMsg msg) {
+        String housestatus = (String) msg.getParam("status");
+        String thread = " (进程id: " + Thread.currentThread().getName() + ")";
+        if (housestatus.equals("light"))
+        {
+            if (sleep == true)
+            {
+                say( "喊:关灯，我在睡觉呢。  " + thread);
+                try {
+                    sleep(2000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+                TLMsg cmsg =createMsg().setMsgId("fromServerWife");
+                TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToMap(cmsg)) ;
+                return  returnMsg ;
+            }
+            else {
+                say( "屋子亮啦，回家的感觉真好。 上上网吧 " + thread);
+                webclient("http://www.baidu.com");
+                TLBaseModule module1Fac= moduleFactory.getFactory("module1");
+                if(module1Fac!=null)
+                {
+                    printState("给增加的模块程序发送消息");
+                    say( "儿子做饭吧!");
+                    putMsg("son@module1",createMsg().setAction("cook"));
+                }
+                moduleFactory.shutdown();
+            }
+        }
+        return  null ;
+    }
+    private void webclient(String url) {
+        TLMsg msg =createMsg().setAction("get") .setParam("url", url);
+        TLMsg resultMsg =putMsg("httpClient", msg);
+        if(resultMsg.parseBoolean(HTTP_ERROR,true)==true)
+        {
+            System.out.println( "网站打不开啊"+ url);
+            return;
+        }
+        say( "看看百度!");
+        String response = (String) resultMsg.getParam(WEBRESPONSE);
+        System.out.println(response);
+    }
+    protected void say(String message){
+        System.out.println(name +" 说:"+message);
+    }
     private TLMsg fromXiaoMing(Object fromWho, TLMsg msg) {
         System.out.print("收到小明的Msg：");
          TLMsgUtils.printMsg(msg);
@@ -300,29 +386,6 @@ public class Person extends TLBaseModule {
         TLMsgUtils.printMap(returnMsg.getArgs());
     }
 
-
-    private void toClient() {
-       while (true){
-           try {
-               sleep(2000);
-               if(toClient)
-               {
-                   TLMsg cmsg =createMsg().setMsgId("fromServerWife");
-                   TLMsg clientMsg =createMsg().setAction("toClientAndWait").setArgs(TLMsgUtils.msgToMap(cmsg)).setParam(USERMANAGER_P_USERID,"demo_user") ;
-                   TLMsg returnMsg= putMsg("clientMsgHandler",clientMsg);
-                   TLMsgUtils.printMsg(returnMsg);
-               //    break;
-               }
-           } catch (InterruptedException e) {
-               e.printStackTrace();
-           }
-       }
-    //    sendFileFromServer("D:\\企政通.txt");
-    //    sendFileFromServer("D:\\dz.png");
-    //    sendFileFromServer("D:\\微信测试工具20141116.exe");
-     //   sendFileFromServer("D:\\winMd5Sum.exe");
-    }
-
     private void sendFileFromServer(String fileName) {
         System.out.println("start server sendfile"+ fileName);
         TLMsg msg =createMsg().setAction("sendFile").setWaitFlag(false)
@@ -338,80 +401,5 @@ public class Person extends TLBaseModule {
        TLMsgUtils.printMap(returnMsg.getArgs());
     }
 
-    private void onHouse(Object fromWho, TLMsg msg) {
-        //注册到广播接收者
-        System.out.println(name+" 在屋里。注册广播");
-        TLMsg receivermsg = createMsg().setDestination(name).setAction("house");
-        putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, "house").setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
-    }
-
-    private TLMsg sing(Object fromWho, TLMsg msg) {
-        System.out.println(name+" 开心的唱起了歌....");
-        TLMsg wmsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("content","来自小明的消息")
-                .setParam(MSG_P_MSGID,"fromXiaoMing");
-        putMsg("wife",wmsg);
-        System.out.println(name+" 给老婆发送消息");
-        return  createMsg().setParam(RESULT,"from client "+name+" sing");
-    }
-
-    private TLMsg cook(Object fromWho, TLMsg msg) {
-        try {
-            System.out.println(" applicationid:"+applicationId+"  ;"+name+" is cooking"+ " 进程id: " + Thread.currentThread().getName() );
-            sleep(5000);
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        System.out.println(" applicationid:"+applicationId+"  ;"+name+" cook over");
-        return createMsg().setParam("content","return from "+name+" cook");
-    }
-
-    private void comein(Object fromWho, TLMsg msg) {
-        System.out.println(" applicationid:"+applicationId+"  ;"+name + "说：我回家了，开灯啦 ");
-        putMsg("light", createMsg().setAction("on"));
-    }
-    private void ssleep(Object fromWho, TLMsg msg) {
-        sleep = true;
-        System.out.println(" applicationid:"+applicationId+"  ;"+name + " 在睡觉 ");
-    }
-    private TLMsg house(Object fromWho, TLMsg msg) {
-        String housestatus = (String) msg.getParam("status");
-        String response = "(" + name + " 进程id: " + Thread.currentThread().getName() + ")";
-        if (housestatus.equals("light"))
-        {
-            if (sleep == true)
-            {
-                System.out.println(name + "喊:关灯，我在睡觉呢。  " + response);
-                try {
-                    sleep(2000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-    //           toClient =true ;
-                TLMsg cmsg =createMsg().setMsgId("fromServerWife");
-                TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToMap(cmsg)) ;
-                 return  returnMsg ;
-            }
-            else {
-                System.out.println(name + "说：屋子亮啦，回家的感觉真好。 上上网吧 " + response);
-                webclient("http://www.baidu.com");
-            }
-        }
-        return  null ;
-    }
-    private void webclient(String url) {
-        TLMsg msg =createMsg().setAction("get") .setParam("url", url);
-        String action = name + " 打开:" + url;
-        TLMsg resultMsg =putMsg("httpClient", msg);
-        if(resultMsg.parseBoolean(HTTP_ERROR,true)==true)
-        {
-            System.out.println( "网站打不开啊"+ url);
-            return;
-        }
-        System.out.println( "看看百度!");
-        String response = (String) resultMsg.getParam(WEBRESPONSE);
-        System.out.println(response);
-    putMsg("wife@module1",createMsg().setAction("cook"));
-    }
 
 }

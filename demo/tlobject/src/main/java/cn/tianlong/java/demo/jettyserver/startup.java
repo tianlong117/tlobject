@@ -19,7 +19,7 @@ public class startup extends TLAppStartUp {
     @Override
     protected void run() {
   //      moduleFactory.shutdown(1);
-  //      putMsg("wife@startup1",createMsg().setAction("sing"));
+  //      putMsg("wife@sonstartup",createMsg().setAction("sing"));
     }
     public static TLObjectFactory startModule (String[] args  ) {
        String[] appArgs = {CLASSPATH+"/conf/demo/jetty/","moduleFactory_config.xml",null,"jettyserver"};

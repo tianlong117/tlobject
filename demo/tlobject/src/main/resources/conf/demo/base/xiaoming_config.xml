@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
-        <name    value="demo1"></name>
-        <verison value="71"></verison>
+        <verison value="1"/>
+        <mood  value="开心！" />
     </params>
     <initMsg>
             <msg action="onHouse"   ></msg>

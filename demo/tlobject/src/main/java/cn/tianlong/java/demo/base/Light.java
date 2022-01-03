@@ -5,7 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
-public class Light extends TLBaseModule {
+public class Light extends DemoCommon {
 	private int i =0;
 	public Light (String name ){
 		super(name);
@@ -16,13 +16,12 @@ public class Light extends TLBaseModule {
 
 	@Override
 	protected TLBaseModule init() {
-		System.out.println("---模块创建: "+name + " 创建 ");
-		return this ;
+		return this;
 	}
 
 	@Override
 	protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-		
+		printAction(msg);
 		switch (msg.getAction()){
 		case "on" : 
 			on( fromWho ,msg) ;
@@ -36,11 +35,11 @@ public class Light extends TLBaseModule {
 	}
 
 	private void on (Object fromWho, TLMsg msg) {
-		System.out.println("灯 打开 " );
+		printState("灯打开 " );
 		putMsg("house",new TLMsg("light"));
 	}
 	private void off(Object fromWho, TLMsg msg ) {
-		System.out.println("灯关上 " );
+		printState("灯关上 " );
 		putMsg("house",new TLMsg("dark"));
 	}
 

@@ -9,6 +9,7 @@
         <msgid  value="setup" >
             <msg action="getModule" destination="moduleFactory" moduleName="house"/>
             <msg action="getModule" destination="moduleFactory" moduleName="wife"/>
+            <msg action="psleep"     destination="wife" />
             <msg action="getModule" destination="moduleFactory" moduleName="xiaoming"/>
         </msgid>
     </msgTable>
