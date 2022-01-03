@@ -2,8 +2,8 @@
 <moduleConfig>
     <msgTable>
         <!-- client的msgid 对应的服务msg-->
-        <msgid value="house" >
-            <msg  destination="wife"  action="house" />
+        <msgid value="light" >
+            <msg  destination="wife"  action="onLight" />
         </msgid>
     </msgTable>
 </moduleConfig>

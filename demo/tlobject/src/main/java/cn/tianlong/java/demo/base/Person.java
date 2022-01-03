@@ -30,14 +30,20 @@ public class Person extends DemoCommon {
         if(mood !=null)
             printState(mood);
     }
+
     @Override
     protected TLBaseModule init() {
+       return this ;
+    }
+
+    @Override
+    public void runStartMsg()  {
+        super.runStartMsg();
         TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
         putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
                 .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
                 .setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
 
-        return  this ;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
