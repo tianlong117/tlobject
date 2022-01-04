@@ -413,6 +413,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         fieldList.toArray(fields);
         return fields;
     }
+    /** 覆盖方法时，如果初始化成功要返回对象实例句柄this，否则返回空值 **/
     protected abstract TLBaseModule init();
     protected void setModuleParams() {
     }
