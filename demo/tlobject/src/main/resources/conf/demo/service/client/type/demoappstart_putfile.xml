@@ -2,8 +2,8 @@
 <appConfig>
     <msgTable>
         <msgid  value="setup" >
-            <msg action="getModule"  moduleName="msgBroadCast" usePreReturnMsg="false" />
-            <msg action="getModule"  moduleName="socketClientAgentPool"   usePreReturnMsg="false" />
+            <msg action="getModule"  destination="moduleFactory" moduleName="socketClientAgentPool"   usePreReturnMsg="false" />
+            <msg action="getModule"  destination="moduleFactory" moduleName="msgBroadCast" usePreReturnMsg="false" />
             <msg action="getModule" destination="moduleFactory" waitFlag="false" moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/>
         </msgid>
     </msgTable>

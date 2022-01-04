@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
-        <name    value="demo"></name>
-        <verison value="1"></verison>
+        <ifputFile value="false"/>
+        <putfilebyserver value="filebyserver.sql"/>
     </params>
     <initMsg>
            <msg action="psleep"   ></msg>

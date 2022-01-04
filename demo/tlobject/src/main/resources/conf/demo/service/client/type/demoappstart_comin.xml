@@ -2,7 +2,7 @@
 <appConfig>
     <msgTable>
         <msgid  value="setup" >
-            <msg action="getModule"  moduleName="msgBroadCast" usePreReturnMsg="false" />
+            <msg action="getModule"  destination="moduleFactory" moduleName="msgBroadCast" usePreReturnMsg="false" />
             <msg action="getModule" destination="moduleFactory" moduleName="house"/>
             <msg action="getModule" destination="moduleFactory" moduleName="wife"/>
             <msg action="sleep" sleepTime="5000"/>

@@ -5,6 +5,7 @@
         <verison value="71"></verison>
     </params>
     <startMsg>
+             <msg action="house"  />
             <msg action="comein"  waitFlag="false" inthreadPool="true"/>
     </startMsg>
 </moduleConfig>

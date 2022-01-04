@@ -3,7 +3,6 @@ package cn.tianlong.java.demo.base;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
@@ -16,7 +15,7 @@ import static java.lang.Thread.sleep;
 
 public class Person extends DemoCommon {
     boolean   sleep = false;
-    boolean  ifput =false ;
+    boolean ifputFile =false ;
     public Person(String name) {
         super(name);
     }
@@ -29,6 +28,7 @@ public class Person extends DemoCommon {
         String mood =TLMapUtils.getStringParam(params,"mood",null);
         if(mood !=null)
             printState(mood);
+        ifputFile =TLMapUtils.parseBoolean(params,"ifputFile",false);
     }
 
     @Override
@@ -39,10 +39,13 @@ public class Person extends DemoCommon {
     @Override
     public void runStartMsg()  {
         super.runStartMsg();
-        TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
-        putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
-                .setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+        if(ifputFile)
+        {
+            TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
+            putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
+                    .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_LOGIN )
+                    .setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+        }
 
     }
     @Override
@@ -80,7 +83,7 @@ public class Person extends DemoCommon {
             case "sing":
                 returnMsg= sing(fromWho, msg);
                 break;
-            case "onUserLogin11":
+            case "onUserLogin":
                onUserLogin(fromWho, msg);
                 break;
             case "receiveFileFromClient":
@@ -157,7 +160,10 @@ public class Person extends DemoCommon {
                 {
                     printState("给增加的模块程序发送消息");
                     say( "儿子做饭吧!");
-                    putMsg("son@module1",createMsg().setAction("cook"));
+                    TLMsg returnMsg= putMsg("son@module1",createMsg().setAction("cook"));
+                    String content =returnMsg.getStringParam("content",null) ;
+                    if(content !=null)
+                        say("收到儿子返回的消息："+content);
                 }
                 moduleFactory.shutdown();
             }
@@ -178,6 +184,25 @@ public class Person extends DemoCommon {
     }
     protected void say(String message){
         System.out.println(name +" 说:"+message);
+    }
+    private void putFile() {
+        String fileName =moduleFactory.getConfigDir()+params.get("putfileName");
+        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE)
+                .setParam("parama","a")
+                .setParam("paramb",true)
+                .setParam("paramc",12)
+                .setParam("paramd",99.1)
+                .setParam(MSG_P_MSGID,"receiveFileFromClient")
+                .setParam("fileName",fileName);
+        //    .setWaitFlag(false);
+        TLMsg returnmsg =putMsg("socketClientAgentPool",msg);
+        if(returnmsg.parseBoolean(RESULT,false)==true)
+        {
+            System.out.println("file is send sucessfuliy "+fileName);
+        }
+        else
+            System.out.println("file is send failure "+fileName);
+
     }
     private TLMsg fromXiaoMing(Object fromWho, TLMsg msg) {
         System.out.print("收到小明的Msg：");
@@ -258,27 +283,8 @@ public class Person extends DemoCommon {
 
     private void onUserLogin(Object fromWho, TLMsg msg) {
 
-        try {
-            sleep(7000);
-            ifput =false ;
-            if(ifput ==true)
-                return;
-            ifput =true ;
-          String fileName ="D:\\winweb.rar";
-          getFileFromclient(fileName,msg);
-            String Url1 ="http://www.daqing.gov.cn/index.html";
-            TLMsg msg1=createMsg().addMap(msg.getArgs());
-            TLMsg msg2=createMsg().addMap(msg.getArgs());
-            TLMsg msg3=createMsg().addMap(msg.getArgs());
-  //  getUrlByProxy(Url1,msg1);
-            String  Url2 ="http://www.baidu.com/index.html";
-   // getUrlByProxy(Url2,msg2);
-          String Url ="https://gimg2.baidu.com/image_search/src=http%3A%2F%2Fpic3.zhimg.com%2Fv2-15f2a9981430de6de993eb1bff20b4f2_b.jpg&refer=http%3A%2F%2Fpic3.zhimg.com&app=2002&size=f9999,10000&q=a80&n=0&g=0n&fmt=jpeg?sec=1633590858&t=ec002fa04c00d18aefca00622d8300e0";
-   //    getUrlByProxy(Url,msg3);
-
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+        String fileName =moduleFactory.getConfigDir()+params.get("putfilebyserver");
+        sendFileFromServer(fileName);
 
     }
 
@@ -352,26 +358,6 @@ public class Person extends DemoCommon {
          //  putMsg("socketClientAgentPool",msg);
          putMsg("webSocketReceiveFIleModule",gmsg);
      }
-
-    private void putFile() {
-     String fileName =moduleFactory.getConfigDir()+params.get("putfileName");
-        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE)
-                .setParam("parama","a")
-                .setParam("paramb",true)
-                .setParam("paramc",12)
-                .setParam("paramd",99.1)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileName",fileName);
-        //    .setWaitFlag(false);
-        TLMsg returnmsg =putMsg("socketClientAgentPool",msg);
-        if(returnmsg.parseBoolean(RESULT,false)==true)
-        {
-            System.out.println("file is send sucessfuliy "+fileName);
-        }
-        else
-            System.out.println("file is send failure "+fileName);
-
-    }
 
     private void  sendFilesByClient() {
           ArrayList<String> fileList =new ArrayList<>() ;
