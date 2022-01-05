@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <startMsg>
-        <msg action="queryByTable"  username="dongq"/>
+        <msg action="insertByTable" />
+        <msg action="queryByTable"  username="dong1"/>
     </startMsg>
 </appConfig>

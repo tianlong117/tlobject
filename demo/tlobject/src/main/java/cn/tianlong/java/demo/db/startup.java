@@ -46,10 +46,11 @@ public class startup extends TLAppStartUp {
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        System.out.println(" --------- start action ---------------");
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
             case "insertByTable":
-                returnMsg= insertByTable( fromWho,  msg);
+                insertByTable( fromWho,  msg);
                 break;
             case "queryByTable":
                 queryByTable( fromWho,  msg);
@@ -57,7 +58,12 @@ public class startup extends TLAppStartUp {
             default:
                 returnMsg=super.checkMsgAction(fromWho,msg);
         }
+        System.out.println(" --------- end  action ---------------");
         return returnMsg;
+    }
+
+    private void insertByTable(Object fromWho, TLMsg msg) {
+        putMsg("dbDemo",msg.setAction("insertTb"));
     }
 
     private void queryByTable(Object fromWho, TLMsg msg) {

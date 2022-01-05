@@ -63,18 +63,27 @@ public class DbDemo extends TLBaseModule {
     }
     private TLMsg insertTb(Object fromWho, TLMsg msg) {
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
-        String name = "redistest";
-        int number = 44;
+        String[] names ={"jiang","dong","tian","wang"};
+
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        for (int i = 0; i < 10; i++) {
-            sqlparams.put("name", name+i);
-            sqlparams.put("number", number);
-            sqlparams.put("time", date());
-            TLMsg insertmsg = new TLMsg().setAction(DB_INSERT)
-                    .setParam(DB_P_SQL, sql)
-                    .setParam("params", sqlparams);
-            putMsg(tb, insertmsg);
+        System.out.println("开始插入数据");
+        for(int j=0 ;j < names.length ;j ++)
+        {
+
+            String username = names[j];
+            for (int i = 0; i <10; i++)
+            {
+                System.out.println("insert :"+username+i);
+                sqlparams.put("name",username+i);
+                sqlparams.put("number", i);
+                sqlparams.put("time", date());
+                TLMsg insertmsg = createMsg().setAction(DB_INSERT)
+                        .setParam(DB_P_SQL, sql)
+                        .setParam(DB_P_PARAMS, sqlparams);
+                putMsg(tb, insertmsg);
+            }
         }
+
         return null ;
     }
     private TLMsg queryTb(Object fromWho, TLMsg msg) {

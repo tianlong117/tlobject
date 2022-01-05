@@ -39,18 +39,19 @@ public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
         LinkedHashMap<String ,Object> tparams= (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String  username =null;
         if(tparams !=null)
-            username = (String) tparams.get("username");
+            username = (String) tparams.get("name");
         if(username ==null)
             username = (String) nmsg.getParam(DB_P_SPLITKEY);
         if(username!=null )
         {
-            int charint = Integer.parseInt( username.substring(0,1));
+            int charint = username.charAt(0);
 
-            if(charint < 20)
-                charint "a";
+            if(charint < 110)
+                charint=1 ;
             else
-                return "b";
-            String tbtableName=QQDatabase.splitMembers(tableName, username);
+                charint=2 ;
+            String tbtableName=tableName+charint;
+            System.out.println("当前表:"+tbtableName);
             return changeTable(tbtableName,nmsg);
         }
         else
