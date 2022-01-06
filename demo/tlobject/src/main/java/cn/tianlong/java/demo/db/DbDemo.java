@@ -56,11 +56,42 @@ public class DbDemo extends TLBaseModule {
             case "queryTb":
                 returnMsg = queryTb(fromWho, msg);
                 break;
+            case "updateTb":
+                returnMsg = updateTb(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
     }
+    protected TLMsg deleteByInfoid(Object fromWho, TLMsg msg) {
+        String sql = "delete from  [table] where infoid=?  ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("infoid", msg.getParam("infoid"));
+        TLMsg insertmsg = createMsg().setAction("delete")
+                .setParam("sql", sql)
+                .setParam("params", sqlparams);
+        return putMsg(tb, insertmsg);
+    }
+    private TLMsg updateTb(Object fromWho, TLMsg msg) {
+        String numberStr =msg.getStringParam("number",null);
+        if(numberStr ==null)
+            return null ;
+        int newNumber =Integer.parseInt(numberStr) ;
+        String username =msg.getStringParam("username",null) ;
+        if(username ==null)
+            return null ;
+        String sql = "update  [table] set number = ?  where name=? ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("number", newNumber);
+        sqlparams.put("name", username);
+        TLMsg insertmsg = createMsg().setAction(DB_UPDATE)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_ACTIONTAG,"updateAgree_number")
+                .setParam(DB_P_PARAMS, sqlparams);
+        return putMsg(tb, insertmsg);
+    }
+
     private TLMsg insertTb(Object fromWho, TLMsg msg) {
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
         String[] names ={"jiang","dong","tian","wang"};
