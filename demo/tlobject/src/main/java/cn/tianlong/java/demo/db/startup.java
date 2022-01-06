@@ -58,25 +58,19 @@ public class startup extends TLAppStartUp {
             case "updateByTable":
                 updateTable( fromWho,  msg);
                 break;
+            case "deleteByTable":
+                deleteByTable( fromWho,  msg);
+                break;
             default:
                 returnMsg=super.checkMsgAction(fromWho,msg);
         }
         System.out.println(" --------- end  action ---------------");
         return returnMsg;
     }
+
     private void insertByTable(Object fromWho, TLMsg msg) {
         putMsg("dbDemo",msg.setAction("insertTb"));
     }
-    private void updateTable(Object fromWho, TLMsg msg) {
-        System.out.println(" --------- 修改前 ---------------");
-        queryByTable( fromWho, msg);
-        putMsg("dbDemo",msg.setAction("updateTb"));
-        System.out.println(" --------- 修改后 ---------------");
-        queryByTable( fromWho, msg);
-    }
-
-
-
     private void queryByTable(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
         TLMsg returnMsg =putMsg("dbDemo",msg.setAction("queryTb"));
@@ -89,4 +83,23 @@ public class startup extends TLAppStartUp {
         System.out.println("查询结果:");
         TLMsgUtils.printList(datas);
     }
+    private void updateTable(Object fromWho, TLMsg msg) {
+        System.out.println(" --------- 修改前 ---------------");
+        queryByTable( fromWho, msg);
+        putMsg("dbDemo",msg.setAction("updateTb"));
+        System.out.println(" --------- 修改后 ---------------");
+        queryByTable( fromWho, msg);
+    }
+
+    private void deleteByTable(Object fromWho, TLMsg msg) {
+        System.out.println(" --------- 删除前 ---------------");
+        queryByTable( fromWho, msg);
+        putMsg("dbDemo",msg.setAction("deleteTb"));
+        System.out.println(" --------- 删除后 ---------------");
+        queryByTable( fromWho, msg);
+    }
+
+
+
+
 }

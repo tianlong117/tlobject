@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <startMsg>
-        <msg action="insertByTable" />
-        <msg action="queryByTable"  username="dong1"/>
+        <msg action="insertByTable1" />
+        <msg action="queryByTable1"  username="dong1"/>
+        <msg action="updateByTable1"  username="dong1" number="777777777"/>
+        <msg action="deleteByTable1"  username="dong2"/>
+        <msg action="dbBean"    destination="dbDemo"    />
     </startMsg>
 </appConfig>

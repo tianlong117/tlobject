@@ -12,6 +12,7 @@ import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
 
@@ -59,18 +60,27 @@ public class DbDemo extends TLBaseModule {
             case "updateTb":
                 returnMsg = updateTb(fromWho, msg);
                 break;
+            case "deleteTb":
+                returnMsg = deleteTb(fromWho, msg);
+                break;
+            case "dbBean":
+                 dbBean(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
     }
-    protected TLMsg deleteByInfoid(Object fromWho, TLMsg msg) {
-        String sql = "delete from  [table] where infoid=?  ";
+    protected TLMsg deleteTb(Object fromWho, TLMsg msg) {
+        String username =msg.getStringParam("username",null) ;
+        if(username ==null)
+            return null ;
+        String sql = "delete from  [table] where name=?  ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("infoid", msg.getParam("infoid"));
-        TLMsg insertmsg = createMsg().setAction("delete")
-                .setParam("sql", sql)
-                .setParam("params", sqlparams);
+        sqlparams.put("name", msg.getParam("username"));
+        TLMsg insertmsg = createMsg().setAction(DB_DELETE)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_PARAMS, sqlparams);
         return putMsg(tb, insertmsg);
     }
     private TLMsg updateTb(Object fromWho, TLMsg msg) {
@@ -87,7 +97,6 @@ public class DbDemo extends TLBaseModule {
         sqlparams.put("name", username);
         TLMsg insertmsg = createMsg().setAction(DB_UPDATE)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_ACTIONTAG,"updateAgree_number")
                 .setParam(DB_P_PARAMS, sqlparams);
         return putMsg(tb, insertmsg);
     }
@@ -127,6 +136,28 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
        return  putMsg(tb, querymsg);
+    }
+    protected void dbBean(Object fromWho, TLMsg msg){
+        BeanTable beanTable =new BeanTable("userTable",moduleFactory);
+        LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
+        datas.put("name","testBeanTable");
+        datas.put("number",1);
+        datas.put("time",date());
+        beanTable.add(datas) ;
+        System.out.println("beanTable插入:");
+        TLMsgUtils.printMap(datas);
+        datas.put("name","testBeanTable1");
+        datas.put("number",2);
+        datas.put("time",date());
+        beanTable.add(datas) ;
+        System.out.println("beanTable插入:");
+        TLMsgUtils.printMap(datas);
+      //  datas.clear();
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", "testBeanTable");
+         ArrayList<Map<String,Object>> result =beanTable.getAll(sqlparams);
+        System.out.println("beanTable查询:");
+        TLMsgUtils.printList(result);
     }
     private void testtransactionByDB() {
         String sql = "insert into  user1 (name,number,date) values(?,?,?)";
@@ -189,22 +220,6 @@ public class DbDemo extends TLBaseModule {
         List data = (List) returnMsg.getParam(DB_R_RESULT);
         System.out.println("time:");
     }
-    private void testBeanResult() {
-        String sql = "select * from  [table]  where  name = ? ";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dongq");
-        TLMsg querymsg = new TLMsg().setAction("query")
-                .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.BEANLIST)
-                .setParam(DB_P_BEANCLASS,userBean.class)
-                .setParam("params", sqlparams);
-        TLMsg returnMsg= putMsg(tb, querymsg);
-        List data = (List) returnMsg.getParam(DB_R_RESULT);
-        System.out.println("time:");
-
-       String dbtable =TLDataBase.getTableServer("user1",this,null);
-        System.out.println("time:");
-    }
 
     protected void testDbBeanCache(){
         TLMemoryCache mycache = new TLMemoryCache(50);
@@ -226,57 +241,7 @@ public class DbDemo extends TLBaseModule {
         time =moduleFactory.getRunTime(false)-starttime ;
         System.out.println("time:"+time);
     }
-    protected void testDbBean1(){
-        BeanTable beanTable =new BeanTable("testbean","id",getFactory());
-        LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
-        datas.put("age",100);
-        datas.put("city","大庆");
-        ArrayList<Map<String,Object>> result =beanTable.getAll(datas);
-        System.out.println(":-------");
-        beanTable.update("111","age",400);
-    }
-    protected void testDbBean(){
-        BeanTable beanTable =new BeanTable("testbean","id",getFactory());
-        LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
-        datas.put("id","1111");
-        datas.put("name","笑声");
-        datas.put("age",200);
-        beanTable.add(datas) ;
-        datas.put("id","222");
-        datas.put("name","xiaoqiang");
-        datas.put("age",100);
-        beanTable.add(datas) ;
-        datas.clear();
-        datas.put("name","xiaoqiang1");
-        datas.put("age",1001);
-        beanTable.update("222",datas) ;
-        ArrayList<Map<String,Object>> result =beanTable.getAll();
-        ArrayList<LinkedHashMap> newDatas =new ArrayList<>();
-        for (Map<String,Object> map :result){
-            map.put("age",100);
-            map.put("id",(String)map.get("id")+"test");
-            LinkedHashMap<String,Object> newmap =new LinkedHashMap<>() ;
-            newmap.putAll(map);
-            newDatas.add(newmap);
-        }
-       boolean ifadd =beanTable.addAll(newDatas) ;
-    }
-    protected void testlistIndb1(){
-   //     ListInDB list5 =new ListInDB("mylist5",this);
-   //     ArrayList<HashMap<String,Object>> mylist5 =list5.getList();
-        MapInDB map5= new MapInDB("maplisttest",moduleFactory) ;
-   //     map5.put("list1",mylist5);
-  //      map5.put("list2",mylist5);
-        Map<String,Object> result =map5.getAll();
-        for(String key : result.keySet()) {
-            System.out.println(key +":-------");
-            ArrayList<HashMap<String,Object>> list = (ArrayList<HashMap<String, Object>>) result.get(key);
-            for(HashMap<String,Object>map :list)
-                for(String key1 : map.keySet()){
-                    System.out.println(key1 +":"+map.get(key1));
-                }
-        }
-    }
+
     private void testListIndb0() {
 
         ListInDB list5 =new ListInDB("mylist5",moduleFactory);
@@ -290,86 +255,7 @@ public class DbDemo extends TLBaseModule {
         map5.put("list2",mylist5);
 
     }
-    private void testListIndb() {
-        MapInDB map =new MapInDB("maptext",moduleFactory);
-        map.put("long",99999);
-        map.put("nianling",88);
-        map.put("shengri",new Date());
-        map.put("time",System.currentTimeMillis());
-        map.put("xingbie","男");
-        map.put("shuoming","从上面的源码可以很清晰的看出null值不用担心的理由。但是，这也恰恰给了我们隐患。我们应当注意到，当object为null 时，String.valueOf（object）的值是字符串”null”，而不是null！！！在使用过程中切记要注意。");
 
-        ListInDB list =new ListInDB("mylist",moduleFactory);
-        list.add("dongq");
-        list.add("wangpeng");
-        list.add("wuxiao");
-        list.add("zhangqiang");
-        list.add("1");
-        String name = (String) list.get(1);
-        System.out.println(name);
-        System.out.println("----------");
-        ArrayList<String> mylist =list.getList();
-        for(String value :mylist)
-            System.out.println(value);
-        ListInDB list1 =new ListInDB("mylist1",moduleFactory);
-        MapInDB mapt =new MapInDB("maptext",moduleFactory);
-        Map<String,Object> datas = mapt.getAll();
-        list1.add(datas);
-        list1.add(datas);
-        ArrayList<HashMap<String,Object>> mylist2 =list1.getList();
-        ListInDB list5 =new ListInDB("mylist5",moduleFactory);
-        list5.addAll(0,mylist2);
-        ArrayList<HashMap<String,Object>> mylist5 =list5.getList();
-        for(HashMap<String,Object> value :mylist5)
-            for(String key : value.keySet()){
-                System.out.println(key +":"+value.get(key));
-            }
-    }
-
-    private void testMapIndb() {
-        MapInDB map =new MapInDB("maptext",moduleFactory);
-       map.put("long",99999);
-       map.put("nianling",88);
-       map.put("shengri",new Date());
-       map.put("time",System.currentTimeMillis());
-       map.put("xingbie","男");
-       map.put("shuoming","从上面的源码可以很清晰的看出null值不用担心的理由。但是，这也恰恰给了我们隐患。我们应当注意到，当object为null 时，String.valueOf（object）的值是字符串”null”，而不是null！！！在使用过程中切记要注意。");
-        int xingbie = (int) map.get("nianling");
-        System.out.println("xingbie: "+xingbie);
-        HashMap<String ,Object> sonmap =new HashMap<>();
-        sonmap.put("s1","1111111111");
-        sonmap.put("s2",111111111);
-        map.put("sonmap",sonmap);
-        HashMap<String ,Object> sonmap1 = (HashMap<String ,Object>) map.get("sonmap");
-        for(String key : sonmap1.keySet()){
-         System.out.println(key +":"+sonmap1.get(key));
-        }
-     //   map.remove("sonmap");
-     //   sonmap1 = (HashMap<String ,Object>) map.get("sonmap");
-    //    if(sonmap1 !=null)
-    //    {
-   //         for(String key : sonmap1.keySet()){
-      //          System.out.println(key +":"+sonmap1.get(key));
-   //         }
-   //     }
-     Map<String,Object> datas = map.getAll();
-     if(datas ==null)
-          return;
-      for(String key : datas.keySet()){
-           System.out.println(key +":"+datas.get(key));
-       }
-        TLMsg msg =createMsg().setParam("testst","sdfdsfd");
-       map.put("msg",msg);
-    }
-
-   private void testCreateTable(){
-       TLMsg tmsg = new TLMsg().setAction("getTable")
-               .setParam("tableName", "members_test11")
-               .setParam("copyTable","information_a");
-       TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
-       TLTable tb = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
-
-   }
     private void userModle() {
         userModle modle = (userModle) getModule("userModle");
         TLMsg total = putMsg(modle, createMsg().setAction("total"));
@@ -392,78 +278,6 @@ public class DbDemo extends TLBaseModule {
 
     }
 
-
-    private void findall(TLTable tb) {
-        startTime = System.currentTimeMillis();
-        TLMsg querymsg = new TLMsg().setAction("findAll");
-        querymsg.setParam("cacheName", "table_user");
-        querymsg.setParam("cacheKey", "all");
-        //	querymsg.setParam("resultFor",this)
-        //			.setParam("resultAction","getResult");
-        TLMsg returnmsg = putMsg(tb, querymsg);
-        List datas = (List) returnmsg.getParam("result");
-        if (datas == null || datas.isEmpty()) {
-            System.out.println("没有数据");
-            return;
-        }
-        for (int i = 0; i < datas.size(); i++) {
-            Object[] unit = (Object[]) datas.get(i);
-            for (int j = 0; j < unit.length; j++) {
-                System.out.print(unit[j] + "  ");
-            }
-            System.out.println("");
-        }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-    }
-
-    protected void total(TLTable tb) {
-        startTime = System.currentTimeMillis();
-        TLMsg totalMsg = createMsg().setAction("total");
-        totalMsg.setParam("cacheName", "table_user");
-        totalMsg.setParam("cacheKey", "total");
-        List totalDatas = (List) putMsg(tb, totalMsg).getParam("result");
-        Long totalNumber = Long.valueOf(0);
-        for (int i = 0; i < totalDatas.size(); i++) {
-            Object[] unit = (Object[]) totalDatas.get(i);
-            totalNumber = totalNumber + (Long) unit[0];
-            System.out.println("");
-        }
-        System.out.println("总数：" + totalNumber);
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-    }
-
-    private void find(TLTable tb) {
-        startTime = System.currentTimeMillis();
-        TLMsg querymsg = new TLMsg().setAction("find")
-                .setParam("key", "name")
-                .setParam("value", "yyyy999");
-        querymsg.setParam("cacheName", "table_user");
-        querymsg.setParam("cacheKey", "yy888");
-        //	querymsg.setParam("resultFor",this)
-        //			.setParam("resultAction","getResult");
-        TLMsg returnmsg = putMsg(tb, querymsg);
-        List datas = (List) returnmsg.getParam("result");
-        if (datas == null || datas.isEmpty()) {
-            System.out.println("没有数据");
-            return;
-        }
-        System.out.println("数据------------------");
-        for (int i = 0; i < datas.size(); i++) {
-            Object[] unit = (Object[]) datas.get(i);
-            for (int j = 0; j < unit.length; j++) {
-                System.out.print(unit[j] + "  ");
-            }
-            System.out.println("");
-        }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-
-    }
     private void testviewOfAppManger() {
         startTime = System.currentTimeMillis();
         TLMsg returnmsg;
@@ -540,31 +354,6 @@ public class DbDemo extends TLBaseModule {
         System.out.println("getResult 运行时间：" + runtime);
     }
 
-    private void delete() {
-        String sql = "delete from  [table] where  name = ?";
-        String name = "batch446";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", name);
-        TLMsg querymsg = createMsg().setAction("delete")
-                .setParam("sql", sql).setParam("params", sqlparams);
-        putMsg(tb, querymsg);
-    }
-
-
-    private void updata() {
-        startTime = System.currentTimeMillis();
-        String sql = "update  [table] set number =? where name =? ";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("number", 888);
-        sqlparams.put("name", "batch446");
-        TLMsg insertmsg = new TLMsg().setAction(DB_UPDATE)
-                .setParam("sql", sql)
-                .setParam("params", sqlparams);
-        TLMsg returnmsg = putMsg(tb, insertmsg);
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-    }
     private void batch(TLTable tb) {
         startTime = System.currentTimeMillis();
         String sql = "insert into  userm (name,number,time) values(?,?,?)";
@@ -584,18 +373,6 @@ public class DbDemo extends TLBaseModule {
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         System.out.println("运行时间：" + runtime);
-    }
-    private void printDBResult(List datas){
-        if(datas ==null)
-            return;
-        for (int i = 0; i < datas.size(); i++) {
-            Map<String,Object> unit= (Map<String, Object>) datas.get(i);
-            for(Map.Entry<String, Object> info : unit.entrySet()){
-
-                System.out.println(info.getKey()+":"+info.getValue());
-            }
-            System.out.println("-------");
-        }
     }
 
 }
