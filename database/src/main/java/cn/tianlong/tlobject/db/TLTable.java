@@ -469,6 +469,15 @@ public class TLTable extends TLBaseDataUnit {
             putLog("数据库没有连接", LogLevel.ERROR, "insertAndupdateAndDelete");
             return createMsg().setParam(RESULT,false);
         }
+        if(msg.parseBoolean(DB_P_IFTRANSACTION,false) == true)
+        {
+            try {
+                wconn.setAutoCommit(false);
+            } catch (SQLException e) {
+                e.printStackTrace();
+                return createMsg().setParam(RESULT, false);
+            }
+        }
         String sql = (String) msg.getParam(DB_P_SQL);
         sql = sql.replace("[table]", dbtable);
         QueryRunner runner = new QueryRunner();
@@ -479,8 +488,9 @@ public class TLTable extends TLBaseDataUnit {
             try {
                 sucessNumb = runner.update(wconn, sql);
             } catch (SQLException e) {
+                e.printStackTrace();
                 putLog(sql, LogLevel.ERROR);
-                connClose(wconn,msg);
+                connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
                 return createMsg().setParam(RESULT,false);
             }
             connClose(wconn,msg);
@@ -497,7 +507,7 @@ public class TLTable extends TLBaseDataUnit {
         } catch (SQLException e) {
             e.printStackTrace();
             putLog(sql, LogLevel.ERROR);
-            connClose(wconn,msg);
+            connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
             return createMsg().setParam(RESULT,false);
         }
         connClose(wconn,msg);
@@ -505,14 +515,18 @@ public class TLTable extends TLBaseDataUnit {
     }
 
     protected void connClose(Connection conn ,TLMsg msg) {
-        if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true) {
+        if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
+        {
             try {
                 conn.close();
             } catch (SQLException e) {
                 putLog("connClose", LogLevel.WARN);
             }
         } else
+        {
+            msg.setParam(DB_R_CONN,conn) ;
             return;
+        }
     }
 
     protected void readconnClose(Connection readconn,TLMsg msg) {

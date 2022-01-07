@@ -2,6 +2,8 @@ package cn.tianlong.tlobject.db;
 
 import java.util.LinkedHashMap;
 
+import static cn.tianlong.tlobject.base.TLParamString.*;
+
 /**
  * 创建日期：${Date}${time}
  * 描述:
@@ -32,8 +34,14 @@ public class TLDBSqlConditionExpression {
         if(sql !=null)
             return sql ;
         String str ;
-        if(relation.equals("in"))
+        if(relation.equals(DB_P_EXP_IN) || relation.equals(DB_P_EXP_NOTIN))
             str=  sqlOfIn();
+        else if(relation.equals(DB_P_EXP_LIKELEFT))
+            str =  varName +" like  ?\"%\" ";
+        else if(relation.equals(DB_P_EXP_LIKERIGHT))
+            str =  varName +" like  \"%\"? ";
+        else if(relation.equals(DB_P_EXP_LIKE))
+            str =  varName +" like  \"%\"?\"%\" ";
         else
             str =  varName +" "+ relation +" ? " ;
        if(nextRelation ==null)

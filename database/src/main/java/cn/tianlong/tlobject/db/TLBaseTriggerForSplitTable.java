@@ -109,19 +109,19 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
            TLMsg dbMsg =createMsg().copyFrom(msg);
             returnMsg =changeTable(splitTables[i],dbMsg);
             List splistDatas;
-            if(returnMsg!=null && returnMsg.getParam("result")!=null && returnMsg.getParam("result") instanceof List)
+            if(returnMsg!=null )
             {
-                splistDatas = (List) returnMsg.getParam("result");
+                splistDatas = returnMsg.getListParam(DB_R_RESULT,null);
                 if(splistDatas !=null &&  !splistDatas.isEmpty())
                    totaldatas.addAll(splistDatas);
             }
         }
-        if(!totaldatas.isEmpty() && msg.getParam(DB_P_ORDERBY)!=null)
+        if(!totaldatas.isEmpty() && !msg.isNull(DB_P_ORDERBY))
         {
             List orderDatas=dataToOrder(totaldatas,msg.getParam(DB_P_ORDERBY));
-            return createMsg().setParam("result",orderDatas).setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setParam(DB_R_RESULT,orderDatas).setParam(MODULE_DONEXTMSG,"false");
         }
-        return createMsg().setParam("result",totaldatas).setParam(MODULE_DONEXTMSG,"false");
+        return createMsg().setParam(DB_R_RESULT,totaldatas).setParam(MODULE_DONEXTMSG,"false");
     }
 
     private List dataToOrder(ArrayList<Object> totaldatas, Object param) {

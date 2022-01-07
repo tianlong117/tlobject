@@ -401,6 +401,11 @@ public interface TLParamString {
     final String DB_P_KEYNAME = "keyName";
     final String DB_P_KEYVALUE = "keyValue";
     final String DB_P_ORDERTYPE = "orderType";
+    final String DB_P_EXP_IN = "in";
+    final String DB_P_EXP_NOTIN = "not in";
+    final String DB_P_EXP_LIKERIGHT = "%like";
+    final String DB_P_EXP_LIKELEFT = "like%";
+    final String DB_P_EXP_LIKE = "%like%";
     final String DB_V_DESC = "desc";
     final String DB_V_ASC = "asc";
 

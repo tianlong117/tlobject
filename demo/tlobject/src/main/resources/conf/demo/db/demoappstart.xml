@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <startMsg>
-        <msg action="insertByTable" />
-        <msg action="queryByTable"  username="dong1"/>
+        <msg action="#insertByTable" />
+        <msg action="#queryByTable"  username="dong1"/>
         <msg action="#updateByTable"  username="dong1" number="777777777"/>
         <msg action="#deleteByTable"  username="dong2"/>
         <msg action="#dbBean"    destination="dbDemo"    />
         <msg action="#dbview"    destination="dbDemo"   username="dong" />
         <msg action="#queryTb"    destination="userModle"   username="dong1" />
+        <msg action="transactionByDB"   destination="dbDemo"  />
+        <msg action="queryByTable"  username="dddd3"/>
+        <msg action="queryByTable"  username="yyyy5"/>
     </startMsg>
 </appConfig>

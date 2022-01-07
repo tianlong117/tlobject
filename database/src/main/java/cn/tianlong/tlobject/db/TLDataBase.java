@@ -175,7 +175,6 @@ public class TLDataBase extends TLBaseModule {
         }
         return returnMsg;
     }
-
     private TLMsg startTranscation(Object fromWho, TLMsg msg) throws SQLException {
         ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getParam(DB_P_MSGLIST);
         ArrayList<Connection> connections= new ArrayList<>();
@@ -183,24 +182,33 @@ public class TLDataBase extends TLBaseModule {
         {
             TLMsg uMsg = msgList.get(i);
             TLMsg tMsg =new TLMsg().copyFrom(uMsg);
-            tMsg.setParam(DB_P_SQLTYPE,tMsg.getAction());
+            if(tMsg.isNull(DB_P_TABLENAME))
+            {
+                putLog("no tableName",LogLevel.ERROR,"startTranscation");
+                return createMsg().setParam(RESULT,false) ;
+            }
+            TLMsg tableMsg =getTable(this,tMsg);
+            TLBaseModule table = (TLBaseModule) tableMsg.getParam(INSTANCE);
             tMsg.setParam(DB_P_IFTRANSACTION,true) ;
             tMsg.setParam(DB_P_IFCLOSECONNECTION,false) ;
-            TLMsg returnMsg =execSql(fromWho, tMsg);
-            Connection connection = (Connection) returnMsg.getParam(DB_R_CONN);
-            connections.add(connection);
+            tMsg.removeParam(DB_P_TABLENAME);
+            TLMsg returnMsg =putMsg(table, tMsg);
             if(returnMsg.parseBoolean(RESULT,true)==false)
             {
-               trancsationRollbak(0,connections);
+                trancsationRollbak(0,connections);
                 return createMsg().setParam(RESULT,false).setParam("number",i);
             }
+            Connection connection = (Connection) returnMsg.getParam(DB_R_CONN);
+            if(!connections.contains(connection))
+                connections.add(connection);
         }
         for(int i = 0 ; i< connections.size() ; i ++)
         {
             Connection conn=connections.get(i);
             try {
-            conn.commit();
+                conn.commit();
             } catch (Exception e) {
+                putLog("transcation is error",LogLevel.ERROR,"startTranscation");
                 trancsationRollbak(i,connections);
                 return createMsg().setParam(RESULT,false).setParam("number",i);
             }
@@ -320,7 +328,8 @@ public class TLDataBase extends TLBaseModule {
             if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
                 conn.close();
         } catch (SQLException e) {
-            if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true) {
+            if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
+            {
                 try {
                     conn.close();
                 } catch (SQLException e1) {

@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.cache.TLMemoryCache;
+import cn.tianlong.tlobject.db.TLDBSqlConditionExpression;
 import cn.tianlong.tlobject.db.TLDBView;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
@@ -12,6 +13,7 @@ import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
@@ -68,6 +70,9 @@ public class DbDemo extends TLBaseModule {
                 break;
             case "dbview":
                 returnMsg = dbview(fromWho, msg);
+                break;
+            case "transactionByDB":
+                transactionByDB();
                 break;
             default:
                 returnMsg = null;
@@ -170,6 +175,14 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
        return  putMsg(tb, querymsg);
+        /** --
+         LinkedHashMap<String, Object> sqlCondition = new LinkedHashMap<>();
+         TLDBSqlConditionExpression sce =new TLDBSqlConditionExpression("name",username,DB_P_EXP_LIKELEFT,"");
+         sqlCondition.put("name", sce);
+         TLMsg qmsg=createMsg().setAction(DB_QUERY)
+         .setParam(DB_P_SQLCONDITION, sqlCondition);
+         return  putMsg(tb, qmsg);
+         */
     }
     protected void dbBean(Object fromWho, TLMsg msg){
         BeanTable beanTable =new BeanTable("userTable",moduleFactory);
@@ -193,29 +206,29 @@ public class DbDemo extends TLBaseModule {
         System.out.println("beanTable查询:");
         TLMsgUtils.printList(result);
     }
-    private void testtransactionByDB() {
-        String sql = "insert into  [table] (name,number,date) values(?,?,?)";
+    private void transactionByDB() {
+        String sql = "insert into  [table] (name,number,time) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dong1");
+        sqlparams.put("name", "dddd3");
         sqlparams.put("number", 20);
-        sqlparams.put("data", date());
+        sqlparams.put("time", date());
         TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_PARAMS, sqlparams).setParam(DB_P_SERVERNAME,"dbserver1");
-        String sql1 = "insert into  user2 (name,number,date) values(?,?,?)";
+                .setParam(DB_P_PARAMS, sqlparams).setParam(DB_P_TABLENAME,"userTable");
+        String sql1 = "insert into  [table] (name,number,time) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
-        sqlparams1.put("name", "dongq7");
+        sqlparams1.put("name", "yyyy5");
         sqlparams1.put("number", 30);
-        sqlparams1.put("data", date());
+        sqlparams1.put("time", date());
         TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
-                .setParam(DB_P_PARAMS, sqlparams1).setParam(DB_P_SERVERNAME,"dbserver2");
+                .setParam(DB_P_PARAMS, sqlparams1).setParam(DB_P_TABLENAME,"userTable");
         ArrayList<TLMsg> msglist =new ArrayList<>();
-        msglist.add(msg2);
         msglist.add(msg1);
+        msglist.add(msg2);
         TLMsg msg =createMsg().setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST,msglist);
         TLMsg returnMsg = putMsg(DEFAULTDATABASE, msg);
-        System.out.println("time:");
+        TLMsgUtils.printMap(returnMsg.getArgs());
     }
-    private void testtransaction() {
+    private void transaction() {
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE)
                 .setParam(DB_P_TABLENAME, "userTable");
         TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
