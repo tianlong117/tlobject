@@ -91,7 +91,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLBaseModule createDbServer(String serverName, HashMap<String,String> config) {
-        String proxyModule= (config !=null )?config.get(MODULE_PROXYMODULE):DB_DBSEVERMODULENAME;
+        String proxyModule= (config !=null )?config.get(MODULE_PROXYMODULE):DEFAULTDBSERVERMODULE;
         TLBaseModule serverobj;
         if(proxyModule.indexOf("@") >0){
             String[] array =TLDataUtils.splitStrToArray(proxyModule,"@");
@@ -262,7 +262,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg execSql(Object fromWho, TLMsg msg) {
-        String dbserver = (String) msg.getParam(DB_DBSEVERMODULENAME);
+        String dbserver = (String) msg.getParam(DB_P_SERVERNAME);
         if (dbserver == null || dbserver.isEmpty())
             dbserver = params.get("defaultDBserver");
         Connection conn = getConnection(dbserver);

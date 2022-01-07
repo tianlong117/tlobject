@@ -26,12 +26,7 @@
         <table name="userTable2" dbtable="userw"  dbserver="dbserver2" />
     </tables>
     <views>
-        <view name="adminmenue"   dbserver="qqmanager"
-              sql="select  m.* ,u.href from  menus m  left outer join urls u on m.urlid =u.id order by pid, sort" />
-        <view name="vusers"  sql="select * from user where number < ?" dbserver="dbserver1" resultType="arrayList"
-              cacheName="vusers" beforeTrigger="cachetrigger"
-              afterTrigger="aftercachetrigger"/>
-        <view name="vmessages"  sql="select * from messages" dbserver="dbserver2" />
+        <view name="vusers"  sql="select * from userm where  name like  ?&quot;%&quot;  " dbserver="dbserver1" resultType="MAPLIST" />
      </views>
     <triggers>
         <trigger name="tableCacheBefore"    query="getCacheBeforeModle"  />

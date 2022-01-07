@@ -66,11 +66,38 @@ public class DbDemo extends TLBaseModule {
             case "dbBean":
                  dbBean(fromWho, msg);
                 break;
+            case "dbview":
+                returnMsg = dbview(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
     }
+
+    private TLMsg dbview(Object fromWho, TLMsg msg) {
+        String username =msg.getStringParam("username",null) ;
+        if(username ==null)
+            return null ;
+        TLMsg tmsg = createMsg().setAction(DB_GETVIEW).setParam(DB_P_VIEWNAME, "vusers");
+        TLMsg returnmsg = putMsg(DEFAULTDATABASE, tmsg);
+        TLDBView tv = (TLDBView) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", username);
+        TLMsg querymsg = createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_PARAMS, sqlparams);
+       TLMsg resultMsg = putMsg(tv, querymsg);
+        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) resultMsg.getListParam(RESULT,null);
+        if(datas ==null || datas.isEmpty())
+        {
+            System.out.println("没有数据");
+            return null;
+        }
+        System.out.println("查询结果:");
+        TLMsgUtils.printList(datas);
+        return  resultMsg ;
+    }
+
     protected TLMsg deleteTb(Object fromWho, TLMsg msg) {
         String username =msg.getStringParam("username",null) ;
         if(username ==null)
@@ -102,9 +129,15 @@ public class DbDemo extends TLBaseModule {
     }
 
     private TLMsg insertTb(Object fromWho, TLMsg msg) {
+        TLMsg  returnMsg =queryTb(this, createMsg().setParam("username","dong1"));
+        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        if(datas !=null && !datas.isEmpty())
+        {
+            System.out.println("数据已经增加完毕，退出");
+           return null ;
+        }
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
         String[] names ={"jiang","dong","tian","wang"};
-
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         System.out.println("开始插入数据");
         for(int j=0 ;j < names.length ;j ++)
@@ -128,7 +161,8 @@ public class DbDemo extends TLBaseModule {
     }
     private TLMsg queryTb(Object fromWho, TLMsg msg) {
         String username=msg.getStringParam("username",null);
-        String sql = "select * from  [table]  where  name = ? ";
+     //   String sql = "select * from  [table]  where  name like  ?\"%\" ";
+      String sql = "select * from  [table]  where  name = ? ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
@@ -160,9 +194,9 @@ public class DbDemo extends TLBaseModule {
         TLMsgUtils.printList(result);
     }
     private void testtransactionByDB() {
-        String sql = "insert into  user1 (name,number,date) values(?,?,?)";
+        String sql = "insert into  [table] (name,number,date) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dongq7");
+        sqlparams.put("name", "dong1");
         sqlparams.put("number", 20);
         sqlparams.put("data", date());
         TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql)
@@ -210,7 +244,7 @@ public class DbDemo extends TLBaseModule {
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", "dongq");
         TLMsg querymsg = new TLMsg().setAction(DB_EXECSQL)
-                .setParam(DB_DBSEVERMODULENAME,"dbserver2")
+                .setParam(DB_P_SERVERNAME,"dbserver2")
                 .setParam(DB_P_SQLTYPE,DB_QUERY)
                 .setParam("sql", sql)
                 .setParam("resultType", TLDataBase.RESULT_TYPE.BEANLIST)

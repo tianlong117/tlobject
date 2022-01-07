@@ -16,6 +16,7 @@
     <modules>
         <!-- 用户自定义模块 -->
         <module name="dbDemo" classfile=".db.DbDemo" />
+        <module name="userModle" classfile=".db.userModle" />
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="log" usePreReturnMsg="false" />

@@ -3,7 +3,10 @@ package cn.tianlong.java.demo.db;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLBaseTableModle;
+import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 
 /**
@@ -15,17 +18,14 @@ public class userModle extends TLBaseTableModle {
 
     public userModle(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
-        tableName="user";
+        tableName="userTable";
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg;
         switch (msg.getAction()) {
-            case "findUser":
-                returnMsg=findUser( fromWho,  msg);
-                break;
-            case "total":
-                returnMsg=total( fromWho,  msg);
+            case "queryTb":
+                returnMsg = queryTb(fromWho, msg);
                 break;
             default:
                 returnMsg=null;
@@ -33,13 +33,24 @@ public class userModle extends TLBaseTableModle {
         return returnMsg;
     }
 
-    private TLMsg findUser(Object fromWho, TLMsg msg) {
-        LinkedHashMap<String, Object> dbparams =new LinkedHashMap<>();
-        dbparams.put("name",msg.getParam("userName"));
-        TLMsg querymsg=createMsg().setAction(DB_FIND)
-                .setParam(DB_P_PARAMS,dbparams);
-        querymsg.setParam("cacheName","table_user");
-        querymsg.setParam("cacheKey",msg.getParam("userName"));
-       return  putMsg(table,querymsg);
+    private TLMsg queryTb(Object fromWho, TLMsg msg) {
+        String username=msg.getStringParam("username",null);
+        String sql = "select * from  [table]  where  name = ? ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", username);
+        TLMsg querymsg = createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_PARAMS, sqlparams);
+        TLMsg  returnMsg = putMsg(table, querymsg);
+        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        if(datas ==null || datas.isEmpty())
+        {
+            System.out.println(name+":没有数据");
+            return null;
+        }
+        System.out.println(name+":查询结果:");
+        TLMsgUtils.printList(datas);
+        return  returnMsg ;
     }
 }

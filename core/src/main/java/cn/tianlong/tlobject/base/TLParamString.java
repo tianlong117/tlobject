@@ -16,6 +16,7 @@ public interface TLParamString {
     final String DEFAULTLOGTTHREADPOOL = "logThreadPool";
     final String DEFAULTLOG = "log";
     final String DEFAULTDATABASE = "database";
+    final String DEFAULTDBSERVERMODULE = "dbserver";
     final String DEFAULTMODULEMONITOR = "moduleMonitor";
     /**    模块名 *      */
     final String M_MSGBROADCAST = "msgBroadCast";
@@ -334,7 +335,6 @@ public interface TLParamString {
 
     final String DB_DBTABLEMODULENAME = "dbtable";
     final String DB_DBTVIEWMODULENAME = "dbview";
-    final String DB_DBSEVERMODULENAME = "serverName";
     final String DB_DBSERVER = "dbserver";
     final String DB_GETSERVER = "getServer";
     final String DB_GETCONN = "getConnection";
