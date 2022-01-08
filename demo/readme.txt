@@ -1,3 +1,4 @@
 tlobject 目录下演示统一消息对象的使用
 web目录下演示web应用，tomcat环境下
-资源路径log_config.xml 日志配置文件设置level 为debug，则打开debug消息。
+资源路径log_config.xml 日志配置文件设置level为debug则打开debug消息。
+创建数据库tldbdemo1、tldbdemo2。创建sql见tldbdemo1.sql ,tldbdemo2.sql

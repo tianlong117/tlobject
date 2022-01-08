@@ -10,6 +10,7 @@ import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
@@ -71,7 +72,7 @@ public class DbDemo extends TLBaseModule {
                 returnMsg = dbview(fromWho, msg);
                 break;
             case "transactionByDB":
-                transactionByDB();
+                transactionByDB(fromWho, msg);
                 break;
             default:
                 returnMsg = null;
@@ -238,27 +239,55 @@ public class DbDemo extends TLBaseModule {
      * 要么都插入、要么都取消。原理是对第一个库操作后，不进行数据库连接事务提交（commit），在第二个库操作成功后再提交，
      * 否则事务滚回。相对于一般的数据操作，每个数据操作消息要设定DB_P_TABLENAME，明确操作的表。
      */
-    private void transactionByDB() {
+    private void transactionByDB(Object fromWho, TLMsg msg) {
+        String namesStr =msg.getStringParam("names",null);
+        if(namesStr ==null){
+            System.out.println("没有设定names,最少两个名字，中间以;间隔。如daqiang;zhangsan");
+            System.out.println("以ASCII表数值为分表标准，名字第一个字母小于n在user1，其他的在user2中，为保证插入数据分表到不同的表里，名字第一个字母尽量分别取在字母表的前、后");
+            return;
+        }
+        String[] names =TLDataUtils.splitStrToArray(namesStr,";");
+        if(names.length <2)
+        {
+            System.out.println("names设置错误。最少两个名字，中间以;间隔。如daqiang;zhangsan");
+            System.out.println("以ASCII表数值为分表标准，名字第一个字母小于n在user1，其他的在user2中，为保证插入数据分表到不同的表里，名字第一个字母尽量分别取在字母表的前、后");
+
+            return;
+        }
         String sql1 = "insert into  [table] (name,number,time) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
-        sqlparams1.put("name", "dddd3");
-        sqlparams1.put("number", 20);
-        sqlparams1.put("time", date());
-        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
-                .setParam(DB_P_PARAMS, sqlparams1).setParam(DB_P_TABLENAME,"userTable");
-        String sql2 = "insert into  [table] (name,number,time) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams2 = new LinkedHashMap<>();
-        sqlparams2.put("name", "yyyy5");
-        sqlparams2.put("number", 30);
-        sqlparams2.put("time", date());
-        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql2)
-                .setParam(DB_P_PARAMS, sqlparams2).setParam(DB_P_TABLENAME,"userTable");
         ArrayList<TLMsg> msglist =new ArrayList<>();
-        msglist.add(msg1);
-        msglist.add(msg2);
-        TLMsg msg =createMsg().setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST,msglist);
-        TLMsg returnMsg = putMsg(DEFAULTDATABASE, msg);
-        TLMsgUtils.printMap(returnMsg.getArgs());
+        for(int i=0 ;i < names.length ;i++)
+        {
+            System.out.println(names[i]+" ：创立插入消息");
+            LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+            sqlparams.put("name", names[i]);
+            sqlparams.put("number", 20);
+            sqlparams.put("time", date());
+            TLMsg tmsg = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
+                    .setParam(DB_P_PARAMS, sqlparams).setParam(DB_P_TABLENAME,"userTable");
+            msglist.add(tmsg);
+        }
+        System.out.println("执行事务。。。");
+        TLMsg dbmsg =createMsg().setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST,msglist);
+        TLMsg returnMsg = putMsg(DEFAULTDATABASE, dbmsg);
+        if(returnMsg.parseBoolean(RESULT,true)==false)
+        {
+            System.out.println("事务失败，失败消息索引:"+returnMsg.getIntParam("number",0));
+        }
+        System.out.println("查询事务结果:");
+        for(int i=0 ;i < names.length ;i++)
+        {
+           TLMsg qmsg=createMsg().setParam("username",names[i]);
+            System.out.println("查询 username="+names[i]);
+           TLMsg resultMsg =queryTb(this,qmsg);
+            ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) resultMsg.getListParam(RESULT,null);
+            if(datas ==null || datas.isEmpty())
+                System.out.println("没有数据");
+            else {
+                System.out.println("查询结果:");
+                TLMsgUtils.printList(datas);
+            }
+        }
     }
 
     /**

@@ -13,6 +13,7 @@ import java.util.List;
  * 创建日期：2018/3/21 on 8:48
  * 描述:
  * 作者:tianlong
+ * demo分表触发器， 以name第一个字母进行分表。以ASCII表数值为分表标准，名字第一个字母小于n在user1，其他的在user2中
  */
 
 public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
@@ -44,14 +45,14 @@ public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
             username = (String) nmsg.getParam(DB_P_SPLITKEY);
         if(username!=null )
         {
+            //以ASCII表数值为分表标准，名字第一个字母小于n在user1，其他的在user2中
             int charint = username.charAt(0);
-
             if(charint < 110)
                 charint=1 ;
             else
                 charint=2 ;
             String tbtableName=tableName+charint;
-            System.out.println("当前表:"+tbtableName);
+            System.out.println("执行分表，当前表:"+tbtableName);
             return changeTable(tbtableName,nmsg);
         }
         else

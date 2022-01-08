@@ -34,7 +34,7 @@ public  class CheckNameTrigger extends TLDBTrigger {
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        System.out.println(" --------- start checkname ---------------");
+        System.out.println(" --------- 执行触发器 CheckNameTrigger ---------------");
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
             case "onInsert":
@@ -43,7 +43,6 @@ public  class CheckNameTrigger extends TLDBTrigger {
             default:
                 ;
         }
-        System.out.println(" --------- end  checkname ---------------");
         return returnMsg;
     }
 

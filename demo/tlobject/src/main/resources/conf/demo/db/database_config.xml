@@ -27,7 +27,7 @@
 <moduleConfig>
     <!--
     params参数说明：
-            defaultDBserver： 当表没有配置具体的dbserver时，默认的数据库名
+            defaultDBserver： 当表没有配置具体的dbserver时，默认的数据库
             dbPackageName： 默认触发模块类的包前缀。如果触发模块以逗号.开始，表明在此包下
     -->
     <params>
@@ -54,36 +54,38 @@
             口令密码 password=""
    -->
     <dbservers>
-        <dbserver name="dbserver1" proxyModule="dbserver"
-                  driver="com.mysql.jdbc.Driver"
-                  dburl="jdbc:mysql://127.0.0.1:3306/weishengju?characterEncoding=utf8"
-                  dbuser="root" dbpass="123456"
-                  connector="c3p0Conn"
-                  initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
-        <dbserver name="dbserver2" proxyModule="dbserver"
-                  driver="com.mysql.jdbc.Driver"
-                  dburl="jdbc:mysql://127.0.0.1:3306/test?characterEncoding=utf8"
-                  dbuser="root" dbpass="123456"
-                  connector="c3p0Conn"
-                  initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
-    </dbservers>
-    <!--
-      tables参数说明：
-         对表进行配置，如果没有配置而当使用时，则采取默认配置。
-        name：程序中的表名字。
-        dbtable:对应数据库中实际的表名字 。如果表没有配置，则与name一致
-        proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表TLTable
-        dbserver ：表存在哪个数据库中，如果配置了readserver ，则为写数据库。注：读写数据库要自行单独配置同步
-        readserver ：读数据库，如果配置则读操作从该server中进行  。注：读写数据库要自行单独配置同步
-        statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化
-        ifGetStructure:是否获取表结构
-        beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
-                       如有执行多个触发模块，则中间用分号;间隔
-        afterTrigger：访问表后执行的触发模块，一般可以用来写cache或redis
-                      如有执行多个触发模块，则中间用分号;间隔
-        sameAsTable：为简化重复写配置，表明该表的配置与sameAsTable的表的配置一致，如beforeTrigger、afterTrigger一致
+    <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
+   <dbserver name="dbserver1" proxyModule="dbserver"
+             driver="com.mysql.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8"
+             dbuser="root" dbpass="123456"
+             connector="c3p0Conn"
+             initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
+   <dbserver name="dbserver2" proxyModule="dbserver"
+             driver="com.mysql.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8"
+             dbuser="root" dbpass="123456"
+             connector="c3p0Conn"
+             initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
+</dbservers>
+<!--
+ tables参数说明：
+     对表进行配置，对于没有在此配置的数据库实际表，可以在程序中使用，而采取默认配置。
+   name：程序中的表名字。
+   dbtable:对应数据库中实际的表名字 。如果表没有配置，则与name一致
+   proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表TLTable
+   dbserver ：表存在哪个数据库中，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
+   readserver ：读数据库，如果配置则读操作从该server中进行  。注：读写数据库要自行单独配置同步
+   statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化
+   ifGetStructure:是否获取表结构
+   beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
+                  如有执行多个触发模块，则中间用分号;间隔
+   afterTrigger：访问表后执行的触发模块，一般可以用来写cache或redis
+                 如有执行多个触发模块，则中间用分号;间隔
+   sameAsTable：为简化重复写配置，表明该表的配置与sameAsTable的表的配置一致，如beforeTrigger、afterTrigger一致
 -->
     <tables>
+
         <!--
          表userTable对应实际数据库的表user，在数据库dbserver2上，配置了表操作前触发器"userTableSplitTrigger"，这是一个分表操作，
          根据表字段name进行分表。"userTable1"、"userTable2"为具体的分表，对应不同的实际表，它们分表位于不同的数据库上.
@@ -91,8 +93,8 @@
          在每个分别前增加一个前触发器"checkNameTrigger"，用来过来数据库字段。
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" classfile=""/>
-        <table name="userTable1" dbtable="userm" dbserver="dbserver1" beforeTrigger="checkNameTrigger"/>
-        <table name="userTable2" dbtable="userw" dbserver="dbserver2" sameAsTable="userTable1" />
+        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger"/>
+        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" />
     </tables>
     <!--
         为简化某些操作，定义了视图表模块（不是数据库的视图）。
@@ -108,11 +110,11 @@
             classfile：模块对应的具体类名。如果以逗号.开始，则默认包名为params中配置的包前缀dbPackageName
 -->
     <triggers>
-        <!-- 分表触发器   根据name字段进行分表   -->
+        <!-- 分表触发器   根据name字段进行分表  tableName：要分的表  splitTables：分表列表 splitKey:分表依据的字段-->
         <trigger name="userTableSplitTrigger" tableName="userTable" splitTables="userTable1;userTable2" splitKey="name"
                  delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate"
                  classfile=".UserTableSplitTrigger"/>
-        <!-- 检测名字触发器  ，当名字为badname时，禁止插入   -->
+        <!-- 检测字段触发器  ，当名字为badname时，禁止插入   -->
         <trigger name="checkNameTrigger" insert="onInsert"  badname="siren"
                  classfile=".CheckNameTrigger"/>
         <trigger name="tableCacheBefore" query="getCacheBeforeModle"/>

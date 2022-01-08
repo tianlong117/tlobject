@@ -45,7 +45,6 @@ public class startup extends TLAppStartUp {
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        System.out.println(" --------- start action ---------------");
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
             case "queryByTable":
@@ -60,7 +59,6 @@ public class startup extends TLAppStartUp {
             default:
                 returnMsg=super.checkMsgAction(fromWho,msg);
         }
-        System.out.println(" --------- end  action ---------------");
         return returnMsg;
     }
 
