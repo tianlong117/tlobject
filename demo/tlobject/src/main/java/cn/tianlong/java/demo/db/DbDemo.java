@@ -59,6 +59,9 @@ public class DbDemo extends TLBaseModule {
             case "queryTb":
                 returnMsg = queryTb(fromWho, msg);
                 break;
+            case "queryResultIsBeanTb":
+                returnMsg = queryResultIsBeanTb(fromWho, msg);
+                break;
             case "updateTb":
                 returnMsg = updateTb(fromWho, msg);
                 break;
@@ -187,23 +190,37 @@ public class DbDemo extends TLBaseModule {
     }
     private TLMsg queryTb(Object fromWho, TLMsg msg) {
         String username=msg.getStringParam("username",null);
-     //   String sql = "select * from  [table]  where  name like  ?\"%\" ";
-      String sql = "select * from  [table]  where  name = ? ";
+        //   String sql = "select * from  [table]  where  name like  ?\"%\" ";
+        String sql = "select * from  [table]  where  name = ? ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
-       return  putMsg(tb, querymsg);
-        /** --
-         LinkedHashMap<String, Object> sqlCondition = new LinkedHashMap<>();
-         TLDBSqlConditionExpression sce =new TLDBSqlConditionExpression("name",username,DB_P_EXP_LIKELEFT,"");
-         sqlCondition.put("name", sce);
-         TLMsg qmsg=createMsg().setAction(DB_QUERY)
-         .setParam(DB_P_SQLCONDITION, sqlCondition);
-         return  putMsg(tb, qmsg);
-         */
+        return  putMsg(tb, querymsg);
+    }
+    private TLMsg queryResultIsBeanTb(Object fromWho, TLMsg msg) {
+        String username=msg.getStringParam("username",null);
+        String sql = "select * from  [table]  where  name like  ?\"%\" ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", username);
+        TLMsg querymsg = createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
+                .setParam(DB_P_BEANCLASS,userBean.class)
+                .setParam(DB_P_PRIMARYKEY,"name")
+                .setParam(DB_P_PARAMS, sqlparams);
+        TLMsg returnMsg =  putMsg(tb, querymsg);
+        Map<String,userBean> datas =returnMsg.getMapParam(RESULT,null);
+        if(datas!=null){
+           for (userBean user:datas.values()) {
+               System.out.print("name:"+user.getName());
+               System.out.print(" number:"+user.getName());
+               System.out.println(" time:"+user.getTime());
+           }
+        }
+        return returnMsg ;
     }
 
     /**
@@ -297,13 +314,13 @@ public class DbDemo extends TLBaseModule {
     private void transaction() {
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE)
                 .setParam(DB_P_TABLENAME, "userTable");
-        String sql1 = "insert into  user1 (name,number,date) values(?,?,?)";
+        String sql1 = "insert into  user1 (name,number,time) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
         sqlparams1.put("name", "dongq3");
         sqlparams1.put("number", 20);
         sqlparams1.put("data", date());
         TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1) .setParam(DB_P_PARAMS, sqlparams1);
-        String sql2 = "insert into  user2 (name,number,date) values(?,?,?)";
+        String sql2 = "insert into  user2 (name,number,time) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams2 = new LinkedHashMap<>();
         sqlparams2.put("name", "dongq3");
         sqlparams2.put("number", 30);

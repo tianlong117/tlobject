@@ -636,7 +636,7 @@ public class TLDataBase extends TLBaseModule {
         ResultSetHandler rsh = getResultSetHandler(dbType, handerkey);
         if (rsh == null) {
             Class<?> beanClass = (Class<?>) msg.getParam(DB_P_BEANCLASS);
-            rsh = getResultSetHandler(dbType, beanClass);
+            rsh = getResultSetHandler(dbType, beanClass,msg.getStringParam(DB_P_PRIMARYKEY,null));
         }
         return  rsh ;
     }
@@ -656,14 +656,17 @@ public class TLDataBase extends TLBaseModule {
                return null;
         }
     }
-    static public ResultSetHandler getResultSetHandler(RESULT_TYPE resultType, Class beanClass) {
+    static public ResultSetHandler getResultSetHandler(RESULT_TYPE resultType, Class beanClass,String primarykey ) {
         switch (resultType) {
             case BEAN:
                 return new BeanHandler(beanClass);
             case BEANLIST:
                 return new BeanListHandler(beanClass);
             case BEANMAP:
-                return new BeanMapHandler(beanClass);
+                if(primarykey !=null)
+                    return new BeanMapHandler(beanClass,primarykey);
+                else
+                    return new BeanMapHandler(beanClass);
             default:
                  return  null ;
         }

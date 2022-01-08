@@ -10,7 +10,7 @@ import java.util.Date;
 public class userBean {
     private String name ;
     protected int number ;
-    protected Date date ;
+    protected String time;
     public userBean() {
 
     }
@@ -30,12 +30,12 @@ public class userBean {
         this.number = number;
     }
 
-    public Date getDate() {
-        return date;
+    public String getTime() {
+        return time;
     }
 
-    public void setDate(Date date) {
-        this.date = date;
+    public void setTime(String time) {
+        this.time = time;
     }
 
 

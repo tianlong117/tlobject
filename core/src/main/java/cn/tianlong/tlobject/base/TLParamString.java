@@ -381,6 +381,7 @@ public interface TLParamString {
     final String DB_P_HANDERKEY = "handerkey";
     final String DB_P_BEANCLASS = "beanClass";
     final String DB_P_RESULTTYPE = "resultType";
+    final String DB_P_PRIMARYKEY = "primarykey";
     final String DB_R_RESULT = "result";
     final String DB_R_CONNECTOR = "connector";
     final String DB_R_CONN= "connection";
