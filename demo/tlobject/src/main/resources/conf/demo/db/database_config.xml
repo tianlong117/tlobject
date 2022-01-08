@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!--
-  数据库的总配置，默认数据库名为database，对应的模块为TLDataBase。任何一个表模块（对象）从database中产生。
-  database相当于一个表工厂。  表模块实例存在于database  中，不存在模块工厂里，这样表名与其他模块名不冲突。
+  数据库的总配置，默认数据库名为database，对应的模块为TLDataBase。
+  这里的数据库概念为逻辑概念。一个数据库里面可以包含许多个实际数据库。
+  数据库相当于一个表工厂，任何一个表模块（对象）通过数据库产生。 表模块实例存在于database中，不存在模块工厂里，这样表名与其他模块名不冲突。
+  每个表有个概念名字，在配置文件中配置具体指向的实际数据表，通过名字获取表模块实例而操作表。
   获取一个表模块的操作：
      TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
      TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
@@ -38,8 +40,9 @@
     <!--
     dbserver参数说明：
             name：数据库server模块名字，用于程序中指向，非数据库中的实体库名
-            statup:database初始化时是否初始化
+            statup:database初始化时是否初始化 ，默认为false
             proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
+                        如果proxyModule格式为"模块名@数据库名@工厂名”，则表示从另一个工厂空间的数据库中获取
             driver：指明具体的数据库连接驱动模块，如mysql为"com.mysql.jdbc.Driver"
             dburl：数据集连接url。
             dbuser:数据库连接用户名
@@ -71,33 +74,33 @@
 <!--
  tables参数说明：
      对表进行配置，对于没有在此配置的数据库实际表，可以在程序中使用，而采取默认配置。
-   name：程序中的表名字。
-   dbtable:对应数据库中实际的表名字 。如果表没有配置，则与name一致
-   proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表TLTable
-   dbserver ：表存在哪个数据库中，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
-   readserver ：读数据库，如果配置则读操作从该server中进行  。注：读写数据库要自行单独配置同步
-   statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化
-   ifGetStructure:是否获取表结构
+   name：程序中的表概念名字。
+   dbtable:对应数据库中实际的表 。如果该项没有配置，则与name一致
+   proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表模块TLTable
+              如果proxyModule格式为"模块名@数据库名@工厂名”，则表示另一个工厂空间的数据库中获取
+   dbserver ：表存在的具体数据库，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
+   readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
+   statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为 false。
+   ifGetStructure:实例化时是否获取表结构，默认获取。
    beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
-                  如有执行多个触发模块，则中间用分号;间隔
+                  如有执行多个触发模块，则中间用分号;间隔。名字对应触发模块trigger对应的名字。
    afterTrigger：访问表后执行的触发模块，一般可以用来写cache或redis
-                 如有执行多个触发模块，则中间用分号;间隔
-   sameAsTable：为简化重复写配置，表明该表的配置与sameAsTable的表的配置一致，如beforeTrigger、afterTrigger一致
--->
+                 如有执行多个触发模块，则中间用分号;间隔。名字对应触发模块trigger对应的名字。
+   sameAsTable：为简化重复写配置，表明该表的配置与sameAsTable指定表的配置一致，如beforeTrigger、afterTrigger一致，不包含dbserver。
+  -->
     <tables>
-
         <!--
          表userTable对应实际数据库的表user，在数据库dbserver2上，配置了表操作前触发器"userTableSplitTrigger"，这是一个分表操作，
          根据表字段name进行分表。"userTable1"、"userTable2"为具体的分表，对应不同的实际表，它们分表位于不同的数据库上.
          通过分表，对表user的操作实际都是操作了不同数据库上的表。如果取消分表触发器，则改为实际操作user表。
-         在每个分别前增加一个前触发器"checkNameTrigger"，用来过来数据库字段。
+         在每个分别前增加一个前触发器"checkNameTrigger"，用来检查数据库字段。
         -->
-        <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" classfile=""/>
+        <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" />
         <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger"/>
         <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" />
     </tables>
     <!--
-        为简化某些操作，定义了视图表模块（不是数据库的视图）。
+        为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
     -->
     <views>
         <view name="vusers" sql="select * from userm where  name like  ?&quot;%&quot;  " dbserver="dbserver1"
@@ -114,9 +117,10 @@
         <trigger name="userTableSplitTrigger" tableName="userTable" splitTables="userTable1;userTable2" splitKey="name"
                  delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate"
                  classfile=".UserTableSplitTrigger"/>
-        <!-- 检测字段触发器  ，当名字为badname时，禁止插入   -->
-        <trigger name="checkNameTrigger" insert="onInsert"  badname="siren"
+        <!-- 检测字段触发器  ，当名字为badname,或者number大于maxNumber时，禁止插入   -->
+        <trigger name="checkNameTrigger" insert="onInsert"  badname="siren"  maxNumber="99999"
                  classfile=".CheckNameTrigger"/>
+
         <trigger name="tableCacheBefore" query="getCacheBeforeModle"/>
         <trigger name="tableCacheAfter" query="writeCacheAfterModle" update="deleteCacheAfterModle"
                  delete="deleteCacheAfterModle"/>

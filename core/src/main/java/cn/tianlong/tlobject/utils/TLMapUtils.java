@@ -110,4 +110,14 @@ public class TLMapUtils {
         else
             return defaultValue ;
     }
+    public static Integer parseInteger(Map map,String param ,int defaultValue)
+    {
+        Object value  =getValue( map, param ,defaultValue);
+        if (value instanceof Integer )
+            return (int)value;
+        else if(value instanceof String )
+            return Integer.parseInt((String)value) ;
+        else
+            return defaultValue ;
+    }
 }

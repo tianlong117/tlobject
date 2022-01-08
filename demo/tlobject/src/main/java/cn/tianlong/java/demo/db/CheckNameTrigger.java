@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 
 public  class CheckNameTrigger extends TLDBTrigger {
     protected String badname;
+    protected int maxNumber=0;
     public CheckNameTrigger() {
         super();
     }
@@ -31,10 +32,11 @@ public  class CheckNameTrigger extends TLDBTrigger {
     @Override
     protected void initProperty() {
         badname =TLMapUtils.getStringParam(params,"badname",null);
+        maxNumber =TLMapUtils.parseInteger(params,"maxNumber",0);
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        System.out.println(" --------- 执行触发器 CheckNameTrigger ---------------");
+        System.out.println(" 执行触发器 CheckNameTrigger ---------------");
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
             case "onInsert":
@@ -52,10 +54,21 @@ public  class CheckNameTrigger extends TLDBTrigger {
         if(tparams ==null)
             return null ;
         String username = (String) tparams.get("name");
+        int number = TLMapUtils.getIntParam(tparams,"number",0);
         if(!username.equals(badname))
-            return null ;
-        System.out.println("名字非法:"+username);
-        return createMsg().setParam(MODULE_DONEXTMSG,FALSESTR);
+        {
+            if(maxNumber ==0 || number < maxNumber)
+                return null ;
+            else
+            {
+                System.out.println("number超过最大值:"+number);
+                return createMsg().setParam(MODULE_DONEXTMSG,FALSESTR);
+            }
+        }
+        else {
+            System.out.println("名字非法:"+username);
+            return createMsg().setParam(MODULE_DONEXTMSG,FALSESTR);
+        }
     }
 
 
