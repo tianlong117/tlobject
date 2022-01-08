@@ -3,7 +3,6 @@ package cn.tianlong.java.demo.db;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
-import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.ArrayList;
@@ -49,9 +48,6 @@ public class startup extends TLAppStartUp {
         System.out.println(" --------- start action ---------------");
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case "insertByTable":
-                insertByTable( fromWho,  msg);
-                break;
             case "queryByTable":
                 queryByTable( fromWho,  msg);
                 break;
@@ -68,9 +64,6 @@ public class startup extends TLAppStartUp {
         return returnMsg;
     }
 
-    private void insertByTable(Object fromWho, TLMsg msg) {
-        putMsg("dbDemo",msg.setAction("insertTb"));
-    }
     private void queryByTable(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
         TLMsg returnMsg =putMsg("dbDemo",msg.setAction("queryTb"));

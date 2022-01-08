@@ -1,18 +1,15 @@
 package cn.tianlong.java.demo.db;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
-import cn.tianlong.tlobject.base.TLBaseObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.cache.TLMemoryCache;
-import cn.tianlong.tlobject.db.TLDBSqlConditionExpression;
 import cn.tianlong.tlobject.db.TLDBView;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
-import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
@@ -39,8 +36,7 @@ public class DbDemo extends TLBaseModule {
     }
     @Override
     protected TLBaseModule init() {
-        TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE)
-                .setParam(DB_P_TABLENAME, "userTable");
+        TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
         TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
         tb = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
         return this ;
@@ -53,8 +49,11 @@ public class DbDemo extends TLBaseModule {
             case "getResult":
                 getResult(fromWho, msg);
                 break;
+            case "initDataTb":
+                returnMsg = initDataTb(fromWho, msg);
+                break;
             case "insertTb":
-                returnMsg = insertTb(fromWho, msg);
+                insertTb(fromWho, msg);
                 break;
             case "queryTb":
                 returnMsg = queryTb(fromWho, msg);
@@ -78,6 +77,27 @@ public class DbDemo extends TLBaseModule {
                 returnMsg = null;
         }
         return returnMsg;
+    }
+
+    private void insertTb(Object fromWho, TLMsg msg) {
+        String numberStr =msg.getStringParam("number",null);
+        if(numberStr ==null)
+            return  ;
+        int number =Integer.parseInt(numberStr) ;
+        String username =msg.getStringParam("username",null) ;
+        if(username ==null)
+            return  ;
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name",username);
+        sqlparams.put("number", number);
+        sqlparams.put("time", date());
+        TLMsg insertmsg = createMsg().setAction(DB_INSERT)
+                .setParam(DB_P_PARAMS, sqlparams);
+       TLMsg returnMsg = putMsg(tb, insertmsg);
+       if(returnMsg.getIntParam(DB_R_RESULT,0) ==0)
+           System.out.println("插入失败："+username);
+       else
+           System.out.println("插入成功："+username);
     }
 
     private TLMsg dbview(Object fromWho, TLMsg msg) {
@@ -133,12 +153,12 @@ public class DbDemo extends TLBaseModule {
         return putMsg(tb, insertmsg);
     }
 
-    private TLMsg insertTb(Object fromWho, TLMsg msg) {
+    private TLMsg initDataTb(Object fromWho, TLMsg msg) {
         TLMsg  returnMsg =queryTb(this, createMsg().setParam("username","dong1"));
         ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
         if(datas !=null && !datas.isEmpty())
         {
-            System.out.println("数据已经增加完毕，退出");
+            System.out.println("数据已经初始化完毕，退出");
            return null ;
         }
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
@@ -184,6 +204,12 @@ public class DbDemo extends TLBaseModule {
          return  putMsg(tb, qmsg);
          */
     }
+
+    /**
+     * 演示用BeanTable对象操作表
+     * @param fromWho
+     * @param msg
+     */
     protected void dbBean(Object fromWho, TLMsg msg){
         BeanTable beanTable =new BeanTable("userTable",moduleFactory);
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
@@ -206,21 +232,27 @@ public class DbDemo extends TLBaseModule {
         System.out.println("beanTable查询:");
         TLMsgUtils.printList(result);
     }
+
+    /**
+     * 简单的分布式事务操作。虽然都是对userTable插入数据，但是因为分表，实际是对不同数据库不同表的操作。
+     * 要么都插入、要么都取消。原理是对第一个库操作后，不进行数据库连接事务提交（commit），在第二个库操作成功后再提交，
+     * 否则事务滚回。相对于一般的数据操作，每个数据操作消息要设定DB_P_TABLENAME，明确操作的表。
+     */
     private void transactionByDB() {
-        String sql = "insert into  [table] (name,number,time) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dddd3");
-        sqlparams.put("number", 20);
-        sqlparams.put("time", date());
-        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_PARAMS, sqlparams).setParam(DB_P_TABLENAME,"userTable");
         String sql1 = "insert into  [table] (name,number,time) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
-        sqlparams1.put("name", "yyyy5");
-        sqlparams1.put("number", 30);
+        sqlparams1.put("name", "dddd3");
+        sqlparams1.put("number", 20);
         sqlparams1.put("time", date());
-        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
+        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
                 .setParam(DB_P_PARAMS, sqlparams1).setParam(DB_P_TABLENAME,"userTable");
+        String sql2 = "insert into  [table] (name,number,time) values(?,?,?)";
+        LinkedHashMap<String, Object> sqlparams2 = new LinkedHashMap<>();
+        sqlparams2.put("name", "yyyy5");
+        sqlparams2.put("number", 30);
+        sqlparams2.put("time", date());
+        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql2)
+                .setParam(DB_P_PARAMS, sqlparams2).setParam(DB_P_TABLENAME,"userTable");
         ArrayList<TLMsg> msglist =new ArrayList<>();
         msglist.add(msg1);
         msglist.add(msg2);
@@ -228,29 +260,34 @@ public class DbDemo extends TLBaseModule {
         TLMsg returnMsg = putMsg(DEFAULTDATABASE, msg);
         TLMsgUtils.printMap(returnMsg.getArgs());
     }
+
+    /**
+     * 同一实体数据库中的事务。与分布式事务操作的不同，不设定数据操作消息DB_P_TABLENAME。
+     * 最终消息处理发送给表。
+     */
     private void transaction() {
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE)
                 .setParam(DB_P_TABLENAME, "userTable");
-        TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
-        TLTable table = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
-        String sql = "insert into  user1 (name,number,date) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dongq3");
-        sqlparams.put("number", 20);
-        sqlparams.put("data", date());
-        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql) .setParam(DB_P_PARAMS, sqlparams);
-        String sql1 = "insert into  user2 (name,number,date) values(?,?,?)";
+        String sql1 = "insert into  user1 (name,number,date) values(?,?,?)";
         LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
         sqlparams1.put("name", "dongq3");
-        sqlparams1.put("number", 30);
+        sqlparams1.put("number", 20);
         sqlparams1.put("data", date());
-        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1) .setParam(DB_P_PARAMS, sqlparams1);
+        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1) .setParam(DB_P_PARAMS, sqlparams1);
+        String sql2 = "insert into  user2 (name,number,date) values(?,?,?)";
+        LinkedHashMap<String, Object> sqlparams2 = new LinkedHashMap<>();
+        sqlparams2.put("name", "dongq3");
+        sqlparams2.put("number", 30);
+        sqlparams2.put("data", date());
+        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql2) .setParam(DB_P_PARAMS, sqlparams2);
         ArrayList<TLMsg> msglist =new ArrayList<>();
         msglist.add(msg1);
         msglist.add(msg2);
         TLMsg msg =createMsg().setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST,msglist);
-        TLMsg returnMsg = putMsg(table, msg);
-        System.out.println("time:");
+        TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
+        TLTable table = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
+        putMsg(table, msg);
+
     }
     protected void testDatabaseSql(){
         String sql = "select * from  user1  where  name = ? ";
