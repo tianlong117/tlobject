@@ -25,7 +25,7 @@
     <url-mapping>
         <url  value="/*" >
             <!-- 对于目录设置*，该目录下只能为同一个servmodule处理 。
-            map方式： 该目录后下url=“方法” ，如/home  对应 index 方法。没有map的方法无法访问-->
+            url与模块方法的映射方式： 该目录后下url=“方法” ，如/home  对应 index 方法。没有映射的方法无法访问-->
             <msg  destination="homepage"  default="index"   upload="upload"
                   bd="baidu" home="index" input="input" content="content" setpassword="setPassword"
                   getmsg="getmsg"   ve="velocity" http="http"  getuser="getuser"

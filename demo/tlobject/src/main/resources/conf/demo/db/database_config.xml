@@ -93,7 +93,8 @@
          表userTable对应实际数据库的表user，在数据库dbserver2上，配置了表操作前触发器"userTableSplitTrigger"，这是一个分表操作，
          根据表字段name进行分表。"userTable1"、"userTable2"为具体的分表，对应不同的实际表，它们分表位于不同的数据库上.
          通过分表，对表user的操作实际都是操作了不同数据库上的表。如果取消分表触发器，则改为实际操作user表。
-         在每个分别前增加一个前触发器"checkNameTrigger"，用来检查数据库字段。
+         在每个分表前增加一个前触发器"checkNameTrigger"，用来检查数据库字段。
+         每个分表与其他表一样，可以单独操作。
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" />
         <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger"/>

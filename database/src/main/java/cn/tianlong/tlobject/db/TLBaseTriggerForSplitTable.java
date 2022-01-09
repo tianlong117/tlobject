@@ -100,31 +100,65 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
     }
     protected abstract TLMsg selectTable(Object fromWho, TLMsg msg);
     protected TLMsg doAllTable(TLMsg msg)   {
-        ArrayList<Object> totaldatas=new ArrayList<>();
+
         if (splitTables ==null || splitTables.length==0)
             return null ;
+        Object totaldatas=null;
         TLMsg returnMsg;
         for(int i=0 ; i<splitTables.length ;i++)
         {
            TLMsg dbMsg =createMsg().copyFrom(msg);
             returnMsg =changeTable(splitTables[i],dbMsg);
-            List splistDatas;
+            Object splistDatas;
             if(returnMsg!=null )
             {
-                splistDatas = returnMsg.getListParam(DB_R_RESULT,null);
-                if(splistDatas !=null &&  !splistDatas.isEmpty())
-                   totaldatas.addAll(splistDatas);
+                splistDatas = returnMsg.getParam(DB_R_RESULT);
+                if(splistDatas !=null)
+                {
+                    if(splistDatas instanceof List)
+                    {
+                        if(totaldatas ==null)
+                            totaldatas = new ArrayList<>();
+                        (( ArrayList)totaldatas).addAll((List)splistDatas);
+                    }
+                    else if (splistDatas instanceof  Map){
+                        if(totaldatas ==null)
+                            totaldatas = new HashMap<>();
+                        (( HashMap)totaldatas).putAll((Map)splistDatas);
+                    }
+                    else if ( splistDatas instanceof  Integer){
+                        if(totaldatas ==null)
+                            totaldatas = new Integer(0);
+                        totaldatas =(int)totaldatas +((int)splistDatas) ;
+                    }
+                    else if ( splistDatas instanceof  Boolean){
+                        if(totaldatas ==null)
+                            totaldatas = new Boolean(true);
+                        if((boolean)splistDatas ==false)
+                            totaldatas=false ;
+                    }
+                }
             }
         }
-        if(!totaldatas.isEmpty() && !msg.isNull(DB_P_ORDERBY))
+        if(totaldatas !=null && !msg.isNull(DB_P_ORDERBY))
         {
-            List orderDatas=dataToOrder(totaldatas,msg.getParam(DB_P_ORDERBY));
+            Object orderDatas=null;
+            if(totaldatas instanceof List)
+               orderDatas=listDataToOrder((ArrayList)totaldatas,(String)msg.getParam(DB_P_ORDERBY));
+            else if(totaldatas instanceof Map)
+                orderDatas=mapDataToOrder((Map)totaldatas);
             return createMsg().setParam(DB_R_RESULT,orderDatas).setParam(MODULE_DONEXTMSG,"false");
         }
         return createMsg().setParam(DB_R_RESULT,totaldatas).setParam(MODULE_DONEXTMSG,"false");
     }
 
-    private List dataToOrder(ArrayList<Object> totaldatas, Object param) {
+    protected   Map<Object ,Map<String,Object>> mapDataToOrder(Map<String,Map<String,Object>> totaldatas){
+        Map<Object ,Map<String,Object>> orderData = new TreeMap<>();
+        orderData.putAll(totaldatas);
+        return orderData ;
+    }
+
+    private List listDataToOrder(ArrayList<Object> totaldatas, String param) {
         Map<Object ,Map<String,Object>> orderData = new TreeMap<>();
         for (int i = 0; i < totaldatas.size(); i++) {
             Map<String,Object> unit= (Map<String, Object>) totaldatas.get(i);

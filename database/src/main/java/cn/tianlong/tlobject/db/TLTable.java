@@ -239,8 +239,8 @@ public class TLTable extends TLBaseDataUnit {
         sb.append(" from [table] ");
         String sql = sb.toString();
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST);
+                .addArgs(msg.getArgs())
+                .setParam(DB_P_SQL, sql);
         return getMsg(fromWho, querymsg);
     }
 

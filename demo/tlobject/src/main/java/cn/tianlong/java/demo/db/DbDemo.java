@@ -13,7 +13,9 @@ import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
+import org.apache.commons.beanutils.BeanUtils;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
@@ -59,8 +61,8 @@ public class DbDemo extends TLBaseModule {
             case "queryTb":
                 returnMsg = queryTb(fromWho, msg);
                 break;
-            case "queryResultIsBeanTb":
-                returnMsg = queryResultIsBeanTb(fromWho, msg);
+            case "queryResultIsBean":
+                returnMsg = queryResultIsBean(fromWho, msg);
                 break;
             case "updateTb":
                 returnMsg = updateTb(fromWho, msg);
@@ -77,10 +79,20 @@ public class DbDemo extends TLBaseModule {
             case "transactionByDB":
                 transactionByDB(fromWho, msg);
                 break;
+            case "clearTb":
+                clearTb(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
+    }
+
+    private void clearTb(Object fromWho, TLMsg msg) {
+        BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
+        int number = beanTable.removeAll();
+        System.out.println("数据删除，删除数量:"+number);
+
     }
 
     private void insertTb(Object fromWho, TLMsg msg) {
@@ -200,7 +212,7 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(tb, querymsg);
     }
-    private TLMsg queryResultIsBeanTb(Object fromWho, TLMsg msg) {
+    private TLMsg queryResultIsBean(Object fromWho, TLMsg msg) {
         String username=msg.getStringParam("username",null);
         String sql = "select * from  [table]  where  name like  ?\"%\" ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
@@ -229,15 +241,15 @@ public class DbDemo extends TLBaseModule {
      * @param msg
      */
     protected void dbBean(Object fromWho, TLMsg msg){
-        BeanTable beanTable =new BeanTable("userTable",moduleFactory);
+        BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
-        datas.put("name","testBeanTable");
+        datas.put("name","beanTable");
         datas.put("number",1);
         datas.put("time",date());
         beanTable.add(datas) ;
         System.out.println("beanTable插入:");
         TLMsgUtils.printMap(datas);
-        datas.put("name","testBeanTable1");
+        datas.put("name","tBeanTable");
         datas.put("number",2);
         datas.put("time",date());
         beanTable.add(datas) ;
@@ -245,12 +257,15 @@ public class DbDemo extends TLBaseModule {
         TLMsgUtils.printMap(datas);
       //  datas.clear();
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "testBeanTable");
+        sqlparams.put("name", "tBeanTable");
          ArrayList<Map<String,Object>> result =beanTable.getAll(sqlparams);
         System.out.println("beanTable查询:");
         TLMsgUtils.printList(result);
-    }
+     //   Map<String,Object> alldatas =beanTable.getAllBeanMap(userBean.class);
+   //     ArrayList<Object> alldatas =beanTable.getAllBeanList(userBean.class);
 
+
+    }
     /**
      * 简单的分布式事务操作。虽然都是对userTable插入数据，但是因为分表，实际是对不同数据库不同表的操作。
      * 要么都插入、要么都取消。原理是对第一个库操作后，不进行数据库连接事务提交（commit），在第二个库操作成功后再提交，
