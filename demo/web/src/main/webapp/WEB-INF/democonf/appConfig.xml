@@ -27,7 +27,7 @@
         <action  value="dispatchUrl" >
             <msg   action="setup" destination="website"  ></msg>
         </action>
-        <!-- 单独方法认真
+        <!-- 单独方法认证
         <action  value="getuser" >
             <msg   action="authInModule" destination="webauth" />
         </action>

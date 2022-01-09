@@ -30,7 +30,7 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>demo</artifactId>
+            <artifactId>demo-tlobject</artifactId>
             <version>1.0</version>
         </dependency>
     </dependencies>

@@ -12,27 +12,13 @@
         <!-- 模块默认包前缀 -->
         <package value="cn.tianlong.java"/>
         <factory value="singleton"/>
-        <!-- 是否开启监控配置文件动态更新-->
-        <ifMonitorConfig vaue="false"/>
     </params>
  
     <modules>
-
         <!-- 用户自定义模块 -->
-            <!-- 数据库表modle操纵类-->
         <!-- 用户自定义模块 "appCenter" 为系统主启动模块，必须定义-->
         <module name="homepage"  classfile=".servletdemo.homePageControl" />
-        <module name="dbserver1"  proxyModule="dbserver" configfile="database_config.xml"/>
-        <module name="dbserver2"  proxyModule="dbserver" configfile="database_config.xml"/>
-        <module name="servletTest1" classfile=".servletdemo.servletTest1" singleton="true" />
-        <module name="userTableSplitTrigger"  classfile=".servletdemo.UserTableSplitTrigger" />
-        <module name="serv1C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
-        <module name="serv2C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
-        <module name="myservice" proxyModule="webSevice"  serverAddress1 ="http://localhost:8080/tltest/tlobject/service"/>
-        <module name="userModle" classfile=".servletdemo.userModle" />
         <module name="servletDbTest"  classfile=".servletdemo.servletDbTest" />
-        <module name="myhttpClient"  classfile=".servletdemo.myhttpClientWithkeepalive" singleton="false"
-                appid="demo-app" secret="demo-secret" port="8081" hostname="127.0.0.1"/>
         <module name="cacheKeyModule"  classfile=".servletdemo.cacheKeyModule" />
         <module name="authModule"  classfile=".servletdemo.authModule" />
         <module name="loginModule"  classfile=".servletdemo.loginModule" />
@@ -40,14 +26,12 @@
                 inInterface="directInInterface" outInterface="thymeleaf"/>
         <module name="myUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserInSession"
                 client="thymeleafClient" timeout="60" />
+        <module name="dbDemo" classfile="cn.tianlong.java.demo.db.DbDemo" />
+        <module name="userModle" classfile="cn.tianlong.java.demo.db.userModle" />
     </modules>
-    <!-- 线程中的公共模块要在工厂启动时启动，放入主线程中，否则出错-->
+    <!-- 线程中的公共模块要在工厂启动时启动，放入主线程中，否则容易出错-->
     <factoryBoot>
         <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" />
         <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
-        <!-- 客户端连接池，用于连接应用server  测试ying
-        <msg action="getModule"  moduleName="webServiceCustomerPool" usePreReturnMsg="false" />
-          -->
-
     </factoryBoot>
 </moduleConfig>

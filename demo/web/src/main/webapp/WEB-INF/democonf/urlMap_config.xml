@@ -56,8 +56,11 @@
             <msg  destination="servletTest1" getuser="user" index="index" />
         </url>
         <url  value="/db/*" >
-            <msg  destination="servletDbTest" find="find" findall="findall"
+            <msg  destination="servletDbTest"  findall="findall"
                   query="query" clientUser="tokenUser" />
+        </url>
+        <url  value="/db/find" >
+            <msg  action="find" destination="servletDbTest"   clientVars="name" />
         </url>
         <url  value="/db/dbmodle" >
             <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
