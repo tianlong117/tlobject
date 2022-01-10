@@ -3,57 +3,56 @@
     <params>
         <verison value="1"/>
     </params>
+    <!--
+     在url解析成对应的模块与方法后，在消息送给响应的模块前，执行"toServlet"方法。
+     因此通过配置"toServlet"方法的执行前消息表，可进行一些公共的操作，如检查登录、授权等。
+    -->
     <beforeMsgTable>
-
         <action  value="toServlet" >
             <msg   action="auToLogin" destination="webUser" useInputMsg="false" usePreReturnMsg ="false"/>
             <msg   action="authInUrlMap" destination="webauth"  useInputMsg="false" usePreReturnMsg ="false"/>
-            <!--
-           <msg   action="auToLogin" destination="webUser" useInputMsg="false" usePreReturnMsg ="false"/>
-           <msg   action="authInUrlMap" destination="webauth"  useInputMsg="false" usePreReturnMsg ="false"/>
-             <msg   action="getCache" destination="servletCache" useInputMsg="false" usePreReturnMsg ="false" ></msg>
-    -->
-</action>
-</beforeMsgTable>
-  <!-- 目录相对于filter配置目录下
- 对于每个映射，可以更改user，client类型。
- clientUser : user类型
- clientType : client接口类型
- clientVars : 客户端输入的变量列表，自动获取后传给后端模块
- varType ： 客户端变量类型  目前仅为 json
+        </action>
+    </beforeMsgTable>
+  <!--
+     1、url与模块、方法的映射关系配置。
+     2、路径相对于过滤器的配置路径。如过滤器的配置路径是/demo,则"/db/*"全路径是/demo/db/
+       <url  value="/db/find" >
+            <msg  action="find" destination="servletDbTest"   clientVars="name" />
+        </url>
+        该配置说明对于http://localhost/demo/db/find ，其映射到servletDbTest的find方法上，同时解析输入变量name
+     3、对于每个映射，可以设置、更改user，client类型。
+        clientUser : 用户类型 默认为 webUser
+        clientType : client接口类型 ，默认为"webClient"。
+        clientVars : 客户端输入的变量列表，用分号;间隔。变量自动获取后传给后端模块。如clientVars="*"，则表明解析所有变量
+        inInterface ： 输入接口
+        outInterface ： 输出接口
+     4、在cn.tianlong.tlobject.servletutils_config.xml配置文件中，定义预先配置的user 和client类型，如：
+           <module name="jsonClient"  proxyModule="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
+           对于jsonClient ，配置了相关的json输入、输出接口
+       对于默认的"webClient" 配置如下。其默认输出接口为velocity模板。
+         <module name="webClient"  classfile="cn.tianlong.tlobject.servletutils.TLWClient"
+                inInterface="directInInterface" outInterface="velocity"/>
  -->
     <url-mapping>
+        <!--
+         对于目录设置*，该目录下只能为同一个模块处理 。
+         url与模块方法的映射方式： 对于应该目录下的url，设定url=“方法” ，
+         如/home  对应模块index 方法， bd="baidu" /bd对应baidu方法。
+         没有映射的方法无法访问。
+         -->
         <url  value="/*" >
-            <!-- 对于目录设置*，该目录下只能为同一个servmodule处理 。
-            url与模块方法的映射方式： 该目录后下url=“方法” ，如/home  对应 index 方法。没有映射的方法无法访问-->
             <msg  destination="homepage"  default="index"   upload="upload"
-                  bd="baidu" home="index" input="input" content="content" setpassword="setPassword"
-                  getmsg="getmsg"   ve="velocity" http="http"  getuser="getuser"
-                  getParam="getWebParam" />
-        </url>
-        <url  value="/th" >
-            <msg action="thymeleaf" destination="homepage" clientUser="myUser" />
+                  bd="baidu" home="index" input="input"  setpassword="setPassword"
+                 />
         </url>
         <url  value="/baidu" >
             <msg action="baidu" destination="homepage" />
         </url>
+        <url  value="/th" >
+            <msg action="thymeleaf" destination="homepage" clientUser="myUser" />
+        </url>
         <url  value="/getf" >
             <msg action="getUrlFile" destination="homepage" />
-        </url>
-        <url  value="/cache" >
-            <msg action="fileCache" destination="homepage" />
-        </url>
-        <url  value="/getm" >
-            <msg action="getUrlImage" destination="homepage" />
-        </url>
-        <url  value="/service" >
-            <msg action="service" destination="msgMap" />
-        </url>
-        <url  value="/index" >
-            <msg action="index" destination="homepage" />
-        </url>
-        <url  value="/test/*" >
-            <msg  destination="servletTest1" getuser="user" index="index" />
         </url>
         <url  value="/db/*" >
             <msg  destination="servletDbTest"  findall="findall"
@@ -62,12 +61,15 @@
         <url  value="/db/find" >
             <msg  action="find" destination="servletDbTest"   clientVars="name" />
         </url>
-        <url  value="/db/dbmodle" >
-            <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
-        </url>
-        <url  value="/login" >
-            <msg action="regist" destination="loginModule" />
-        </url>
-
-    </url-mapping>
+        <!-- 同样的find查询，更改不同的clientType ,输出不同 ，
+        "jsonClient"的输入接口为json输入，这里对输入接口单独指定"directInInterface"， 用以获取客户端get方式提交的name变量
+        -->
+       <url  value="/db/findtojson" >
+           <msg  action="find" destination="servletDbTest"   clientVars="name"
+                 inInterface="directInInterface" clientType="jsonClient" />
+       </url>
+       <url  value="/db/dbmodle" >
+           <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
+       </url>
+   </url-mapping>
 </moduleConfig>

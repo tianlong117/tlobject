@@ -19,6 +19,7 @@ import java.util.Properties;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CHARSET;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_P_CONTENT;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_P_OUDDATA;
+import static java.lang.Thread.sleep;
 
 public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
     protected VelocityEngine ve;
@@ -65,7 +66,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
                 return this ;
             }
         }
-        putLog("velocity path:"+dir ,LogLevel.INFO,"init");
+        putLog("velocity path:"+dir ,LogLevel.DEBUG,"init");
         Properties properties = new Properties();
         properties.setProperty(VelocityEngine.FILE_RESOURCE_LOADER_PATH,dir);
         for (int i=0;i<propertyItem.length ;i++){
@@ -78,7 +79,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
     }
     @Override
     protected Object setConfig(){
-      myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());
+        myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());
         mconfig=config;
         super.setConfig();
         templates=config.getTemplates();
@@ -129,7 +130,13 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
                 if(template.subSequence(0, 1) != "/")
                     template =prefixPath + template ;
             }
-            Template tpl = ve.getTemplate(template);
+            Template tpl;
+            try {
+                tpl = ve.getTemplate(template);
+            } catch (Exception e) {
+               putLog("没有模板文件:"+template,LogLevel.ERROR);
+               return null ;
+            }
             VelocityContext ctx = new VelocityContext();
             for (String key : datas.keySet()) {
                 ctx.put(key,datas.get(key));

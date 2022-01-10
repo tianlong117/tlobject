@@ -35,7 +35,7 @@ public class userModle extends TLBaseTableModle {
 
     private TLMsg queryTb(Object fromWho, TLMsg msg) {
         String username=msg.getStringParam("username",null);
-        String sql = "select * from  [table]  where  name = ? ";
+        String sql = "select * from  [table]  where  name like  ?\"%\" ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
@@ -43,11 +43,13 @@ public class userModle extends TLBaseTableModle {
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg  returnMsg = putMsg(table, querymsg);
+        if(msg.getBooleanParam("isFromWeb",false)==true)
+            return returnMsg ;
         ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
         if(datas ==null || datas.isEmpty())
         {
             System.out.println(name+":没有数据");
-            return null;
+            return returnMsg;
         }
         System.out.println(name+":查询结果:");
         TLMsgUtils.printList(datas);

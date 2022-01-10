@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
+        <templatePath value="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\templates" />
+        <prefixPath value="/demo/"/>
         <resource.loader    value="file"/>
         <input.encoding value="UTF-8"/>
         <output.encoding value="UTF-8"/>
@@ -9,9 +11,8 @@
     </params>
 
     <templates>
-        <dataid name="homepage.velocity"  template="homepage.velocity.vm" />
-        <dataid name="servletTest1.index" template="servletTest1.index.vm" />
-        <dataid name="servletTest1.user" template="servletTest1.user.vm" />
-        <dataid name="servletDbTest.dbmodle" template="servletDbTest.db.user.vm" />
+        <dataid name="homepage.velocity"  template="velocity.html" />
+        <dataid name="servletDbTest.find" template="user.html" />
+        <dataid name="servletDbTest.dbmodle" template="user.html" />
     </templates>
 </moduleConfig>

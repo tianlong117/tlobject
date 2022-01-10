@@ -66,14 +66,13 @@ public class servletDbTest extends TLWServModule {
 
     private void dbmodle(Object fromWho, TLMsg msg) {
         long startTime =System.currentTimeMillis();
-        outData odata =  creatOutDataMsg("dbmodle");
-        String name= (String) msg.getParam("name");
-        TLMsg total =putMsg("userModle",createMsg().setAction("total"));
-        odata.addData("总数:"+total.getParam("result"));
-        TLMsg returnMsg =putMsg("userModle",createMsg().setAction("findUser").setParam("userName",name));
-        List datas = (List) returnMsg.getParam("result");
+        TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
+                .setParam("username",name)
+                .setParam("isFromWeb",true));
+        List datas =  returnMsg.getListParam(DB_R_RESULT,null);
         Long nowTime =System.currentTimeMillis();
         Long runtime=nowTime-startTime;
+        outData odata =  creatOutDataMsg("dbmodle");
         odata.addData("time","数据查询时间："+runtime);
         if(datas==null || datas.isEmpty())
         {
@@ -82,7 +81,6 @@ public class servletDbTest extends TLWServModule {
             return;
         }
         odata.addData("datas",datas);
-        odata.setParam("cacheKey",dbmodleGetCacheKey() );
         putOutData(odata);
     }
 
@@ -90,7 +88,8 @@ public class servletDbTest extends TLWServModule {
         String userName=msg.getStringParam("name",null);
         if(userName ==null)
             return;
-        outData odata =  creatOutDataMsg();
+        outData odata =  creatOutDataMsg("find");
+        odata.addData("time",date());
         TLMsg returnMsg =putMsg("dbDemo",createMsg().setAction("queryTb").setParam("username",userName));
         ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
         if(datas ==null || datas.isEmpty())
