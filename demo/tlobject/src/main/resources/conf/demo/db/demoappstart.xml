@@ -5,7 +5,7 @@
            为偷懒，通过设置在action前增加#来不运行该动作, 因为模块没有该动作。
           实际应用中还是通过xml语法注释掉,因为通过命名不存在的动作，虽然没有运行该动作，但是模块要运行该动作的前后其他准备。
         -->
-        <msg action="initDataTb"  destination="dbDemo" />
+        <msg action="#initDataTb"  destination="dbDemo" />
         <msg action="#insertTb"     destination="dbDemo"   username="siren" number="99999999" />
         <msg action="#queryByTable"  username="dong1"/>
         <msg action="#queryResultIsBean" destination="dbDemo" username="dong"/>
@@ -13,7 +13,7 @@
         <msg action="#deleteByTable"  username="dong2"/>
         <msg action="#dbBean"    destination="dbDemo"    />
         <msg action="#dbview"    destination="dbDemo"   username="dong" />
-        <msg action="#queryTb"    destination="userModle"   username="dong1" />
+        <msg action="queryTb"    destination="userModle"   username="dong" />
         <msg action="#transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
         <msg action="#queryByTable"  username="dddd3"/>
         <msg action="#queryByTable"  username="yyyy5"/>

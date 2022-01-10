@@ -65,9 +65,12 @@ public class servletDbTest extends TLWServModule {
     }
 
     private void dbmodle(Object fromWho, TLMsg msg) {
+        String userName=msg.getStringParam("name",null);
+        if(userName ==null)
+            return;
         long startTime =System.currentTimeMillis();
         TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
-                .setParam("username",name)
+                .setParam("username",userName)
                 .setParam("isFromWeb",true));
         List datas =  returnMsg.getListParam(DB_R_RESULT,null);
         Long nowTime =System.currentTimeMillis();
