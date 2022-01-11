@@ -13,7 +13,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ 消息广播模块
+ */
 public class TLMsgBroadCast extends TLBaseModule {
     protected String threadPool ;
     protected ConcurrentHashMap<String,ArrayList<TLMsg>> receivers= new ConcurrentHashMap<>();

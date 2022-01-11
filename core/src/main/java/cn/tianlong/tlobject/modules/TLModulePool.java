@@ -12,6 +12,9 @@ import static java.lang.Thread.sleep;
  * 描述:
  * 作者:tianlong
  */
+/**
+ 模块池。数据库类似连接池。
+ */
 
 public   class TLModulePool extends TLBaseModule {
     protected boolean autoInit=true ;

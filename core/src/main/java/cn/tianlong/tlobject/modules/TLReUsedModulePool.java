@@ -18,6 +18,9 @@ import static java.lang.Thread.sleep;
  * 作者:tianlong
  */
 
+/**
+ * 可重用模块池，对应每个请求模块者分配固定的池中模块对象。
+ */
 public   class TLReUsedModulePool extends TLBaseModule {
     protected boolean autoInit=true ;
     protected int  moduleNameIndex=0;

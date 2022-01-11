@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+       <!-- 系统模块 -->
+        <!-- cache-->
+        <module name="fileCache"    classfile="cn.tianlong.tlobject.cache.TLFileCache" />
+        <module name="EhCache"      classfile="cn.tianlong.tlobject.cache.TLEhcache" />
+        <module name="cacheManager" classfile="cn.tianlong.tlobject.cache.TLCacheManager"  />
+        <module name="memoryCache"  classfile="cn.tianlong.tlobject.cache.TLMemoryCache"  />
+
+    </modules>
+</moduleConfig>

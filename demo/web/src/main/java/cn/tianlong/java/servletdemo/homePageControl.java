@@ -67,7 +67,7 @@ public class homePageControl extends TLWServModule {
     protected void index(Object fromWho, TLMsg msg) {
         HttpServletRequest request = getRequest();
         ServletContext context= request.getServletContext();
-        outData odata =  creatOutDataMsg("index");
+        outData odata =  creatOutDataMsg();
         odata.addData("<html><head><title>RequestInfo</TITLE></head>");
         odata.addData("<body>");
         //打印服务器端的IP地址

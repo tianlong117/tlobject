@@ -10,6 +10,9 @@ import java.util.concurrent.Executors;
  * 作者:tianlong
  */
 
+/**
+ * 线程池模块，对于设置异步标志的消息，如果在参数中设置了使用线程池，则消息在线程池的线程中执行。
+ */
 public class TLThreadPool extends TLBaseModule {
     protected ExecutorService threadPool ;
     protected int poolSize = 5;

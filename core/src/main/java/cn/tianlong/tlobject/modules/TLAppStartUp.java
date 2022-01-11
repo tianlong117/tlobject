@@ -12,7 +12,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 
-
+/**
+ * 程序启动模块类
+ */
 public class TLAppStartUp extends TLBaseModule {
     protected TLObjectFactory appFactory ;
     protected String appName ;

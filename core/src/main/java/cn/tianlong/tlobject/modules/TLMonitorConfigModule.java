@@ -13,6 +13,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 描述:
  * 作者:tianlong
  */
+/**
+ *  模块配置文件监控，当被监控模块的配置文件发生修改，则出发模块重新加载配置文件。
+ */
+
 public class TLMonitorConfigModule extends TLBaseModule {
     protected TLMsg reloadMsg=createMsg().setAction("reloadConfig");
     protected Map<String,String> moduleConfigFiles;

@@ -16,7 +16,9 @@ import java.util.concurrent.*;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ 消息计划任务模块
+ */
 public class TLMsgTask extends TLBaseModule {
     protected ScheduledExecutorService executor;
     protected Map<String, TLMsg>  taskMsgTable = new ConcurrentHashMap<>();

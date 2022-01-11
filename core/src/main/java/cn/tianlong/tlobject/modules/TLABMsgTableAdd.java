@@ -11,6 +11,25 @@ import java.util.concurrent.ScheduledExecutorService;
  * 作者:tianlong
  */
 
+/**
+ * 当模块创立时动态加入before 和after msgTable
+ * <moduleConfig>
+ *     <msgTable>
+ *      <msgid  value="urlMap" >
+ *          <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" postion="1" />
+ *      </msgid>
+ *
+ *      <msgid  value="velocity" >
+ *          <msg action="addAfterMsg"  maction="putDataToUser"
+ *               daction="writeCache" ddestination="servletCache" />
+ *      </msgid>
+ *      <msgid  value="appCenter" >
+ *          <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" postion="1"/>
+ *          <msg action="addBeforeMsg"  maction="velocity" daction="getCache" ddestination="servletCache" />
+ *      </msgid>
+ *     </msgTable>
+ * </moduleConfig>
+ */
 public  class TLABMsgTableAdd extends TLBaseModule {
     protected   static ScheduledExecutorService executor ;
 

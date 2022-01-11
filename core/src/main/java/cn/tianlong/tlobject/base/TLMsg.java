@@ -12,7 +12,10 @@ import java.util.Set;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ *  消息对象编程的消息定义类。消息对象通过发送消息类来传递指令。
+ *
+ */
 public class TLMsg implements Serializable , Cloneable{
     private static final long serialVersionUID = 2631590509760908280L;
     protected String source;  //消息产生源

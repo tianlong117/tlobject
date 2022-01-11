@@ -13,6 +13,10 @@ import java.util.Map;
  * 描述:
  * 作者:tianlong
  */
+
+/**
+ * msg输入控制台
+ */
 public class TLMsgTaskConsole extends TLMsgScanner {
     protected  String msgTaskModule;
     protected  String taskParams[] = {"delay","begin","times"};

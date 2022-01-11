@@ -3,7 +3,9 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-
+/**
+ 消息路由，在msgTable中配置消息路由
+ */
 
 public class TLMsgRouter extends TLBaseModule {
 

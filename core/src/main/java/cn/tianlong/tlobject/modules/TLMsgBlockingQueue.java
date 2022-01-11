@@ -13,6 +13,9 @@ import static java.lang.Thread.sleep;
  * 描述:
  * 作者:tianlong
  */
+/**
+ 消息阻塞序列
+ */
 
 public   class TLMsgBlockingQueue extends TLBaseModule {
     protected String threadPoolName =DEFAULTTHREADPOOL;

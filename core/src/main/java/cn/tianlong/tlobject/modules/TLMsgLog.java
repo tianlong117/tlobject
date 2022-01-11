@@ -12,7 +12,9 @@ import java.util.HashMap;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ 监控msg处理
+ */
 public  class TLMsgLog extends TLBaseModule {
 
     public TLMsgLog(String name ){

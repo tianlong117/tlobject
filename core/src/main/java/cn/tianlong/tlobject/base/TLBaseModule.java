@@ -17,6 +17,10 @@ import static java.lang.Thread.sleep;
  * 作者:tianlong
  */
 
+/**
+ *  TLBaseModule 为消息对象编程的基础，继承此类的模块对象则具有消息对象的功能和属性。
+ *
+ */
 public abstract class TLBaseModule extends TLBaseObject {
     public static final String PRERESULT = "beforeResult";
     protected String applicationId="tlobjectApp";
@@ -28,10 +32,10 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
     protected ArrayList<TLMsg> initMsgTable;          //初始化时的消息队列
     protected ArrayList<TLMsg> startMsgTable;          //初始化时的消息队列
-    protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //前期执行msg
-    protected HashMap<String, ArrayList<TLMsg>> afterMsgTable;          //后期执行msg
+    protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //方法运行前执行的msg列表
+    protected HashMap<String, ArrayList<TLMsg>> afterMsgTable;          //方法运行后执行的msg列表
     protected TLObjectFactory moduleFactory;
-    protected HashMap<String, String> params;
+    protected HashMap<String, String> params;  //模块参数，在配置文件中设定
     protected String configFile;
     protected TLModuleConfig mconfig;
     protected boolean destroy = true;       //工厂发出销毁命令时，返回的销毁标志
@@ -39,8 +43,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected boolean ifLog = true;        //是否开启日志 ，默认开启
     protected boolean logWait = true;      //日志是否同步，默认同步
     protected LogLevel defaultLoglevel = LogLevel.INFO;     //默认日志级别
-    protected List<String> logTags;       // 日志控制，允许日志的标签，设置后只定义的标签输出日志
-    protected List<String> nologTags;     //日志控制，禁止日志输出的标签
+    protected List<String> logTags;       // 日志输出控制，允许日志输出的日志标签，分号分割，设置后只有定义的标签输出日志
+    protected List<String> nologTags;     //日志输出控制，禁止日志输出的标签，分号分割
     protected boolean ifExceptionHandle = true;   //发生异常时是否处理 ，默认处理，否则继续运行
     protected String exceptionHandler;     //异常处理模块，如果设置则由该模块处理异常，否则由工厂处理 。返回如果为空，则程序停止
     protected Boolean ifDoMsgTransfer =false;   //对于其他目的的msg是否执行msgTransfer ，默认不执行

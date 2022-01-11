@@ -6,6 +6,9 @@ import org.xmlpull.v1.XmlPullParser;
 
 import java.util.*;
 
+/**
+ * 控制台消息输入扫描检测模块
+ */
 public class TLMsgScanner extends TLBaseModule {
     protected HashMap<String, HashMap<String,String>>msgToModules;
     protected HashMap<String, HashMap<String,String>>cmds;

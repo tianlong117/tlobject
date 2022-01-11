@@ -16,7 +16,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ *  消息对象工厂类，负责实例化每个模块实例。
+ *
+ */
 public class TLObjectFactory extends TLBaseModule {
 
     protected String configDir = "";

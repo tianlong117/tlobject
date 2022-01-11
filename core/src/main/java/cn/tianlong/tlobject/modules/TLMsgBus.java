@@ -12,7 +12,9 @@ import java.util.HashMap;
  * 描述:
  * 作者:tianlong
  */
-
+/**
+ 消息总线模块，注册到总线上的模块，接受总线传来的消息
+ */
 public class TLMsgBus extends TLBaseModule {
     protected HashMap<String,Object>  receivers= new HashMap <String, Object>();
     public TLMsgBus(){
@@ -58,6 +60,8 @@ public class TLMsgBus extends TLBaseModule {
     private TLMsg onBus(Object fromWho, TLMsg msg) {
         String destination = msg.getDestination();
         Object object =receivers.get(destination);
+        if(object ==null)
+            return null ;
         if(object instanceof String)
           return   putMsg((String)object,msg);
         else
