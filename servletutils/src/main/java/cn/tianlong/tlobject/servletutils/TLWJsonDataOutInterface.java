@@ -5,6 +5,8 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import com.google.gson.GsonBuilder;
 import java.util.LinkedHashMap;
 
+import static cn.tianlong.tlobject.servletutils.TLParamString.CHARSET;
+
 public class TLWJsonDataOutInterface extends TLWDirectOutInterface {
     private GsonBuilder gsonBuilder = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss");
     public TLWJsonDataOutInterface(String name , TLObjectFactory modulefactory){
@@ -22,6 +24,6 @@ public class TLWJsonDataOutInterface extends TLWDirectOutInterface {
         outData outData = (TLWServModule.outData) msg.getParam("outData");
         LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam("outData");
         String  outContent = gsonBuilder.serializeNulls().create().toJson(datas);
-        return  responseWrite(outContent,(String) msg.getParam("charset"));
+        return  responseWrite(outContent,(String) msg.getParam(CHARSET));
     }
 }

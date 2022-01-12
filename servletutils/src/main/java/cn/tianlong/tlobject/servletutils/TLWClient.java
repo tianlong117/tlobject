@@ -64,20 +64,14 @@ public class TLWClient extends TLWServModule {
             case WEBCLIENT_GETINJSON:
                 returnMsg=getInJson(fromWho,msg);
                 break;
-            case WEBCLIENT_GETNIMSG:
-                returnMsg=getInMsg(fromWho,msg);
-                break;
             case WEBCLIENT_GETINCONTENT:
                 returnMsg=getInContent(fromWho,msg);
                 break;
             case WEBCLIENT_PUTOUTDATA:
-                putOutData(fromWho,msg);
+                returnMsg=putOutData(fromWho,msg);
                 break;
             case WEBCLIENT_PUTCONTENT:
-                putContent(fromWho,msg);
-                break;
-            case WEBCLIENT_PUTUSERMSG:
-                putUserMsg(fromWho,msg);
+                returnMsg=putContent(fromWho,msg);
                 break;
             case WEBCLIENT_GETOUTCONTENT:
                 returnMsg=getOutContent(fromWho,msg);
@@ -119,27 +113,15 @@ public class TLWClient extends TLWServModule {
         inInterface= (String) msg.getParam("interface");
         putLog("inInterface 更换:"+inInterface,LogLevel.DEBUG);
     }
-
-    private void putUserMsg(Object fromWho, TLMsg msg) {
-        msg.setAction("toClient");
-        putMsg("webServiceProxy",msg);
-
-    }
-
-    private TLMsg getInMsg(Object fromWho, TLMsg msg) {
-        TLMsg wmsg=createMsg().setAction("fromClient");
-        return  putMsg("webServiceProxy",wmsg);
-    }
-
     private TLMsg getInContent(Object fromWho, TLMsg msg) {
         return  putMsg(inInterface,createMsg().setAction(ININTERFACE_GETCONTENTFROMUSER));
     }
 
-    private void putContent(Object fromWho, TLMsg msg) {
-        putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTCONTENTTOUSER));
+    private TLMsg putContent(Object fromWho, TLMsg msg) {
+        return putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTCONTENTTOUSER));
     }
-    private void putOutData(Object fromWho, TLMsg msg) {
-        putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTDATATOUSER));
+    private TLMsg putOutData(Object fromWho, TLMsg msg) {
+        return   putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTDATATOUSER));
     }
     protected TLMsg getInData(Object fromWho, TLMsg msg) {
         return putMsg(inInterface,msg.setAction(ININTERFACE_GETDATAFROMUSER));

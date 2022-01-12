@@ -15,6 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import static cn.tianlong.tlobject.base.TLObjectFactory.FACTORY_P_MODULENAME;
 import static cn.tianlong.tlobject.base.TLParamString.FACTORY_REGISTINFACTORY;
 import static cn.tianlong.tlobject.base.TLParamString.INSTANCE;
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 import static java.lang.Thread.sleep;
 
 public class TLFilterWithSingleFactory implements Filter{
@@ -69,7 +70,7 @@ public class TLFilterWithSingleFactory implements Filter{
         registInfactory(moduleFactory, "sessionDatas", sessionDatas);
         moduleFactory.putLog(filterName+" is statup,configPath:"+configDir,LogLevel.INFO,"filterInit");
         moduleFactory.boot();
-        appCenter = (TLBaseModule) moduleFactory.getModule("appCenter");
+        appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
         ((TLWAPPCenter)appCenter).setFilter(this);
         ((TLWAPPCenter)appCenter).setFilterName(filterName);
     }

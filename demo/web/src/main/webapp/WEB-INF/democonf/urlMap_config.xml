@@ -71,5 +71,8 @@
        <url  value="/db/dbmodle" >
            <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
        </url>
+        <url  value="/db/dbmodleache" >
+            <msg action="dbmodleCache" destination="servletDbTest" clientVars="name" />
+        </url>
    </url-mapping>
 </moduleConfig>

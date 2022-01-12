@@ -33,8 +33,8 @@ public abstract class TLWServModule extends TLBaseModule {
     }
 
     protected HashMap<String ,String > getAppParams(){
-        TLMsg moduleMsg =createMsg();
-        TLMsg paramsMsg= putMsg("appCenter", moduleMsg.setAction(MODULE_GETPARAM));
+        TLMsg moduleMsg =createMsg().setAction(MODULE_GETPARAM);
+        TLMsg paramsMsg= putMsg(M_APPCENTER, moduleMsg);
         HashMap<String,String> appParams=paramsMsg.getArgs();
         return  appParams;
     }
@@ -44,7 +44,7 @@ public abstract class TLWServModule extends TLBaseModule {
         String userObj = (String) getSessionData("userObj");
         if(userObj ==null)
         {
-            TLMsg returnMsg =putMsg("appCenter",createMsg().setAction("getDefaultUser"));
+            TLMsg returnMsg =putMsg(M_APPCENTER,createMsg().setAction("getDefaultUser"));
             userObj= (String) returnMsg.getParam("userObj");
         }
         return userObj;
@@ -167,29 +167,31 @@ public abstract class TLWServModule extends TLBaseModule {
     protected outData creatOutDataMsg(String dataId){
         return  new outData(dataId);
     }
-    protected void putOutMsg(TLMsg msg){
+    protected TLMsg putOutMsg(TLMsg msg){
         outData outData =creatOutDataMsg().addData(msg);
-        putOutData(outData);
+        return putOutData(outData);
     }
-    protected void putOutMap(LinkedHashMap mapData){
+    protected TLMsg putOutMap(LinkedHashMap mapData){
         TLMsg moduleMsg =createMsg();
         moduleMsg.setAction("putOutData").setParam("outData",mapData);
-        putMsgToClient(moduleMsg);
+        return putMsgToClient(moduleMsg);
     }
-    protected void putContent(String content){
-        TLMsg moduleMsg =createMsg();
-        moduleMsg.setAction("putContent").setParam("content",content);
-        putMsgToClient(moduleMsg);
+    protected TLMsg putContent(String content){
+        TLMsg moduleMsg =createMsg().setAction("putContent").setParam("content",content);
+        return   putMsgToClient(moduleMsg);
     }
-    protected void putVar(String message,String dataid ){
+    protected TLMsg putVar(String message,String dataid ){
         outData odata =  creatOutDataMsg(dataid);
         odata.addData("message",message);
-        putOutData(odata);
+        return  putOutData(odata);
     }
-    protected void putOutData(outData outData){
-        TLMsg moduleMsg =createMsg();
-        moduleMsg.setAction("putOutData").setParam("outData",outData);
-        putMsgToClient(moduleMsg);
+    protected TLMsg putOutData(outData outData){
+        TLMsg moduleMsg =createMsg().setAction("putOutData").setParam("outData",outData);
+        return   putMsgToClient(moduleMsg);
+    }
+    protected TLMsg putMsgToClient(TLMsg msg){
+        String client= getClient();
+        return   putMsg(client, msg);
     }
     protected String getClient()
     {
@@ -201,40 +203,6 @@ public abstract class TLWServModule extends TLBaseModule {
             client= (String) returnMsg.getParam("client");
         }
         return client;
-    }
-    protected TLMsg putMsgToClient(TLMsg msg){
-        String client= getClient();
-        return   putMsg(client, msg);
-    }
-    protected void putFile_test(String fileName, InputStream inputStream){
-        HttpServletResponse response =getResponse();
-        response.setContentType(getContext().getMimeType(fileName));
-        response.setContentType("text/html;charset=utf-8"); // 设置消息体的编码
-        try {
-            response.setHeader("content-disposition", "attachment;filename="+ URLEncoder.encode(fileName, "UTF-8"));
-        } catch (UnsupportedEncodingException e) {
-            response.setHeader("content-disposition", "attachment;filename="+ fileName);
-
-        }
-        ServletOutputStream out= null;
-        try {
-            out = response.getOutputStream();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
-        byte[] buf = new byte[4096];
-        int size;
-        try {
-            while (-1 != (size = inputStream.read(buf))) {
-                out.write(buf, 0, size);
-                out.flush();
-            }
-            out.close();
-            inputStream.close();
-        }catch (Exception e){
-
-        }
     }
    protected  boolean putFile (String filePath,String fileName){
        File file = new File(filePath);//获取缓存文件

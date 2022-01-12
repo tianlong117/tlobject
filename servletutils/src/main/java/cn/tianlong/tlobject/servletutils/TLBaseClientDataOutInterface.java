@@ -44,32 +44,19 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
         switch (msg.getAction()) {
             case OUTINTERFACE_PUTDATATOUSER:
                 returnMsg=putDataToUser(fromWho,msg);
-                returnMsg=doWithOut(returnMsg);
                 break;
             case OUTINTERFACE_PUTCONTENTTOUSER:
                 returnMsg=putContentToUser(fromWho,msg);
-                returnMsg=doWithOut(returnMsg);
                 break;
             default:
 
         }
         return returnMsg ;
     }
-
-    private TLMsg doWithOut(TLMsg returnMsg) {
-        if(returnMsg ==null)
-            return null ;
-        String  outContent = (String) returnMsg.getParam(CLIENT_R_OUTCONTENT);
-        TLMsg outMsg = (TLMsg) getSessionData(CLIENT_R_OUTMSG);
-        if( outMsg ==null)
-          return null;
-        putMsg(this,outMsg.setParam(CLIENT_R_OUTCONTENT,outContent));
-        return  null;
-    }
     protected TLMsg responseWrite(String content , String charset){
         if(charset ==null)
             charset =this.charset ;
-        PrintWriter out = null;
+        PrintWriter out;
         HttpServletResponse response =getResponse();
         response.setContentType(charset);
         try {

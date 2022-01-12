@@ -323,7 +323,7 @@ public class TLWAuth extends TLBaseModule {
     }
 
     protected String getUserObjName() {
-        TLMsg returnMsg =putMsg("appCenter",createMsg().setAction("getUserObj"));
+        TLMsg returnMsg =putMsg(M_APPCENTER,createMsg().setAction("getUserObj"));
         return (String) returnMsg.getParam("userObj");
     }
 

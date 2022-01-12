@@ -7,6 +7,8 @@ import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.HashMap;
 
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
+
 /**
  * 创建日期：${Date}${time}
  * 描述:
@@ -51,14 +53,14 @@ public class TLWServletCache extends TLCacheManager {
         if (returnMsg == null)
         {
            TLMsg cacheMsg =createMsg().setDestination(name).setAction("writeCache").setParam("cacheParam",moduleCacheParam);
-           TLMsg returMsg = putMsg("appCenter",createMsg().setAction("getSessionData")
+           TLMsg returMsg = putMsg(M_APPCENTER,createMsg().setAction("getSessionData")
                    .setParam("varname","outmsg"));
            TLMsg outMsg = (TLMsg) returMsg.getParam("value");
            if(outMsg == null)
                outMsg=cacheMsg;
            else
                outMsg.setNextMsg(cacheMsg);
-            putMsg("appCenter",createMsg().setAction("setSessionData")
+            putMsg(M_APPCENTER,createMsg().setAction("setSessionData")
                     .setParam("varname","outmsg").setParam("value",outMsg));
             return null;
         }

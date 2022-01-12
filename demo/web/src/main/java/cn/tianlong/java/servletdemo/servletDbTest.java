@@ -1,19 +1,20 @@
 package cn.tianlong.java.servletdemo;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.cache.TLFileCache;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLWServModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDBSqlConditionExpression;
-import cn.tianlong.tlobject.db.TLDBView;
-import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
-import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 
+import static cn.tianlong.tlobject.cache.TLParamString.*;
+import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_R_OUTCONTENT;
 import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 import static java.lang.Thread.sleep;
 
@@ -43,31 +44,23 @@ public class servletDbTest extends TLWServModule {
         TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case "find":
-                find(fromWho,msg);
+                returnMsg=find(fromWho,msg);
                 break;
             case "dbmodle":
-                dbmodle(fromWho,msg);
+                returnMsg=dbmodle(fromWho,msg);
                 break;
-            case "dbmodleGetCacheKey":
-                returnMsg= dbmodleGetCacheKey(fromWho,msg);
+            case "dbmodleCache":
+                returnMsg=dbmodleCache(fromWho,msg);
                 break;
             default:
                 putMsg("error",creatOutMsg().setAction("setError").setParam("content","no action"));
         }
         return returnMsg ;
     }
-
-    private TLMsg dbmodleGetCacheKey(Object fromWho, TLMsg msg) {
-       return createMsg().setParam("cacheKey",dbmodleGetCacheKey());
-    }
-    private String dbmodleGetCacheKey() {
-       return getUserData("name");
-    }
-
-    private void dbmodle(Object fromWho, TLMsg msg) {
+    private TLMsg dbmodle(Object fromWho, TLMsg msg) {
         String userName=msg.getStringParam("name",null);
         if(userName ==null)
-            return;
+            return null;
         long startTime =System.currentTimeMillis();
         TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
                 .setParam("username",userName)
@@ -81,16 +74,42 @@ public class servletDbTest extends TLWServModule {
         {
             odata.addData(name+" 没有数据");
             putOutData(odata);
-            return;
+            return null;
         }
         odata.addData("datas",datas);
-        putOutData(odata);
+        return putOutData(odata);
     }
 
-    private void find(Object fromWho, TLMsg msg) {
+    private TLMsg dbmodleCache(Object fromWho, TLMsg msg) {
         String userName=msg.getStringParam("name",null);
         if(userName ==null)
-            return;
+            return null;
+        String cacheName ="queryByName" ;
+        String cacheKye ="name_"+userName ;
+        TLFileCache fileCache = (TLFileCache) getModule(M_FILECACHE);
+        TLMsg cmsg =createMsg().setAction(CACHE_GETCACHE).setParam(CACHE_P_CACHENAME,cacheName)
+                .setParam(CACHE_P_KEY,cacheKye);
+        TLMsg returnMsg =putMsg(fileCache,cmsg);
+        Object value = returnMsg.getParam(CACHE_R_VALUE);
+        if(value !=null && !value.equals(fileCache) )
+        {
+            putLog("读取cache,cacheKye:"+cacheKye,LogLevel.DEBUG,"dbmodle");
+            return putContent((String)value);
+        }
+        TLMsg outMsg=dbmodle(fromWho,msg);
+        String content =outMsg.getStringParam(CLIENT_R_OUTCONTENT,null);
+        if(content==null)
+            return outMsg ;
+        TLMsg wcmsg =createMsg().setAction(CACHE_WRITECACHE).setParam(CACHE_P_CACHENAME,cacheName)
+                .setParam(CACHE_P_KEY,cacheKye).setParam(CACHE_P_VALUE,content);
+        putMsg(M_FILECACHE,wcmsg);
+        putLog("写cache,cacheKye:"+cacheKye,LogLevel.DEBUG,"dbmodle");
+        return outMsg ;
+    }
+    private TLMsg find(Object fromWho, TLMsg msg) {
+        String userName=msg.getStringParam("name",null);
+        if(userName ==null)
+            return msg;
         outData odata =  creatOutDataMsg("find");
         odata.addData("time",date());
         TLMsg returnMsg =putMsg("dbDemo",createMsg().setAction("queryTb").setParam("username",userName));
@@ -99,7 +118,7 @@ public class servletDbTest extends TLWServModule {
             odata.addData("msg","没有数据");
         else
             odata.addData("datas",datas);
-        putOutData(odata);
+        return putOutData(odata);
     }
 
 }

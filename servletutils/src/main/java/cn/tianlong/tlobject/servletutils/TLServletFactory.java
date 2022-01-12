@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.tianlong.tlobject.base.TLParamString.*;
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 
 public class TLServletFactory extends GenericServlet {
 
@@ -82,7 +83,7 @@ public class TLServletFactory extends GenericServlet {
             }
         }
         moduleFactory.boot();
-        appCenter = (TLBaseModule) moduleFactory.getModule("appCenter");
+        appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
         ((TLWAPPCenter)appCenter).setFilter(this);
         ((TLWAPPCenter)appCenter).setFilterName(servletName);
     }

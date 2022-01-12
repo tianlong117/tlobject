@@ -8,6 +8,7 @@ package cn.tianlong.tlobject.servletutils;
 
 public interface TLParamString {
 
+    final String M_APPCENTER = "appCenter";
     final String CHARSET = "charset";
     final String UTF8 = "UTF-8";
     /**

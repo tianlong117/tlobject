@@ -11,6 +11,8 @@ import javax.servlet.http.HttpServletResponse;
 import java.util.HashMap;
 import java.util.Map;
 
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
+
 public class TLServletModule extends GenericServlet {
 
     private  String servletName;
@@ -46,7 +48,7 @@ public class TLServletModule extends GenericServlet {
            moduleFactory.addConfig(initConfigFile,configDir);
             moduleFactory.putLog(servletName +" is statup,configPath:"+configDir,LogLevel.INFO,"filterInit");
         }
-        appCenter = (TLBaseModule) moduleFactory.getModule("appCenter");
+        appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
         requestMap =   (Map<String, HttpServletRequest>) moduleFactory.getModule("servletRequest");
         responseMap =  (Map<String, HttpServletResponse>) moduleFactory.getModule("servletResponse");
         sessionDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("sessionDatas");
