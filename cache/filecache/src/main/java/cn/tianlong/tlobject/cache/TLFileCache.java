@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import org.apache.commons.lang3.StringUtils;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.io.*;
@@ -18,6 +19,8 @@ public class TLFileCache extends TLBaseCache {
 
     protected HashMap<String, HashMap<String, String>> cacheTables ;
     protected String cachePath ;
+    protected String defaultExptime ="0" ;
+    protected   Gson gson = new Gson();
     public TLFileCache(){
         super();
     }
@@ -34,6 +37,8 @@ public class TLFileCache extends TLBaseCache {
             cachePath=params.get("cachePath");
         else
             cachePath=System.getProperty("user.dir")+"\\cache\\";
+        if( params!=null && params.get("defaultExptime")!=null)
+            defaultExptime=params.get("defaultExptime");
     }
 
     protected Object setConfig(){
@@ -48,78 +53,93 @@ public class TLFileCache extends TLBaseCache {
     }
     @Override
     public Object getCache(String cacheName,  String cacheKey,String valueType){
+        if(cacheName ==null ||  cacheTables ==null || !cacheTables.containsKey(cacheName))
+            return this ;
+        cacheKey =checkCacheKey(cacheKey);
         try {
             return get( cacheName, cacheKey);
         } catch (Exception e) {
             e.printStackTrace();
-            putLog("cache error,key: "+ cacheName+cacheKey,LogLevel.ERROR,"getCache");
+            putLog("cache get error,cacheName "+ cacheName+" cacheKey:"+cacheKey,LogLevel.ERROR,"getCache");
             return this ;
         }
     }
+
+    @Override
+    protected TLMsg getCache(Object fromWho, TLMsg msg)  {
+        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
+        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
+        cacheKey =checkCacheKey(cacheKey);
+        Object cacheValue= getCache( cacheName, cacheKey,null);
+        return createMsg().setParam(CACHE_P_VALUE,cacheValue);
+    }
+
     public boolean writeCache(String cacheName,  String cacheKey,Object cacheValue ,int exptime ){
       return writeCache( cacheName,   cacheKey, cacheValue , exptime ,null);
     }
     @Override
     public boolean writeCache(String cacheName,  String cacheKey,Object cacheValue ,int exptime ,String valueType){
+        if( cacheValue==null || cacheName==null || cacheName.isEmpty() ||  cacheTables ==null)
+           return false ;
+        HashMap<String, String> cacheParam=cacheTables.get(cacheName);
+        if(cacheParam==null || cacheName.isEmpty())
+           return  false ;
+        cacheKey =checkCacheKey(cacheKey);
+        if(exptime  < 0)
+        {
+           String  exptimeStr =cacheParam.get(CACHE_P_EXPTTIME);
+            if(exptimeStr == null || exptimeStr.isEmpty())
+                exptimeStr = defaultExptime;
+            exptime =Integer.parseInt(exptimeStr);
+        }
         try {
             cache(cacheName,cacheKey,cacheValue,exptime);
             return true ;
         } catch (Exception e) {
             e.printStackTrace();
-            putLog("cache error,key: "+ cacheName+cacheKey,LogLevel.ERROR,"writeCache");
+            putLog("cache write error,cacheName "+ cacheName+" cacheKey:"+cacheKey,LogLevel.ERROR,"writeCache");
             return false ;
         }
+    }
+
+    @Override
+    protected TLMsg writeCache(Object fromWho, TLMsg msg) {
+        Object cacheValue=  msg.getParam(CACHE_P_VALUE);
+        if( cacheValue==null)
+            return createMsg().setParam(RESULT,false).setParam("isCache","false");
+        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
+        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
+        int exptime= msg.getIntParam(CACHE_P_EXPTTIME,-1);
+        boolean result =writeCache( cacheName, cacheKey, cacheValue , exptime ,null);
+        return createMsg().setParam(RESULT,result).setParam("isCache",result);
     }
     public boolean deleteCache(String cacheName,  String cacheKey){
        return deleteCache(cacheName, cacheKey,null) ;
     }
     @Override
     public boolean deleteCache(String cacheName,  String cacheKey,String valueType){
+        if(cacheName ==null ||  cacheTables ==null || !cacheTables.containsKey(cacheName))
+            return false ;
+        cacheKey =checkCacheKey(cacheKey);
         try {
             delete(cacheName,cacheKey);
             return true ;
         } catch (Exception e) {
             e.printStackTrace();
-            putLog("cache error,key: "+ cacheName+cacheKey,LogLevel.ERROR,"deleteCache");
+            putLog("cache delete error,cacheName "+ cacheName+" cacheKey:"+cacheKey,LogLevel.ERROR,"deleteCache");
             return  false ;
-        }
-    }
-    @Override
-    protected TLMsg getCache(Object fromWho, TLMsg msg)  {
-        String[] cacheParam=getCacheParam(msg);
-        String cacheName=cacheParam[0];
-        String cacheKey=cacheParam[1];
-        if(cacheName.equals("false"))
-            return createMsg().setParam(CACHE_P_VALUE,null);
-        try {
-            Object cacheValue= get( cacheName, cacheKey);
-            return createMsg().setParam(CACHE_P_VALUE,cacheValue);
-        } catch (Exception e) {
-            return createMsg().setParam(CACHE_P_VALUE,this);
         }
     }
 
     @Override
     protected TLMsg deleteCache(Object fromWho, TLMsg msg) {
-        String[] cacheParam=getCacheParam(msg);
-        String cacheName=cacheParam[0];
-        String cacheKey=cacheParam[1];
-        if(cacheName.equals("false"))
-            return null ;
-        try {
-            delete(cacheName,cacheKey);
-            return createMsg().setParam("isCache","false");
-        } catch (Exception e) {
-           return  null;
-        }
+        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
+        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
+        Boolean result=deleteCache( cacheName,  cacheKey,null) ;
+        return createMsg().setParam(RESULT,result).setParam("isCache",result);
     }
 
-    private String[] getCacheParam(TLMsg msg){
-        String cacheName= (String) msg.getParam(CACHE_P_CACHENAME);
-        String cacheKey= (String) msg.getParam(CACHE_P_KEY);
-        String exptime=(String) msg.getParam(CACHE_P_EXPTTIME);
-        if(cacheName==null || cacheName.isEmpty())
-            return new String[]{"false","false"};
+    protected String checkCacheKey(String cacheKey) {
         if(cacheKey==null)
             cacheKey="";
         else if(!cacheKey.isEmpty())
@@ -128,71 +148,55 @@ public class TLFileCache extends TLBaseCache {
             cacheKey=cacheKey.replace("?", "-");
             cacheKey=cacheKey.replace("\\", "_");
         }
-        if(cacheTables !=null && (exptime==null || exptime.isEmpty()))
-        {
-            HashMap<String, String> dataHash=cacheTables.get(cacheName);
-            if(dataHash==null)
-                return new String[]{"false","0"};
-            exptime=dataHash.get(CACHE_P_EXPTTIME);
-            if(exptime==null )
-            {
-                if( params!=null && params.get(CACHE_P_EXPTTIME)!=null)
-                    exptime=params.get(CACHE_P_EXPTTIME);
-                else
-                    exptime="600";
-            }
-        }
-        return new String[]{cacheName,cacheKey,exptime}  ;
-    }
-    @Override
-    protected TLMsg writeCache(Object fromWho, TLMsg msg) {
-        String[] cacheParam=getCacheParam(msg);
-        String cacheName=cacheParam[0];
-        String cacheKey=cacheParam[1];
-        if(cacheName.equals("false"))
-            return null ;
-        int exptime= Integer.parseInt(cacheParam[2]);
-        Object cacheValue=  msg.getParam(CACHE_P_VALUE);
-        if( cacheValue==null)
-            return createMsg().setParam("isCache","false");
-        try {
-            cache(cacheName,cacheKey,cacheValue,exptime);
-            return createMsg().setParam("isCache","true");
-        } catch (Exception e) {
-            return createMsg().setParam("isCache","false");
-        }
+        return cacheKey ;
     }
 
-    private    boolean  cache(String cacheName,String cacheKey,Object cacheValue,int time) throws Exception{
+    protected    boolean  cache(String cacheName,String cacheKey,Object cacheValue,int time){
 
         HashMap<String,Object> cachedatas=new HashMap<>();
-        String exptime=System.currentTimeMillis()+(time*60*1000)+"";
-        cachedatas.put(CACHE_P_EXPTTIME,exptime);
+        Long cacheExptime ;
+        if(time ==0)
+            cacheExptime =0L ;
+        else
+            cacheExptime=System.currentTimeMillis()+(time*60*1000);
+        cachedatas.put(CACHE_P_EXPTTIME,cacheExptime);
         cachedatas.put(CACHE_P_VALUE,cacheValue);
         GsonBuilder gsonBuilder = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss");
         String jsonString = gsonBuilder.serializeNulls().create().toJson(cachedatas);
-        File file=getCacheFile( cacheName,cacheKey);//获取缓存文件
+        File file= null;//获取缓存文件
+        try {
+            file = getCacheFile( cacheName,cacheKey);
+        } catch (Exception e) {
+            putLog("缓存文件创建失败,cacheName:"+cacheName+"  cacheKey:"+cacheKey,LogLevel.ERROR);
+            e.printStackTrace();
+            return false ;
+        }
         FileOutputStream out = null;
         try {
             out = new FileOutputStream(file);
         } catch (FileNotFoundException e) {
+            putLog("缓存文件没有发现,cacheName:"+cacheName+"  cacheKey:"+cacheKey,LogLevel.ERROR);
             e.printStackTrace();
+            return false ;
         }
         try {
             out.write(jsonString.getBytes());
         } catch (IOException e) {
+            putLog("缓存文件写错误,cacheName:"+cacheName+"  cacheKey:"+cacheKey,LogLevel.ERROR);
             e.printStackTrace();
+            return false ;
         }
         try {
             out.close();
         } catch (IOException e) {
+            putLog("缓存文件IO错误,cacheName:"+cacheName+"  cacheKey:"+cacheKey,LogLevel.ERROR);
             e.printStackTrace();
         }
         return true;
     }
 
     protected  Object get(String cacheName,String cacheKey)throws Exception{
-        Object cacheValue;
+
         File file=new File(getCacheFileName( cacheName, cacheKey));//获取缓存文件
         if (file.exists())
         {//判断文件是否存在
@@ -201,19 +205,21 @@ public class TLFileCache extends TLBaseCache {
             in.read(b);    //读取文件中的内容到b[]数组
             in.close();
             String jsonStr=new String(b);
-            Gson gson = new Gson();
-            HashMap<String, String> cachedata ;
-            cachedata = gson.fromJson(jsonStr,HashMap.class );
+            HashMap<String, Object> cachedata = gson.fromJson(jsonStr,HashMap.class );
+            Double cacheTime= (Double) cachedata.get(CACHE_P_EXPTTIME);//判断文件缓存是否过期
+            long time =cacheTime.longValue();
+            if (time ==0L )      // 0 为永不过期
+                return cachedata.get(CACHE_R_VALUE);
             Long now =System.currentTimeMillis();
-            Long time= Long.valueOf(cachedata.get(CACHE_P_EXPTTIME));//判断文件缓存是否过期
-            if (time>now){
-                cacheValue=cachedata.get(CACHE_R_VALUE);
-                return cacheValue;
+            if (time > now){
+                return cachedata.get(CACHE_R_VALUE);
             }else{
-         //       file.delete();;//过期删除文件
+                putLog("缓存过期:cacheName "+ cacheName+" cacheKey:"+cacheKey,LogLevel.DEBUG,"getCache");
+                file.delete();//过期删除文件
                 return this;
             }
         }
+        putLog("缓存文件不存在:cacheName "+ cacheName+" cacheKey:"+cacheKey,LogLevel.DEBUG,"getCache");
         return this;
     }
 

@@ -12,8 +12,6 @@ import static cn.tianlong.tlobject.cache.TLParamString.*;
 
 
 public abstract class TLBaseCache extends TLBaseModule {
-    protected HashMap<String, HashMap<String, String>> cacheTables ;
-    protected String cachePath ;
     public TLBaseCache(){
         super();
     }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
    <params>
-       <cachePath value="TLOBJECT_HOME\demo\web\src\main\webapp\cache" />
+       <cachePath value="TLOBJECT_HOME\demo\web\src\main\webapp\demofilecache" />
    </params>
     <caches>
         <cacheName name="queryByName"  exptime="1"/>

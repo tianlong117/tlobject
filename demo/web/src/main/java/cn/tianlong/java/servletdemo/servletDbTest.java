@@ -61,22 +61,28 @@ public class servletDbTest extends TLWServModule {
         String userName=msg.getStringParam("name",null);
         if(userName ==null)
             return null;
+        outData odata =  creatOutDataMsg("dbmodle");
+        List<Object> totalDatas = new ArrayList();
         long startTime =System.currentTimeMillis();
-        TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
-                .setParam("username",userName)
-                .setParam("isFromWeb",true));
-        List datas =  returnMsg.getListParam(DB_R_RESULT,null);
+        // 查询10次，比较通过缓存的情况
+        for(int i =0 ;i < 10 ;i++)
+        {
+            TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
+                    .setParam("username",userName)
+                    .setParam("isFromWeb",true));
+            List datas =  returnMsg.getListParam(DB_R_RESULT,null);
+            if(datas==null || datas.isEmpty())
+            {
+                odata.addData(name+" 没有数据");
+                putOutData(odata);
+                return null;
+            }
+            totalDatas.addAll(datas);
+        }
         Long nowTime =System.currentTimeMillis();
         Long runtime=nowTime-startTime;
-        outData odata =  creatOutDataMsg("dbmodle");
         odata.addData("time","数据查询时间："+runtime);
-        if(datas==null || datas.isEmpty())
-        {
-            odata.addData(name+" 没有数据");
-            putOutData(odata);
-            return null;
-        }
-        odata.addData("datas",datas);
+        odata.addData("datas",totalDatas);
         return putOutData(odata);
     }
 
@@ -84,26 +90,27 @@ public class servletDbTest extends TLWServModule {
         String userName=msg.getStringParam("name",null);
         if(userName ==null)
             return null;
+        long startTime =System.currentTimeMillis();
         String cacheName ="queryByName" ;
-        String cacheKye ="name_"+userName ;
+        String cacheKey ="name_"+userName ;
         TLFileCache fileCache = (TLFileCache) getModule(M_FILECACHE);
-        TLMsg cmsg =createMsg().setAction(CACHE_GETCACHE).setParam(CACHE_P_CACHENAME,cacheName)
-                .setParam(CACHE_P_KEY,cacheKye);
-        TLMsg returnMsg =putMsg(fileCache,cmsg);
-        Object value = returnMsg.getParam(CACHE_R_VALUE);
-        if(value !=null && !value.equals(fileCache) )
+        Object cacheValue = fileCache.getCache(cacheName,cacheKey);
+        if(cacheValue !=null && !cacheValue.equals(fileCache) )
         {
-            putLog("读取cache,cacheKye:"+cacheKye,LogLevel.DEBUG,"dbmodle");
-            return putContent((String)value);
+            putLog("读取cache,cacheKye:"+cacheKey,LogLevel.DEBUG,"dbmodle");
+            Long nowTime =System.currentTimeMillis();
+            Long runtime=nowTime-startTime;
+            outData odata =  creatOutDataMsg();
+            odata.addData("<br>（缓存读取时间: "+runtime+"）<br>");
+            odata.addData(cacheValue);
+            return putOutData(odata);
         }
         TLMsg outMsg=dbmodle(fromWho,msg);
         String content =outMsg.getStringParam(CLIENT_R_OUTCONTENT,null);
         if(content==null)
             return outMsg ;
-        TLMsg wcmsg =createMsg().setAction(CACHE_WRITECACHE).setParam(CACHE_P_CACHENAME,cacheName)
-                .setParam(CACHE_P_KEY,cacheKye).setParam(CACHE_P_VALUE,content);
-        putMsg(M_FILECACHE,wcmsg);
-        putLog("写cache,cacheKye:"+cacheKye,LogLevel.DEBUG,"dbmodle");
+        fileCache.writeCache(cacheName,cacheKey,content,-1);
+        putLog("写cache,cacheKye:"+cacheKey,LogLevel.DEBUG,"dbmodle");
         return outMsg ;
     }
     private TLMsg find(Object fromWho, TLMsg msg) {
