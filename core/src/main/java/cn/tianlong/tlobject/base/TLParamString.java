@@ -29,6 +29,17 @@ public interface TLParamString {
     final String C_MESSAGETYPE_CLIENTLOGOUT = "clientlogout";
     final String C_MESSAGETYPE_CLIENTLOGIN = "clientlogin";
 
+    final String C_VARTYPE_INT = "int";
+    final String C_VARTYPE_CHAR = "char";
+    final String C_VARTYPE_STRING = "string";
+    final String C_VARTYPE_LONG = "long";
+    final String C_VARTYPE_DOUBLE = "double";
+    final String C_VARTYPE_LIST = "list";
+    final String C_VARTYPE_MAP = "map";
+    final String C_VARTYPE_HASHMAP = "hashmap";
+    final String C_VARTYPE_SET = "set";
+    final String C_VARTYPE_ARRAY = "array";
+
     final String CLASSPATH = "CLASSPATH";
     final String ERRORSTR = "error";
     final String FALSESTR = "false";

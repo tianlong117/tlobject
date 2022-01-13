@@ -10,6 +10,7 @@ public interface TLParamString {
 
 
     final String M_FILECACHE = "fileCache";
+    final String M_MEMORYCACHE = "memoryCache";
     /**    模块名 *      */
     final String CACHE_GETCACHE = "getCache";
     final String CACHE_WRITECACHE = "writeCache";
@@ -19,6 +20,7 @@ public interface TLParamString {
     final String CACHE_P_KEY = "cacheKey";
     final String CACHE_P_EXPTTIME = "exptime";
     final String CACHE_P_VALUE = "cacheValue";
+    final String CACHE_P_VALUETYPE = "valueType";
     final String CACHE_R_VALUE = "cacheValue";
 
     final String M_URLFILECACHE = "urlFileCache";

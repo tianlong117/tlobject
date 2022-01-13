@@ -366,26 +366,6 @@ public class DbDemo extends TLBaseModule {
         System.out.println("time:");
     }
 
-    protected void testDbBeanCache(){
-        TLMemoryCache mycache = new TLMemoryCache(50);
-        BeanTable beanTable =new BeanTable("userm","name",getFactory());
-        Long starttime =moduleFactory.getRunTime(false);
-        Object value = beanTable.get("dongq99");
-        Long time =moduleFactory.getRunTime(false)-starttime ;
-        System.out.println("time:"+time);
-        mycache.writeCache("dongq99", value);
-        starttime =moduleFactory.getRunTime(false);
-        Object data = mycache.getCache("dongq99");
-        if(data.equals(mycache))
-            value = beanTable.get("dongq99");
-        time =moduleFactory.getRunTime(false)-starttime ;
-        System.out.println("time:"+time);
-
-        starttime =moduleFactory.getRunTime(false);
-        value = beanTable.get("dongq99");
-        time =moduleFactory.getRunTime(false)-starttime ;
-        System.out.println("time:"+time);
-    }
 
     private void testListIndb0() {
 

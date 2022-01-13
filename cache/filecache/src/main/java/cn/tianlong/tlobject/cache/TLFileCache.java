@@ -17,9 +17,7 @@ import static cn.tianlong.tlobject.cache.TLParamString.*;
 
 public class TLFileCache extends TLBaseCache {
 
-    protected HashMap<String, HashMap<String, String>> cacheTables ;
     protected String cachePath ;
-    protected String defaultExptime ="0" ;
     protected   Gson gson = new Gson();
     public TLFileCache(){
         super();
@@ -37,17 +35,8 @@ public class TLFileCache extends TLBaseCache {
             cachePath=params.get("cachePath");
         else
             cachePath=System.getProperty("user.dir")+"\\cache\\";
-        if( params!=null && params.get("defaultExptime")!=null)
-            defaultExptime=params.get("defaultExptime");
     }
 
-    protected Object setConfig(){
-        myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());;
-        mconfig=config;
-        super.setConfig();
-        cacheTables=config.getCacheTables();
-        return config;
-    }
     public Object getCache(String cacheName,  String cacheKey){
         return  getCache(cacheName,  cacheKey,null) ;
     }
@@ -65,35 +54,19 @@ public class TLFileCache extends TLBaseCache {
         }
     }
 
-    @Override
-    protected TLMsg getCache(Object fromWho, TLMsg msg)  {
-        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
-        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
-        cacheKey =checkCacheKey(cacheKey);
-        Object cacheValue= getCache( cacheName, cacheKey,null);
-        return createMsg().setParam(CACHE_P_VALUE,cacheValue);
-    }
-
     public boolean writeCache(String cacheName,  String cacheKey,Object cacheValue ,int exptime ){
       return writeCache( cacheName,   cacheKey, cacheValue , exptime ,null);
     }
     @Override
     public boolean writeCache(String cacheName,  String cacheKey,Object cacheValue ,int exptime ,String valueType){
-        if( cacheValue==null || cacheName==null || cacheName.isEmpty() ||  cacheTables ==null)
+        if(cacheName==null || cacheName.isEmpty() ||  cacheTables ==null)
            return false ;
-        HashMap<String, String> cacheParam=cacheTables.get(cacheName);
-        if(cacheParam==null || cacheName.isEmpty())
-           return  false ;
         cacheKey =checkCacheKey(cacheKey);
-        if(exptime  < 0)
-        {
-           String  exptimeStr =cacheParam.get(CACHE_P_EXPTTIME);
-            if(exptimeStr == null || exptimeStr.isEmpty())
-                exptimeStr = defaultExptime;
-            exptime =Integer.parseInt(exptimeStr);
-        }
+        Long cacheExptime =takeExptime(cacheName,exptime);
+        if(cacheExptime  < 0L)
+             return false ;
         try {
-            cache(cacheName,cacheKey,cacheValue,exptime);
+            cache(cacheName,cacheKey,cacheValue,cacheExptime);
             return true ;
         } catch (Exception e) {
             e.printStackTrace();
@@ -102,17 +75,6 @@ public class TLFileCache extends TLBaseCache {
         }
     }
 
-    @Override
-    protected TLMsg writeCache(Object fromWho, TLMsg msg) {
-        Object cacheValue=  msg.getParam(CACHE_P_VALUE);
-        if( cacheValue==null)
-            return createMsg().setParam(RESULT,false).setParam("isCache","false");
-        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
-        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
-        int exptime= msg.getIntParam(CACHE_P_EXPTTIME,-1);
-        boolean result =writeCache( cacheName, cacheKey, cacheValue , exptime ,null);
-        return createMsg().setParam(RESULT,result).setParam("isCache",result);
-    }
     public boolean deleteCache(String cacheName,  String cacheKey){
        return deleteCache(cacheName, cacheKey,null) ;
     }
@@ -131,14 +93,6 @@ public class TLFileCache extends TLBaseCache {
         }
     }
 
-    @Override
-    protected TLMsg deleteCache(Object fromWho, TLMsg msg) {
-        String cacheName=  msg.getStringParam(CACHE_P_CACHENAME,null);
-        String cacheKey= msg.getStringParam(CACHE_P_KEY,null);
-        Boolean result=deleteCache( cacheName,  cacheKey,null) ;
-        return createMsg().setParam(RESULT,result).setParam("isCache",result);
-    }
-
     protected String checkCacheKey(String cacheKey) {
         if(cacheKey==null)
             cacheKey="";
@@ -151,14 +105,9 @@ public class TLFileCache extends TLBaseCache {
         return cacheKey ;
     }
 
-    protected    boolean  cache(String cacheName,String cacheKey,Object cacheValue,int time){
+    protected    boolean  cache(String cacheName,String cacheKey,Object cacheValue,Long cacheExptime){
 
         HashMap<String,Object> cachedatas=new HashMap<>();
-        Long cacheExptime ;
-        if(time ==0)
-            cacheExptime =0L ;
-        else
-            cacheExptime=System.currentTimeMillis()+(time*60*1000);
         cachedatas.put(CACHE_P_EXPTTIME,cacheExptime);
         cachedatas.put(CACHE_P_VALUE,cacheValue);
         GsonBuilder gsonBuilder = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss");
@@ -260,29 +209,4 @@ public class TLFileCache extends TLBaseCache {
         return file;
     }
 
-    protected class myConfig extends TLModuleConfig {
-        protected HashMap<String, HashMap<String, String>> cacheTables ;
-        public myConfig(String configFile ,String configDir) {
-            super(configFile,configDir);
-        }
-        public myConfig() {
-
-        }
-        public HashMap getCacheTables() {
-            return cacheTables;
-        }
-
-        protected void myConfig(XmlPullParser xpp) {
-            super.myConfig(xpp);
-            try {
-                if (xpp.getName().equals("caches")) {
-                    cacheTables= getHashMap(xpp,"caches","cacheName");
-                }
-
-            } catch (Throwable t) {
-
-            }
-        }
-
-    }
 }

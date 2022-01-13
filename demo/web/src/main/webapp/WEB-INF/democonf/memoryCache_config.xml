@@ -4,7 +4,7 @@
        cachePath:缓存文件路径。
     -->
    <params>
-       <cachePath value="TLOBJECT_HOME\demo\web\src\main\webapp\demofilecache" />
+
    </params>
      <!--
       缓存项列表。
@@ -12,6 +12,6 @@
       exptime：过期时间，单位为分钟
      -->
     <caches>
-        <cacheName name="queryByName"  exptime="1"/>
+        <cacheName name="users"  exptime="1"/>
     </caches>
 </moduleConfig>

@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.cache;
 
+import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import org.ehcache.Cache;
@@ -29,8 +30,7 @@ public class TLEhcache extends TLBaseCache {
     }
 
     @Override
-    protected void initProperty() {
-        super.initProperty();
+    protected TLBaseModule init(){
         String configfile=moduleFactory.getConfigDir()+"/"+"ehcache.xml";
         //1、获取到XML文件位置的URL
         URL myUrl = this.getClass().getResource(configfile);
@@ -40,29 +40,15 @@ public class TLEhcache extends TLBaseCache {
         //使用XmlConfiguration的Configuration创建你的CacheManager实例。
         macacheManagerager = CacheManagerBuilder.newCacheManager(xmlConfig);
         macacheManagerager.init();
+        return this ;
     }
-
     @Override
     public Object getCache(String cacheName, String cacheKey,String valueType) {
         Class<?>  valueTypeClass =getValueType(valueType);
         Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
         if(cache ==null)
-            return null;
+            return this;
         return   cache.get(cacheKey);
-    }
-
-    @Override
-    protected TLMsg getCache(Object fromWho, TLMsg msg) {
-        String cacheName= (String) msg.getParam("cacheName");
-        String key =(String) msg.getParam("cacheKey");
-        Class<?>  valueType =getValueType((String) msg.getParam("valueType"));
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueType);
-        if(cache ==null)
-            return null;
-        Object cacheValue =  cache.get(key);
-        if(cacheValue==null)
-            return null;
-        return createMsg().setParam("cacheValue",cacheValue);
     }
 
     @Override
@@ -76,35 +62,11 @@ public class TLEhcache extends TLBaseCache {
     }
 
     @Override
-    protected TLMsg deleteCache(Object fromWho, TLMsg msg) {
-        String cacheName= (String) msg.getParam("cacheName");
-        String key =(String) msg.getParam("cacheKey");
-        Class<?>  valueType =getValueType((String) msg.getParam("valueType"));
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueType);
-        if(cache ==null)
-            return null;
-        cache.remove(key);
-        return createMsg().setParam("isCache","false");
-    }
-
-    @Override
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
         Class<?>  valueTypeClass =getValueType(valueType);
         Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
          cache.put( cacheKey,cacheValue);
          return true ;
-    }
-
-    @Override
-    protected TLMsg writeCache(Object fromWho, TLMsg msg) {
-        String cacheName= (String) msg.getParam("cacheName");
-        String key =(String) msg.getParam("cacheKey");
-        Class<?>  valueType =getValueType((String) msg.getParam("valueType"));
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueType);
-        if(cache ==null)
-            return createMsg().setParam("isCache","false");
-        cache.put(key,msg.getParam("cacheValue"));
-        return createMsg().setParam("isCache","true");
     }
 
 }

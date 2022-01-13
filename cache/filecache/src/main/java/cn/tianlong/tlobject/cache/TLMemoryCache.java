@@ -1,99 +1,105 @@
 package cn.tianlong.tlobject.cache;
 
-import cn.tianlong.tlobject.base.TLMsg;
+
+import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class TLMemoryCache extends TLBaseCache {
-    protected String cacheName ;
-    protected ConcurrentHashMap<String, HashMap<String, Object>> cacheDatas = new ConcurrentHashMap<>();
-    private int exptime;
+import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_EXPTTIME;
+import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_VALUE;
 
-    public TLMemoryCache(){
+public class TLMemoryCache extends TLBaseCache {
+
+    protected ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>> cacheDatas = new ConcurrentHashMap<>();
+
+    public TLMemoryCache() {
         super();
     }
-    public TLMemoryCache(String name ){
+
+    public TLMemoryCache(String name) {
         super(name);
-        cacheName =name ;
     }
-    public TLMemoryCache(int exptime ){
-        this.exptime =exptime *60*1000;
+
+    public TLMemoryCache(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
     }
-    public TLMemoryCache(String name ,int exptime ){
-        this.name =name ;
-        this.exptime =exptime *60*1000;
-    }
-    public TLMemoryCache(String name , TLObjectFactory modulefactory){
-        super(name,modulefactory);
-        cacheName =name ;
-    }
+
     @Override
-    protected void initProperty() {
-        super.initProperty();
-        if(params!=null && params.get("exptime")!=null)
-            exptime=Integer.parseInt(params.get("primaryKey"))*60*1000;
+    protected TLBaseModule init() {
+        super.init();
+        for (String cacheName : cacheTables.keySet()) {
+            ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
+            cacheDatas.put(cacheName, cacheMap);
+        }
+        return this;
     }
-    public String getCacheName(){
-       return  cacheName ;
-    }
-    public void setExptime(int exptime){
-        this.exptime =exptime *60*1000;
-    }
-    public Object getCache( String cacheKey) {
-       return  getCache(null,  cacheKey, null) ;
+    public boolean addCache(String cacheName,String exptime){
+        if(cacheDatas.containsKey(cacheName))
+            return false ;
+        if(cacheTables.containsKey(cacheName))
+            return false ;
+        HashMap<String,String> cacheParam =new HashMap<>() ;
+        if(exptime !=null)
+             cacheParam.put(CACHE_P_EXPTTIME,exptime);
+        cacheTables.put(cacheName,cacheParam) ;
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
+        cacheDatas.put(cacheName, cacheMap);
+        return true ;
     }
     @Override
     public Object getCache(String cacheName, String cacheKey, String valueType) {
-        if(cacheDatas ==null )
+        if (cacheDatas == null)
             return this;
-        HashMap<String, Object> cacheMap =cacheDatas.get(cacheKey);
-        if(cacheMap ==null )
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        if (cacheMap == null)
             return this;
-        Long time = (Long) cacheMap.get("time");
-        if(System.currentTimeMillis() > time)
-            return  this ;
-        Object value = cacheMap.get("value");
-        return value ;
+        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+        if (cacheData == null)
+            return this;
+        Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
+        if (time == 0L)
+            return cacheMap.get(CACHE_P_VALUE);
+        if (System.currentTimeMillis() < time)
+            return cacheData.get(CACHE_P_VALUE);
+        else {
+            cacheMap.remove(cacheKey);
+            return this;
+        }
     }
 
-    @Override
-    protected TLMsg getCache(Object fromWho, TLMsg msg) {
-        return null;
-    }
-    public boolean deleteCache( String cacheKey) {
-
-        return deleteCache(null, cacheKey, null) ;
-    }
     @Override
     public boolean deleteCache(String cacheName, String cacheKey, String valueType) {
-        if(cacheDatas ==null )
+        if (cacheDatas == null)
             return false;
-        cacheDatas.remove(cacheKey);
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        if (cacheMap == null)
+            return false;
+        if (cacheMap.containsKey(cacheKey))
+            cacheMap.remove(cacheKey);
         return true;
     }
 
     @Override
-    protected TLMsg deleteCache(Object fromWho, TLMsg msg) {
-        return null;
-    }
-    public void writeCache(String cacheKey, Object cacheValue) {
-       writeCache(null,  cacheKey,  cacheValue, this.exptime, null);
-    }
-    @Override
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
 
-        Long time = System.currentTimeMillis() +exptime ;
-        HashMap<String ,Object> cacheMap =new HashMap<>() ;
-        cacheMap.put("time",time) ;
-        cacheMap.put("value", cacheValue) ;
-        cacheDatas.put(cacheKey,cacheMap);
-        return true ;
+        long cacheExptime = takeExptime(cacheName, exptime);
+        if (cacheExptime < 0L)
+            return false;
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        if(cacheMap ==null)
+            return false ;
+        synchronized (cacheMap) {
+            ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+            if (cacheData != null)
+                return false;
+            cacheData = new ConcurrentHashMap<>();
+            cacheMap.put(cacheKey, cacheData);
+            cacheData.put(CACHE_P_EXPTTIME, cacheExptime);
+            cacheData.put(CACHE_P_VALUE, cacheValue);
+            return true;
+        }
     }
 
-    @Override
-    protected TLMsg writeCache(Object fromWho, TLMsg msg) {
-        return null;
-    }
 }
