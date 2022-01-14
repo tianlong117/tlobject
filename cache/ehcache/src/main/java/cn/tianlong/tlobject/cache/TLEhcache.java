@@ -31,7 +31,7 @@ public class TLEhcache extends TLBaseCache {
 
     @Override
     protected TLBaseModule init(){
-        String configfile=moduleFactory.getConfigDir()+"/"+"ehcache.xml";
+        String configfile=moduleFactory.getConfigDir()+"ehcache.xml";
         //1、获取到XML文件位置的URL
         URL myUrl = this.getClass().getResource(configfile);
         //2、实例化一个XmlConfiguration，将XML文件URL传递给它

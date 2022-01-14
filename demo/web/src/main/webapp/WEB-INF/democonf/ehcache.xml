@@ -5,7 +5,7 @@
 
     <persistence directory="cache_dir"/>
     <!-- 1、声明一个名为foo的Cache-->
-    <cache alias="table_user_bak">
+    <cache alias="users">
         <!--2、foo的键值对被声明为字符串类型，如果没有指明，默认是Object类型。-->
         <key-type>java.lang.String</key-type>
         <value-type>java.util.ArrayList</value-type>

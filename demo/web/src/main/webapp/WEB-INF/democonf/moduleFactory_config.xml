@@ -32,6 +32,8 @@
     <!-- 线程中的公共模块要在工厂启动时启动，放入主线程中，否则容易出错-->
     <factoryBoot>
         <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="EhCache" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="fileache" usePreReturnMsg="false" />
         <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
     </factoryBoot>
 </moduleConfig>

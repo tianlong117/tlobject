@@ -64,9 +64,9 @@ public class servletDbTest extends TLWServModule {
             return null;
         long startTime =System.currentTimeMillis();
         outData odata =  creatOutDataMsg("dbmodle");
-        TLBaseCache memoryCache = (TLBaseCache) getModule(M_MEMORYCACHE);
+        TLBaseCache memoryCache = (TLBaseCache) getModule(M_EHCACHE);
         List<Object> totalDatas;
-        Object cacheValue = memoryCache.getCache("users",userName,null);
+        Object cacheValue = memoryCache.getCache("users",userName,C_VARTYPE_LIST);
         if(!memoryCache.isCacheValue(cacheValue))
         {
             totalDatas = new ArrayList();
@@ -84,7 +84,7 @@ public class servletDbTest extends TLWServModule {
                 }
                 totalDatas.addAll(datas);
             }
-            memoryCache.writeCache("users",userName, totalDatas,-1,null);
+            memoryCache.writeCache("users",userName, totalDatas,-1,C_VARTYPE_LIST);
         }
         else
             totalDatas = (List<Object>) cacheValue;
