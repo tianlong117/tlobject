@@ -11,7 +11,7 @@
         <value-type>java.util.ArrayList</value-type>
         <!--缓存到期配置-->
         <expiry>
-            <tti unit="minutes">20</tti>   <!--使用 TTI(time to idle) 策略-->
+            <tti unit="minutes">1</tti>   <!--使用 TTI(time to idle) 策略-->
             <!--<ttl unit="minutes">30</ttl>  使用 TTL(time to leave)策略 -->
         </expiry>
         <resources>

@@ -33,7 +33,7 @@
     <factoryBoot>
         <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" />
         <msg action="getModule"  moduleName="EhCache" usePreReturnMsg="false" />
-        <msg action="getModule"  moduleName="fileache" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="fileCache" usePreReturnMsg="false" />
         <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
     </factoryBoot>
 </moduleConfig>

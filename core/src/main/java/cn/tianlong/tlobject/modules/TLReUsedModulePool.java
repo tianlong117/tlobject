@@ -67,7 +67,8 @@ public   class TLReUsedModulePool extends TLBaseModule {
     protected TLBaseModule init() {
         if(autoInit==false)
             return this ;
-        makePool(initModuleNumbs, modueInPool);
+        if(modulePool !=null && !modulePool.isEmpty())
+             makePool(initModuleNumbs, modueInPool);
         return this ;
     }
     protected synchronized void makePool(int moduleNumber,String modueName){
@@ -222,7 +223,8 @@ public   class TLReUsedModulePool extends TLBaseModule {
                         }
                     }
                     module =modulePool.get(index);
-                    useingModules.put(user,module);                                  }
+                    useingModules.put(user,module);
+                }
             }
         }
         nowUserNumber= nowUseingModulesSize.incrementAndGet();

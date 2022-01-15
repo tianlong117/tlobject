@@ -71,7 +71,7 @@ public class servletDbTest extends TLWServModule {
         if(!memoryCache.isCacheValue(cacheValue))
         {
             totalDatas = new ArrayList();
-            // 查询10次，比较通过缓存的情况
+            // 查询10次，与缓存进行对比
             for(int i =0 ;i < 10 ;i++)
             {
                 TLMsg returnMsg =putMsg("userModle",createMsg().setAction("queryTb")
@@ -91,7 +91,7 @@ public class servletDbTest extends TLWServModule {
             totalDatas = (List<Object>) cacheValue;
         Long nowTime =System.currentTimeMillis();
         Long runtime=nowTime-startTime;
-        odata.addData("time","数据查询时间："+runtime);
+        odata.addData("time","数据查询时间："+runtime+"ms");
         odata.addData("datas",totalDatas);
         return putOutData(odata);
     }
@@ -110,10 +110,8 @@ public class servletDbTest extends TLWServModule {
             putLog("读取cache,cacheKey:"+cacheKey,LogLevel.DEBUG,"dbmodle");
             Long nowTime =System.currentTimeMillis();
             Long runtime=nowTime-startTime;
-            outData odata =  creatOutDataMsg();
-            odata.addData("<br>（缓存缓存，读取时间: "+runtime+"）<br>");
-            odata.addData(cacheValue);
-            return putOutData(odata);
+            String  pageContent ="<br>（缓存缓存，读取时间: "+runtime+"ms）<br>"+cacheValue;
+            return putContent(pageContent);
         }
         TLMsg outMsg=dbmodle(fromWho,msg);
         String content =outMsg.getStringParam(CLIENT_R_OUTCONTENT,null);
