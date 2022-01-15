@@ -58,6 +58,9 @@ public class TLFileCache extends TLBaseCache {
     protected ReentrantReadWriteLock getLock(String filePath){
         return (ReentrantReadWriteLock) locksPool.getModuleByIndex(filePath);
     }
+    protected void  reBackLock(){
+        locksPool.useModuleOver() ;
+    }
     public Object getCache(String cacheName,  String cacheKey){
         return  getCache(cacheName,  cacheKey,null) ;
     }
@@ -86,6 +89,7 @@ public class TLFileCache extends TLBaseCache {
         {
             putLog("缓存文件不存在: "+ filePath,LogLevel.DEBUG,"getCache");
             readLock.unlock();
+            reBackLock();
             return this;
         }
         InputStream in = new FileInputStream(file);
@@ -93,6 +97,7 @@ public class TLFileCache extends TLBaseCache {
         in.read(b);    //读取文件中的内容到b[]数组
         in.close();
         readLock.unlock();
+        reBackLock();
         String jsonStr=new String(b);
         HashMap<String, Object> cachedata ;
         try{
@@ -122,6 +127,7 @@ public class TLFileCache extends TLBaseCache {
                 return this;
             }finally {
                 writeLock.unlock();
+                reBackLock();
             }
         }
     }
@@ -191,6 +197,7 @@ public class TLFileCache extends TLBaseCache {
             return result;
         }finally {
             writeLock.unlock();
+            reBackLock();
         }
 
     }
@@ -222,6 +229,7 @@ public class TLFileCache extends TLBaseCache {
             return true ;
         }finally {
             writeLock.unlock();
+            reBackLock();
         }
     }
 

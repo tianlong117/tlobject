@@ -8,12 +8,17 @@
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.servletutils_config.xml" includeUnit="modules"/>
     <params>
         <name    value="demo"/>
+        <ifLog value="true"/>
+        <loglevel value="info"/>
         <verison value="1"/>
         <!-- 模块默认包前缀 -->
         <package value="cn.tianlong.java"/>
         <factory value="singleton"/>
     </params>
- 
+    <!-- 所有模块公共参数 -->
+    <commonParams>
+        <loglevel value="info"/>
+    </commonParams>
     <modules>
         <!-- 用户自定义模块 -->
         <!-- 用户自定义模块 "appCenter" 为系统主启动模块，必须定义-->

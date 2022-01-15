@@ -95,8 +95,8 @@ public class TLLog extends TLBaseModule {
                         setLog(fromWho,msg);
                         return null;
                     }
-                    TLMsg tmsg = msg.setAction("log").setParam(INTHREADPOOL,true).setWaitFlag(false).setParam(THREADPOOLNAME,DEFAULTLOGTTHREADPOOL);
-                    putMsg(this, tmsg);
+                    TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG, msg.setAction("log")).setParam(THREADPOOL_P_TASKMODULE, this);
+                    putMsg(threadPool, tmsg);
                 }
                 break;
             case "log":

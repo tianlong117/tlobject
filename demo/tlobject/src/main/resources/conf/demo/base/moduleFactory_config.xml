@@ -20,7 +20,7 @@
         <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
         <module name="wife" classfile="cn.tianlong.java.demo.base.Person" />
     </modules>
-        <factoryBoot>
-            <msg action="getModule"  moduleName="log" usePreReturnMsg="false" />
-        </factoryBoot>
+    <factoryBoot>
+        <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" />
+    </factoryBoot>
 </moduleConfig>

@@ -4,6 +4,7 @@
         <ifLog value="true" />
         <reload value="false" />
         <logModules value=""/>
+        <logWait value="false" />
         <level value="debug" />
         <noLogModules value=""/>
     </params>

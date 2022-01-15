@@ -5,6 +5,7 @@
         <logWait value="true" />
         <level value="info" />
         <logModules value=""/>
+        <logWait value="false" />
         <noLogModules value=" "/>
     </params>
     <moduleSetting>
