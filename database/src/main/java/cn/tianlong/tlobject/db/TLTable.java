@@ -272,6 +272,43 @@ public class TLTable extends TLBaseDataUnit {
     }
 
     protected TLMsg query(TLMsg msg) {
+        String sql = msg.getStringParam(DB_P_SQL,null);
+        if(sql==null)
+            return createMsg().setParam(RESULT, false);
+        if (msg.getParam(DB_P_TABLENAME) != null)
+            sql = sql.replace("[table]", (CharSequence) msg.getParam(DB_P_TABLENAME));
+        else
+            sql = sql.replace("[table]", dbtable);
+        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        boolean ifQueryCache=ifCache || msg.parseBoolean(DB_P_IFCACHE,false);
+        String cacheKey = null;
+        if(ifQueryCache)
+        {
+            cacheKey =makeCacheKey(sql,sqlParamsList);
+            Object resultType = msg.getParam(DB_P_RESULTTYPE);
+            if (resultType == null)
+                resultType = TLDataBase.RESULT_TYPE.MAPLIST;
+            Object cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
+            if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+              return   msg.setParam(DB_R_RESULT, cacheValue);
+            else
+            {
+              boolean  addSucess=  ((TLDBServer)dbserver).addkey(name,cacheKey);
+              if(addSucess==false){
+                   cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
+                  if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+                      return   msg.setParam(DB_R_RESULT, cacheValue);
+                  else
+                      return  msg.setParam(DB_R_RESULT, false);
+              }
+            }
+        }
+        putLog(sql, LogLevel.DEBUG, "query");
+        ResultSetHandler rsh = TLDataBase.getResultSetHandler(msg);
+        if (rsh == null) {
+            putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
+            return createMsg().setParam(RESULT, false);
+        }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
        if(rconn ==null){
            if (readconn == null)
@@ -283,19 +320,8 @@ public class TLTable extends TLBaseDataUnit {
             putLog("数据库没有连接", LogLevel.ERROR, DB_QUERY);
             return createMsg().setParam(RESULT,false);
         }
-        String sql = (String) msg.getParam(DB_P_SQL);
-        if (msg.getParam(DB_P_TABLENAME) != null)
-            sql = sql.replace("[table]", (CharSequence) msg.getParam(DB_P_TABLENAME));
-        else
-            sql = sql.replace("[table]", dbtable);
-        ResultSetHandler rsh = TLDataBase.getResultSetHandler(msg);
-        if (rsh == null) {
-            putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
-            return createMsg().setParam(RESULT, false);
-        }
+
         QueryRunner runner = new QueryRunner();
-        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
-        putLog(sql, LogLevel.DEBUG, "query");
         Object result = null;
         if (sqlParamsList == null || sqlParamsList.isEmpty()) {
             try {
@@ -334,6 +360,14 @@ public class TLTable extends TLBaseDataUnit {
                 return createMsg().setParam(RESULT,false);
             }
         }
+        if(cacheKey !=null)
+        {
+            Object resultType = msg.getParam(DB_P_RESULTTYPE);
+            if (resultType == null)
+                resultType = TLDataBase.RESULT_TYPE.MAPLIST;
+            Object cacheValue =((TLDBServer)dbserver).writeCache(name,cacheKey, result, (TLDataBase.RESULT_TYPE) resultType,1);
+
+        }
         msg.setParam(DB_R_RESULT, result);
         Object resultFor = getResultObject(msg);
         if (resultFor == null)
@@ -344,7 +378,18 @@ public class TLTable extends TLBaseDataUnit {
             return msg;
         }
     }
-
+    protected String makeCacheKey(String sql, Map<String,Object> sqlParams ){
+        StringBuilder strBuffer = new StringBuilder().append(sql);
+        if(sqlParams !=null)
+        for(String key :sqlParams.keySet())
+        {
+            strBuffer.append(key) ;
+            Object value =sqlParams.get(key);
+            if(value !=null)
+                strBuffer.append(String.valueOf(value)) ;
+        }
+        return String.valueOf( strBuffer.toString().hashCode());
+    }
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) == null) {

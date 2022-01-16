@@ -3,12 +3,16 @@ package cn.tianlong.tlobject.cache;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_EXPTTIME;
 import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_VALUE;
+import static java.lang.Thread.sleep;
 
 public class TLMemoryCache extends TLBaseCache {
 
@@ -29,16 +33,72 @@ public class TLMemoryCache extends TLBaseCache {
     @Override
     protected TLBaseModule init() {
         super.init();
-        for (String cacheName : cacheTables.keySet()) {
-            ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
-            cacheDatas.put(cacheName, cacheMap);
+        if(cacheTables !=null)
+        {
+            for (String cacheName : cacheTables.keySet()) {
+                ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
+                cacheDatas.put(cacheName, cacheMap);
+            }
         }
+        Thread thread = new Thread(()->{
+            while (true){
+                try{
+                    sleep(2000);
+                    if(!cacheDatas.isEmpty())
+                    {
+                        for(ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> caches :cacheDatas.values()){
+
+                            for(String key : caches.keySet()){
+                                ConcurrentHashMap<String, Object> cacheData= caches.get(key);
+                                Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
+                                if (time == 0L || System.currentTimeMillis() < time)
+                                    continue;
+                                else
+                                    caches.remove(key);
+                            }
+                        }
+                    }
+                }catch (Exception e){
+                    putLog("缓存清理线程错误",LogLevel.ERROR,"init");
+                }
+            }
+        });
+        thread.setDaemon(true);
+        thread.start();
         return this;
+    }
+    @Override
+    public boolean containsCacheKey(String cacheName,  String cacheKey){
+        if (cacheDatas == null)
+            return false;
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        if (cacheMap == null)
+            return false;
+        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+        if (cacheData != null && cacheData.isEmpty())
+            return true;
+        else
+            return false ;
+    }
+    @Override
+    public boolean addKey(String cacheName,  String cacheKey){
+        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        if(cacheMap ==null)
+        {
+            cacheMap = new ConcurrentHashMap<>();
+            if( cacheDatas.putIfAbsent(cacheName,cacheMap)!=null)
+                return false ;
+        }
+        ConcurrentHashMap<String, Object> cacheData=new ConcurrentHashMap<>();
+        if(  cacheMap.putIfAbsent(cacheKey,cacheData)!=null)
+            return false ;
+        else
+            return true ;
     }
     public boolean addCache(String cacheName,String exptime){
         if(cacheDatas.containsKey(cacheName))
             return false ;
-        if(cacheTables.containsKey(cacheName))
+        if(cacheTables !=null && cacheTables.containsKey(cacheName))
             return false ;
         HashMap<String,String> cacheParam =new HashMap<>() ;
         if(exptime !=null)
@@ -56,7 +116,7 @@ public class TLMemoryCache extends TLBaseCache {
         if (cacheMap == null)
             return this;
         ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
-        if (cacheData == null)
+        if (cacheData == null || cacheData.isEmpty())
             return this;
         Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
         if (time == 0L)
@@ -89,10 +149,13 @@ public class TLMemoryCache extends TLBaseCache {
             return false;
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
         if(cacheMap ==null)
-            return false ;
+        {
+            cacheMap = new ConcurrentHashMap<>();
+            cacheDatas.put(cacheName,cacheMap);
+        }
         synchronized (cacheMap) {
             ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
-            if (cacheData != null)
+            if (cacheData != null && !cacheData.isEmpty())
                 return false;
             cacheData = new ConcurrentHashMap<>();
             cacheMap.put(cacheKey, cacheData);

@@ -16,6 +16,7 @@ import java.util.HashMap;
 public abstract class TLBaseDataUnit extends TLBaseModule {
     protected TLBaseConnectorInterface connector;
     protected TLBaseConnectorInterface readConnector;
+    protected boolean ifCache =false ;
     protected Object conn;
     protected Object readconn;
     protected String dbtable;
@@ -62,6 +63,8 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
         else
             dbtable= name;
         database=params.get("database");
+        if (params.get("ifCache") != null)
+            ifCache = Boolean.parseBoolean(params.get("ifCache"));
 
     }
     @Override

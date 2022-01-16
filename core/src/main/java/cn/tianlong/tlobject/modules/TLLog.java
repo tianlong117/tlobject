@@ -84,20 +84,7 @@ public class TLLog extends TLBaseModule {
         TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case LOG_PUTLOG:
-                if(ifLog ==false)
-                    return null ;
-                if(logWait==true)
-                   setLog(fromWho,msg);
-                else {
-                    IObject threadPool = (IObject) getExistintModule(DEFAULTLOGTTHREADPOOL);
-                    if(threadPool ==null)
-                    {
-                        setLog(fromWho,msg);
-                        return null;
-                    }
-                    TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG, msg.setAction("log")).setParam(THREADPOOL_P_TASKMODULE, this);
-                    putMsg(threadPool, tmsg);
-                }
+                putLog(fromWho,msg);
                 break;
             case "log":
                 setLog(fromWho,msg);
@@ -112,6 +99,24 @@ public class TLLog extends TLBaseModule {
         }
         return returnMsg ;
     }
+
+    private void putLog(Object fromWho, TLMsg msg) {
+        if(ifLog ==false)
+            return  ;
+        if(logWait==true)
+            setLog(fromWho,msg);
+        else {
+            IObject threadPool = (IObject) getExistintModule(DEFAULTLOGTTHREADPOOL);
+            if(threadPool ==null)
+            {
+                setLog(fromWho,msg);
+                return ;
+            }
+            TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG, msg.setAction("log")).setParam(THREADPOOL_P_TASKMODULE, this);
+            putMsg(threadPool, tmsg);
+        }
+    }
+
     @Override
     public void putLog(String content, LogLevel logLevel, String tag) {
 
@@ -119,19 +124,19 @@ public class TLLog extends TLBaseModule {
     public static void setLog(String moduleName, String content, LogLevel logLevel, String tag,String threadPool) {
         logObj.putLog(content, logLevel,  tag,null ,threadPool,moduleName);
     }
-      protected void setLog(Object fromWho, TLMsg msg) {
+    protected void setLog(Object fromWho, TLMsg msg) {
+        if(ifLog ==false)
+              return;
         String thread = (String) msg.getParam("thread");
         String moduleName=(String)msg.getParam(LOG_P_LOGMODULE);
         String  tag=(String)msg.getParam(LOG_P_LOGTAG);
         String content =(String) msg.getParam(LOG_P_LOGONTENT);
         LogLevel logLevel= (LogLevel) msg.getParam(LOG_P_LOGLEVEL);
+        if( checkIfLog( moduleName ,logLevel, tag)==false)
+              return;
         writeLog(moduleName, content, logLevel, tag,thread);
     }
     public  void  writeLog(String moduleName, String content, LogLevel logLevel, String tag,String thread) {
-        if(ifLog ==false)
-            return;
-        if( checkIfLog( moduleName ,logLevel, tag)==false)
-            return;
         if(thread ==null)
             thread =Thread.currentThread().getName();
         StringBuilder logBuffer = new StringBuilder();

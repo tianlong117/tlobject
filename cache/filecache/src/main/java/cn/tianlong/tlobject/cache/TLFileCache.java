@@ -3,7 +3,6 @@ package cn.tianlong.tlobject.cache;
 
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
-import cn.tianlong.tlobject.modules.TLReUsedModulePool;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -18,14 +17,6 @@ public class TLFileCache extends TLBaseCache {
 
     protected  String cachePath ;
     protected  Gson gson = new Gson();
-    /**
-     * 缓存文件锁池
-     */
-    protected  TLReUsedModulePool locksPool;
-    /**
-     * 缓存文件锁数量。根据缓存文件的数量适当配置相应锁的数量
-     */
-    protected String fileLockNumber="200";
     public TLFileCache(){
         super();
     }
@@ -44,23 +35,10 @@ public class TLFileCache extends TLBaseCache {
             cachePath=System.getProperty("user.dir")+"\\cache\\";
         if( params!=null && params.get("fileLockNumber")!=null)
             fileLockNumber=params.get("fileLockNumber");
+        ifUseLock=true ;
     }
-    @Override
-    public TLBaseCache init(){
-        super.init();
-        locksPool = (TLReUsedModulePool) getNewModule(name+"_lockspool","reUsedModulePool");
-        HashMap<String,String> poolParams=new HashMap<>();
-        poolParams.put(MODULENAME,"java.util.concurrent.locks.ReentrantReadWriteLock");
-        poolParams.put("initModuleNumbs",fileLockNumber);
-        putMsg(locksPool,createMsg().setAction(MODULEPOOL_MAKEPOOL).addMap(poolParams));
-        return this ;
-    }
-    protected ReentrantReadWriteLock getLock(String filePath){
-        return (ReentrantReadWriteLock) locksPool.getModuleByIndex(filePath);
-    }
-    protected void  reBackLock(){
-        locksPool.useModuleOver() ;
-    }
+
+
     public Object getCache(String cacheName,  String cacheKey){
         return  getCache(cacheName,  cacheKey,null) ;
     }

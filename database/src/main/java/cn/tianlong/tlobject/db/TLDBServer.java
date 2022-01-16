@@ -1,11 +1,14 @@
 package cn.tianlong.tlobject.db;
 
 import cn.tianlong.tlobject.base.*;
+import cn.tianlong.tlobject.cache.TLBaseCache;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static java.lang.Thread.sleep;
 
@@ -17,8 +20,11 @@ import static java.lang.Thread.sleep;
  */
 
 public class TLDBServer extends TLBaseModule {
+    protected boolean ifCache =false;
     protected TLBaseConnectorInterface connector;
 
+    protected TLBaseCache cacheModule ;
+    protected String cacheModuleName="memoryCache";
     public TLDBServer() {
         super();
     }
@@ -31,6 +37,15 @@ public class TLDBServer extends TLBaseModule {
         super(name, modulefactory);
     }
 
+    @Override
+    protected void setModuleParams() {
+        if (params != null) {
+            if (params.get("ifCache") != null)
+                ifCache = Boolean.parseBoolean(params.get("ifCache"));
+            if (params.get("cacheModule") != null)
+                cacheModuleName = params.get("cacheModule");
+        }
+    }
     @Override
     protected TLBaseModule init() {
         setConnector();
@@ -51,9 +66,41 @@ public class TLDBServer extends TLBaseModule {
         }
         putLog("数据库连接",LogLevel.DEBUG,"init");
         connector.close(conn);
+        if(ifCache)
+            cacheModule= (TLBaseCache) getNewModule("mycache",cacheModuleName);
         return this ;
     }
+    public boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){
 
+        String valueType =resultType.toString().toLowerCase();
+        return cacheModule.writeCache( tableName,cacheKey,cacheValue,exptime,valueType);
+    }
+    public Object getCache (String tableName,String cacheKey ,TLDataBase.RESULT_TYPE resultType){
+        String valueType =resultType.toString().toLowerCase();
+        if(cacheModule.containsCacheKey(tableName,cacheKey))
+        {
+            int i=1;
+            do {
+                if(i>=5)
+                    try {
+                        sleep(2);
+                        i++ ;
+                        if(!cacheModule.containsCacheKey(tableName,cacheKey))
+                            return cacheModule.getCache( tableName,cacheKey,valueType);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                        return cacheModule ;
+                    }
+            }while (cacheModule.containsCacheKey(tableName,cacheKey));
+        }
+        return cacheModule.getCache( tableName,cacheKey,valueType);
+    }
+    public Boolean isCacheValue(Object value){
+        return cacheModule.isCacheValue(value) ;
+    }
+    public Boolean addkey(String tableName,String cacheKey){
+        return cacheModule.addKey(tableName,cacheKey) ;
+    }
     private void setConnector() {
         String dbconnector = params.get(DB_R_CONNECTOR);
         if (dbconnector == null || dbconnector.isEmpty()) {

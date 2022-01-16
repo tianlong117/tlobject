@@ -70,6 +70,7 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
         dataSource.setInitialPoolSize(Integer.parseInt(params.get("initPoolSize")));//初始化时获取三个连接
         dataSource.setMaxPoolSize(Integer.parseInt(params.get("maxPoolSize")));//连接池中保留的最大连接数
         dataSource.setMaxIdleTime(Integer.parseInt(params.get("maxIdleTime"))); //最大空闲时间,60秒内未使用则连接被丢弃。若为0则永不丢弃
+
     }
     private TLMsg getConnection(Object fromWho, TLMsg msg) {
         Connection   conn=connect();

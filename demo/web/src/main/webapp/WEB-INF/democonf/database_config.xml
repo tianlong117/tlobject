@@ -58,18 +58,18 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-   <dbserver name="dbserver1" proxyModule="dbserver" statup="true"
+   <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true"
              driver="com.mysql.jdbc.Driver"
              dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8"
              dbuser="root" dbpass="123456"
              connector="c3p0Conn"
-             initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
-   <dbserver name="dbserver2" proxyModule="dbserver" statup="true"
+             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+   <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true"
              driver="com.mysql.jdbc.Driver"
              dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8"
              dbuser="root" dbpass="123456"
              connector="c3p0Conn"
-             initPoolSize="5" maxPoolSize="100" maxIdleTime="60"/>
+             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
 </dbservers>
 <!--
  tables参数说明：
@@ -97,8 +97,8 @@
          每个分表与其他表一样，可以单独操作。
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
-        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true"/>
-        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true"/>
+        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="true"/>
+        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="true"/>
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
