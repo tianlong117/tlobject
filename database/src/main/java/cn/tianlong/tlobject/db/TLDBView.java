@@ -82,6 +82,27 @@ public class TLDBView extends TLTable {
         runSql =sql ;
     }
     private TLMsg vquery(Object fromWho, TLMsg msg) {
+        boolean ifQueryCache=ifCache || msg.parseBoolean(DB_P_IFCACHE,false);
+        LinkedHashMap<String ,Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam("params");
+        String cacheKey = null;
+        if(ifQueryCache)
+        {
+            cacheKey =makeCacheKey(sql,sqlParamsList,resultType);
+            Object cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, resultType);
+            if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+                return   msg.setParam(DB_R_RESULT, cacheValue);
+            else
+            {
+                boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(name,cacheKey);
+                if(addSucess==false){
+                    cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
+                    if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+                        return   msg.setParam(DB_R_RESULT, cacheValue);
+                    else
+                        return  msg.setParam(DB_R_RESULT, false);
+                }
+            }
+        }
         Connection rconn = (Connection) getConnection("read");
         if(rconn==null){
             putLog("数据库没有连接",LogLevel.ERROR);
@@ -90,7 +111,6 @@ public class TLDBView extends TLTable {
         String key= (String) msg.getParam(DB_P_HANDERKEY);
         ResultSetHandler rsh=getResultSetHandler( resultType,key);
         QueryRunner runner = new QueryRunner();
-        LinkedHashMap<String ,Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam("params");
         putLog(sql,LogLevel.DEBUG,"query");
         Object result = null;
         if(sqlParamsList==null)
@@ -114,6 +134,12 @@ public class TLDBView extends TLTable {
             rconn.close();
         } catch (SQLException e) {
             putLog(runSql,LogLevel.ERROR,"query");
+        }
+        if(cacheKey !=null)
+        {
+
+            ((TLDBServer)dbserver).writeCache(name,cacheKey, result,  resultType,1);
+            ((TLDBServer)dbserver).removeSqlCacheIndex(name,cacheKey);
         }
         TLMsg returnMsg=createMsg().setParam(DB_R_RESULT,result);
         return returnMsg;

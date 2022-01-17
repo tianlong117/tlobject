@@ -25,6 +25,7 @@ public class TLDBServer extends TLBaseModule {
 
     protected TLBaseCache cacheModule ;
     protected String cacheModuleName="memoryCache";
+    protected CopyOnWriteArrayList<String> cacheSqlList = new CopyOnWriteArrayList<>() ;
     public TLDBServer() {
         super();
     }
@@ -77,29 +78,33 @@ public class TLDBServer extends TLBaseModule {
     }
     public Object getCache (String tableName,String cacheKey ,TLDataBase.RESULT_TYPE resultType){
         String valueType =resultType.toString().toLowerCase();
-        if(cacheModule.containsCacheKey(tableName,cacheKey))
+        String cacheSql =tableName+cacheKey;
+        /**
+         * 检查是否包含cacheSql，如包含说明正有相同的sql在执行
+         */
+        if(cacheSqlList.contains(cacheSql))
         {
             int i=1;
             do {
-                if(i>=5)
-                    try {
-                        sleep(2);
-                        i++ ;
-                        if(!cacheModule.containsCacheKey(tableName,cacheKey))
-                            return cacheModule.getCache( tableName,cacheKey,valueType);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                        return cacheModule ;
-                    }
-            }while (cacheModule.containsCacheKey(tableName,cacheKey));
+                try {
+                    sleep(2);
+                    i++ ;
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                    return cacheModule ;
+                }
+            }while (cacheSqlList.contains(cacheSql) || i<30);
         }
         return cacheModule.getCache( tableName,cacheKey,valueType);
     }
     public Boolean isCacheValue(Object value){
         return cacheModule.isCacheValue(value) ;
     }
-    public Boolean addkey(String tableName,String cacheKey){
-        return cacheModule.addKey(tableName,cacheKey) ;
+    public Boolean addSqlCacheIndex(String tableName,String cacheKey){
+        return   cacheSqlList.addIfAbsent(tableName+cacheKey);
+    }
+    public Boolean removeSqlCacheIndex(String tableName,String cacheKey){
+        return   cacheSqlList.remove(tableName+cacheKey);
     }
     private void setConnector() {
         String dbconnector = params.get(DB_R_CONNECTOR);

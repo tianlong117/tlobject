@@ -6,8 +6,6 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_EXPTTIME;
@@ -79,21 +77,6 @@ public class TLMemoryCache extends TLBaseCache {
             return true;
         else
             return false ;
-    }
-    @Override
-    public boolean addKey(String cacheName,  String cacheKey){
-        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
-        if(cacheMap ==null)
-        {
-            cacheMap = new ConcurrentHashMap<>();
-            if( cacheDatas.putIfAbsent(cacheName,cacheMap)!=null)
-                return false ;
-        }
-        ConcurrentHashMap<String, Object> cacheData=new ConcurrentHashMap<>();
-        if(  cacheMap.putIfAbsent(cacheKey,cacheData)!=null)
-            return false ;
-        else
-            return true ;
     }
     public boolean addCache(String cacheName,String exptime){
         if(cacheDatas.containsKey(cacheName))

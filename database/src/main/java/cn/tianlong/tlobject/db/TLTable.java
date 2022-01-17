@@ -279,21 +279,25 @@ public class TLTable extends TLBaseDataUnit {
             sql = sql.replace("[table]", (CharSequence) msg.getParam(DB_P_TABLENAME));
         else
             sql = sql.replace("[table]", dbtable);
+        Object resultType = msg.getParam(DB_P_RESULTTYPE);
+        TLDataBase.RESULT_TYPE dbType =TLDataBase.getResultType(resultType);
+        ResultSetHandler rsh = getResultSetHandler(dbType,msg);
+        if (rsh == null) {
+            putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
+            return createMsg().setParam(RESULT, false);
+        }
         LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
         boolean ifQueryCache=ifCache || msg.parseBoolean(DB_P_IFCACHE,false);
         String cacheKey = null;
         if(ifQueryCache)
         {
-            cacheKey =makeCacheKey(sql,sqlParamsList);
-            Object resultType = msg.getParam(DB_P_RESULTTYPE);
-            if (resultType == null)
-                resultType = TLDataBase.RESULT_TYPE.MAPLIST;
-            Object cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
+            cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
+            Object cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, dbType);
             if(((TLDBServer)dbserver).isCacheValue(cacheValue))
               return   msg.setParam(DB_R_RESULT, cacheValue);
             else
             {
-              boolean  addSucess=  ((TLDBServer)dbserver).addkey(name,cacheKey);
+              boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(name,cacheKey);
               if(addSucess==false){
                    cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
                   if(((TLDBServer)dbserver).isCacheValue(cacheValue))
@@ -302,12 +306,6 @@ public class TLTable extends TLBaseDataUnit {
                       return  msg.setParam(DB_R_RESULT, false);
               }
             }
-        }
-        putLog(sql, LogLevel.DEBUG, "query");
-        ResultSetHandler rsh = TLDataBase.getResultSetHandler(msg);
-        if (rsh == null) {
-            putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
-            return createMsg().setParam(RESULT, false);
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
        if(rconn ==null){
@@ -320,7 +318,7 @@ public class TLTable extends TLBaseDataUnit {
             putLog("数据库没有连接", LogLevel.ERROR, DB_QUERY);
             return createMsg().setParam(RESULT,false);
         }
-
+        putLog(sql, LogLevel.DEBUG, "query");
         QueryRunner runner = new QueryRunner();
         Object result = null;
         if (sqlParamsList == null || sqlParamsList.isEmpty()) {
@@ -362,11 +360,9 @@ public class TLTable extends TLBaseDataUnit {
         }
         if(cacheKey !=null)
         {
-            Object resultType = msg.getParam(DB_P_RESULTTYPE);
-            if (resultType == null)
-                resultType = TLDataBase.RESULT_TYPE.MAPLIST;
-            Object cacheValue =((TLDBServer)dbserver).writeCache(name,cacheKey, result, (TLDataBase.RESULT_TYPE) resultType,1);
 
+           ((TLDBServer)dbserver).writeCache(name,cacheKey, result,  dbType,1);
+           ((TLDBServer)dbserver).removeSqlCacheIndex(name,cacheKey);
         }
         msg.setParam(DB_R_RESULT, result);
         Object resultFor = getResultObject(msg);
@@ -378,7 +374,8 @@ public class TLTable extends TLBaseDataUnit {
             return msg;
         }
     }
-    protected String makeCacheKey(String sql, Map<String,Object> sqlParams ){
+
+    protected String makeCacheKey(String sql, Map<String,Object> sqlParams ,TLDataBase.RESULT_TYPE resultType ){
         StringBuilder strBuffer = new StringBuilder().append(sql);
         if(sqlParams !=null)
         for(String key :sqlParams.keySet())
@@ -388,6 +385,7 @@ public class TLTable extends TLBaseDataUnit {
             if(value !=null)
                 strBuffer.append(String.valueOf(value)) ;
         }
+        strBuffer.append(resultType.toString());
         return String.valueOf( strBuffer.toString().hashCode());
     }
     @Override

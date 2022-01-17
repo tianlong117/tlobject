@@ -287,7 +287,9 @@ public class TLDataBase extends TLBaseModule {
                 return createMsg().setParam(RESULT, false);
             }
         }
-        ResultSetHandler rsh = getResultSetHandler(msg);
+        Object resultType = msg.getParam(DB_P_RESULTTYPE);
+        RESULT_TYPE dbType =getResultType(resultType);
+        ResultSetHandler rsh = getResultSetHandler(dbType,msg);
         if (rsh == null) {
             putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
             return createMsg().setParam(RESULT, false);
@@ -619,9 +621,9 @@ public class TLDataBase extends TLBaseModule {
            server = (String) returnMsg.getParam("defaultDBserver");
         return server ;
     }
-    static public  ResultSetHandler  getResultSetHandler( TLMsg msg){
-        TLDataBase.RESULT_TYPE dbType = null;
-        Object resultType = msg.getParam(DB_P_RESULTTYPE);
+
+    static public  RESULT_TYPE getResultType(Object resultType){
+        TLDataBase.RESULT_TYPE dbType ;
         if (resultType == null)
             dbType = TLDataBase.RESULT_TYPE.MAPLIST;
         else if (resultType instanceof String)
@@ -630,6 +632,9 @@ public class TLDataBase extends TLBaseModule {
             dbType = (TLDataBase.RESULT_TYPE) resultType;
         else
             dbType = TLDataBase.RESULT_TYPE.MAPLIST;
+        return dbType ;
+    }
+    static public  ResultSetHandler  getResultSetHandler(  TLDataBase.RESULT_TYPE dbType,TLMsg msg){
         String handerkey = null;
         if (dbType == TLDataBase.RESULT_TYPE.KEYED)
             handerkey = (String) msg.getParam(DB_P_HANDERKEY);

@@ -165,9 +165,7 @@ public abstract class TLBaseCache extends TLBaseModule {
     public boolean containsCacheKey(String cacheName,  String cacheKey){
         return false ;
     }
-    public boolean addKey(String cacheName,  String cacheKey){
-        return false ;
-    }
+
     public  abstract Object getCache(String cacheName,  String cacheKey,String valueType) ;
 
     protected TLMsg getCache(Object fromWho, TLMsg msg)  {
