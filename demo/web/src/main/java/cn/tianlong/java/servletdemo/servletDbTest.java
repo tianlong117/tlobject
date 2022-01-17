@@ -9,10 +9,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLTable;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
+import java.util.*;
 
 import static cn.tianlong.tlobject.cache.TLParamString.*;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_R_OUTCONTENT;
@@ -126,7 +123,7 @@ public class servletDbTest extends TLWServModule {
         outData odata =  creatOutDataMsg("find");
         odata.addData("time",date());
         TLMsg returnMsg =putMsg("dbDemo",createMsg().setAction("queryTb").setParam("username",userName));
-        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        Map<String,Object> datas = returnMsg.getMapParam(RESULT,null);
         if(datas ==null || datas.isEmpty())
             odata.addData("msg","没有数据");
         else

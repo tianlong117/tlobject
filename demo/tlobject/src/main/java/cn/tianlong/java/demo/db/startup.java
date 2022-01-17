@@ -8,6 +8,7 @@ import cn.tianlong.tlobject.utils.TLMsgUtils;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * 创建日期：2021/2/1010:29
@@ -65,14 +66,14 @@ public class startup extends TLAppStartUp {
     private void queryByTable(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
         TLMsg returnMsg =putMsg("dbDemo",msg.setAction("queryTb"));
-        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        Map<String,Object> datas =  returnMsg.getMapParam(RESULT,null);
         if(datas ==null || datas.isEmpty())
         {
             System.out.println("没有数据");
             return;
         }
         System.out.println("查询结果:");
-        TLMsgUtils.printList(datas);
+        TLMsgUtils.printMap(datas);
     }
     private void updateTable(Object fromWho, TLMsg msg) {
         System.out.println(" --------- 修改前 ---------------");

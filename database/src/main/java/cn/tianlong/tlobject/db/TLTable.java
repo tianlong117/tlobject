@@ -22,6 +22,7 @@ import static cn.tianlong.tlobject.db.TLDataBase.getResultSetHandler;
  */
 
 public class TLTable extends TLBaseDataUnit {
+
     protected boolean ifGetStructure = true;
     protected List<ColumnModel> columnModelList;
     protected TLBaseDataUnit deleteBackUpTable;
@@ -287,24 +288,27 @@ public class TLTable extends TLBaseDataUnit {
             return createMsg().setParam(RESULT, false);
         }
         LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
-        boolean ifQueryCache=ifCache || msg.parseBoolean(DB_P_IFCACHE,false);
+        boolean ifQueryCache=ifCache && msg.parseBoolean(DB_P_IFCACHE,true);
         String cacheKey = null;
+        String cacheName =null ;
         if(ifQueryCache)
         {
+            cacheName=msg.getStringParam("cacheName",name);
             cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
-            Object cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, dbType);
+            Object cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
             if(((TLDBServer)dbserver).isCacheValue(cacheValue))
-              return   msg.setParam(DB_R_RESULT, cacheValue);
+                return   msg.setParam(DB_R_RESULT, cacheValue);
             else
             {
-              boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(name,cacheKey);
-              if(addSucess==false){
-                   cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
-                  if(((TLDBServer)dbserver).isCacheValue(cacheValue))
-                      return   msg.setParam(DB_R_RESULT, cacheValue);
-                  else
-                      return  msg.setParam(DB_R_RESULT, false);
-              }
+                boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(cacheName,cacheKey);
+                if(addSucess==false)
+                {
+                    cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
+                    if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+                        return   msg.setParam(DB_R_RESULT, cacheValue);
+                    else
+                        return  msg.setParam(DB_R_RESULT, false);
+                }
             }
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
@@ -360,9 +364,9 @@ public class TLTable extends TLBaseDataUnit {
         }
         if(cacheKey !=null)
         {
-
-           ((TLDBServer)dbserver).writeCache(name,cacheKey, result,  dbType,1);
-           ((TLDBServer)dbserver).removeSqlCacheIndex(name,cacheKey);
+            int exptime = msg.getIntParam("cacheExptime",cacheExptime);
+           ((TLDBServer)dbserver).writeCache(cacheName,cacheKey, result,  dbType,exptime);
+           ((TLDBServer)dbserver).removeSqlCacheIndex(cacheName,cacheKey);
         }
         msg.setParam(DB_R_RESULT, result);
         Object resultFor = getResultObject(msg);

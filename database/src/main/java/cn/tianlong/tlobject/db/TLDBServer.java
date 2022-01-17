@@ -68,7 +68,7 @@ public class TLDBServer extends TLBaseModule {
         putLog("数据库连接",LogLevel.DEBUG,"init");
         connector.close(conn);
         if(ifCache)
-            cacheModule= (TLBaseCache) getNewModule("mycache",cacheModuleName);
+            cacheModule= (TLBaseCache) getModule(cacheModuleName);
         return this ;
     }
     public boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){

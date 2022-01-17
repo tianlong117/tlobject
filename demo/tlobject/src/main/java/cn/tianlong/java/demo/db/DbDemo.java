@@ -208,7 +208,8 @@ public class DbDemo extends TLBaseModule {
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam("cacheName","user")
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(tb, querymsg);
     }

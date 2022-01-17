@@ -10,6 +10,8 @@ import org.xmlpull.v1.XmlPullParser;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -231,6 +233,8 @@ public abstract class TLBaseCache extends TLBaseModule {
                 return String.class;
             case C_VARTYPE_LIST:
                 return ArrayList.class;
+            case C_VARTYPE_MAP:
+                return LinkedHashMap.class;
             case C_VARTYPE_HASHMAP:
                 return HashMap.class;
             case C_VARTYPE_INT:

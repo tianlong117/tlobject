@@ -41,6 +41,7 @@ public class userModle extends TLBaseTableModle {
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam("cacheName","users")
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg  returnMsg = putMsg(table, querymsg);
         if(msg.getBooleanParam("isFromWeb",false)==true)

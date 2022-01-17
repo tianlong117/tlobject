@@ -17,6 +17,7 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
     protected TLBaseConnectorInterface connector;
     protected TLBaseConnectorInterface readConnector;
     protected boolean ifCache =false ;
+    protected int cacheExptime=1;
     protected Object conn;
     protected Object readconn;
     protected String dbtable;
@@ -65,6 +66,8 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
         database=params.get("database");
         if (params.get("ifCache") != null)
             ifCache = Boolean.parseBoolean(params.get("ifCache"));
+        if (params.get("cacheExptime") != null)
+            cacheExptime = Integer.parseInt(params.get("cacheExptime"));
 
     }
     @Override
