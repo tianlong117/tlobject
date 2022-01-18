@@ -71,6 +71,9 @@ public class TLDBServer extends TLBaseModule {
             cacheModule= (TLBaseCache) getModule(cacheModuleName);
         return this ;
     }
+    public boolean ifCache(){
+        return ifCache;
+    }
     public boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){
 
         String valueType =resultType.toString().toLowerCase();

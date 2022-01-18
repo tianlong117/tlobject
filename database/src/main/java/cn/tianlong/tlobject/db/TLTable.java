@@ -288,12 +288,12 @@ public class TLTable extends TLBaseDataUnit {
             return createMsg().setParam(RESULT, false);
         }
         LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
-        boolean ifQueryCache=ifCache && msg.parseBoolean(DB_P_IFCACHE,true);
+        boolean ifQueryCache=((TLDBServer)dbserver).ifCache() && ifCache && !msg.isNull(DB_P_CACHENAME) ;
         String cacheKey = null;
         String cacheName =null ;
         if(ifQueryCache)
         {
-            cacheName=msg.getStringParam("cacheName",name);
+            cacheName= (String) msg.getParam(DB_P_CACHENAME);
             cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
             Object cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
             if(((TLDBServer)dbserver).isCacheValue(cacheValue))
@@ -364,7 +364,7 @@ public class TLTable extends TLBaseDataUnit {
         }
         if(cacheKey !=null)
         {
-            int exptime = msg.getIntParam("cacheExptime",cacheExptime);
+            int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
            ((TLDBServer)dbserver).writeCache(cacheName,cacheKey, result,  dbType,exptime);
            ((TLDBServer)dbserver).removeSqlCacheIndex(cacheName,cacheKey);
         }

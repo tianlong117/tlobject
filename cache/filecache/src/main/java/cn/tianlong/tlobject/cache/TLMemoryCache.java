@@ -65,19 +65,6 @@ public class TLMemoryCache extends TLBaseCache {
         thread.start();
         return this;
     }
-    @Override
-    public boolean containsCacheKey(String cacheName,  String cacheKey){
-        if (cacheDatas == null)
-            return false;
-        ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
-        if (cacheMap == null)
-            return false;
-        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
-        if (cacheData != null && cacheData.isEmpty())
-            return true;
-        else
-            return false ;
-    }
     public boolean addCache(String cacheName,String exptime){
         if(cacheDatas.containsKey(cacheName))
             return false ;
@@ -134,18 +121,21 @@ public class TLMemoryCache extends TLBaseCache {
         if(cacheMap ==null)
         {
             cacheMap = new ConcurrentHashMap<>();
-            cacheDatas.put(cacheName,cacheMap);
+            Object result= cacheDatas.putIfAbsent(cacheName,cacheMap);
+            if(result !=null)
+                cacheMap= (ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>) result;
         }
-        synchronized (cacheMap) {
-            ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
-            if (cacheData != null && !cacheData.isEmpty())
-                return false;
-            cacheData = new ConcurrentHashMap<>();
-            cacheMap.put(cacheKey, cacheData);
-            cacheData.put(CACHE_P_EXPTTIME, cacheExptime);
-            cacheData.put(CACHE_P_VALUE, cacheValue);
+        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+        if (cacheData != null )
+            return false;
+        cacheData = new ConcurrentHashMap<>();
+        cacheData.put(CACHE_P_EXPTTIME, cacheExptime);
+        cacheData.put(CACHE_P_VALUE, cacheValue);
+        Object value = cacheMap.putIfAbsent(cacheKey, cacheData);
+        if(value !=null)
+            return false;
+        else
             return true;
-        }
     }
 
 }

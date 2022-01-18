@@ -2,7 +2,7 @@
 <moduleConfig>
     <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
     <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.db_config.xml" includeUnit="modules"/>
-
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.cache_config.xml" includeUnit="modules"/>
     <params>
         <ifLog value="true"/>
         <loglevel value="debug"/>

@@ -60,13 +60,13 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-   <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="false" cacheModule="EhCache"
+   <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="memoryCache"
              driver="com.mysql.jdbc.Driver"
              dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8"
              dbuser="root" dbpass="123456"
              connector="c3p0Conn"
              initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
-   <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="false" cacheModule="EhCache"
+   <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="EhCache"
              driver="com.mysql.jdbc.Driver"
              dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8"
              dbuser="root" dbpass="123456"
@@ -84,7 +84,7 @@
    readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
    statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为 false。
    ifCache:是否开启sql查询缓存，默认false，不开启
-   cacheExptime：缓存过期时间，单位分钟。默认1分钟。
+   cacheExptime：默认缓存过期时间，单位分钟。默认1分钟,如query查询中没有设置则采用。
    ifGetStructure:实例化时是否获取表结构，默认获取。
    beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
                   如有执行多个触发模块，则中间用分号;间隔。名字对应触发模块trigger对应的名字。
@@ -106,10 +106,12 @@
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
+        cacheName：缓存名称，对应缓存模块配种中名字
     -->
     <views>
-        <view name="vusers" sql="select * from userm where  name like  ?&quot;%&quot;  " dbserver="dbserver1"
-              resultType="MAPLIST"/>
+        <view name="vusers" sql="select * from user1 where  name like  ?&quot;%&quot;  " dbserver="dbserver1"  resultType="MAPLIST"
+              ifCache="true"  cacheName="users" cacheExptime="2"
+        />
     </views>
     <!--
       触发器模块配置：

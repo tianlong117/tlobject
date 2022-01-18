@@ -371,6 +371,8 @@ public interface TLParamString {
     final String DB_P_INSERTANDREPLACE = "insertorreplacee";
     final String DB_P_PARAMS = "params";
     final String DB_P_IFCACHE = "ifCache";
+    final String DB_P_CACHENAME = "cacheName";
+    final String DB_P_CACHEXPTIME = "cacheExptime";
     final String DB_SETCONNECTION = "setConnection";
     final String DB_CLOSECONNECTION = "closeConnection";
     final String DB_GETCOLUMLIST = "getColumList";
