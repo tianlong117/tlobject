@@ -13,7 +13,7 @@ import java.util.Map;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 
-public class TLServletModule extends GenericServlet {
+public class TLServlet extends GenericServlet {
 
     private  String servletName;
     protected Map<String,HttpServletRequest> requestMap;

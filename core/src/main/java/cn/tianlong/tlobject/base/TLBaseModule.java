@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -717,6 +719,29 @@ public abstract class TLBaseModule extends TLBaseObject {
         TLMsg returnMsg =putMsg(moduleName,createMsg().setAction(MODULE_GETPARAM)
                 .setParam(MODULE_PARAMS,paramName));
        return (String) returnMsg.getParam(paramName);
+    }
+
+    protected TLMsg invokeAction(String action,Object fromWho,TLMsg msg){
+        Class<?> clazz = this.getClass();
+        Method method = null;
+        try {
+            method = clazz.getDeclaredMethod(action,Object.class,TLMsg.class);
+        } catch (NoSuchMethodException e) {
+            e.printStackTrace();
+        }
+        if(method==null)
+            return null ;
+        if(!method.isAccessible())
+            method.setAccessible(true);
+        TLMsg result = null;
+        try {
+            result = (TLMsg) method.invoke(this,fromWho,msg);
+        } catch (IllegalAccessException e) {
+            e.printStackTrace();
+        } catch (InvocationTargetException e) {
+            e.printStackTrace();
+        }
+        return result;
     }
     protected TLMsg runAction(Object fromWho, TLMsg msg) {
         String action = msg.getAction();

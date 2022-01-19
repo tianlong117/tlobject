@@ -126,6 +126,7 @@ public class TLMemoryCache extends TLBaseCache {
                 cacheMap= (ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>) result;
         }
         ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+        // 在没有缓存的情况下才能写
         if (cacheData != null )
             return false;
         cacheData = new ConcurrentHashMap<>();

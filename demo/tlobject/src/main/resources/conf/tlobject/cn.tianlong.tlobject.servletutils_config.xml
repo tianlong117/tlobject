@@ -7,9 +7,6 @@
         <module name="urlMap"  classfile="cn.tianlong.tlobject.servletutils.TLWUrlMap" />
         <module name="error"  classfile="cn.tianlong.tlobject.servletutils.TLWError" />
         <module name="sessionData" classfile="cn.tianlong.tlobject.servletutils.TLWModuleInContext" />
-        <module name="servletCache"  classfile="cn.tianlong.tlobject.servletutils.TLWServletCache" configfile="servletCache_config.xml"/>
-        <module name="tableCacheBefore"   proxyModule="servletCache" configfile="servletCache_config.xml"/>
-        <module name="tableCacheAfter"   proxyModule="servletCache" configfile="servletCache_config.xml"/>
         <module name="website"  classfile="cn.tianlong.tlobject.servletutils.TLWWebSite" />
         <module name="webUser"  classfile="cn.tianlong.tlobject.servletutils.application.TLWUserInSession"
                 client="webClient" timeout="60" />

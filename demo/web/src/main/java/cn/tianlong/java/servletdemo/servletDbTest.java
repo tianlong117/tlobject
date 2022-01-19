@@ -62,6 +62,7 @@ public class servletDbTest extends TLWServModule {
         long startTime =System.currentTimeMillis();
         outData odata =  creatOutDataMsg("dbmodle");
       //  TLBaseCache memoryCache = (TLBaseCache) getModule(M_MEMORYCACHE);
+        //开启了缓存
         TLBaseCache memoryCache = (TLBaseCache) getModule(M_EHCACHE);
         List<Object> totalDatas;
         Object cacheValue = memoryCache.getCache("users",userName,C_VARTYPE_LIST);

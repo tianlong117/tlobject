@@ -20,6 +20,9 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.*;
  * 作者:tianlong
  */
 
+/**
+ * webcontrol控制基本模块
+ */
 public abstract class TLWServModule extends TLBaseModule {
 
     public TLWServModule(){
@@ -120,13 +123,13 @@ public abstract class TLWServModule extends TLBaseModule {
        return rolesList.contains(role) ;
     }
     protected  void setInInterface(String interfaceName){
-        TLMsg msg =createMsg().setAction("setinInterface").setParam("interface",interfaceName);
+        TLMsg msg =createMsg().setAction(WEBCLIENT_SETININTERFACE).setParam("interface",interfaceName);
         String client= getClient();
         putMsg(client,msg);
 
     }
     protected  void setOutInterface(String outInterfaceName){
-        TLMsg msg =createMsg().setAction("setOutInterface").setParam("outInterface",outInterfaceName);
+        TLMsg msg =createMsg().setAction(WEBCLIENT_SETOUTINTERFACE).setParam("outInterface",outInterfaceName);
         String client= getClient();
         putMsg(client,msg);
 
@@ -134,25 +137,22 @@ public abstract class TLWServModule extends TLBaseModule {
     protected String getUserData(String varname){
         String[] var = new String[1];
         var[0] =varname ;
-        TLMsg returnMsg =   putMsgToClient(createMsg().setAction("getInData").setParam(CLIENT_P_VARNAME,var));
+        TLMsg returnMsg =   putMsgToClient(createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,var));
         if(returnMsg ==null)
             return null ;
         return (String) returnMsg.getParam(varname);
     }
     protected TLMsg getUserData(String[] varname){
-        return  putMsgToClient(createMsg().setAction("getInData").setParam(CLIENT_P_VARNAME,varname));
+        return  putMsgToClient(createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,varname));
     }
     protected TLMsg getUserJson(){
-        return   putMsgToClient(createMsg().setAction("getInJson"));
+        return   putMsgToClient(createMsg().setAction(WEBCLIENT_GETINJSON));
     }
     protected TLMsg getUserData(){
-        return   putMsgToClient(createMsg().setAction("getInData"));
+        return   putMsgToClient(createMsg().setAction(WEBCLIENT_GETINDATA));
     }
     protected TLMsg getUserContent(){
-        return   putMsgToClient( createMsg().setAction("getInContent"));
-    }
-    protected TLMsg getUserMsg(){
-        return    putMsgToClient(createMsg().setAction("getInMsg"));
+        return   putMsgToClient( createMsg().setAction(WEBCLIENT_GETINCONTENT));
     }
     protected LinkedHashMap creatOutData(){
         return  new LinkedHashMap<>();
@@ -167,15 +167,6 @@ public abstract class TLWServModule extends TLBaseModule {
     protected outData creatOutDataMsg(String dataId){
         return  new outData(dataId);
     }
-    protected TLMsg putOutMsg(TLMsg msg){
-        outData outData =creatOutDataMsg().addData(msg);
-        return putOutData(outData);
-    }
-    protected TLMsg putOutMap(LinkedHashMap mapData){
-        TLMsg moduleMsg =createMsg();
-        moduleMsg.setAction("putOutData").setParam("outData",mapData);
-        return putMsgToClient(moduleMsg);
-    }
     protected TLMsg putContent(String content){
         TLMsg moduleMsg =createMsg().setAction("putContent").setParam("content",content);
         return   putMsgToClient(moduleMsg);
@@ -189,7 +180,7 @@ public abstract class TLWServModule extends TLBaseModule {
         TLMsg moduleMsg =createMsg().setAction("putOutData").setParam("outData",outData);
         return   putMsgToClient(moduleMsg);
     }
-    protected TLMsg putMsgToClient(TLMsg msg){
+    private TLMsg putMsgToClient(TLMsg msg){
         String client= getClient();
         return   putMsg(client, msg);
     }
@@ -199,8 +190,8 @@ public abstract class TLWServModule extends TLBaseModule {
         if(client ==null)
         {
             String userObj =  getUserObjName();
-            TLMsg returnMsg =putMsg(userObj,createMsg().setAction("getClient"));
-            client= (String) returnMsg.getParam("client");
+            TLMsg returnMsg =putMsg(userObj,createMsg().setAction(USER_GETCLIENT));
+            client= (String) returnMsg.getParam(USER_R_CLIENT);
         }
         return client;
     }
@@ -279,11 +270,7 @@ public abstract class TLWServModule extends TLBaseModule {
         }
         return ifDo ;
     }
-    protected void putUserMsg(TLMsg msg){
-        TLMsg moduleMsg =createMsg();
-        moduleMsg.setAction("putUserMsg").setParam("moduleMsg",msg);
-        putMsgToClient(moduleMsg);  ;
-    }
+
     protected void setSessionData(String varname ,Object value)
     {
         String threadName=Thread.currentThread().getName();
@@ -364,12 +351,6 @@ public abstract class TLWServModule extends TLBaseModule {
     protected void sendUrlMap(String url){
         putMsg("urlMap",createMsg().setAction("doWithUrl").setParam("url",url));
     }
-    protected TLMsg getServletCache(String cacheName,String cachekey){
-        TLMsg cacheMsg =createMsg().setAction("getCache")
-                .setParam("cacheName",cacheName)
-                .setParam("cacheKey",cachekey);
-        return   putMsg("fileCache",cacheMsg);
-    }
     protected class outData extends TLMsg{
         protected LinkedHashMap<String, Object> outDataMap=new LinkedHashMap<>();
         private int i=1;
@@ -404,33 +385,7 @@ public abstract class TLWServModule extends TLBaseModule {
             i++;
             return this;
         }
-        public outData addListData(List list )
-        {
-           for(int i=0 ;i<list.size() ;i++)
-               outDataMap.put(String.valueOf(i),list.get(i)) ;
-            return this;
-        }
-        public outData addMapData(Map map )
-        {
-             outDataMap.putAll(map);
-            return this;
-        }
-        public outData addData(outData dataMsg )
-        {
-            LinkedHashMap<String, Object> data= (LinkedHashMap<String, Object>) dataMsg.getParam("outData");
-            for (String key : data.keySet()) {
-                outDataMap.put(key,data.get(key));
-            }
-            return this;
-        }
-        public outData addData(TLMsg msg )
-        {
-           HashMap<String, Object> data= (HashMap<String, Object>) msg.getArgs();
-            for (String key : data.keySet()) {
-                outDataMap.put(key,data.get(key));
-            }
-            return this;
-        }
+
     }
 }
 

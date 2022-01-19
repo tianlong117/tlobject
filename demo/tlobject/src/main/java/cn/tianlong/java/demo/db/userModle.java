@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.db.TLBaseTableModle;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 
@@ -25,7 +27,7 @@ public class userModle extends TLBaseTableModle {
         TLMsg returnMsg;
         switch (msg.getAction()) {
             case "queryTb":
-                returnMsg = queryTb(fromWho, msg);
+                 returnMsg = queryTb(fromWho, msg);
                 break;
             default:
                 returnMsg=null;
@@ -56,4 +58,5 @@ public class userModle extends TLBaseTableModle {
         TLMsgUtils.printList(datas);
         return  returnMsg ;
     }
+
 }
