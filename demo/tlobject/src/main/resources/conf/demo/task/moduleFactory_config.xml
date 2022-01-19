@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <params>
+        <ifLog value="true"/>
+        <loglevel value="debug"/>
+        <package value="cn.tianlong.java.demo"/>
+        <ifModuleMonitor value="false"/>
+        <applicationId value="demo"/>
+    </params>
+    <commonParams>
+        <loglevel value="debug"/>
+    </commonParams>
+    <modulesParams>
+        <!-- 模块参数  -->
+        <module name="mymsgTaskConsole"    msgTaskModule="myTaskManger"   />
+    </modulesParams>
+    <modules>
+        <!-- 用户自定义模块 -->
+        <module name="pcboy" classfile=".task.PcBoy"  />
+        <module name="pcboy1" proxyModule="pcboy"  />
+        <module name="pcboy2" proxyModule="pcboy"  />
+        <module name="myTaskManger" proxyModule="msgTask" configfile="msgtask_config.xml" />
+        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole"  />
+    </modules>
+    <factoryBoot>
+        <msg action="#getModule"  moduleName="myTaskManger" usePreReturnMsg="false" />
+        <msg action="#startScan"  destination="mymsgTaskConsole" waitFlag="false" usePreReturnMsg="false" />
+    </factoryBoot>
+</moduleConfig>

@@ -330,7 +330,9 @@ public class TLMsgTask extends TLBaseModule {
         if (status != null && status.equals("stoping"))
             return denyMsg;
         HashMap<String, Object> nowTaskdata = taskDatas.get(nowTaskid);
-        int nowTimes = (int) nowTaskdata.get("times");
+        int nowTimes =0;
+        if(nowTaskdata !=null && nowTaskdata.containsKey("times"))
+           nowTimes = (int) nowTaskdata.get("times");
         String timesLimit = (String) nowTaskMsg.getParam("times");
         if (timesLimit != null) {
             int times = Integer.parseInt(timesLimit);
@@ -472,7 +474,7 @@ public class TLMsgTask extends TLBaseModule {
         taskMsg.removeParam(TASK_P_STATUS);
         taskMsg.removeParam(TASK_P_TIMEUNIT);
         taskMsg.removeParam(TASK_P_CRON);
-        TLMsg taskMsgInTable =taskMsgTable.get(taskid);;
+        TLMsg taskMsgInTable =taskMsgTable.get(taskid);
         taskMsgInTable.setParam(TASK_P_STATUS, TASK_V_STATUS_RUN);
         Runnable task = getMsgTask(this, msg);
         if (executor == null)

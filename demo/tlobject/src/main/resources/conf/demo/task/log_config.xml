@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <ifLog value="true" />
+        <logWait value="true" />
+        <level value="debug" />
+        <logModules value=""/>
+        <logWait value="false" />
+        <noLogModules value=" "/>
+    </params>
+    <moduleSetting>
+         <module name="myTaskManger"  levels="info;warn;error" tags=""  ></module>
+    </moduleSetting>
+
+</moduleConfig>

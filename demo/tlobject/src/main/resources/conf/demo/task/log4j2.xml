@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- log4j2 配置文件 -->
+<!-- 日志级别 trace<debug<info<warn<error<fatal -->
+<configuration status="debug">
+    <!-- 自定义属性 -->
+    <Properties>
+        <!-- 日志格式 -->
+        <Property name="pattern">%d{yyyy-MM-dd HH ss,SSS} (%F:%L) %5p %m%n</Property>
+        <!-- 日志文件路径 -->
+        <Property name="filePath">D:/log4j/</Property>
+        <!-- debug级别日志文件名称 -->
+        <Property name="debugFileName">${filePath}/debug.log</Property>
+        <!-- info级别日志文件名称 -->
+        <Property name="infoFileName">${filePath}/info.log</Property>
+        <!-- info级别日志文件名称 -->
+        <Property name="warnFileName">${filePath}/warn.log</Property>
+        <!-- error级别日志文件名称 -->
+        <Property name="errorFileName">${filePath}/error.log</Property>
+    </Properties>
+
+    <!-- 定义输出器 -->
+    <appenders>
+        <!-- 控制台输出 -->
+        <Console name="console" target="SYSTEM_OUT">
+            <!-- 日志格式 -->
+            <PatternLayout pattern="${pattern}"/>
+            <Filters>
+                <!-- 限制日志级别在debug及以上在info以下 -->
+                <ThresholdFilter level="debug"/>
+                <ThresholdFilter level="error" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </Filters>
+        </Console>
+
+        <!-- debug级别日志文件输出 -->
+        <RollingFile name="debug_appender" fileName="${debugFileName}"
+                     filePattern="${filePath}/%d{yyyy-MM-dd}/debug_%i.log">
+            <!-- 过滤器 -->
+            <Filters>
+                <!-- 限制日志级别在debug及以上在info以下 -->
+                <ThresholdFilter level="debug"/>
+                <ThresholdFilter level="info" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </Filters>
+            <!-- 日志格式 -->
+            <PatternLayout pattern="${pattern}"/>
+            <!-- 策略 -->
+            <Policies>
+                <!-- 每隔一天转存 -->
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <!-- 文件大小 -->
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+        </RollingFile>
+
+        <!-- info级别日志文件输出 -->
+        <RollingFile name="info_appender" fileName="${infoFileName}"
+                     filePattern="${filePath}/%d{yyyy-MM-dd}/info_%i.log">
+            <!-- 过滤器 -->
+            <Filters>
+                <!-- 限制日志级别在info及以上在error以下 -->
+                <ThresholdFilter level="info"/>
+                <ThresholdFilter level="error" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </Filters>
+            <!-- 日志格式 -->
+            <PatternLayout pattern="${pattern}"/>
+            <!-- 策略 -->
+            <Policies>
+                <!-- 每隔一天转存 -->
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <!-- 文件大小 -->
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+        </RollingFile>
+        <!-- warn级别日志文件输出 -->
+        <RollingFile name="warn_appender" fileName="${warnFileName}"
+                     filePattern="${filePath}/%d{yyyy-MM-dd}/warn_%i.log">
+            <!-- 过滤器 -->
+            <Filters>
+                <!-- 限制日志级别在warn及以上在error以下 -->
+                <ThresholdFilter level="warn"/>
+                <ThresholdFilter level="error" onMatch="DENY" onMismatch="NEUTRAL"/>
+            </Filters>
+            <!-- 日志格式 -->
+            <PatternLayout pattern="${pattern}"/>
+            <!-- 策略 -->
+            <Policies>
+                <!-- 每隔一天转存 -->
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <!-- 文件大小 -->
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+        </RollingFile>
+
+        <!-- error级别日志文件输出 -->
+        <RollingFile name="error_appender" fileName="${errorFileName}"
+                     filePattern="${filePath}/%d{yyyy-MM-dd}/error_%i.log">
+            <!-- 过滤器 -->
+            <Filters>
+                <!-- 限制日志级别在error及以上 -->
+                <ThresholdFilter level="error"/>
+            </Filters>
+            <!-- 日志格式 -->
+            <PatternLayout pattern="${pattern}"/>
+            <Policies>
+                <!-- 每隔一天转存 -->
+                <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+                <!-- 文件大小 -->
+                <SizeBasedTriggeringPolicy size="100 MB"/>
+            </Policies>
+        </RollingFile>
+    </appenders>
+
+    <!-- 定义logger -->
+    <loggers>
+
+        <!-- 定义根logger -->
+        <!-- 日志级别设备为debug 具体日志级别由appender限制 -->
+        <Root level="debug">
+            <!-- 输出控制台 -->
+            <AppenderRef ref="console"/>
+            <!-- 输出debug级别日志文件 -->
+            <AppenderRef ref="debug_appender"/>
+            <!-- 输出info级别日志文件 -->
+            <AppenderRef ref="info_appender"/>
+            <!-- 输出warn级别日志文件 -->
+            <AppenderRef ref="warn_appender"/>
+            <!-- 输出error级别日志文件 -->
+            <AppenderRef ref="error_appender"/>
+        </Root>
+    </loggers>
+</configuration>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <status value="run"/>
+        <poolSize value="5"/>
+        <ifLog value="true"/>
+    </params>
+    <taskMsgTable>
+        <msg destination="pcboy1" action="eat" taskid="pcboy1_eat" status="run" timeUnit="s" times1="10" delay="2"/>
+        <!--msg destination="pcboy1" action="play" taskid="pcboy1_play" status="run" timeUnit="s"  delay="5"/-->
+        <!--msg destination="pcboy2" action="play" taskid="pcboy2_play"  status="run" cronExp="*/10 * * * * ?"/-->
+        <!--msg destination="pcboy1" action="sleep" taskid="pcboy1_sleep" status="run" cronExp="0 6 21 16 2 ? 2019"/-->
+    </taskMsgTable>
+</moduleConfig>
