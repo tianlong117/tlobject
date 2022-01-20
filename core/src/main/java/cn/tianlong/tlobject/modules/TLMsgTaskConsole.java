@@ -15,9 +15,10 @@ import java.util.Map;
  */
 
 /**
- * msg输入控制台
+ * 定时任务MsgTask命令控制台,通过配置msgTaskModule来控制相应的计划任务
  */
 public class TLMsgTaskConsole extends TLMsgScanner {
+    // 配置控制的msgTask模块
     protected  String msgTaskModule;
     protected  String taskParams[] = {"delay","begin","times"};
     protected  Map<String,TLMsg> taskMsgTable ;
@@ -36,7 +37,7 @@ public class TLMsgTaskConsole extends TLMsgScanner {
         if (params != null) {
             if (params.get("msgTaskModule") != null) {
                 msgTaskModule = params.get("msgTaskModule");
-            }            ;
+            }
         }
         params.put("defaultModule",name);
         params.put("defaultAction","console");

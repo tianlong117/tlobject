@@ -279,7 +279,7 @@ public class TLMsgScanner extends TLBaseModule {
     private TLMsg analyzeStr(String string) {
         TLMsg cmdMsg=createMsg();
         if(!string.contains("="))
-            return null;
+            return cmdMsg.setParam(string,null);
         String str[] = string.split(" ");
         for(int i =0 ;i < str.length ;i++)
         {

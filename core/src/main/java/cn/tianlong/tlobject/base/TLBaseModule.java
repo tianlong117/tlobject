@@ -624,8 +624,6 @@ public abstract class TLBaseModule extends TLBaseObject {
                 return returnMsg;
             }
         }
-        if(destination !=null)
-            msg.setDestination(null);
         String msgId = msg.getMsgId();
         String action = msg.getAction();
         if ( action == null && msgId == null)

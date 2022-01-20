@@ -26,14 +26,17 @@ public class PcBoy extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case "sleep":
-                sleep(fromWho, msg);
+            case "mysleep":
+                mysleep(fromWho, msg);
                 break;
             case "eat":
                 eat(fromWho, msg);
                 break;
             case "play":
                 play(fromWho, msg);
+                break;
+            case "study":
+                study(fromWho, msg);
                 break;
             default:
         }
@@ -46,8 +49,11 @@ public class PcBoy extends TLBaseModule {
 
         say("我在吃饭，好好吃");
     }
-    private void sleep(Object fromWho, TLMsg msg) {
+    private void mysleep(Object fromWho, TLMsg msg) {
         say("我在睡觉。。。");
+    }
+    private void study(Object fromWho, TLMsg msg) {
+        say("我开始学习。。。");
     }
     private void say(String content)
     {

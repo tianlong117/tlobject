@@ -1,14 +1,30 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
+    <!--
+       status:默认任务状态
+       poolSize：线程池数量，不小于任务数量
+    -->
     <params>
         <status value="run"/>
         <poolSize value="5"/>
         <ifLog value="true"/>
     </params>
+    <!--
+       定时任务表。
+       taskid：任务id，每个id唯一，用于标识不同的任务
+       status:任务状态，是否运行、停止。run:运行 、stop：停止、不运行
+       cronExp:定时任务cron表达式
+       对于没有设置cron表达式的任务，采用的是java计划任务模块ScheduledExecutorService的参数定义
+       timeUnit：时间单元 ms:毫秒 s:秒 m:分钟 h:小时
+       begin:程序运行后延迟的任务开始时间
+       delay：定时间隔
+       times：运行次数
+     -->
     <taskMsgTable>
-        <msg destination="pcboy1" action="eat" taskid="pcboy1_eat" status="run" timeUnit="s" times1="10" delay="2"/>
-        <!--msg destination="pcboy1" action="play" taskid="pcboy1_play" status="run" timeUnit="s"  delay="5"/-->
-        <!--msg destination="pcboy2" action="play" taskid="pcboy2_play"  status="run" cronExp="*/10 * * * * ?"/-->
+        <msg destination="pcboy1" action="eat" taskid="pcboy1_eat" status="run" timeUnit="s" times="5" delay="2"/>
+        <msg destination="pcboy2" action="play" taskid="pcboy2_play" status="run" timeUnit="s"  delay="5"/>
+        <msg destination="pcboy1" action="mysleep" taskid="pcboy1_sleep" status="run" timeUnit="s" times="1" begin="10" delay="2"/>
+        <msg destination="pcboy2" action="study" taskid="pcboy2_study"  status="run" cronExp="0 5 12 * * ? "/>
         <!--msg destination="pcboy1" action="sleep" taskid="pcboy1_sleep" status="run" cronExp="0 6 21 16 2 ? 2019"/-->
     </taskMsgTable>
 </moduleConfig>

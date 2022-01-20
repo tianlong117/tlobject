@@ -12,9 +12,9 @@ public class Main  {
         TLObjectFactory myfactory = TLObjectFactory.getInstance( factoryConfigPath,"moduleFactory_config.xml");
         myfactory.startFactory(null,null);
         myfactory.boot();
-       TLMsg taksMsg =new TLMsg().setAction("getModule").setParam("moduleName","myTaskManger");
-        myfactory.putMsg(myfactory,taksMsg);
-        myfactory.putMsg("mymsgTaskConsole",new TLMsg().setAction("startScan"));
+   //    TLMsg taksMsg =new TLMsg().setAction("getModule").setParam("moduleName","myTaskManger");
+     //   myfactory.putMsg(myfactory,taksMsg);
+    //    myfactory.putMsg("mymsgTaskConsole",new TLMsg().setAction("startScan"));
 
 }
 }

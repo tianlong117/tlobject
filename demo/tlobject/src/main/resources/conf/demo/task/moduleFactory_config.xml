@@ -12,20 +12,19 @@
     <commonParams>
         <loglevel value="debug"/>
     </commonParams>
-    <modulesParams>
-        <!-- 模块参数  -->
-        <module name="mymsgTaskConsole"    msgTaskModule="myTaskManger"   />
-    </modulesParams>
     <modules>
-        <!-- 用户自定义模块 -->
+        <!-- 自定义模块 -->
         <module name="pcboy" classfile=".task.PcBoy"  />
         <module name="pcboy1" proxyModule="pcboy"  />
         <module name="pcboy2" proxyModule="pcboy"  />
+        <module name="light" classfile="cn.tianlong.java.demo.base.Light" />
         <module name="myTaskManger" proxyModule="msgTask" configfile="msgtask_config.xml" />
-        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole"  />
+        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole" msgTaskModule="myTaskManger"   />
     </modules>
     <factoryBoot>
-        <msg action="#getModule"  moduleName="myTaskManger" usePreReturnMsg="false" />
-        <msg action="#startScan"  destination="mymsgTaskConsole" waitFlag="false" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="pcboy1" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="pcboy2" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="myTaskManger" usePreReturnMsg="false" />
+        <msg action="startScan"  destination="mymsgTaskConsole" usePreReturnMsg="false" />
     </factoryBoot>
 </moduleConfig>
