@@ -11,6 +11,8 @@
     </params>
     <commonParams>
         <loglevel value="debug"/>
+        <!--防止某个任务错误而杀死   -->
+        <ifExceptionHandle value="false" />
     </commonParams>
     <modules>
         <!-- 自定义模块 -->
@@ -19,7 +21,8 @@
         <module name="pcboy2" proxyModule="pcboy"  />
         <module name="light" classfile="cn.tianlong.java.demo.base.Light" />
         <module name="myTaskManger" proxyModule="msgTask" configfile="msgtask_config.xml" />
-        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole" msgTaskModule="myTaskManger"   />
+        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole" configfile="mymsgTaskConsole_config.xml" />
+
     </modules>
     <factoryBoot>
         <msg action="getModule"  moduleName="pcboy1" usePreReturnMsg="false" />

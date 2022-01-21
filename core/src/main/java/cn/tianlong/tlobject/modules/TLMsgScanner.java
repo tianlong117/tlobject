@@ -88,37 +88,26 @@ public class TLMsgScanner extends TLBaseModule {
                continue;
             if(isSystemCmd(str))
                 continue;
-            TLMsg cmdMsg=analyzeCmdStr(str);
-            if(cmdMsg !=null){
-               TLMsg returMsg = putMsg(this,cmdMsg) ;
-               if(returMsg !=null)
-               {
-                   System.out.println("运行结果");
-                   TLMsgUtils.printMsg(returMsg);
-               }
-              continue;
+            TLMsg cmdMsg= analyseCmdStr(str);
+            if(cmdMsg !=null)
+            {
+               putMsg(this,cmdMsg) ;
+               continue;
             }
-            TLMsg inputMsg=analyzeStr(str);
-            if(inputMsg ==null)
-                System.out.println(" no cmd:" +str);
-            else {
-              Boolean result= checkInputMsg(inputMsg);
-              if(result ==true)
-              {
-                  IObject module = (IObject) getModuleFromFactory(inputMsg.getDestination());
-                  if(module ==null)
-                      System.out.println(" module has no intrance :" +inputMsg.getDestination());
-                  else
-                     putMsg(module,inputMsg);
-              }
-              else {
-                  System.out.println(" msg is error,please check module or action");
-              }
+            TLMsg inputMsg= analyseInputStr(str);
+            Boolean ifCanRun= checkInputMsg(inputMsg);
+            if(ifCanRun ==true)
+            {
+                IObject module = (IObject) getModuleFromFactory(inputMsg.getDestination());
+                if(module ==null)
+                    System.out.println(" module has no intrance :" +inputMsg.getDestination());
+                else
+                    putMsg(module,inputMsg);
             }
+            else
+                System.out.println(" msg is error,please check module or action");
         }
     }
-
-
 
     private boolean ifCheckLogin(String str) {
         if(ifLogin==false )
@@ -143,98 +132,20 @@ public class TLMsgScanner extends TLBaseModule {
             return false;
         switch (str){
             case "help" :
-                help();
-                break;
+                 help();
+                 break;
             case "quit":
-                if(passwd!=null && !passwd.isEmpty())
-                {
-                    ifLogin=false;
-                    System.out.println(" you have quit");
-                    return true ;
-                }
-                return false;
+                 loginOut();
+                 break;
             case "shutdown":
-                System.out.println(" system is shutdown !");
-                moduleFactory.shutdown();
-                System.exit(0);
+                  shutdown();
+                  break;
 
         }
         return true ;
     }
 
-    protected void help() {
-        if(msgToModules==null || msgToModules.isEmpty()){
-            System.out.println("no configure msgToModules table");
-            return;
-        }
-        for (String moduleName:msgToModules.keySet()) {
-            HashMap<String,String> moduleConfigs = msgToModules.get(moduleName);
-            String actions =moduleConfigs.get("actions");
-            System.out.println("module:"+moduleName +"  actions:"+actions);
-        }
-        if(cmds==null)
-            return;
-        for (String cmd:cmds.keySet()) {
-            HashMap<String,String> cmdConfigs = cmds.get(cmd);
-            String module =cmdConfigs.get("module");
-            String action =cmdConfigs.get("action");
-            System.out.println("cmd: " +cmd+ "执行 module:"+module+"  action:"+action);
-        }
-    }
-
-    private Boolean checkInputMsg(TLMsg inputMsg) {
-        String module =inputMsg.getDestination() ;
-        Boolean result= false ;
-        HashMap<String,String> moduleConfigs;
-        if(module ==null || module.isEmpty())
-        {
-            if(defaultModule!=null && !defaultModule.isEmpty())
-            {
-                module =defaultModule;
-                inputMsg.setDestination(module);
-            }
-            else
-            {
-                System.out.println("module  must set m=module");
-                return false;
-            }
-        }
-        moduleConfigs =msgToModules.get(module);
-        if(moduleConfigs==null)
-            return false;
-        String action =inputMsg.getAction() ;
-        if(action ==null || action.isEmpty())
-        {
-            if(defaultAction!=null && !defaultAction.isEmpty())
-            {
-                action =params.get("defaultAction");
-                inputMsg.setAction(action);
-            }
-            else
-            {
-                System.out.println("action  must set a=action");
-                return false;
-            }
-        }
-        if(moduleConfigs.get("actions")!=null && !moduleConfigs.get("actions").isEmpty())
-        {
-            String actionsStr= moduleConfigs.get("actions");
-            String actions[] = actionsStr.split(";");
-            for(int i=0;i<actions.length;i++)
-            {
-                if(actions[i].equals(action))
-                {
-                    result =true;
-                    break;
-                }
-            }
-        }
-        else
-            result =true ;
-        return  result ;
-    }
-
-    private TLMsg analyzeCmdStr(String string) {
+    private TLMsg analyseCmdStr(String string) {
         if(cmds ==null || cmds .isEmpty())
             return null ;
         String str[] = string.split(" ");
@@ -276,7 +187,7 @@ public class TLMsgScanner extends TLBaseModule {
         return cmdMsg;
     }
 
-    private TLMsg analyzeStr(String string) {
+    private TLMsg analyseInputStr(String string) {
         TLMsg cmdMsg=createMsg();
         if(!string.contains("="))
             return cmdMsg.setParam(string,null);
@@ -286,7 +197,7 @@ public class TLMsgScanner extends TLBaseModule {
             if (!str[i].isEmpty())
             {
                 if(!str[i].contains("="))
-                   cmdMsg.setParam(str[i],null);
+                   cmdMsg.setParam(str[i].trim(),null);
                else
                 {
                     String cmd[] = str[i].split("=");
@@ -297,23 +208,107 @@ public class TLMsgScanner extends TLBaseModule {
         }
         return cmdMsg;
     }
-
     private void takeMsg(TLMsg cmdMsg, String[] cmd) {
         if(cmd.length ==1 )
         {
-            cmdMsg.setParam(cmd[0],null);
+            cmdMsg.setParam(cmd[0].trim(),null);
             return;
         }
         switch (cmd[0]) {
             case "m":
-                cmdMsg.setDestination(cmd[1]);
+                cmdMsg.setDestination(cmd[1].trim());
                 break;
             case "a":
-                cmdMsg.setAction(cmd[1]);
+                cmdMsg.setAction(cmd[1].trim());
                 break;
             default:
-                cmdMsg.setParam(cmd[0],cmd[1]);
+                cmdMsg.setParam(cmd[0].trim(),cmd[1].trim());
         }
+    }
+
+    private Boolean checkInputMsg(TLMsg inputMsg) {
+        String module =inputMsg.getDestination() ;
+        HashMap<String,String> moduleConfigs;
+        if(module ==null || module.isEmpty())
+        {
+            if(defaultModule!=null && !defaultModule.isEmpty())
+            {
+                module =defaultModule;
+                inputMsg.setDestination(module);
+            }
+            else
+            {
+                System.out.println(" must set m=module or set defaultModule ");
+                return false;
+            }
+        }
+        moduleConfigs =msgToModules.get(module);
+        if(moduleConfigs==null)
+            return false;
+        String action =inputMsg.getAction() ;
+        if(action ==null || action.isEmpty())
+        {
+            if(defaultAction!=null && !defaultAction.isEmpty())
+            {
+                action =params.get("defaultAction");
+                inputMsg.setAction(action);
+            }
+            else
+            {
+                System.out.println(" must set a=action");
+                return false;
+            }
+        }
+        Boolean ifCanRun= false ;
+        if(moduleConfigs.get("actions")!=null && !moduleConfigs.get("actions").isEmpty())
+        {
+            String actionsStr= moduleConfigs.get("actions");
+            String actions[] = actionsStr.split(";");
+            for(int i=0;i<actions.length;i++)
+            {
+                if(actions[i].equals(action))
+                {
+                    ifCanRun =true;
+                    break;
+                }
+            }
+        }
+        else
+            ifCanRun =true ;
+        return  ifCanRun ;
+    }
+
+    protected void help() {
+        if(msgToModules==null || msgToModules.isEmpty()){
+            System.out.println("no configure msgToModules table");
+            return;
+        }
+        for (String moduleName:msgToModules.keySet()) {
+            HashMap<String,String> moduleConfigs = msgToModules.get(moduleName);
+            String actions =moduleConfigs.get("actions");
+            System.out.println("module:"+moduleName +"  actions:"+actions);
+        }
+        if(cmds==null)
+            return;
+        for (String cmd:cmds.keySet()) {
+            HashMap<String,String> cmdConfigs = cmds.get(cmd);
+            String module =cmdConfigs.get("module");
+            String action =cmdConfigs.get("action");
+            System.out.println("cmd: " +cmd+ "执行 module:"+module+"  action:"+action);
+        }
+    }
+
+    protected void loginOut(){
+        if(passwd!=null && !passwd.isEmpty())
+        {
+            ifLogin=false;
+            System.out.println(" you have quit");
+        }
+    }
+    protected void shutdown(){
+        System.out.println(" system is shutdown !");
+        moduleFactory.shutdown();
+        System.exit(0);
     }
     protected class myConfig extends TLModuleConfig {
         protected HashMap<String, HashMap<String,String>> msgToModules;

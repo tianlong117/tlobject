@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <msgTaskModule value="myTaskManger"/>
+    </params>
+
+    <cmds>
+        <cmd name="p1eat" module="pcboy1" action="eat"  />
+        <cmd name="openlog" module="log" action="openLog"  />
+      </cmds>
+</moduleConfig>

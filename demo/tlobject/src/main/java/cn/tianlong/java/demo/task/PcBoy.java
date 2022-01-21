@@ -14,7 +14,7 @@ import java.util.Date;
  * 作者:tianlong
  */
 public class PcBoy extends TLBaseModule {
-    private  int  i=2;
+    private  int  i=3;
     public PcBoy(String name, TLObjectFactory moduleFactory)  {
         super(name,moduleFactory);
     }
@@ -48,6 +48,8 @@ public class PcBoy extends TLBaseModule {
     private void eat(Object fromWho, TLMsg msg) {
 
         say("我在吃饭，好好吃");
+        i-- ;
+        int m =2/i;
     }
     private void mysleep(Object fromWho, TLMsg msg) {
         say("我在睡觉。。。");

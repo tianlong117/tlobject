@@ -35,11 +35,13 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg(String action, HashMap args){
         this.action = action;
-        this.args=args;
+        if(args !=null)
+           this.args=args;
     }
     public TLMsg(String action, HashMap args, String msgId){
         this.action = action;
-        this.args=args;
+        if(args !=null)
+           this.args=args;
         this.msgId=msgId;
     }
 
@@ -131,7 +133,8 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg setArgs(HashMap args)
     {
-        this.args=args ;
+        if(args !=null)
+            this.args=args ;
         return  this ;
     }
     public  TLMsg  addMap(Map map){
@@ -221,71 +224,71 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public Long getLongParam(String param ,Long defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Long )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Long )
             return (Long)value;
         return defaultValue ;
     }
     public Double getDoubleParam(String param ,Double defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Double )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Double )
             return (Double)value;
         return defaultValue ;
     }
     public String getStringParam(String param ,String defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof String )
+        Object value = getParam(param);
+        if (value !=null && value instanceof String )
             return (String)value;
         return defaultValue ;
     }
     public int getIntParam(String param ,int defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Integer )
+        Object value = getParam(param);
+        if (value !=null && value instanceof Integer )
             return (int)value;
         return defaultValue ;
     }
     public boolean getBooleanParam(String param ,boolean defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Boolean )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Boolean )
             return (Boolean) value;
         return defaultValue ;
     }
     public byte getByeParam(String param ,byte defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Byte )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Byte )
             return (byte) value;
         return defaultValue ;
     }
     public Map getMapParam(String param ,Map defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Map )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Map )
             return (Map) value;
         return defaultValue ;
     }
     public List getListParam(String param , List defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof List )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof List )
             return (List) value;
         return defaultValue ;
     }
     public Set getSetParam(String param , Set defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value instanceof Set )
+        Object value = getParam(param);
+        if (value !=null && value  instanceof Set )
             return (Set) value;
         return defaultValue ;
     }
     public Object getArrayParam(String param , Object defaultValue)
     {
-        Object value = getParam(param,defaultValue);
-        if (value !=null && value.getClass().isArray() )
+        Object value = getParam(param);
+        if (value !=null  && value.getClass().isArray() )
             return  value;
         return defaultValue ;
     }

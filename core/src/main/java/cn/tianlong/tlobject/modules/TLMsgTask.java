@@ -20,10 +20,11 @@ import java.util.concurrent.*;
  消息计划任务模块
  */
 public class TLMsgTask extends TLBaseModule {
+    protected String cronDelay ="1";
     protected ScheduledExecutorService executor;
     protected Map<String, TLMsg>  taskMsgTable = new ConcurrentHashMap<>();
     protected Map<String, HashMap<String, Object>> taskDatas = new ConcurrentHashMap<>();
-    protected int poolSize = 1;
+    protected int poolSize = 0;
     protected TLMsg denyMsg = new TLMsg().setParam(MODULE_DONEXTMSG, "false");
 
     public TLMsgTask() {
@@ -40,7 +41,7 @@ public class TLMsgTask extends TLBaseModule {
 
     @Override
     protected Object setConfig() {
-        myConfig config = new myConfig(configFile,moduleFactory.getConfigDir());;
+        myConfig config = new myConfig(configFile,moduleFactory.getConfigDir());
         mconfig = config;
         super.setConfig();
         ArrayList<TLMsg> taskMsgs = config.getTaskMsgTable();
@@ -62,31 +63,30 @@ public class TLMsgTask extends TLBaseModule {
     @Override
     protected TLBaseModule init() {
         if(poolSize ==0)
-        {
-            putLog("poolSize must to set ", LogLevel.ERROR);
-            return this ;
-        }
-        if (params != null && params.get("status") != null && !params.get("status").equals("run")) {
-            putLog("if you wang to run ,set status to run ", LogLevel.WARN);
-            return this ;
-        }
-        if (executor == null)
-            executor = Executors.newScheduledThreadPool(poolSize);
+           poolSize =taskMsgTable.size();
         if (taskMsgTable == null || taskMsgTable.isEmpty())
             return this ;
-        for (String taskid:taskMsgTable.keySet())
-        {
-            TLMsg msg = taskMsgTable.get(taskid);
-            String status = (String) msg.getParam("status");
-            if (status == null || status.equals("run")) {
-                runTask(msg);
-            }
-            else  if(status.equals("stop"))
-                stopTask(msg);
-        }
+        if (executor == null)
+            executor = Executors.newScheduledThreadPool(poolSize);
         return this ;
     }
-
+    @Override
+    public void runStartMsg() {
+        super.runStartMsg();
+        if(taskMsgTable !=null && !taskMsgTable.isEmpty())
+        {
+            for (String taskid:taskMsgTable.keySet())
+            {
+                TLMsg msg = taskMsgTable.get(taskid);
+                String status = (String) msg.getParam("status");
+                if (status == null || status.equals("run")) {
+                    runTask(msg);
+                }
+                else  if(status.equals("stop"))
+                    stopTask(msg);
+            }
+        }
+    }
     @Override
     protected void reConfig() {
         if (params != null) {
@@ -123,6 +123,176 @@ public class TLMsgTask extends TLBaseModule {
                 }
             }
         }
+    }
+
+    private Boolean runTask(TLMsg taskMsg){
+        HashMap<String, Object> nowTaskdata = taskDatas.get(taskMsg.getParam(TASK_P_TASKID));
+        if (nowTaskdata == null)
+        {
+            if (!taskMsg.isNull(TASK_P_CRON) )
+                taskMsg.setParam("delay", cronDelay).setParam("timeUnit", "ms");
+            startTask(taskMsg);
+            return true;
+        }
+        String status =  taskMsg.getStringParam(TASK_P_STATUS,null);
+        if(status !=null && status.equals("stoping"))
+        {
+            taskMsg.setParam("status","run");
+            return true;
+        }
+        else
+            return false ;
+    }
+
+    private void startTask(TLMsg taskMsg) {
+        String taskid = getTaskid(taskMsg);
+        if (taskDatas.get(taskid) != null)
+            return;
+        TLMsg controlMsg = createMsg().setAction("taskControl");
+        TLMsg runTaskMsg = createMsg().copyFrom(taskMsg);
+        controlMsg.setParam(TASK_P_TASKID, taskid);
+        controlMsg.setParam("taskMsg", taskMsg);
+        controlMsg.setNextMsg(runTaskMsg);
+        if (!taskMsg.isNull(TASK_P_CRON) )
+        {
+            CronExpression cron ;
+            try {
+                cron = new CronExpression((String) taskMsg.getParam(TASK_P_CRON));
+            } catch (ParseException e) {
+                putLog("cronExp error ", LogLevel.ERROR);
+                return;
+            }
+            Date now = new Date();
+            controlMsg.setParam("cron", cron)
+                    .setParam("startTime", now)
+                    .setParam("lastDisplayTime", 0);
+        }
+        executeTask(controlMsg);
+    }
+
+    private void executeTask(TLMsg controlMsg) {
+        Long begin = Long.valueOf(0);
+        TLMsg taskMsg = controlMsg.getNextMsg();
+        String taskid = (String) controlMsg.getParam(TASK_P_TASKID);
+        String sbegin = (String) taskMsg.getParam(TASK_P_BEGINTIME);
+        if (sbegin != null)
+            begin = Long.parseLong(sbegin);
+        String sdelay = (String) taskMsg.getParam(TASK_P_DELAYTIME);
+        if (sdelay == null) {
+            putLog("no set delay,taskid" + taskid, LogLevel.ERROR);
+            return;
+        }
+        Long delay = Long.parseLong(sdelay);
+        String timeUnitStr = (String) taskMsg.getParam(TASK_P_TIMEUNIT);
+        if (timeUnitStr == null)
+            timeUnitStr = TASK_V_TIMEUNIT_S;
+        TimeUnit timeUnit = getTimeUnit(timeUnitStr);
+        taskMsg.removeParam(TASK_P_DELAYTIME);
+        taskMsg.removeParam(TASK_P_BEGINTIME);
+        taskMsg.removeParam(TASK_P_TASKID);
+        taskMsg.removeParam(TASK_P_RUNTIMES);
+        taskMsg.removeParam(TASK_P_STATUS);
+        taskMsg.removeParam(TASK_P_TIMEUNIT);
+        taskMsg.removeParam(TASK_P_CRON);
+        TLMsg taskMsgInTable =taskMsgTable.get(taskid);
+        taskMsgInTable.setParam(TASK_P_STATUS, TASK_V_STATUS_RUN);
+        Runnable task = getMsgTask(this, controlMsg);
+        if (executor == null)
+            executor = Executors.newScheduledThreadPool(poolSize);
+        ScheduledFuture<?> sf = executor.scheduleAtFixedRate(task, begin, delay, timeUnit);
+        HashMap<String, Object> taskData = new HashMap<>();
+        taskData.put(TASK_P_RUNTIMES, 0);
+        taskData.put("future", sf);
+        taskDatas.put(taskid, taskData);
+        putLog("taskid: " + taskid + "  start ", LogLevel.DEBUG,"start");
+    }
+
+    private Boolean stopTask(TLMsg taskMsg){
+        HashMap<String, Object> nowTaskdata = taskDatas.get(taskMsg.getParam(TASK_P_TASKID));
+        if (nowTaskdata == null)
+        {
+            taskMsg.setParam("status","shutdown");
+            return false ;
+        }
+        String status = (String) taskMsg.getParam("status");
+        if(status.equals("run"))
+        {
+            taskMsg.setParam("status","stop");
+            return true;
+        }
+        else
+            return false ;
+    }
+
+    private TLMsg taskControl(Object fromWho, TLMsg msg) {
+        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
+        TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
+        if (nowTaskMsg == null)
+            return null;
+        String status =  nowTaskMsg.getStringParam("status",null);
+        if (status != null && status.equals("error")) {
+            putLog("taskid:" + nowTaskid + " has error,task has shutdown", LogLevel.ERROR, "error");
+            shutdownTask(nowTaskid);
+            nowTaskMsg.setParam("status", "error");
+            return denyMsg;
+        }
+        if (status != null && status.equals("shutdown")) {
+            shutdownTask(nowTaskid);
+            return denyMsg;
+        }
+        if (status != null && status.equals("stop")) {
+            nowTaskMsg.setParam("status", "stoping");
+            putLog("taskid:" + nowTaskid + " stop", LogLevel.WARN, "stop");
+            nowTaskMsg.setParam("datetime", new Date());
+            return denyMsg;
+        }
+        if (status != null && status.equals("stoping"))
+            return denyMsg;
+        HashMap<String, Object> nowTaskdata = taskDatas.get(nowTaskid);
+        int nowTimes =0;
+        if(nowTaskdata !=null && nowTaskdata.containsKey("times"))
+            nowTimes = (int) nowTaskdata.get("times");
+        String timesLimit =  nowTaskMsg.getStringParam("times",null);
+        if (timesLimit != null) {
+            int times = Integer.parseInt(timesLimit);
+            if (times > 0) {
+                if (times == nowTimes) {
+                    nowTaskMsg.setParam("status", "stoping");
+                    putLog("taskid:" + nowTaskid + " stop,runing times:" + nowTimes, LogLevel.WARN, "stop");
+                    shutdownTask(nowTaskid);
+                    return denyMsg;
+                }
+            }
+        }
+        if (msg.getParam("cron") != null) {
+            Date startTime = (Date) msg.getParam("startTime");
+            CronExpression cron = (CronExpression) msg.getParam("cron");
+            Long now = System.currentTimeMillis();
+            Date execDate = cron.getTimeAfter(startTime);
+            if (execDate == null) {
+                ScheduledFuture<?> sf = (ScheduledFuture<?>) nowTaskdata.get("future");
+                putLog("taskid:" + nowTaskid + " is work over,session shutdown", LogLevel.WARN, "shutdown");
+                taskDatas.remove(nowTaskid);
+                sf.cancel(true);
+                nowTaskMsg.setParam("status", "shutdown");
+                nowTaskMsg.setParam("datetime", new Date());
+                return denyMsg;
+            }
+            long execTime = execDate.getTime();
+            long timeUntilExec = execTime - now;
+            if (timeUntilExec > 0) {
+                displayTimeUntil(nowTaskid, timeUntilExec / 1000, msg);
+                nowTaskMsg.setParam("nextDatetime", execDate);
+                return denyMsg;
+            } else
+                msg.setParam("startTime", new Date());
+        }
+        nowTimes++;
+        nowTaskdata.put("times", nowTimes);
+        nowTaskMsg.setParam("execDatetime", new Date());
+        nowTaskMsg.setParam("execTimes",nowTimes);
+        putLog("taskid:" + nowTaskid + "  has runing times:" + nowTimes, LogLevel.DEBUG, "runing");
+        return null;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -176,7 +346,7 @@ public class TLMsgTask extends TLBaseModule {
     }
 
     private void  stopTask(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
+        String nowTaskid =  msg.getStringParam(TASK_P_TASKID,null);
         if (nowTaskid != null) {
             TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
             if(nowTaskMsg !=null)
@@ -189,40 +359,7 @@ public class TLMsgTask extends TLBaseModule {
             }
         }
     }
-    private Boolean stopTask(TLMsg msg){
-        HashMap<String, Object> nowTaskdata = taskDatas.get(msg.getParam(TASK_P_TASKID));
-        if (nowTaskdata == null)
-        {
-            msg.setParam("status","shutdown");
-            return false ;
-        }
-        String status = (String) msg.getParam("status");
-        if(status.equals("run"))
-        {
-            msg.setParam("status","stop");
-            return true;
-        }
-        else
-            return false ;
-    }
-    private Boolean runTask(TLMsg msg){
-        HashMap<String, Object> nowTaskdata = taskDatas.get(msg.getParam(TASK_P_TASKID));
-        if (nowTaskdata == null)
-        {
-            if (msg.getParam(TASK_P_CRON) != null)
-                msg.setParam("delay", "100").setParam("timeUnit", "ms");
-            startTask(msg);
-            return true;
-        }
-        String status = (String) msg.getParam(TASK_P_STATUS);
-        if(status.equals("stoping"))
-        {
-            msg.setParam("status","run");
-            return true;
-        }
-        else
-            return false ;
-    }
+
     private void shutdown(Object fromWho, TLMsg msg) {
         String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
         if (nowTaskid != null) {
@@ -239,11 +376,13 @@ public class TLMsgTask extends TLBaseModule {
                 }
         }
     }
+
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         executor.shutdown();
         executor=null;
         return null ;
     }
+
     private void poolShutdown(){
         executor.shutdown();
         executor=null;
@@ -256,6 +395,7 @@ public class TLMsgTask extends TLBaseModule {
         taskDatas.clear();
         putLog("session pool shutdown", LogLevel.WARN,"shutdown");
     }
+
     private void startTask(Object fromWho, TLMsg msg) {
         String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
         if (nowTaskid != null) {
@@ -295,85 +435,13 @@ public class TLMsgTask extends TLBaseModule {
             restartTask(nowTaskid, nowTaskMsg);
     }
 
-
     private void restartTask(String taskid, TLMsg tmsg) {
         HashMap<String, Object> nowTaskdata = taskDatas.get(taskid);
         if (nowTaskdata != null)
             shutdownTask(taskid);
-        if (tmsg.getParam("cronExp") != null)
-            tmsg.setParam("delay", "100").setParam("timeUnit", "ms");
+        if (tmsg.getParam(TASK_P_CRON) != null)
+            tmsg.setParam("delay", cronDelay).setParam("timeUnit", "ms");
         startTask(tmsg);
-    }
-
-    private TLMsg taskControl(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-        if (nowTaskMsg == null)
-            return null;
-        String status = (String) nowTaskMsg.getParam("status");
-        if (status != null && status.equals("error")) {
-            putLog("taskid:" + nowTaskid + " has error,task has shutdown", LogLevel.ERROR, "error");
-            shutdownTask(nowTaskid);
-            nowTaskMsg.setParam("status", "error");
-            return denyMsg;
-        }
-        if (status != null && status.equals("shutdown")) {
-            shutdownTask(nowTaskid);
-            return denyMsg;
-        }
-        if (status != null && status.equals("stop")) {
-            nowTaskMsg.setParam("status", "stoping");
-            putLog("taskid:" + nowTaskid + " stop", LogLevel.WARN, "stop");
-            nowTaskMsg.setParam("datetime", new Date());
-            return denyMsg;
-        }
-        if (status != null && status.equals("stoping"))
-            return denyMsg;
-        HashMap<String, Object> nowTaskdata = taskDatas.get(nowTaskid);
-        int nowTimes =0;
-        if(nowTaskdata !=null && nowTaskdata.containsKey("times"))
-           nowTimes = (int) nowTaskdata.get("times");
-        String timesLimit = (String) nowTaskMsg.getParam("times");
-        if (timesLimit != null) {
-            int times = Integer.parseInt(timesLimit);
-            if (times > 0) {
-                if (times == nowTimes) {
-                    nowTaskMsg.setParam("status", "stoping");
-                    putLog("taskid:" + nowTaskid + " stop,runing times:" + nowTimes, LogLevel.WARN, "stop");
-                    shutdownTask(nowTaskid);
-                    return denyMsg;
-                }
-            }
-        }
-        if (msg.getParam("cron") != null) {
-            Date startTime = (Date) msg.getParam("startTime");
-            CronExpression cron = (CronExpression) msg.getParam("cron");
-            Long now = System.currentTimeMillis();
-            Date execDate = cron.getTimeAfter(startTime);
-            if (execDate == null) {
-                ScheduledFuture<?> sf = (ScheduledFuture<?>) nowTaskdata.get("future");
-                putLog("taskid:" + nowTaskid + " is work over,session shutdown", LogLevel.WARN, "shutdown");
-                taskDatas.remove(nowTaskid);
-                sf.cancel(true);
-                nowTaskMsg.setParam("status", "shutdown");
-                nowTaskMsg.setParam("datetime", new Date());
-                return denyMsg;
-            }
-            long execTime = execDate.getTime();
-            long timeUntilExec = execTime - now;
-            if (timeUntilExec > 2) {
-                displayTimeUntil(nowTaskid, timeUntilExec / 1000, msg);
-                nowTaskMsg.setParam("nextDatetime", execDate);
-                return denyMsg;
-            } else
-                msg.setParam("startTime", new Date());
-        }
-        nowTimes++;
-        nowTaskdata.put("times", nowTimes);
-        nowTaskMsg.setParam("execDatetime", new Date());
-        nowTaskMsg.setParam("execTimes",nowTimes);
-        putLog("taskid:" + nowTaskid + "  has runing times:" + nowTimes, LogLevel.DEBUG, "runing");
-        return null;
     }
 
     private void shutdownTask(String taskid) {
@@ -413,78 +481,24 @@ public class TLMsgTask extends TLBaseModule {
             executeTask(tmsg);
     }
 
-    private void startTask(TLMsg msg) {
-        String taskid = getTaskid(msg);
-        if (taskDatas.get(taskid) != null)
-            return;
-        TLMsg controlMsg = createMsg().setAction("taskControl");
-        TLMsg bmsg = createMsg();
-        bmsg.copyFrom(msg);
-        controlMsg.setParam(TASK_P_TASKID, taskid);
-        controlMsg.setParam("taskMsg", msg);
-        controlMsg.setNextMsg(bmsg);
-        if (msg.getParam(TASK_P_CRON) != null) {
-            CronExpression cron = null;
-            try {
-                cron = new CronExpression((String) msg.getParam(TASK_P_CRON));
-            } catch (ParseException e) {
-                putLog("cronExp error ", LogLevel.ERROR);
-                return;
-            }
-            Date now = new Date();
-            controlMsg.setParam("cron", cron)
-                    .setParam("startTime", now)
-                    .setParam("lastDisplayTime", 0);
-        }
-        executeTask(controlMsg);
-    }
-
     private void unRegistTask(Object fromWho, TLMsg msg) {
-        taskMsgTable.remove((String) msg.getParam("msgId"));
+        String taskid = (String) msg.getStringParam(TASK_P_TASKID,null);
+        if(taskid !=null)
+           taskMsgTable.remove(taskid);
     }
 
-    private String getTaskid(TLMsg msg) {
-        String taskid = (String) msg.getParam(TASK_P_TASKID);
-        if (taskid == null || taskid.isEmpty())
-            taskid = msg.getDestination() + msg.getMsgId() + msg.getAction();
-        return taskid;
-    }
-
-    private void executeTask(TLMsg msg) {
-        Long begin = Long.valueOf(0);
-        TLMsg taskMsg = msg.getNextMsg();
-        String taskid = (String) msg.getParam(TASK_P_TASKID);
-        String sbegin = (String) taskMsg.getParam(TASK_P_BEGINTIME);
-        if (sbegin != null)
-            begin = Long.parseLong(sbegin);
-        String sdelay = (String) taskMsg.getParam(TASK_P_DELAYTIME);
-        if (sdelay == null) {
-            putLog("no set delay,taskid" + taskid, LogLevel.ERROR);
-            return;
+    private String getTaskid(TLMsg taskMsg) {
+        String taskid =  taskMsg.getStringParam(TASK_P_TASKID,null);
+        if (taskid == null )
+        {
+            taskid = taskMsg.getDestination();
+            if(taskMsg.getAction() !=null)
+                taskid =  taskid + "_"+taskMsg.getAction();
+            else   if(taskMsg.getMsgId() !=null)
+                taskid =  taskid + "_"+ taskMsg.getMsgId() ;
+            taskMsg.setParam(TASK_P_TASKID,taskid);
         }
-        Long delay = Long.parseLong(sdelay);
-        String timeUnitStr = (String) taskMsg.getParam(TASK_P_TIMEUNIT);
-        if (timeUnitStr == null)
-            timeUnitStr = TASK_V_TIMEUNIT_S;
-        TimeUnit timeUnit = getTimeUnit(timeUnitStr);
-        taskMsg.removeParam(TASK_P_DELAYTIME);
-        taskMsg.removeParam(TASK_P_BEGINTIME);
-        taskMsg.removeParam(TASK_P_TASKID);
-        taskMsg.removeParam(TASK_P_RUNTIMES);
-        taskMsg.removeParam(TASK_P_STATUS);
-        taskMsg.removeParam(TASK_P_TIMEUNIT);
-        taskMsg.removeParam(TASK_P_CRON);
-        TLMsg taskMsgInTable =taskMsgTable.get(taskid);
-        taskMsgInTable.setParam(TASK_P_STATUS, TASK_V_STATUS_RUN);
-        Runnable task = getMsgTask(this, msg);
-        if (executor == null)
-            executor = Executors.newScheduledThreadPool(poolSize);
-        ScheduledFuture<?> sf = executor.scheduleAtFixedRate(task, begin, delay, timeUnit);
-        HashMap<String, Object> taskData = new HashMap<>();
-        taskData.put(TASK_P_RUNTIMES, 0);
-        taskData.put("future", sf);
-        taskDatas.put(taskid, taskData);
-        putLog("taskid: " + taskid + "  start ", LogLevel.DEBUG,"start");
+        return taskid;
     }
 
     private TimeUnit getTimeUnit(String timeUnitStr) {
@@ -513,10 +527,17 @@ public class TLMsgTask extends TLBaseModule {
 
             @Override
             public void run() {
+                TLMsg returnMsg=null ;
                 try{
-                    object.getMsg(object, msg);
+                    returnMsg= object.getMsg(object, msg);
                 } catch (Exception e) {
                     object.catchExp((String) msg.getParam("taskid"),e);
+                }
+                if(returnMsg !=null && !returnMsg.isNull(EXCEPTIONMSG))
+                {
+                    String taskid = (String) msg.getParam(TASK_P_TASKID);
+                    TLMsg taskMsg = taskMsgTable.get(taskid);
+                    taskMsg.setParam("status","error");
                 }
             }
         };
@@ -527,7 +548,6 @@ public class TLMsgTask extends TLBaseModule {
         taskMsg.setParam("status","error");
         putLog(e,LogLevel.ERROR,"catchExp");
     }
-
 
     protected class myConfig extends TLModuleConfig {
         protected ArrayList<TLMsg> taskMsgTable;

@@ -45,7 +45,8 @@ public class TLMsgTaskConsole extends TLMsgScanner {
         defaultAction ="console" ;
         HashMap<String ,String> mparams= new HashMap<>();
         mparams.put("actions","console");
-        msgToModules=new HashMap<>();
+        if(msgToModules ==null)
+            msgToModules=new HashMap<>();
         msgToModules.put(name,mparams);
     }
     @Override
@@ -227,22 +228,22 @@ public class TLMsgTaskConsole extends TLMsgScanner {
             printlnMsg(i,tmsg);
             i++;
         }
-        System.out.println("--nextexec only for cron express type");
+        System.out.println("--nexttime only for cron express type");
     }
     private void printlnMsg(int number,TLMsg tmsg){
         SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         String  dateStr ="";
         if(tmsg.getParam("datetime")!=null)
             dateStr ="("+ format.format(tmsg.getParam("datetime"))+")";
-        String  lastdateStr =" lastexec:";
+        String  lastdateStr =" lasttime:";
         if(tmsg.getParam("execDatetime")!=null)
-            lastdateStr =" lastexec:"+ format.format(tmsg.getParam("execDatetime"));
+            lastdateStr =" lasttime:"+ format.format(tmsg.getParam("execDatetime"));
         String  nextdateStr ="";
         if(tmsg.getParam("nextDatetime")!=null)
-            nextdateStr ="  nextexec:"+ format.format(tmsg.getParam("nextDatetime"));
-        String  execTimes =" execTimes:0";
+            nextdateStr ="  nexttime:"+ format.format(tmsg.getParam("nextDatetime"));
+        String  execTimes =" runTimes:0";
         if(tmsg.getParam("execTimes")!=null)
-            execTimes =" execTimes:"+ tmsg.getParam("execTimes");
+            execTimes =" runTimes:"+ tmsg.getParam("execTimes");
         String content = number+". taskid: "+String.format("%1$-15s",tmsg.getParam("taskid"))
                 +" status: "+String.format("%1$-31s",tmsg.getParam("status")+dateStr)
                  +String.format("%1$-31s",lastdateStr)

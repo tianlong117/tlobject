@@ -692,7 +692,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         String content = sb.toString();
         putLog(content, LogLevel.ERROR,msg.getAction());
         if(ifExceptionHandle==false)
-            return createMsg().setParam("exceptionMsg",msg);
+            return createMsg().setParam(EXCEPTIONMSG,msg);
         TLMsg  handlerMsg =createMsg().setAction(EXCEPTIONHANDLER_HANDLER).setParam(EXCEPTIONHANDLER_P_MODULE,name)
                 .setParam(EXCEPTIONHANDLER_P_MSG,msg).setParam(EXCEPTIONHANDLER_P_EXCEPTION,exception);
         TLMsg returnMsg;
