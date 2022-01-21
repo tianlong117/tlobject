@@ -13,6 +13,8 @@
         <verison value="1"/>
         <!-- 模块默认包前缀 -->
         <package value="cn.tianlong.java"/>
+        <!--防止某个线程错误而杀死进程 ，对异常不处理 -->
+        <ifExceptionHandle value="false" />
         <factory value="singleton"/>
     </params>
     <!-- 所有模块公共参数 -->

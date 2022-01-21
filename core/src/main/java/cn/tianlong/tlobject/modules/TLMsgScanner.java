@@ -7,7 +7,7 @@ import org.xmlpull.v1.XmlPullParser;
 import java.util.*;
 
 /**
- * 控制台消息输入扫描检测模块
+ * 控制台消息输入模块.加载该模块后可以从控制台输入指令或msg
  */
 public class TLMsgScanner extends TLBaseModule {
     protected HashMap<String, HashMap<String,String>>msgToModules;
@@ -15,7 +15,7 @@ public class TLMsgScanner extends TLBaseModule {
     protected String defaultModule;
     protected String defaultAction ;
     protected String passwd;
-    protected ArrayList<String> systemCmd=new ArrayList(){{add("help");add("quit");add("shutdown");}};
+    protected ArrayList<String> systemCmd=new ArrayList(){{add("help");add("?");add("quit");add("shutdown");}};
     protected boolean ifLogin=true;
     public TLMsgScanner() {
         super();
@@ -71,16 +71,14 @@ public class TLMsgScanner extends TLBaseModule {
 
     private void startScan(Object fromWho, TLMsg msg) {
         if(msgToModules==null || msgToModules.isEmpty()){
-            System.out.println("no configure msgToModules table");
+            System.out.println("没有配置 msgToModules table");
             return;
         }
         System.out.println(name +" start:");
         if(ifLogin==false)
             System.out.println(" passwd:");
         Scanner sc = new Scanner(System.in);
-        //利用hasNextXXX()判断是否还有下一输入项
         while (sc.hasNextLine()) {
-            //利用nextXXX()方法输出内容
             String str = sc.nextLine().trim();
             if(str.isEmpty())
                 continue;
@@ -100,12 +98,12 @@ public class TLMsgScanner extends TLBaseModule {
             {
                 IObject module = (IObject) getModuleFromFactory(inputMsg.getDestination());
                 if(module ==null)
-                    System.out.println(" module has no intrance :" +inputMsg.getDestination());
+                    System.out.println(" 模块没有在工厂实例化 :" +inputMsg.getDestination());
                 else
                     putMsg(module,inputMsg);
             }
             else
-                System.out.println(" msg is error,please check module or action");
+                System.out.println(" 输入 msg 错误");
         }
     }
 
@@ -114,7 +112,7 @@ public class TLMsgScanner extends TLBaseModule {
         {
             if(!str.equals(passwd))
             {
-                System.out.println(" passwd is error");
+                System.out.println(" 密码错误");
                 System.out.println(" passwd:");
             }
             else
@@ -131,6 +129,7 @@ public class TLMsgScanner extends TLBaseModule {
         if(!systemCmd.contains(str))
             return false;
         switch (str){
+            case "?" :
             case "help" :
                  help();
                  break;
@@ -238,7 +237,7 @@ public class TLMsgScanner extends TLBaseModule {
             }
             else
             {
-                System.out.println(" must set m=module or set defaultModule ");
+                System.out.println(" 必须设置 m=module or defaultModule ");
                 return false;
             }
         }
@@ -255,7 +254,7 @@ public class TLMsgScanner extends TLBaseModule {
             }
             else
             {
-                System.out.println(" must set a=action");
+                System.out.println(" 没有设置方法。 a=action");
                 return false;
             }
         }
@@ -302,7 +301,7 @@ public class TLMsgScanner extends TLBaseModule {
         if(passwd!=null && !passwd.isEmpty())
         {
             ifLogin=false;
-            System.out.println(" you have quit");
+            System.out.println("login out");
         }
     }
     protected void shutdown(){

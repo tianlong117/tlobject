@@ -334,7 +334,15 @@ public class TLObjectFactory extends TLBaseModule {
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE,factory).setParam(FACTORY_P_MODULENAME, moduleName);
     }
 
+    /**
+     * 处理模块异常情况
+     * @param fromWho
+     * @param msg
+     * @return
+     */
     private TLMsg exceptionHandler(Object fromWho, TLMsg msg) {
+        if(ifExceptionHandle==false)
+            return msg ;
         if (exceptionHandler != null)
             return putMsg(exceptionHandler, msg);
         else
@@ -389,6 +397,12 @@ public class TLObjectFactory extends TLBaseModule {
             return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module);
     }
     @Override
+    protected   boolean ifToMySelf(String destination ){
+        if(destination !=null && destination.equals(MODULEFACTORY))
+            return true ;
+        return super.ifToMySelf(destination);
+    }
+    /**
     public TLMsg getMsg(Object fromWho, TLMsg msg){
         String destination =msg.getDestination();
         if(destination !=null && destination.equals(MODULEFACTORY))
@@ -399,6 +413,7 @@ public class TLObjectFactory extends TLBaseModule {
         else
             return   super.getMsg(fromWho,msg);
     }
+     **/
     @Override
     public Object getModule(String moduleName) {
         if (modules.get(moduleName) != null)

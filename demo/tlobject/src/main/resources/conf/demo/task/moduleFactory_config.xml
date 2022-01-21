@@ -8,11 +8,13 @@
         <package value="cn.tianlong.java.demo"/>
         <ifModuleMonitor value="false"/>
         <applicationId value="demo"/>
+        <!--防止某个任务异常错误而杀死进程 ，对taskMsg异常不处理 -->
+        <ifExceptionHandle value="false" />
     </params>
     <commonParams>
         <loglevel value="debug"/>
-        <!--防止某个任务错误而杀死   -->
-        <ifExceptionHandle value="false" />
+        <!--防止某个任务异常错误而杀死进程  -->
+        <!--ifExceptionHandle value="false" /-->
     </commonParams>
     <modules>
         <!-- 自定义模块 -->

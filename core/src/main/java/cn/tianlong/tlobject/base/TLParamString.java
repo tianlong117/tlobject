@@ -150,7 +150,7 @@ public interface TLParamString {
     final String FIELDVALUE = "fieldValue";
     final String EXCEPTIONHANDLER_HANDLER = "exceptionHandler";
     final String EXCEPTIONHANDLER_P_MODULE ="module";
-    final String EXCEPTIONHANDLER_P_MSG ="msg"    ;
+    final String EXCEPTIONHANDLER_P_MSG ="exceptionMsg"    ;
     final String EXCEPTIONHANDLER_P_EXCEPTION ="exception" ;
 
     final String LOG_PUTLOG = "setLog";

@@ -533,7 +533,7 @@ public class TLMsgTask extends TLBaseModule {
                 } catch (Exception e) {
                     object.catchExp((String) msg.getParam("taskid"),e);
                 }
-                if(returnMsg !=null && !returnMsg.isNull(EXCEPTIONMSG))
+                if(returnMsg !=null && !returnMsg.isNull(EXCEPTIONHANDLER_P_MSG))
                 {
                     String taskid = (String) msg.getParam(TASK_P_TASKID);
                     TLMsg taskMsg = taskMsgTable.get(taskid);
