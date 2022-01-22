@@ -36,6 +36,8 @@ public class startup extends TLAppStartUp {
     @Override
     protected TLBaseModule init() {
       userTable = (TLBaseModule) getTable("userTable");
+      //用以获取数据库表的方式获取一个redis数据类型，该数据类型在database配置文件中以表的方式配置
+      //  <table name="userByIdInRedis"  databaseIndex="1" dbserver="redisServer1" prefix="user:" proxyModule="redisMap"  />
       redisMap = (TLRedisMap) getTable("userByIdInRedis");
       return this ;
     }
@@ -68,6 +70,19 @@ public class startup extends TLAppStartUp {
         return returnMsg;
     }
 
+    /**
+     * 演示从db读出数据然后写入redis的map类型。redis写入后的数据为
+     * 127.0.0.1:6379[1]> keys *
+     *  1) "user:jiang6"
+     *  2) "user:dong4"
+     *  3) "user:dong2"
+     *  4) "user:tian7"
+     *  5) "user:wang9"
+     *  6) "user:wang7"
+       。。。。
+     * @param fromWho
+     * @param msg
+     */
     private void dbToRedis(Object fromWho, TLMsg msg) {
        String sql = "select * from  [table]  ";
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
@@ -88,7 +103,6 @@ public class startup extends TLAppStartUp {
             String result=redisMap.hmset(username,redisData);
             println(i+" redis 插入数据,name:"+username+"->"+result);
         }
-
     }
 
 

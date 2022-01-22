@@ -85,7 +85,7 @@ public class TLAppStartUp extends TLBaseModule {
         return true ;
     }
     public static void printHelp(){
-        String helpStr ="用法:appstart -d 配置文件路径 -m 工厂配置文件 -f 应用启动配置文件 -n 应用名称 \n";
+        String helpStr ="用法:TLAppStartUp -d 配置文件路径 -m 工厂配置文件 -f 应用启动配置文件 -n 应用名称 \n";
         helpStr=helpStr+" 参数说明： \n";
         helpStr=helpStr+"  -- 如配置文件路径不以/开头，则默认CLASSPATH/conf/配置文件路径 \n";
         helpStr=helpStr+"  -- 工厂配置文件可缺省，缺省默认"+MODULEFACTORY + "_config.xml \n";

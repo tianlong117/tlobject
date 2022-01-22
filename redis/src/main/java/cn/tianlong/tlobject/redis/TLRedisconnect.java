@@ -46,7 +46,7 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
             case "init":
                 init( fromWho,  msg);
                 break;
-            case "getConnection_o":
+            case DB_GETCONN:
                 returnMsg=getConnection( fromWho,  msg);
                 break;
             case "getDataSource":
@@ -108,7 +108,7 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
     }
     private TLMsg getConnection(Object fromWho, TLMsg msg) {
         Jedis  conn= (Jedis) connect();
-        return createMsg().setParam(DB_R_CONN,conn);
+        return msg.setParam(DB_R_CONN,conn);
     }
 
     @Override
