@@ -41,7 +41,7 @@ public class DbDemo extends TLBaseModule {
     protected TLBaseModule init() {
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
         TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
-        tb = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
+        tb = (TLTable) returnmsg.getParam(INSTANCE);
         return this ;
     }
 
@@ -49,9 +49,6 @@ public class DbDemo extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case "getResult":
-                getResult(fromWho, msg);
-                break;
             case "initDataTb":
                 returnMsg = initDataTb(fromWho, msg);
                 break;
@@ -324,163 +321,9 @@ public class DbDemo extends TLBaseModule {
     }
 
     /**
-     * 同一实体数据库中的事务。与分布式事务操作的不同，不设定数据操作消息DB_P_TABLENAME。
-     * 最终消息处理发送给表。
-     */
-    private void transaction() {
-        TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE)
-                .setParam(DB_P_TABLENAME, "userTable");
-        String sql1 = "insert into  user1 (name,number,time) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
-        sqlparams1.put("name", "dongq3");
-        sqlparams1.put("number", 20);
-        sqlparams1.put("data", date());
-        TLMsg msg1 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1) .setParam(DB_P_PARAMS, sqlparams1);
-        String sql2 = "insert into  user2 (name,number,time) values(?,?,?)";
-        LinkedHashMap<String, Object> sqlparams2 = new LinkedHashMap<>();
-        sqlparams2.put("name", "dongq3");
-        sqlparams2.put("number", 30);
-        sqlparams2.put("data", date());
-        TLMsg msg2 = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql2) .setParam(DB_P_PARAMS, sqlparams2);
-        ArrayList<TLMsg> msglist =new ArrayList<>();
-        msglist.add(msg1);
-        msglist.add(msg2);
-        TLMsg msg =createMsg().setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST,msglist);
-        TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
-        TLTable table = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
-        putMsg(table, msg);
-
-    }
-    protected void testDatabaseSql(){
-        String sql = "select * from  user1  where  name = ? ";
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "dongq");
-        TLMsg querymsg = new TLMsg().setAction(DB_EXECSQL)
-                .setParam(DB_P_SERVERNAME,"dbserver2")
-                .setParam(DB_P_SQLTYPE,DB_QUERY)
-                .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.BEANLIST)
-                .setParam(DB_P_BEANCLASS,userBean.class)
-                .setParam("params", sqlparams);
-        TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);
-        List data = (List) returnMsg.getParam(DB_R_RESULT);
-        System.out.println("time:");
-    }
-
-
-    private void testListIndb0() {
-
-        ListInDB list5 =new ListInDB("mylist5",moduleFactory);
-        ArrayList<HashMap<String,Object>> mylist5 =list5.getList();
-        for(HashMap<String,Object> value :mylist5)
-            for(String key : value.keySet()){
-                System.out.println(key +":"+value.get(key));
-            }
-        MapInDB map5= new MapInDB("maplisttest",moduleFactory) ;
-        map5.put("list1",mylist5);
-        map5.put("list2",mylist5);
-
-    }
-
-    private void userModle() {
-        userModle modle = (userModle) getModule("userModle");
-        TLMsg total = putMsg(modle, createMsg().setAction("total"));
-        System.out.println("总数:" + total.getParam("result"));
-        String name = "yy888";
-        TLMsg returnMsg = putMsg(modle, createMsg().setAction("findUser").setParam("userName", name));
-        List datas = (List) returnMsg.getParam("result");
-        if (datas == null || datas.isEmpty()) {
-            System.out.println("没有数据");
-            return;
-        }
-        System.out.println(name + " 数据:");
-        for (int i = 0; i < datas.size(); i++) {
-            Object[] unit = (Object[]) datas.get(i);
-            for (int j = 0; j < unit.length; j++) {
-                System.out.print(unit[j] + "  ");
-            }
-            System.out.println("");
-        }
-
-    }
-
-    private void testviewOfAppManger() {
-        startTime = System.currentTimeMillis();
-        TLMsg returnmsg;
-        TLMsg tmsg = new TLMsg().setAction(DB_GETVIEW).setParam(DB_P_VIEWNAME, "adminmenue");
-        returnmsg = putMsg(DEFAULTDATABASE, tmsg);
-        TLDBView tv = (TLDBView) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("userid", "admin");
-        TLMsg querymsg = new TLMsg().setAction(DB_QUERY)
-                .setParam("params", sqlparams);
-        returnmsg = putMsg(tv, querymsg);
-        List datas = (List) returnmsg.getParam("result");
-        System.out.println("数据------------------");
-        for (int i = 0; i < datas.size(); i++) {
-            Map<String,Object> unit = ( Map<String,Object>) datas.get(i);
-            for (String key :unit.keySet()) {
-                System.out.println(key+ " : " +unit.get(key));
-            }
-            System.out.println("");
-        }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-
-    }
-    private void testview() {
-        startTime = System.currentTimeMillis();
-        TLMsg returnmsg;
-        TLMsg tmsg = new TLMsg().setAction(DB_GETVIEW).setParam(DB_P_VIEWNAME, "vusers");
-        returnmsg = putMsg(DEFAULTDATABASE, tmsg);
-        TLDBView tv = (TLDBView) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
-        int number = 110;
-        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("number", number);
-        TLMsg querymsg = new TLMsg().setAction("query")
-                .setParam("params", sqlparams);
-        querymsg.setParam("cacheName", "table_user");
-        querymsg.setParam("cacheKey", "" + number);
-        returnmsg = putMsg(tv, querymsg);
-        List datas = (List) returnmsg.getParam("result");
-        System.out.println("数据------------------");
-        for (int i = 0; i < datas.size(); i++) {
-            Object[] unit = (Object[]) datas.get(i);
-            for (int j = 0; j < unit.length; j++) {
-                System.out.print(unit[j] + "  ");
-            }
-            System.out.println("");
-        }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("运行时间：" + runtime);
-
-    }
-
-
-
-
-    private void getResult(Object fromWho, TLMsg msg) {
-        List datas = (List) msg.getParam("result");
-        if (datas.isEmpty()) {
-            System.out.println("getResult 返回没有数据");
-            return;
-        }
-        System.out.println("getResult 返回 数据----------------");
-        for (int i = 0; i < datas.size(); i++) {
-            Object[] unit = (Object[]) datas.get(i);
-            for (int j = 0; j < unit.length; j++) {
-               System.out.print( unit[j] );
-            }
-            System.out.println("");
-        }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        System.out.println("getResult 运行时间：" + runtime);
-    }
-
-    private void batch(TLTable tb) {
+     * 批量插入表
+    */
+    private void batch() {
         startTime = System.currentTimeMillis();
         String sql = "insert into  userm (name,number,time) values(?,?,?)";
         String name = "yyyy999";
@@ -491,10 +334,10 @@ public class DbDemo extends TLBaseModule {
             bparams[i][1] = number;
             bparams[i][2] = date() + 1;
         }
-        TLMsg insertmsg = new TLMsg().setAction("batch")
-                .setParam("sql", sql)
-                .setParam("params", bparams);
-        TLMsg returnmsg = putMsg(tb, insertmsg);
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCh)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_PARAMS, bparams);
+        putMsg(tb, insertmsg);
         System.out.println(" work over ");
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;

@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+  数据库的总配置，默认数据库名为database，对应的模块为TLDataBase。
+  这里的数据库概念为逻辑概念。一个数据库里面可以包含许多个实际数据库。
+  数据库相当于一个表工厂，任何一个表模块（对象）通过数据库产生。 表模块实例存在于database中，不存在模块工厂里，这样表名与其他模块名不冲突。
+  每个表有个概念名字，在配置文件中配置具体指向的实际数据表，通过名字获取表模块实例而操作表。
+  获取一个表模块的操作：
+     TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
+     TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
+     TLTable   tb = (TLTable) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
+  tb为这个表的模块实例，可以像其他模块一样对这个表模块实例通过消息传递来操作。如查询：
+      String sql = "select * from  [table]  where  name = ? ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", username);
+        TLMsg querymsg = createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_PARAMS, sqlparams);
+        TLMsg returnMsg =  putMsg(tb, querymsg);
+         ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        if(datas ==null || datas.isEmpty())
+        {
+            System.out.println("没有数据");
+            return;
+        }
+        System.out.println("查询结果:");
+        TLMsgUtils.printList(datas);
+   -->
+<moduleConfig>
+    <!--
+    params参数说明：
+            defaultDBserver： 当表没有配置具体的dbserver时，默认的数据库
+            dbPackageName： 默认触发模块类的包前缀。如果触发模块以逗号.开始，表明在此包下
+    -->
+    <params>
+        <verison value="1"/>
+        <defaultDBserver value="dbserver1"/>
+        <dbPackageName value="cn.tianlong.java.demo.db"/>
+    </params>
+    <!--
+    dbserver参数说明：
+            name：数据库server模块名字，用于程序中指向，非数据库中的实体库名
+            proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
+                        如果proxyModule格式为"模块名@数据库名@工厂名”，则表示从另一个工厂空间的数据库中获取
+            statup:database初始化时是否初始化 ，默认为false
+            ifCache:是否开启sql查询缓存，默认false，不开启
+            cacheModuleName：缓存模块名，默认为内存缓存memoryCache
+            driver：指明具体的数据库连接驱动模块，如mysql为"com.mysql.jdbc.Driver"
+            dburl：数据集连接url。
+            dbuser:数据库连接用户名
+            dbpass：用户名密码
+            connector：连接池类型，使用的连接池模块，对应工厂中的模块名，如c3p0为"c3p0Conn"。redis为redisconnect。
+            initPoolSize：连接池初始数量
+            maxPoolSize：连接池最大数量
+            maxIdleTime：连接池最大空闲时间
+
+            redis在此当做数据库处理，对应redis，则需要配置以下参数：
+            主机iphost="127.0.0.1"
+            端口号port="6378"
+            口令密码 password=""
+   -->
+    <dbservers>
+    <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
+   <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="false" cacheModule="memoryCache"
+             driver="com.mysql.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8"
+             dbuser="root" dbpass="123456"
+             connector="c3p0Conn"
+             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+   <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="false" cacheModule="EhCache"
+             driver="com.mysql.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8"
+             dbuser="root" dbpass="123456"
+             connector="c3p0Conn"
+             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+   <dbserver name="redisServer1"  statup="true" proxyModule="redisServer"
+                  host="127.0.0.1"
+                  port="6379"
+                  password=""
+                  connector="redisconnect"  />
+</dbservers>
+<!--
+ tables参数说明：
+     对表进行配置，对于没有在此配置的数据库实际表，可以在程序中使用，而采取默认配置。
+   name：程序中的表概念名字。
+   dbtable:对应数据库中实际的表 。如果该项没有配置，则与name一致
+   proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表模块TLTable
+              如果proxyModule格式为"模块名@数据库名@工厂名”，则表示另一个工厂空间的数据库中获取
+   dbserver ：表存在的具体数据库，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
+   readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
+   statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为 false。
+   ifCache:是否开启sql查询缓存，默认false，不开启
+   cacheExptime：默认缓存过期时间，单位分钟。默认1分钟,如query查询中没有设置则采用。
+   ifGetStructure:实例化时是否获取表结构，默认获取。
+   beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
+                  如有执行多个触发模块，则中间用分号;间隔。名字对应触发模块trigger对应的名字。
+   afterTrigger：访问表后执行的触发模块，一般可以用来写cache或redis
+                 如有执行多个触发模块，则中间用分号;间隔。名字对应触发模块trigger对应的名字。
+   sameAsTable：为简化重复写配置，表明该表的配置与sameAsTable指定表的配置一致，如beforeTrigger、afterTrigger一致，不包含dbserver。
+  -->
+    <tables>
+        <!--
+         表userTable对应实际数据库的表user，在数据库dbserver2上，配置了表操作前触发器"userTableSplitTrigger"，这是一个分表操作，
+         根据表字段name进行分表。"userTable1"、"userTable2"为具体的分表，对应不同的实际表，它们分表位于不同的数据库上.
+         通过分表，对表user的操作实际都是操作了不同数据库上的表。如果取消分表触发器，则改为实际操作user表。
+         在每个分表前增加一个前触发器"checkNameTrigger"，用来检查数据库字段。
+         每个分表与其他表一样，可以单独操作。
+        -->
+        <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
+        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="false" cacheExptime="2"/>
+        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="false" cacheExptime="2"/>
+        <!-- redis 表，对于redis的数据类型操作映射为一个表
+           databaseIndex ：redis 中dbindex
+           prefix：redis中key的前缀，同样的数据统一的前缀
+           proxyModule：redis数据类型模块 ，如"redisMap" 对应redis的map类型
+        -->
+        <table name="userByIdInRedis"  databaseIndex="1" dbserver="redisServer1" prefix="user:" proxyModule="redisMap"  />
+    </tables>
+    <!--
+        为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
+        cacheName：缓存名称，对应缓存模块配种中名字
+    -->
+    <views>
+        <view name="vusers" sql="select * from user1 where  name like  ?&quot;%&quot;  " dbserver="dbserver1"  resultType="MAPLIST"
+              ifCache="true"  cacheName="users" cacheExptime="2"
+        />
+    </views>
+    <!--
+      触发器模块配置：
+            name：模块名字
+            delete="onDelete"  insert="onInsert" query="onQuery"  update="onUpdate" :表明当执行表的delete、insert、query、update时执行模块的相应方法
+            classfile：模块对应的具体类名。如果以逗号.开始，则默认包名为params中配置的包前缀dbPackageName
+-->
+    <triggers>
+        <!-- 分表触发器   根据name字段进行分表  tableName：要分的表  splitTables：分表列表 splitKey:分表依据的字段-->
+        <trigger name="userTableSplitTrigger" tableName="userTable" splitTables="userTable1;userTable2" splitKey="name"
+                 delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate"
+                 classfile=".UserTableSplitTrigger"/>
+        <!-- 检测字段触发器  ，当名字为badname,或者number大于maxNumber时，禁止插入   -->
+        <trigger name="checkNameTrigger" insert="onInsert"  badname="siren"  maxNumber="99999"
+                 classfile=".CheckNameTrigger"/>
+
+        <trigger name="tableCacheBefore" query="getCacheBeforeModle"/>
+        <trigger name="tableCacheAfter" query="writeCacheAfterModle" update="deleteCacheAfterModle"
+                 delete="deleteCacheAfterModle"/>
+
+    </triggers>
+</moduleConfig>

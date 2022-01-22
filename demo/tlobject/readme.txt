@@ -8,6 +8,8 @@
      同时演示在主程序startup中发送消息给模块程序
 -->db目录
    演示数据库的一些操作
+-->redis目录
+      演示redis的一些操作
 -->service目录
  -->client目录
     1 cominStartup

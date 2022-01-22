@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.db_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.cache_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.redis_config.xml" includeUnit="modules"/>
+    <params>
+        <ifLog value="true"/>
+        <loglevel value="debug"/>
+        <package value="cn.tianlong.java.demo"/>
+        <ifModuleMonitor value="false"/>
+        <applicationId value="dbdemo"/>
+    </params>
+    <commonParams>
+        <loglevel value="trace"/>
+    </commonParams>
+    <modules>
+        <!-- 用户自定义模块 -->
+        <module name="dbDemo" classfile=".db.DbDemo" />
+        <module name="userModle" classfile=".db.userModle" />
+    </modules>
+        <factoryBoot>
+            <msg action="getModule"  moduleName="log" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
+        </factoryBoot>
+</moduleConfig>

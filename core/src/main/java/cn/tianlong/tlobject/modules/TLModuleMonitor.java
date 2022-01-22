@@ -134,7 +134,7 @@ public  class TLModuleMonitor extends TLBaseModule {
     protected TLMsg actionStart(Object fromWho, TLMsg msg) {
         if(ifStartMonitor ==false)
             return null ;
-        String moduleName = (String) msg.getParam("module");
+        String moduleName = (String) msg.getParam(MODULENAME);
         TLMsg mmsg = (TLMsg) msg.getParam(MSG);
         String action =mmsg.getAction();
         String msgid = mmsg.getMsgId();
@@ -156,7 +156,7 @@ public  class TLModuleMonitor extends TLBaseModule {
     protected TLMsg actionEnd(Object fromWho, TLMsg msg) {
         if(ifStartMonitor ==false || msg==null)
             return null ;
-        String moduleName = (String) msg.getParam("module");
+        String moduleName = (String) msg.getParam(MODULENAME);
         TLMsg mmsg = (TLMsg) msg.getParam(MSG);
         TLMsg returnMsg = (TLMsg) msg.getParam(RETURNMSG);
 

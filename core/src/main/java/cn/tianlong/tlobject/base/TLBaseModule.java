@@ -26,7 +26,7 @@ import static java.lang.Thread.sleep;
 public abstract class TLBaseModule extends TLBaseObject {
     public static final String PRERESULT = "beforeResult";
     protected String applicationId="tlobjectApp";
-    protected boolean ifMonitor = false;    //是否开启工厂监控 ，默认开启
+    protected boolean ifMonitor = false;    //是否开启工厂监控 ，默认关闭
     protected HashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> paramsModules;   //定义参数适用的模块，getmodule 时自动赋值
@@ -646,15 +646,13 @@ public abstract class TLBaseModule extends TLBaseObject {
                 } catch (Exception e) {
                     returnMsg = exception(this, returnMsg, e);
                 }
-                if (afterMsgTable !=null && !afterMsgTable.isEmpty()
-                        && msg.parseBoolean(IGNOREAFTER,false) == false
-                        && ifDoNextMsg(returnMsg))
+                if (afterMsgTable !=null && !afterMsgTable.isEmpty() && msg.parseBoolean(IGNOREAFTER,false) == false && ifDoNextMsg(returnMsg))
                      returnMsg = doAfterMsgTable(action, msg, returnMsg);
                  TLMsg nextMsg = msg.getNextMsg(); //  执行nextmsg
                  if (nextMsg != null && ifDoNextMsg(returnMsg))
                  {
                      if (returnMsg != null && nextMsg.parseBoolean(USEPRERETURNMSG,false)==true)
-                         nextMsg.copyParams((String[]) nextMsg.getParam(PARAMSFROMMSG),returnMsg);
+                         nextMsg.copyParams((String[]) nextMsg.getArrayParam(PARAMSFROMMSG,null),returnMsg);
                      returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
                  }
             } else
@@ -1375,6 +1373,10 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected void registInfactory(String moduleName, Object instance) {
         putMsg(moduleFactory, createMsg().setAction(FACTORY_REGISTINFACTORY)
                 .setParam(FACTORY_P_MODULENAME, moduleName).setParam(INSTANCE, instance));
+    }
+
+    protected void println(String str){
+        System.out.println(str);
     }
 }
 

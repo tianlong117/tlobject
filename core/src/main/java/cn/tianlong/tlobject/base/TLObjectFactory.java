@@ -574,15 +574,14 @@ public class TLObjectFactory extends TLBaseModule {
                 ((TLBaseModule) module).runStartMsg();
         }
         else {
-            Class<?> cls = null; // 取得Class对象
+            Class<?> cls ;
             try {
                 cls = Class.forName(classFilename);
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
                 putLog(classFilename + " 没有找到类文件", LogLevel.ERROR, "createObject");
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
-           //   shutdown(-1);
-            }
+              }
             synchronized (cls) {
                 module = modules.get(newModuleName);
                 if (module == null) {
@@ -621,14 +620,12 @@ public class TLObjectFactory extends TLBaseModule {
         Object module = createObject(newModuleName, classFilename);
         if (module == null) {
             putLog(newModuleName + "  为空值,创建失败", LogLevel.ERROR, "crateModule");
-            //   shutdown(-1);
             return null ;
         }
         if (module instanceof TLBaseModule) {
             TLBaseModule startModule = ((TLBaseModule) module).start(configFile, cparams);
             if (startModule == null) {
                 putLog(newModuleName + " 启动失败", LogLevel.ERROR, "crateModule");
-                //   shutdown(-1);
                 return null ;
             }
         }
@@ -666,7 +663,6 @@ public class TLObjectFactory extends TLBaseModule {
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
             putLog(className + " 没有找到类文件", LogLevel.ERROR, "createObject");
-         //   shutdown(-1);
             return null ;
         }
         Constructor<?> cons;
@@ -682,12 +678,10 @@ public class TLObjectFactory extends TLBaseModule {
                 } catch (InstantiationException e3) {
                     putLog(className + " 实例化异常 e3", LogLevel.ERROR, "createObject");
                     e3.printStackTrace();
-                    //   shutdown(-1);
                     return null ;
                 } catch (IllegalAccessException e4) {
                     putLog(className + " 非法访问 e4", LogLevel.ERROR, "createObject");
                     e4.printStackTrace();
-                    //   shutdown(-1);
                     return null ;
                 }
                 return obj;
@@ -697,17 +691,14 @@ public class TLObjectFactory extends TLBaseModule {
             } catch (InstantiationException e5) {
                 putLog(className + " 实例化异常 e5", LogLevel.ERROR, "createObject");
                 e5.printStackTrace();
-                //   shutdown(-1);
                 return null ;
             } catch (IllegalAccessException e6) {
                 putLog(className + " 非法访问 e6", LogLevel.ERROR, "createObject");
                 e6.printStackTrace();
-                //   shutdown(-1);
                 return null ;
             } catch (InvocationTargetException e7) {
                 putLog(className + " 反射异常 e7", LogLevel.ERROR, "createObject");
                 e7.printStackTrace();
-                //   shutdown(-1);
                 return null ;
             }
         }
@@ -716,17 +707,14 @@ public class TLObjectFactory extends TLBaseModule {
         } catch (InstantiationException e8) {
             putLog(className + " 实例化异常 e8", LogLevel.ERROR, "createObject");
             e8.printStackTrace();
-            //   shutdown(-1);
             return null ;
         } catch (IllegalAccessException e9) {
             putLog(className + " 非法访问 e9", LogLevel.ERROR, "createObject");
             e9.printStackTrace();
-            //   shutdown(-1);
             return null ;
         } catch (InvocationTargetException e10) {
             putLog(className + " 反射异常 e10", LogLevel.ERROR, "createObject");
             e10.printStackTrace();
-            //   shutdown(-1);
             return null ;
         }
     }
@@ -774,7 +762,7 @@ public class TLObjectFactory extends TLBaseModule {
     public TLMsg moduleActionStart(String module, TLMsg msg) {
         if (ifModuleMonitor == false)
             return msg;
-        TLMsg mmsg = createMsg().setAction("actionStart").setParam("module", module).setParam(MSG, msg);
+        TLMsg mmsg = createMsg().setAction("actionStart").setParam(MODULENAME, module).setParam(MSG, msg);
         TLMsg mreturnMsg = putMsg(moduleMonitor, mmsg);
         if (mreturnMsg == null)
             return msg;
@@ -786,7 +774,7 @@ public class TLObjectFactory extends TLBaseModule {
         if (ifModuleMonitor == false)
             return returnMsg;
         TLMsg mmsg = createMsg().setAction("actionEnd")
-                .setParam("module", module)
+                .setParam(MODULENAME, module)
                 .setParam(RETURNMSG, returnMsg)
                 .setParam(MSG, msg);
         TLMsg mreturnMsg = putMsg(moduleMonitor, mmsg);
