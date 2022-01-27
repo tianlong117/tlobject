@@ -4,11 +4,8 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.utils.TLDateUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class TLSimpleLog extends TLBaseLog {
-    protected  Logger logger;
 
     public TLSimpleLog(){
         super();

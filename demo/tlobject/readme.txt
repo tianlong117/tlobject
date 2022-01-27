@@ -8,6 +8,8 @@
      同时演示在主程序startup中发送消息给模块程序
 -->db目录
    演示数据库的一些操作
+-->jettyserver目录
+      嵌入式jetty演示
 -->redis目录
       演示redis的一些操作
 -->service目录
@@ -19,3 +21,5 @@
     2 clientPutFileStartup
        演示客户端和服务端互相发送文件。
       更改server目录下 wife_config.xml 配置项<ifputFile value="true"/>,则开启当client登录后，服务端主动发送文件。
+  -->task目录
+      计划任务演示

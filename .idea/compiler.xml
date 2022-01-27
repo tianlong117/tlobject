@@ -12,6 +12,7 @@
         <module name="cache-filecache" />
         <module name="common" />
         <module name="core" />
+        <module name="crontab" />
         <module name="database" />
         <module name="demo-tlobject" />
         <module name="demo-web" />
