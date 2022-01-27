@@ -130,7 +130,6 @@ public class TLAppStartUp extends TLBaseModule {
         if (configdir == null)
             configdir = CLASSPATH+"/";
         String realConfigDir = getRealPath(configdir,null);
-        System.setProperty("log4j.configurationFile", realConfigDir + "log4j2.xml");
         moduleFactory = TLObjectFactory.getInstance(realConfigDir, factoryConfigFile);
         moduleFactory.startFactory(null,null);
         moduleFactory.boot();

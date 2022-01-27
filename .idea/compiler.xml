@@ -10,6 +10,7 @@
         <module name="cache-common" />
         <module name="cache-ehcache" />
         <module name="cache-filecache" />
+        <module name="common" />
         <module name="core" />
         <module name="database" />
         <module name="demo-tlobject" />
@@ -23,6 +24,7 @@
         <module name="network-server-websocket" />
         <module name="redis" />
         <module name="servletutils" />
+        <module name="slf4j" />
         <module name="tlobject-all" />
         <module name="web" />
       </profile>

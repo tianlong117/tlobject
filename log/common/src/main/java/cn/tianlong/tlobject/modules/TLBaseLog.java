@@ -3,34 +3,28 @@ package cn.tianlong.tlobject.modules;
 
 import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
 import org.xmlpull.v1.XmlPullParser;
 
 import java.util.HashMap;
 import java.util.List;
 
-public class TLLog extends TLBaseModule {
+public abstract class TLBaseLog extends TLBaseModule {
 
-    private static TLBaseModule  logObj ;
     protected  HashMap<String, HashMap<String,String>> moduleSetting;
     protected  HashMap<String, HashMap<String,String[]>>logModulesForCheck =new HashMap<>();
     protected  List<String> noLogModules ;
     protected  List<String> logModules ;
-    protected  Logger logger;
     protected  LogLevel syslogLevel =LogLevel.INFO;
-    public TLLog(){
+    public TLBaseLog(){
         super();
-        logObj =this ;
     }
-    public TLLog(String name ){
+    public TLBaseLog(String name ){
         super(name);
-        logObj =this ;
     }
-    public TLLog(String name , TLObjectFactory modulefactory){
+    public TLBaseLog(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
         ifMonitor =false ;
-        logObj =this ;
     }
 
     @Override
@@ -52,11 +46,6 @@ public class TLLog extends TLBaseModule {
         return  this ;
     }
 
-    protected  Logger getLogger(){
-        if(logger==null)
-            logger = LoggerFactory.getLogger("tlobject");
-        return  logger;
-    }
     @Override
     protected Object setConfig(){
         myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());
@@ -121,9 +110,6 @@ public class TLLog extends TLBaseModule {
     public void putLog(String content, LogLevel logLevel, String tag) {
 
     }
-    public static void setLog(String moduleName, String content, LogLevel logLevel, String tag,String threadPool) {
-        logObj.putLog(content, logLevel,  tag,null ,threadPool,moduleName);
-    }
     protected void setLog(Object fromWho, TLMsg msg) {
         if(ifLog ==false)
               return;
@@ -152,28 +138,7 @@ public class TLLog extends TLBaseModule {
         logBuffer.append(content);
         setLog0( logBuffer.toString(), logLevel);
     }
-    private  void setLog0( String content,LogLevel logLevel) {
-        getLogger();
-        switch (logLevel){
-            case TRACE:
-                logger.trace(content);
-                break;
-            case DEBUG:
-                logger.debug(content);
-                break;
-            case INFO:
-                logger.info(content);
-                break;
-            case WARN:
-                logger.warn(content);
-                break;
-            case ERROR:
-                logger.error(content);
-                break;
-            default:
-                logger.info(content);
-        }
-    }
+    protected abstract   void setLog0( String content,LogLevel logLevel) ;
 
     protected  Boolean checkIfLog(String module , LogLevel logLevel , String tag ){
         if(logLevel.compareTo(syslogLevel) <0)
@@ -192,7 +157,7 @@ public class TLLog extends TLBaseModule {
         return true;
     }
 
-    private static boolean checkString(String[] stringArr, String checkValue)
+    protected  boolean checkString(String[] stringArr, String checkValue)
     {
         if(stringArr==null ||stringArr.length==0)
             return true ;

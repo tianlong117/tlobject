@@ -3,7 +3,8 @@
     <modules>
        <!-- 系统模块 -->
            <!-- modules -->
-        <module name="log" classfile="cn.tianlong.tlobject.modules.TLLog" ifMonitor="false" />
+        <!--module name="log" classfile="cn.tianlong.tlobject.modules.TLSlf4jLog" ifMonitor="false" / -->
+        <module name="log" classfile="cn.tianlong.tlobject.modules.TLSimpleLog" ifMonitor="false" />
         <module name="monitorConfig" classfile="cn.tianlong.tlobject.modules.TLMonitorConfigModule" />
         <module name="msgBroadCast" classfile="cn.tianlong.tlobject.modules.TLMsgBroadCast" />
         <module name="msgTask" classfile="cn.tianlong.tlobject.modules.TLMsgTask" />
