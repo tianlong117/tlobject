@@ -1,13 +1,11 @@
 package cn.tianlong.tlobject.utils;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
+
 /**参考DFA算法demo:http://blog.csdn.net/chenssy/article/details/26961957*/
 public class BadWordUtil2 {
     public static String filePath = "D:\\javaweb\\web\\WEB-INF\\qqconf\\dictionary.txt";//敏感词库文件路径

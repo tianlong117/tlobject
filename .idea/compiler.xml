@@ -27,6 +27,7 @@
         <module name="servletutils" />
         <module name="slf4j" />
         <module name="tlobject-all" />
+        <module name="utils" />
         <module name="web" />
       </profile>
     </annotationProcessing>
