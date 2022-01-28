@@ -3,7 +3,9 @@ package cn.tianlong.tlobject.modules;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.utils.TLDateUtils;
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
 
 public class TLSimpleLog extends TLBaseLog {
 
@@ -31,7 +33,9 @@ public class TLSimpleLog extends TLBaseLog {
     }
     @Override
     protected void setLog0(String content, LogLevel logLevel) {
-        String time =TLDateUtils.getNowDateStr(null);
+        Date date = new Date();
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String time = format.format(date);
         StringBuilder logBuffer = new StringBuilder();
         logBuffer.append(time);
         logBuffer.append("  ");
