@@ -26,6 +26,11 @@
             <artifactId>cache-filecache</artifactId>
             <version>1.0</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>utils</artifactId>
+            <version>1.0</version>
+        </dependency>
     </dependencies>
 
 </project>

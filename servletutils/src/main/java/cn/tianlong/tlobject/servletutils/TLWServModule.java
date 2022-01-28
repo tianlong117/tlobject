@@ -385,7 +385,11 @@ public abstract class TLWServModule extends TLBaseModule {
             i++;
             return this;
         }
-
+        public outData addMapData(Map map )
+        {
+            outDataMap.putAll(map);
+            return this;
+        }
     }
 }
 
