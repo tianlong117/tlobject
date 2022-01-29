@@ -138,7 +138,7 @@ public class TLClientMsgHandler extends TLBaseModule {
     }
 
     private TLMsg sendBinary(Object fromWho, TLMsg msg) {
-        return putMsg(userManagerModule,msg);
+        return putMsg(userManagerModule,msg.setDestination(null));
     }
     private TLMsg sendFile(Object fromWho, TLMsg msg) {
         IObject  sendModule = (IObject) getModule(userManagerModule);
