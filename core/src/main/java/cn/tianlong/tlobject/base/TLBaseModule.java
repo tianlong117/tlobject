@@ -624,6 +624,8 @@ public abstract class TLBaseModule extends TLBaseObject {
                 return returnMsg;
             }
         }
+        //防止某些情况直接使用msg而没有清空destiantion，导致循环
+        msg.setDestination(null);
         String msgId = msg.getMsgId();
         String action = msg.getAction();
         if ( action == null && msgId == null)
