@@ -13,6 +13,6 @@
     <templates>
         <dataid name="homepage.velocity"  template="velocity.html" />
         <dataid name="servletDbTest.find" template="user.html" />
-        <dataid name="servletDbTest.dbmodle" template="user.html" />
+        <dataid name="servletDbTest.dbmodle" template="userlist.html" />
     </templates>
 </moduleConfig>

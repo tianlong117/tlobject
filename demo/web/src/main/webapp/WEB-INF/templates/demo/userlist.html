@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <title>Title</title>
    查询时间: $time <br>
-    姓名:    $datas.name   编号：   $datas.number   日期： $datas.time <br>
+    #foreach($data in $datas)
+    姓名:    $data.name   编号：   $data.number   日期： $data.time <br>
+    #end
 </head>
 <body>
 
