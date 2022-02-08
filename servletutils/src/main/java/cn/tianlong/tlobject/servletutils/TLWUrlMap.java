@@ -107,7 +107,7 @@ public class TLWUrlMap extends TLWServModule {
     }
 
     private TLMsg getUrlMapTable(Object fromWho, TLMsg msg) {
-        mconfig.init(configFile);
+        mconfig.parse(configFile);
         HashMap<String, ArrayList<TLMsg>> urlMap =((myConfig)mconfig).getUrlMapTable() ;
         return createMsg().setArgs(urlMap);
     }

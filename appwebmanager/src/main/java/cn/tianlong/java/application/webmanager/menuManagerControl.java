@@ -186,7 +186,7 @@ public class menuManagerControl extends adminCommon {
     }
     private TLMsg loadUrls(String configPath,String  urlMapconfigfile ) {
         TLWUrlMap.myConfig config = new TLWUrlMap.myConfig(urlMapconfigfile, configPath);
-        config.init(urlMapconfigfile);
+        config.parse(urlMapconfigfile);
         HashMap<String, ArrayList<TLMsg>> urlMap =config.getUrlMapTable() ;
         HashMap<String,String> urlMapParams =config.getParams();
         String prefixUrl =urlMapParams.get("prefixUrl");

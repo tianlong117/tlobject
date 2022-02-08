@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
-    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
-    <include file="CLASSPATH\conf\tlobject\cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
     <params>
         <ifLog value="true"/>
         <loglevel value="debug"/>

@@ -36,13 +36,15 @@ public  class TLModuleConfig extends TLBaseModule {
     }
     public TLModuleConfig() {        ;
     }
-    public void init(String configFile){
+    public TLModuleConfig parse(String configFile){
         if(configFile !=null)
             this.configFile=configFile;
-        init();
+         return (TLModuleConfig) init();
     }
     protected TLBaseModule init(){
         InputStream xmlData= setFileInputStream(null);
+        if(xmlData ==null)
+            return null ;
         parseconfig(xmlData,null);
         return  this ;
     }
@@ -296,12 +298,11 @@ public  class TLModuleConfig extends TLBaseModule {
             if (name.equals("file")) {
                 String fileName = xpp.getAttributeValue(i);
                 fileName =getRealPath(fileName,configDir) ;
-                File cfile = new File(fileName);
-                if (!cfile.exists())
+                if (fileName ==null)
                     return;
                 includeConfig = new TLModuleConfig(fileName,configDir);
                 includeConfig.setFactory(moduleFactory);
-                includeConfig.init(fileName);
+                includeConfig.parse(fileName);
             }
             else if(name.equals("includeUnit")){
                 String includeUnit = xpp.getAttributeValue(i);

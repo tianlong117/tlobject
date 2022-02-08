@@ -85,7 +85,7 @@ public abstract class TLBaseModule extends TLBaseObject {
 
             modules.put(MODULEFACTORY, factory);
     }
-    public static String getRealPath(String path ,String configDir){
+    public static String getRealPath_old(String path ,String configDir){
         if(path.length() >9 && path.substring(0, 9).equals(CLASSPATH))
         {
             String classPath = TLBaseModule.class.getResource("/").getPath();
@@ -95,6 +95,22 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             if ( !path.startsWith("/") && path.indexOf(":") < 0 && configDir !=null)
                 path = configDir + path;
+        }
+        return path ;
+    }
+    public static String getRealPath(String path ,String configDir){
+        if(path.length() >9 && path.substring(0, 9).equals(CLASSPATH))
+        {
+            String  cpath =path.substring(9);
+            java.net.URL cfile = TLBaseModule.class.getResource(cpath);
+            if (cfile == null)
+                return null;
+            path =cfile.getPath();
+        }
+        else
+        {
+            if ( !path.startsWith("/") && path.indexOf(":") < 0 && configDir !=null)
+              path = configDir + path;
         }
         return path ;
     }
@@ -142,24 +158,27 @@ public abstract class TLBaseModule extends TLBaseObject {
         setSystemParams();
     }
     protected Object setConfig() {
-        if (configFile == null || configFile.isEmpty()) {
+        String parseFile ;
+        if (configFile == null || configFile.isEmpty())
+        {
             if (autoConfig == false)
                 return null;
             else {
                 String configDir = moduleFactory.getConfigDir();
-                configFile = configDir +  name + "_config.xml";
+                parseFile = configDir +  name + "_config.xml";
             }
         }
-        File file = new File(configFile);
-        if (file.exists()) {
-            if (mconfig == null)
-                mconfig = new TLModuleConfig(configFile,moduleFactory.getConfigDir());
-            mconfig.setFactory(moduleFactory);
-            mconfig.init(configFile);
-            return mconfig;
-        }
-        configFile=null ;
-        return null;
+        else
+            parseFile =configFile ;
+        if (mconfig == null)
+            mconfig = new TLModuleConfig(parseFile,moduleFactory.getConfigDir());
+        mconfig.setFactory(moduleFactory);
+        mconfig= mconfig.parse(parseFile);
+        if(mconfig ==null)
+           configFile=null ;
+        else
+            configFile =parseFile ;
+        return  mconfig;
     }
 
     protected void initProperty() {
