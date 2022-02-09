@@ -311,14 +311,7 @@ public abstract class TLWServModule extends TLBaseModule {
         return requestMap.get(threadName);
     }
     protected  ServletContext getContext(){
-        HttpServletRequest request = getRequest();
-        if(request ==null)
-            return null ;
-        ServletContext servletContext ;
-        if(request !=null)
-           servletContext = request.getServletContext();
-        else
-           servletContext = (ServletContext)getModuleInFactory("servletContext");
+        ServletContext servletContext  = (ServletContext)getModuleInFactory("servletContext");
         return servletContext ;
     }
     protected   TLObjectFactory getAppFactory(String filterName){
