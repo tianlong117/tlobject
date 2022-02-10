@@ -161,8 +161,7 @@ public class TLDataUtils {
                 if((Double)value <Integer.MAX_VALUE)
                 {
                     String str = String.valueOf(value);
-                    String result = str.substring(str.indexOf(".") + 1);
-                    if(Integer.parseInt(result) ==0)
+                    if(str.substring(str.indexOf(".") + 1).equals("0"))
                         map.put(key, ((Double)value).intValue());
                 }
                 else if ((Double)value <Long.MAX_VALUE){
@@ -217,6 +216,18 @@ public class TLDataUtils {
         }
         String [] array= tmp.toArray(new String[tmp.size()]);
         return array ;
+    }
+    public static String listToString(List<String> list, String separator) {
+        if(list ==null || list.isEmpty())
+            return "";
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < list.size(); i++) {
+            sb.append(list.get(i));
+            if (i < list.size() - 1) {
+                sb.append(separator);
+            }
+        }
+        return sb.toString();
     }
     public static ArrayList splitStrToList (String str ,String separator){
         String strArray[] = splitStrToArray(str ,separator);
@@ -277,15 +288,6 @@ public class TLDataUtils {
     }
 
     public static List<Map> toTree(List<Map> treeList, Long pid) {
-        List<Map> retList = new ArrayList<Map>();
-        for (Map parent : treeList) {
-            if (pid.equals(parent.get("pid"))) {
-                retList.add(findChildren(parent, treeList));
-            }
-        }
-        return retList;
-    }
-    public static List<Map> toTree_old(List<Map> treeList, Long pid) {
         List<Map> retList = new ArrayList<Map>();
         for (Map parent : treeList) {
             if (pid.equals(parent.get("pid"))) {

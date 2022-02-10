@@ -5,15 +5,14 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.common.TLJWT;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLDataUtils;
+import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.time.DateUtils;
 
 import javax.servlet.http.HttpServletRequest;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.*;
 
@@ -184,16 +183,26 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     private TLMsg getToken(Object fromWho, TLMsg msg) {
+        List<String> roleList = null;
+        Object role = msg.getParam(USER_P_ROLE);
+        if( role instanceof  String)
+        {
+            roleList =new ArrayList<>() ;
+            roleList.add((String) role);
+        }
+        else  if( role instanceof List)
+            roleList = (List<String>) role;
         String token = createToken((String) msg.getParam(USER_P_USERID),
-                (String) msg.getParam(USER_P_ROLE),(String) msg.getParam(USER_P_USERNAME),(String) msg.getParam(USER_P_GROUP));
+                roleList,(String) msg.getParam(USER_P_USERNAME),(String) msg.getParam(USER_P_GROUP));
         return createMsg().setParam(TOKENUSER_R_TOKEN, token);
     }
 
-    private String createToken(String userid, String role,String username ,String group) {
+    private String createToken(String userid, List<String> role, String username , String group) {
+        String roleStr =TLDataUtils.listToString(role,";");
         HashMap<String, String> claims = new HashMap<>();
         claims.put(USER_P_USERID, userid);
         claims.put(USER_P_USERNAME, username);
-        claims.put(USER_P_ROLE, role);
+        claims.put(USER_P_ROLE, roleStr);
         if(group !=null)
             claims.put(USER_P_GROUP, group);
         return TLJWT.getToken(claims, tokenSecret, tokenExpireMinute, tokenIssure);
@@ -213,7 +222,7 @@ public class TLWUserByToken extends TLWAbstractUser {
                 expTime = dateFormat.format(newExpTime);
                 datas.put(TOKENUSER_P_EXPTIME,expTime);
                 String userid =(String) datas.get(USER_P_USERID);
-                String userRole =(String) datas.get(USER_P_ROLE);
+                ArrayList<String> userRole = (ArrayList<String>) datas.get(USER_P_ROLE);
                 String username =(String) datas.get(USER_P_USERNAME);
                 String group =(String) datas.get(USER_P_GROUP);
                 return createMsg().setParam(TOKENUSER_R_TOKEN, createToken(userid, userRole,username,group));
