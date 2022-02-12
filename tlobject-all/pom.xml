@@ -13,67 +13,67 @@
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>core</artifactId>
+            <artifactId>tlobject-core</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>log-slf4j</artifactId>
+            <artifactId>tlobject-log-slf4j</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>crontab</artifactId>
+            <artifactId>tlobject-crontab</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>database</artifactId>
+            <artifactId>tlobject-database</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>cache-filecache</artifactId>
+            <artifactId>tlobject-cache-filecache</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>cache-ehcache</artifactId>
+            <artifactId>tlobject-cache-ehcache</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>network-client</artifactId>
+            <artifactId>tlobject-network-client</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>network-proxy</artifactId>
+            <artifactId>tlobject-network-proxy</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>network-server-jetty</artifactId>
+            <artifactId>tlobject-network-server-jetty</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>network-server-websocket</artifactId>
+            <artifactId>tlobject-network-server-websocket</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>redis</artifactId>
+            <artifactId>tlobject-redis</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>servletutils</artifactId>
+            <artifactId>tlobject-servletutils</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>execl</artifactId>
+            <artifactId>tlobject-execl</artifactId>
             <version>1.0</version>
         </dependency>
     </dependencies>

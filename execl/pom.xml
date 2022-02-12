@@ -9,11 +9,11 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>execl</artifactId>
+    <artifactId>tlobject-execl</artifactId>
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>database</artifactId>
+            <artifactId>tlobject-database</artifactId>
             <version>${project.version}</version>
         </dependency>
         <!-- Used to work with the older excel file format - `.xls` -->

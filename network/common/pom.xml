@@ -9,7 +9,7 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
     <groupId>cn.tianlong.tlobject</groupId>
-    <artifactId>network-common</artifactId>
+    <artifactId>tlobject-network-common</artifactId>
     <dependencies>
         <dependency>
             <groupId>com.auth0</groupId>

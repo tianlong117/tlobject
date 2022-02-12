@@ -9,26 +9,26 @@
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>app-webmanager</artifactId>
+    <artifactId>tlobject-app-webmanager</artifactId>
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>servletutils</artifactId>
+            <artifactId>tlobject-servletutils</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>database</artifactId>
+            <artifactId>tlobject-database</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>cache-filecache</artifactId>
+            <artifactId>tlobject-cache-filecache</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>utils</artifactId>
+            <artifactId>tlobject-utils</artifactId>
             <version>1.0</version>
         </dependency>
     </dependencies>

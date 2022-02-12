@@ -183,15 +183,8 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     private TLMsg getToken(Object fromWho, TLMsg msg) {
-        List<String> roleList = null;
         Object role = msg.getParam(USER_P_ROLE);
-        if( role instanceof  String)
-        {
-            roleList =new ArrayList<>() ;
-            roleList.add((String) role);
-        }
-        else  if( role instanceof List)
-            roleList = (List<String>) role;
+        List<String> roleList = roleToRoleList( role);
         String token = createToken((String) msg.getParam(USER_P_USERID),
                 roleList,(String) msg.getParam(USER_P_USERNAME),(String) msg.getParam(USER_P_GROUP));
         return createMsg().setParam(TOKENUSER_R_TOKEN, token);
@@ -222,15 +215,29 @@ public class TLWUserByToken extends TLWAbstractUser {
                 expTime = dateFormat.format(newExpTime);
                 datas.put(TOKENUSER_P_EXPTIME,expTime);
                 String userid =(String) datas.get(USER_P_USERID);
-                ArrayList<String> userRole = (ArrayList<String>) datas.get(USER_P_ROLE);
+                Object role = msg.getParam(USER_P_ROLE);
+                List<String> roleList = roleToRoleList( role);
                 String username =(String) datas.get(USER_P_USERNAME);
                 String group =(String) datas.get(USER_P_GROUP);
-                return createMsg().setParam(TOKENUSER_R_TOKEN, createToken(userid, userRole,username,group));
+                return createMsg().setParam(TOKENUSER_R_TOKEN, createToken(userid, roleList,username,group));
             }
         } catch (ParseException e) {
             return createMsg().setParam(TOKENUSER_R_TOKEN, null);
         }
         return createMsg().setParam(TOKENUSER_R_TOKEN, null);
+    }
+    private List<String> roleToRoleList(Object role){
+        if(role ==null)
+            return null ;
+        List<String> roleList = null;
+        if( role instanceof  String)
+        {
+            roleList =new ArrayList<>() ;
+            roleList.add((String) role);
+        }
+        else  if( role instanceof List)
+            roleList = (List<String>) role;
+        return roleList ;
     }
     private HashMap<String ,Object> getSessionData(){
         String threadName=Thread.currentThread().getName();

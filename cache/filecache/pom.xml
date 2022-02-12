@@ -3,19 +3,19 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>cache</artifactId>
+        <artifactId>tlobject-cache</artifactId>
         <groupId>cn.tianlong.tlobject</groupId>
         <version>1.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>cache-filecache</artifactId>
+    <artifactId>tlobject-cache-filecache</artifactId>
 
 
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>cache-common</artifactId>
+            <artifactId>tlobject-cache-common</artifactId>
             <version>${project.version}</version>
         </dependency>
     </dependencies>
