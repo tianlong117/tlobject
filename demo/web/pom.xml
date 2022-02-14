@@ -25,7 +25,7 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>demo-tlobject</artifactId>
+            <artifactId>tlobject-demo-tlobject</artifactId>
             <version>1.0</version>
         </dependency>
     </dependencies>

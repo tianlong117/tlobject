@@ -18,7 +18,7 @@
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>core</artifactId>
+            <artifactId>tlobject-core</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

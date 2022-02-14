@@ -29,7 +29,7 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>cache-filecache</artifactId>
+            <artifactId>tlobject-cache-filecache</artifactId>
             <version>1.0</version>
         </dependency>
         <dependency>

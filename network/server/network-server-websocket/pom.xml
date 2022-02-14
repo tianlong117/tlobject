@@ -13,7 +13,7 @@
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>network-common</artifactId>
+            <artifactId>tlobject-network-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
