@@ -215,8 +215,7 @@ public class TLWUserByToken extends TLWAbstractUser {
                 expTime = dateFormat.format(newExpTime);
                 datas.put(TOKENUSER_P_EXPTIME,expTime);
                 String userid =(String) datas.get(USER_P_USERID);
-                Object role = msg.getParam(USER_P_ROLE);
-                List<String> roleList = roleToRoleList( role);
+                ArrayList<String> roleList = (ArrayList<String>) datas.get(USER_P_ROLE);
                 String username =(String) datas.get(USER_P_USERNAME);
                 String group =(String) datas.get(USER_P_GROUP);
                 return createMsg().setParam(TOKENUSER_R_TOKEN, createToken(userid, roleList,username,group));
