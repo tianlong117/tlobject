@@ -45,6 +45,12 @@ public  class TLWAPPCenter extends TLWServModule {
             if( params.get("tlobjectPath")!=null && !params.get("tlobjectPath").isEmpty())
                 tlobjectPath=params.get("tlobjectPath");
         }
+        if(prefixUrl ==null)
+        {
+            ServletContext context= getContext();
+            String contextPath =context.getContextPath() ;
+            prefixUrl=contextPath+tlobjectPath;
+        }
     }
     @Override
     protected TLBaseModule init() {
@@ -166,15 +172,11 @@ public  class TLWAPPCenter extends TLWServModule {
     }
 
     protected void start(Object fromWho, TLMsg msg) {
-        String url=(String) msg.getParam("url");
+        String url= (String) msg.getParam("url");
         if(url==null){
             String uri  = (String) msg.getParam("uri");
-            if(prefixUrl ==null)
-            {
-                ServletContext context= getContext();
-                String contextPath =context.getContextPath() ;
-                prefixUrl=contextPath+tlobjectPath;
-            }
+            if(uri ==null)
+                return;
             url=uri.substring(prefixUrl.length());
         }
         putMsg("urlMap",msg.setAction("doWithUrl").setParam("url",url));
