@@ -1,4 +1,4 @@
-package cn.tianlong.tlobject.servletutils;
+package cn.tianlong.tlobject.servletutils.clientinterface;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.modules.LogLevel;

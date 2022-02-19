@@ -1,4 +1,4 @@
-package cn.tianlong.tlobject.servletutils;
+package cn.tianlong.tlobject.servletutils.clientinterface;
 
 
 import cn.tianlong.tlobject.base.TLBaseModule;
@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.servletutils.TLWServModule;
 import org.apache.velocity.Template;
 import org.apache.velocity.VelocityContext;
 import org.apache.velocity.app.VelocityEngine;

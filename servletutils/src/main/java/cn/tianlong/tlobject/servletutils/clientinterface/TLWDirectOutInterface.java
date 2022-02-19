@@ -1,9 +1,11 @@
-package cn.tianlong.tlobject.servletutils;
+package cn.tianlong.tlobject.servletutils.clientinterface;
 
 
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.servletutils.TLWServModule;
+
 import java.util.LinkedHashMap;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.CHARSET;

@@ -1,8 +1,9 @@
-package cn.tianlong.tlobject.servletutils;
+package cn.tianlong.tlobject.servletutils.clientinterface;
 
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.servletutils.TLWServModule;
 
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
