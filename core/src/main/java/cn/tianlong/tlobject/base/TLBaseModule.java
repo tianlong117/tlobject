@@ -566,11 +566,11 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             TLMsg msgInMsgList = msgList.get(i);
             TLMsg cmsg ;
-            String msgTableUserType = (String) msgInMsgList.getParam(MSGTABLEUSETYPE);
+            String msgTableUserType = msgInMsgList.getStringParam(MSGTABLEUSETYPE,null);
             if (msgTableUserType !=null && msgTableUserType.equals(MSGTABLEONLY))
                 cmsg =msgInMsgList ;
             else {
-                String[] paramKeys = (String[]) msgInMsgList.getParam(PARAMSFROMMSG);
+                String[] paramKeys = (String[]) msgInMsgList.getArrayParam(PARAMSFROMMSG,null);
                 if (msgTableUserType !=null && msgTableUserType.equals(USEMSG))
                 {
                     cmsg =msg ;
@@ -979,7 +979,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     private TLMsg copyMsgFromMsgTable(TLMsg msg, TLMsg fromMsg) {
         HashMap<String ,Object> sourceParams =fromMsg.getArgs();
         if(sourceParams !=null && !sourceParams.isEmpty()){
-            String[] paramsKey = (String[]) fromMsg.getParam(PARAMSFROMMSG);
+            String[] paramsKey = (String[]) fromMsg.getArrayParam(PARAMSFROMMSG,null);
             if(paramsKey==null || paramsKey.length==0)
             {
                 for(String key :sourceParams.keySet()){
