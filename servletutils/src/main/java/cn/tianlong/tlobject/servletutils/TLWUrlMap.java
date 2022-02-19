@@ -218,13 +218,13 @@ public class TLWUrlMap extends TLWServModule {
             if(userObj!=null && !userObj.isEmpty())
             {
                 dmsg.setParam("clientUser",userObj);
-                setSessionData("userObj" ,userObj);
+                setThreadData("userObj" ,userObj);
             }
             String clientType = (String) smsg.getParam("clientType");
             if(clientType!=null && !clientType.isEmpty())
             {
                 dmsg.setParam("clientType",clientType);
-                setSessionData("client" ,clientType);
+                setThreadData("client" ,clientType);
             }
             TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);
             getMsg(this,smg);
@@ -243,10 +243,10 @@ public class TLWUrlMap extends TLWServModule {
                 if(userObj ==null && defaultClientUser!=null)
                     userObj =defaultClientUser ;
                 if(userObj!=null && !userObj.isEmpty())
-                    setSessionData("userObj" ,userObj);
+                    setThreadData("userObj" ,userObj);
                 String urlClient = (String) dmsg.getParam("clientType");
                 if(urlClient!=null && !urlClient.isEmpty())
-                    setSessionData("client" ,urlClient);
+                    setThreadData("client" ,urlClient);
                 dmsg.addArgs(msg.getArgs());
                 dmsg.setParam("clientUser",userObj);
                 TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);

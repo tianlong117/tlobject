@@ -92,11 +92,11 @@ public  class TLWAPPCenter extends TLWServModule {
             case "dispatchUrl":
                 returnMsg=dispatchUrl(fromWho,msg);
                 break;
-            case "setSessionData":
-               setSessionData(fromWho,msg);
+            case "setThreadData":
+               setThreadData(fromWho,msg);
                 break;
-            case "getSessionData":
-                returnMsg=getSessionData(fromWho,msg);
+            case "getThreadData":
+                returnMsg=getThreadData(fromWho,msg);
                 break;
             default:
                 putMsg("error",creatOutMsg().setAction("setError").setParam("content","no action"));
@@ -105,7 +105,7 @@ public  class TLWAPPCenter extends TLWServModule {
     }
 
     protected void end(Object fromWho, TLMsg msg) {
-        Long startTime = (Long) getSessionData("startTime");
+        Long startTime = (Long) getThreadData("startTime");
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         putLog(filterName+ " 运行时间：" + runtime,LogLevel.INFO,"end");
@@ -127,19 +127,19 @@ public  class TLWAPPCenter extends TLWServModule {
         return createMsg().setParam(RESULT,true);
     }
 
-    private void setSessionData(Object fromWho, TLMsg msg) {
+    private void setThreadData(Object fromWho, TLMsg msg) {
         String varname = (String) msg.getParam("varname");
         Object  value =msg.getParam("value");
-        setSessionData(varname,value);
+        setThreadData(varname,value);
     }
-    private TLMsg getSessionData(Object fromWho, TLMsg msg) {
+    private TLMsg getThreadData(Object fromWho, TLMsg msg) {
         String varname = (String) msg.getParam("varname");
-        Object  value =getSessionData(varname);
+        Object  value =getThreadData(varname);
         return createMsg().setParam("value",value);
     }
 
     protected String getUserObjName() {
-        String userObj = (String) getSessionData("userObj");
+        String userObj = (String) getThreadData("userObj");
         if(userObj ==null)
             userObj= params.get("defaultClientUser");
         return userObj ;

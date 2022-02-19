@@ -18,7 +18,7 @@ public class TLServlet extends GenericServlet {
     private  String servletName;
     protected Map<String,HttpServletRequest> requestMap;
     protected Map<String,HttpServletResponse>responseMap ;
-    protected Map<String,HashMap<String ,Object>>sessionDatas ;
+    protected Map<String,HashMap<String ,Object>>threadDatas ;
     protected TLObjectFactory moduleFactory;
     protected TLBaseModule appCenter;
 
@@ -51,7 +51,7 @@ public class TLServlet extends GenericServlet {
         appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
         requestMap =   (Map<String, HttpServletRequest>) moduleFactory.getModule("servletRequest");
         responseMap =  (Map<String, HttpServletResponse>) moduleFactory.getModule("servletResponse");
-        sessionDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("sessionDatas");
+        threadDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("threadDatas");
 
 
     }
@@ -66,14 +66,14 @@ public class TLServlet extends GenericServlet {
         HashMap<String ,Object> datas =new HashMap<>();
         requestMap.put(threadName, request);
         responseMap.put(threadName,  response);
-        sessionDatas.put(threadName,datas);
+        threadDatas.put(threadName,datas);
         String uri= request.getRequestURI();
         if (uri == null || uri.isEmpty())
             return ;
         appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
         requestMap.remove(threadName);
         responseMap.remove(threadName);
-        sessionDatas.remove(threadName);
+        threadDatas.remove(threadName);
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         moduleFactory.putLog(servletName + " 运行时间：" + runtime,LogLevel.INFO,"doFilter");

@@ -44,7 +44,7 @@ public abstract class TLWServModule extends TLBaseModule {
 
     protected String getUserObjName()
     {
-        String userObj = (String) getSessionData("userObj");
+        String userObj = (String) getThreadData("userObj");
         if(userObj ==null)
         {
             TLMsg returnMsg =putMsg(M_APPCENTER,createMsg().setAction("getDefaultUser"));
@@ -186,7 +186,7 @@ public abstract class TLWServModule extends TLBaseModule {
     }
     protected String getClient()
     {
-        String client = (String) getSessionData("client");
+        String client = (String) getThreadData("client");
         if(client ==null)
         {
             String userObj =  getUserObjName();
@@ -271,32 +271,44 @@ public abstract class TLWServModule extends TLBaseModule {
         return ifDo ;
     }
 
-    protected void setSessionData(String varname ,Object value)
+    protected void setThreadData(String varname ,Object value)
     {
+        Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
         String threadName=Thread.currentThread().getName();
-        Map<String,HashMap<String ,Object>> sessionDatas = (Map<String, HashMap<String, Object>>) getModule("sessionDatas");
-        HashMap<String ,Object> datas =sessionDatas.get(threadName);
-        datas.put(varname,value);
+        HashMap<String ,Object> datas =threadDatas.get(threadName);
+        if(datas !=null)
+           datas.put(varname,value);
+        else {
+            datas =new HashMap<>();
+            datas.put(varname,value);
+            threadDatas.put(threadName,datas) ;
+        }
     }
-    protected void setSessionData(HashMap<String ,Object>inputdatas)
+    protected void setThreadData(HashMap<String ,Object>inputdatas)
     {
         String threadName=Thread.currentThread().getName();
-        Map<String,HashMap<String ,Object>> sessionDatas = (Map<String, HashMap<String, Object>>) getModule("sessionDatas");
-        HashMap<String ,Object> datas =sessionDatas.get(threadName);
-        datas.putAll(inputdatas);
+        Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        HashMap<String ,Object> datas =threadDatas.get(threadName);
+        if(datas !=null)
+            datas.putAll(inputdatas);
+        else {
+            datas =new HashMap<>();
+            datas.putAll(inputdatas);
+            threadDatas.put(threadName,datas) ;
+        }
     }
-    protected Object getSessionData(String varname)
+    protected Object getThreadData(String varname)
     {
         String threadName=Thread.currentThread().getName();
-        Map<String,HashMap<String ,Object>> sessionDatas = (Map<String, HashMap<String, Object>>) getModule("sessionDatas");
-        HashMap<String ,Object> datas =sessionDatas.get(threadName);
-        return datas.get(varname);
+        Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        HashMap<String ,Object> datas =threadDatas.get(threadName);
+        return (datas!=null)? datas.get(varname):null;
     }
-    protected HashMap<String ,Object> getSessionData()
+    protected HashMap<String ,Object> getThreadData()
     {
         String threadName=Thread.currentThread().getName();
-        Map<String,HashMap<String ,Object>> sessionDatas = (Map<String, HashMap<String, Object>>) getModule("sessionDatas");
-        return  sessionDatas.get(threadName);
+        Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        return  threadDatas.get(threadName);
     }
     protected  HttpServletResponse getResponse(){
         String threadName=Thread.currentThread().getName();

@@ -81,7 +81,7 @@ public class TLWUserByToken extends TLWAbstractUser {
 
     private void setExptime(Object fromWho, TLMsg msg) {
         String expTime = (String) msg.getParam(TOKENUSER_P_EXPTIME);
-        HashMap<String ,Object> datas =getSessionData();
+        HashMap<String ,Object> datas =getThreadData();
         datas.put(TOKENUSER_P_EXPTIME,expTime);
     }
 
@@ -97,7 +97,7 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     protected TLMsg getExpTime(Object fromWho, TLMsg msg) {
-        HashMap<String ,Object> datas =getSessionData();
+        HashMap<String ,Object> datas =getThreadData();
         String userid =(String) datas.get(USER_P_USERID);
         String userRole =(String) datas.get(USER_P_ROLE);
         String expTime = (String) datas.get(TOKENUSER_P_EXPTIME);
@@ -108,7 +108,7 @@ public class TLWUserByToken extends TLWAbstractUser {
 
     @Override
     protected TLMsg getLoginState(Object fromWho, TLMsg msg) {
-        HashMap<String ,Object> datas =getSessionData();
+        HashMap<String ,Object> datas =getThreadData();
         if(datas ==null)
             return null ;
         String userid =(String) datas.get(USER_P_USERID);
@@ -173,7 +173,7 @@ public class TLWUserByToken extends TLWAbstractUser {
         userInfo.put(USER_P_ROLE,roleStrToList(userRole));
         userInfo.put(TOKENUSER_P_EXPTIME,expTime);
         userInfo.put("tokenExpire",tokenExpire);
-        HashMap<String ,Object> datas =getSessionData();
+        HashMap<String ,Object> datas =getThreadData();
         datas.putAll(userInfo);
         putLog("user login:"+userid,LogLevel.DEBUG,"login");
         return createMsg().setParam(USER_P_USERID, userid).setParam(USER_P_ROLE, userRole).setParam(USER_P_USERNAME, username);
@@ -202,7 +202,7 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     private TLMsg reflashToken(Object fromWho, TLMsg msg) {
-        HashMap<String ,Object> datas =getSessionData();
+        HashMap<String ,Object> datas =getThreadData();
         String expTime = (String) datas.get(TOKENUSER_P_EXPTIME);
         if (expTime == null)
             return createMsg().setParam(TOKENUSER_R_TOKEN, null);
@@ -238,10 +238,10 @@ public class TLWUserByToken extends TLWAbstractUser {
             roleList = (List<String>) role;
         return roleList ;
     }
-    private HashMap<String ,Object> getSessionData(){
+    private HashMap<String ,Object> getThreadData(){
         String threadName=Thread.currentThread().getName();
-        Map<String,HashMap<String ,Object>> sessionDatas = (Map<String, HashMap<String, Object>>) getModule("sessionDatas");
-        return sessionDatas.get(threadName);
+        Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        return threadDatas.get(threadName);
     }
     @Override
     protected TLMsg getData(Object fromWho, TLMsg msg) {

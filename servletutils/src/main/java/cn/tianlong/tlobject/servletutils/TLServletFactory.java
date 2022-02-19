@@ -23,7 +23,7 @@ public class TLServletFactory extends GenericServlet {
     private  String servletName;
     protected Map<String,HttpServletRequest> requestMap;
     protected Map<String,HttpServletResponse>responseMap ;
-    protected Map<String,HashMap<String ,Object>>sessionDatas ;
+    protected Map<String,HashMap<String ,Object>>threadDatas ;
     protected TLObjectFactory moduleFactory;
     protected TLBaseModule appCenter;
     protected boolean isStartup =true ;
@@ -50,7 +50,7 @@ public class TLServletFactory extends GenericServlet {
             initialCapacity= Integer.parseInt(initialCapacityOfConf);
         requestMap =new ConcurrentHashMap<>( initialCapacity);
         responseMap =new ConcurrentHashMap<>(initialCapacity);
-        sessionDatas =new ConcurrentHashMap<>(initialCapacity);
+        threadDatas =new ConcurrentHashMap<>(initialCapacity);
         String  initConfigPath=config.getInitParameter("configPath");
         if(initConfigPath==null || initConfigPath.isEmpty())
             initConfigPath="conf";
@@ -68,7 +68,7 @@ public class TLServletFactory extends GenericServlet {
         registInfactory(moduleFactory, "servletContext", context);
         registInfactory(moduleFactory, "servletRequest", requestMap);
         registInfactory(moduleFactory, "servletResponse", responseMap);
-        registInfactory(moduleFactory, "sessionDatas", sessionDatas);
+        registInfactory(moduleFactory, "threadDatas", threadDatas);
         moduleFactory.putLog(servletName+" is statup,configPath:"+configDir,LogLevel.INFO,"filterInit");
         String usefactory=config.getInitParameter("usefactory");
         if( usefactory ==null || usefactory.isEmpty())
@@ -104,14 +104,14 @@ public class TLServletFactory extends GenericServlet {
         datas.put("startTime",startTime);
         requestMap.put(threadName, request);
         responseMap.put(threadName,  response);
-        sessionDatas.put(threadName,datas);
+        threadDatas.put(threadName,datas);
         String uri= request.getRequestURI();
         if (uri == null || uri.isEmpty())
             return ;
         appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
         requestMap.remove(threadName);
         responseMap.remove(threadName);
-        sessionDatas.remove(threadName);
+        threadDatas.remove(threadName);
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         moduleFactory.putLog(servletName + " 运行时间：" + runtime,LogLevel.INFO,"doFilter");
