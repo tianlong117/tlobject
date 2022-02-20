@@ -178,6 +178,7 @@ public  class TLWAPPCenter extends TLWServModule {
             if(uri ==null)
                 return;
             url=uri.substring(prefixUrl.length());
+            msg.removeParam("uri");
         }
         putMsg("urlMap",msg.setAction("doWithUrl").setParam("url",url));
     }

@@ -65,11 +65,11 @@
         "jsonClient"的输入接口为json输入，这里对输入接口单独指定"directInInterface"， 用以获取客户端get方式提交的name变量
         -->
        <url  value="/db/findtojson" >
-           <msg  action="find" destination="servletDbTest"   clientVars="name"
+           <msg   beforeAction="direct"  action="find" destination="servletDbTest"   clientVars="name"
                  inInterface="directInInterface" clientType="jsonClient" />
        </url>
        <url  value="/db/dbmodle" >
-           <msg action="dbmodle" destination="servletDbTest" clientVars="name" />
+           <msg  beforeMsgId="testMsgid" action="dbmodle" destination="servletDbTest" clientVars="name" />
        </url>
         <url  value="/db/dbmodleache" >
             <msg action="dbmodleCache" destination="servletDbTest" clientVars="name" />

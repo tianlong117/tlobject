@@ -156,6 +156,32 @@ public class TLMsg implements Serializable , Cloneable{
            return null ;
         return args.get(param) ;
     }
+    public Object getAndRemoveParam(String param)
+    {
+        if(args ==null)
+            return null ;
+        if(args.containsKey(param))
+        {
+            Object value =args.get(param);
+            args.remove(param);
+            return value;
+        }
+        return null  ;
+    }
+    public Object getAndRemoveParam(String param,Object defaultValue)
+    {
+        if(args ==null)
+            return defaultValue ;
+        Object value = null;
+        if(args.containsKey(param))
+        {
+            value =args.get(param);
+            args.remove(param);
+        }
+        if(value ==null)
+            return defaultValue ;
+        return value ;
+    }
     public Object getParam(String param,Object defaultValue)
     {
         if(args ==null)

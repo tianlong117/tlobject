@@ -116,47 +116,6 @@ public class TLWUrlMap extends TLWServModule {
         return createMsg().setParam("prefixUrl",prefixUrl);
     }
 
-    private TLMsg toServlet(Object fromWho, TLMsg msg) {
-        TLMsg dmsg =(TLMsg) msg.getParam("domsg");
-        String clientUser= (String) dmsg.getParam("clientUser");
-        String clientType =(String) dmsg.getParam("clientType");
-        String inInterface =(String) dmsg.getParam("inInterface");
-        String[] clientVars = (String[]) dmsg.getParam("clientVars");
-        if(clientVars !=null  )
-        {
-            TLMsg inputs = null;
-            if(inInterface !=null && !inInterface.isEmpty())
-                inputs=putMsg(inInterface,createMsg().setAction(ININTERFACE_GETDATAFROMUSER).setParam(CLIENT_P_VARNAME,clientVars ));
-            else if(clientType !=null && !clientType.isEmpty())
-                inputs=putMsg(clientType,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
-            else
-            {
-                if(clientUser ==null || clientUser.isEmpty())
-                    clientUser= defaultClientUser;
-                TLMsg returnMsg =putMsg(clientUser,createMsg().setAction(USER_GETCLIENT));
-                String client= (String) returnMsg.getParam(USER_R_CLIENT);
-                inputs=putMsg(client,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
-            }
-            if(inputs !=null)
-                dmsg.addArgs(inputs.getArgs());
-            dmsg.removeParam("clientVars");
-        }
-        if(inInterface!=null)
-            dmsg.removeParam("inInterface");
-        if(clientType!=null)
-            dmsg.removeParam("clientType");
-        if(clientUser!=null)
-            dmsg.removeParam("clientUser");
-         String destionation =dmsg.getDestination();
-         if(destionation!=null && !destionation.isEmpty())
-             return   putMsg(destionation, dmsg);
-         else
-         {
-             putLog("no destionation",LogLevel.ERROR);
-             return null ;
-         }
-    }
-
     protected void doWithUrl(Object fromWho, TLMsg msg) {
 
         if(urlMapTable ==null || urlMapTable.isEmpty())
@@ -203,57 +162,112 @@ public class TLWUrlMap extends TLWServModule {
                 else
                     dmsg.setAction(maction);
             }
-
+            setThreadData("url" ,url);
+            msg.removeParam("url");
             dmsg.setDestination(smsg.getDestination());
-            dmsg.setMsgId(smsg.getMsgId());
             dmsg.setWaitFlag(smsg.getWaitFlag());
-            dmsg.addArgs(msg.getArgs());
-            if(smsg.parseBoolean("direct",false) ==true){
-                putMsg(this,dmsg);
-                return;
-            }
-            String userObj= (String) smsg.getParam("clientUser");
-            if(userObj ==null && defaultClientUser!=null)
-                userObj =defaultClientUser ;
-            if(userObj!=null && !userObj.isEmpty())
-            {
-                dmsg.setParam("clientUser",userObj);
-                setThreadData("userObj" ,userObj);
-            }
-            String clientType = (String) smsg.getParam("clientType");
-            if(clientType!=null && !clientType.isEmpty())
-            {
-                dmsg.setParam("clientType",clientType);
-                setThreadData("client" ,clientType);
-            }
-            TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);
-            getMsg(this,smg);
+            HashMap map =msg.getArgs();
+            if(!map.isEmpty())
+              dmsg.addArgs(map);
+            doWithUrlMsg(dmsg);
         }
         else
         {
+            setThreadData("url" ,url);
+            msg.removeParam("url");
+            HashMap map =msg.getArgs();
             for(int i = 0;i < msgList.size(); i ++)
             {
                 TLMsg dmsg =createMsg().copyFrom(((TLMsg) msgList.get(i)));
-                if(dmsg.parseBoolean("direct",false) ==true){
-                    msg.removeParam("direct");
-                    putMsg(this,dmsg);
-                    continue;
-                }
-                String  userObj = (String) dmsg.getParam("clientUser");
-                if(userObj ==null && defaultClientUser!=null)
-                    userObj =defaultClientUser ;
-                if(userObj!=null && !userObj.isEmpty())
-                    setThreadData("userObj" ,userObj);
-                String urlClient = (String) dmsg.getParam("clientType");
-                if(urlClient!=null && !urlClient.isEmpty())
-                    setThreadData("client" ,urlClient);
-                dmsg.addArgs(msg.getArgs());
-                dmsg.setParam("clientUser",userObj);
-                TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);
-                getMsg(this,smg);
+                if(!map.isEmpty())
+                    dmsg.addArgs(map);
+                doWithUrlMsg(dmsg);
             }
         }
     }
+
+    private void doWithUrlMsg(TLMsg dmsg) {
+        String clientUser= (String) dmsg.getParam("clientUser",defaultClientUser);
+        setThreadData("userObj" ,clientUser);
+        String clientType =(String) dmsg.getParam("clientType");
+        if(clientType!=null && !clientType.isEmpty())
+            setThreadData("client" ,clientType);
+        String beforeMsgId= (String) dmsg.getAndRemoveParam("beforeMsgId",null);
+        if(beforeMsgId ==null || beforeMsgId.isEmpty())
+        {
+            String beforeAction= (String) dmsg.getAndRemoveParam("beforeAction","toServlet");
+            if(beforeAction.equals("toServlet")){
+                TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);
+                getMsg(this,smg);
+                return;
+            }
+            HashMap inputVars=getInputVar(dmsg);
+            if(inputVars !=null)
+                dmsg.addArgs(inputVars);
+            if(beforeAction.equals("direct"))
+                putMsg(dmsg.getDestination(),dmsg);
+            else {
+                TLMsg smg =createMsg().setAction(beforeAction).setParam("domsg",dmsg);
+                TLMsg returnMsg= getMsg(this,smg);
+                if( ifDoNextMsg(returnMsg))
+                    putMsg(dmsg.getDestination(),dmsg);
+            }
+        }
+        else
+        {
+            HashMap inputVars=getInputVar(dmsg);
+            if(inputVars !=null)
+               dmsg.addArgs(inputVars);
+            TLMsg returnMsg=putMsg(this,createMsg().setMsgId(beforeMsgId).setParam("domsg",dmsg));
+            if( ifDoNextMsg(returnMsg))
+                putMsg(dmsg.getDestination(),dmsg);
+        }
+    }
+
+    private TLMsg toServlet(Object fromWho, TLMsg msg) {
+        TLMsg dmsg =(TLMsg) msg.getParam("domsg");
+        HashMap inputVars=getInputVar(dmsg);
+        if(inputVars !=null)
+            dmsg.addArgs(inputVars);
+        String destionation =dmsg.getDestination();
+        if(destionation!=null && !destionation.isEmpty())
+            return   putMsg(destionation, dmsg);
+        else
+        {
+            putLog("no destionation",LogLevel.ERROR);
+            return null ;
+        }
+    }
+    protected HashMap getInputVar(TLMsg dmsg)
+    {
+        String[] clientVars = (String[]) dmsg.getAndRemoveParam("clientVars",null);
+        if(clientVars ==null)
+        {
+            dmsg.removeParam("inInterface");
+            dmsg.removeParam("clientType");
+            dmsg.removeParam("clientUser");
+            return null ;
+        }
+        String inInterface =(String) dmsg.getAndRemoveParam("inInterface");
+        TLMsg inputs ;
+        if(inInterface !=null && !inInterface.isEmpty())
+            inputs=putMsg(inInterface,createMsg().setAction(ININTERFACE_GETDATAFROMUSER).setParam(CLIENT_P_VARNAME,clientVars ));
+        else{
+            String clientType =(String) dmsg.getAndRemoveParam("clientType");
+            if(clientType !=null && !clientType.isEmpty())
+                inputs=putMsg(clientType,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
+            else {
+                String clientUser= (String) dmsg.getAndRemoveParam("clientUser",defaultClientUser);
+                TLMsg returnMsg =putMsg(clientUser,createMsg().setAction(USER_GETCLIENT));
+                String client= (String) returnMsg.getParam(USER_R_CLIENT);
+                inputs=putMsg(client,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
+            }
+        }
+        if(inputs !=null)
+            return inputs.getArgs();
+        return null;
+    }
+
    public static class myConfig extends TLModuleConfig {
         protected HashMap<String, ArrayList<TLMsg>> urlMapTable;
         public myConfig(String configFile ,String configDir) {
