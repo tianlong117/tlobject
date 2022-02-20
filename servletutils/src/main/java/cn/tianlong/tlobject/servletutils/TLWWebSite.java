@@ -138,7 +138,4 @@ public class TLWWebSite extends TLWServModule{
         }
         return false;
     }
-    protected  void putError(String content){
-        putMsg("error",createMsg().setAction("setError").setParam("content",content));
-    }
 }

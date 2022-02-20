@@ -342,8 +342,8 @@ public abstract class TLWServModule extends TLBaseModule {
             return  null ;
         return  putMsg(moduleObj,msg) ;
     }
-    protected void putError(String content){
-        putMsg("error",creatOutMsg().setAction("setError").setParam("content",content));
+    protected TLMsg putError(String content){
+        return putMsg("error",creatOutMsg().setAction("setError").setParam("content",content));
     }
     protected void sendRedirect(String url){
         HttpServletResponse response =getResponse();

@@ -83,7 +83,7 @@ public class TLWUrlMap extends TLWServModule {
         TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case"doWithUrl":
-                doWithUrl( fromWho, msg);
+                returnMsg=doWithUrl( fromWho, msg);
                 break;
             case"toServlet":
                 returnMsg=toServlet( fromWho, msg);
@@ -116,13 +116,10 @@ public class TLWUrlMap extends TLWServModule {
         return createMsg().setParam("prefixUrl",prefixUrl);
     }
 
-    protected void doWithUrl(Object fromWho, TLMsg msg) {
+    protected TLMsg doWithUrl(Object fromWho, TLMsg msg) {
 
         if(urlMapTable ==null || urlMapTable.isEmpty())
-        {
-            putError("no urlMap, Configure urlMap");
-            return;
-        }
+           return putError("no urlMap, Configure urlMap");
         String url=(String) msg.getParam("url");
         if(prefixUrl!=null)
           url=url.substring(prefixUrl.length());
@@ -136,8 +133,7 @@ public class TLWUrlMap extends TLWServModule {
                 mappath =url.substring(0,url.indexOf("/")+1)+"*";
                 msgList = urlMapTable.get(mappath);
                 if (msgList == null || msgList.isEmpty()) {
-                    putError("no urlmap");
-                    return;
+                   return   putError("no urlmap");
                 }
             }
             String  action =url.substring(url.lastIndexOf("/")+1);
@@ -154,10 +150,7 @@ public class TLWUrlMap extends TLWServModule {
                     if(maction!=null)
                         dmsg.setAction(maction);
                     else
-                    {
-                        putError("no urlmap");
-                        return;
-                    }
+                       return putError("no urlmap");
                 }
                 else
                     dmsg.setAction(maction);
@@ -169,24 +162,29 @@ public class TLWUrlMap extends TLWServModule {
             HashMap map =msg.getArgs();
             if(!map.isEmpty())
               dmsg.addArgs(map);
-            doWithUrlMsg(dmsg);
+            return doWithUrlMsg(dmsg);
         }
         else
         {
             setThreadData("url" ,url);
             msg.removeParam("url");
             HashMap map =msg.getArgs();
-            for(int i = 0;i < msgList.size(); i ++)
+            TLMsg returnMsg = null;
+            int msgListSize = msgList.size();
+            for(int i = 0;i < msgListSize; i ++)
             {
                 TLMsg dmsg =createMsg().copyFrom(((TLMsg) msgList.get(i)));
                 if(!map.isEmpty())
                     dmsg.addArgs(map);
-                doWithUrlMsg(dmsg);
+                returnMsg= doWithUrlMsg(dmsg);
+                if(msgListSize >1 && ifDoNextMsg(returnMsg))
+                    continue;
             }
+            return returnMsg ;
         }
     }
 
-    private void doWithUrlMsg(TLMsg dmsg) {
+    private TLMsg doWithUrlMsg(TLMsg dmsg) {
         String clientUser= (String) dmsg.getParam("clientUser",defaultClientUser);
         setThreadData("userObj" ,clientUser);
         String clientType =(String) dmsg.getParam("clientType");
@@ -198,19 +196,20 @@ public class TLWUrlMap extends TLWServModule {
             String beforeAction= (String) dmsg.getAndRemoveParam("beforeAction","toServlet");
             if(beforeAction.equals("toServlet")){
                 TLMsg smg =createMsg().setAction("toServlet").setParam("domsg",dmsg);
-                getMsg(this,smg);
-                return;
+                return getMsg(this,smg);
             }
             HashMap inputVars=getInputVar(dmsg);
             if(inputVars !=null)
                 dmsg.addArgs(inputVars);
             if(beforeAction.equals("direct"))
-                putMsg(dmsg.getDestination(),dmsg);
+                return putMsg(dmsg.getDestination(),dmsg);
             else {
                 TLMsg smg =createMsg().setAction(beforeAction).setParam("domsg",dmsg);
                 TLMsg returnMsg= getMsg(this,smg);
                 if( ifDoNextMsg(returnMsg))
-                    putMsg(dmsg.getDestination(),dmsg);
+                   return putMsg(dmsg.getDestination(),dmsg);
+                else
+                    return returnMsg ;
             }
         }
         else
@@ -220,7 +219,9 @@ public class TLWUrlMap extends TLWServModule {
                dmsg.addArgs(inputVars);
             TLMsg returnMsg=putMsg(this,createMsg().setMsgId(beforeMsgId).setParam("domsg",dmsg));
             if( ifDoNextMsg(returnMsg))
-                putMsg(dmsg.getDestination(),dmsg);
+               return putMsg(dmsg.getDestination(),dmsg);
+            else
+                return returnMsg ;
         }
     }
 

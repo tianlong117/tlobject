@@ -84,7 +84,7 @@ public  class TLWAPPCenter extends TLWServModule {
                 returnMsg = createMsg().setParam("client",client);
                 break;
             case "start":
-                start(fromWho,msg);
+                returnMsg = start(fromWho,msg);
                 break;
             case "end":
                 end(fromWho,msg);
@@ -171,15 +171,15 @@ public  class TLWAPPCenter extends TLWServModule {
         return msg ;
     }
 
-    protected void start(Object fromWho, TLMsg msg) {
+    protected TLMsg start(Object fromWho, TLMsg msg) {
         String url= (String) msg.getParam("url");
         if(url==null){
             String uri  = (String) msg.getParam("uri");
             if(uri ==null)
-                return;
+                return null;
             url=uri.substring(prefixUrl.length());
             msg.removeParam("uri");
         }
-        putMsg("urlMap",msg.setAction("doWithUrl").setParam("url",url));
+      return   putMsg("urlMap",msg.setAction("doWithUrl").setParam("url",url));
     }
 }
