@@ -447,7 +447,7 @@ public class TLUserManagerModule extends TLBaseModule {
                 } else
                     return returnMsg;
             } else
-                return createMsg().setParam(RESULT, false);
+                return createMsg().setParam(RESULT, 0);
         }
         return putContentToChanels(msg.getParam(WEBSOCKET_P_CONTENT), channels);
     }
