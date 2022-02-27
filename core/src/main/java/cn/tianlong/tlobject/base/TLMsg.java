@@ -335,6 +335,76 @@ public class TLMsg implements Serializable , Cloneable{
         else
             return defaultValue ;
     }
+    public int parseInt(String param ,int defaultValue)
+    {
+        Object value = getParam(param);
+        if (value !=null  )
+        {
+           if( value instanceof Integer)
+               return (int) value;
+           else if (value instanceof String && !((String) value).isEmpty())
+               return Integer.parseInt((String) value);
+           else if (value instanceof Double )
+               return  ((Double)value).intValue();
+           else if ( value instanceof Long)
+               return  ((Long)value).intValue();
+           else
+               return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public Long parseLong(String param ,Long defaultValue)
+    {
+        Object value = getParam(param);
+        if (value !=null  )
+        {
+            if( value instanceof Long)
+                return (Long) value;
+            else if (value instanceof String && !((String) value).isEmpty())
+                return Long.parseLong((String) value);
+            else if (value instanceof Double )
+                return  ((Double)value).longValue();
+            else if (value instanceof Integer )
+                return  ((Integer)value).longValue();
+            else
+                return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public Double parseDouble(String param ,Double defaultValue)
+    {
+        Object value = getParam(param);
+        if (value !=null  )
+        {
+            if( value instanceof Double)
+                return (Double) value;
+            else if (value instanceof String && !((String) value).isEmpty())
+                return Double.parseDouble((String) value);
+            else if (value instanceof Integer )
+                return  ((Integer)value).doubleValue();
+            else if (value instanceof Long )
+                return  ((Long)value).doubleValue();
+            else
+                return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public String parseString(String param ,String defaultValue)
+    {
+        Object value = getParam(param);
+        if (value !=null  )
+        {
+            if( value instanceof String)
+                return (String) value;
+            else
+                return String.valueOf(value);
+        }
+        else
+            return defaultValue ;
+    }
     public TLMsg clear()
     {
         this.action ="";
