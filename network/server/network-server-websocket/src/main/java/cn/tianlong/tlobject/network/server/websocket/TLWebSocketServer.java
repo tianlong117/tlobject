@@ -148,6 +148,11 @@ public class TLWebSocketServer extends TLBaseServer {
         }
     }
 
+    public String getUserByChannel(String channel) {
+        TLMsg userReturnMsg = putMsg(clientMsgHandler, createMsg().setAction(USERMANAGER_GETUSERBYCHANNEL).setParam(USERMANAGER_P_USERCHANNEL, channel));
+        return (String) userReturnMsg.getParam(USERMANAGER_P_USERID);
+    }
+
     protected TLMsg closeChannel(Object fromWho, TLMsg msg) {
         Object channels =msg.getParam(NETTY_CHANNEL);
        if(channels  instanceof String)

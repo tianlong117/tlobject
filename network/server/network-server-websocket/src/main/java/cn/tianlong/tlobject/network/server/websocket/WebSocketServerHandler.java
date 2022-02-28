@@ -95,9 +95,11 @@ public class WebSocketServerHandler extends TLBaseServerInboundHandler<Object> {
         doClientMsg(clientMsg ,ip ,channelName,ctx);
     }
     private void doClientMsg(TLMsg clientMsg ,String ip ,String channelName,ChannelHandlerContext ctx){
+        String userid =  ((TLWebSocketServer) server).getUserByChannel(channelName);
         HashMap<String,Object> channelData =new HashMap<>();
         channelData.put(USERMANAGER_P_USERCHANNEL, channelName);
         channelData.put(USERMANAGER_P_USERIP,ip);
+        channelData.put(USERMANAGER_P_USERID,userid);
         clientMsg.setParam(USERMANAGER_P_CHANNELDATA ,channelData);
         TLMsg handleMsg = new TLMsg().setAction("fromClient")
                 .setParam(USERMANAGER_P_USERCHANNEL, channelName)

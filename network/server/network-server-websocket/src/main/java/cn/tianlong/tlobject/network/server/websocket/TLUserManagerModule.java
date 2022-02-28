@@ -453,15 +453,18 @@ public class TLUserManagerModule extends TLBaseModule {
     }
 
     private ArrayList<String> getChannelsInMsg(TLMsg msg) {
-        Object channelObj =msg.getParam(USERMANAGER_P_USERCHANNEL);
-        if( channelObj ==null)
+        Object channelList =msg.getParam(USERMANAGER_P_USERCHANNEL);
+        if( channelList ==null)
             return null ;
-        ArrayList<String> channels = new ArrayList<>() ;
-        if(channelObj instanceof List)
-            channels = (ArrayList) channelObj ;
-        else if (channelObj instanceof String )
-            channels.add((String)channelObj);
-        return channels ;
+        if (channelList instanceof String )
+        {
+            ArrayList<String> channels = new ArrayList<>() ;
+            channels.add((String)channelList);
+            return channels ;
+        }
+        else  if(channelList instanceof List)
+            return (ArrayList<String>) channelList;
+         return null ;
     }
 
     private TLMsg putContentToChanels(Object content, ArrayList<String> channels) {

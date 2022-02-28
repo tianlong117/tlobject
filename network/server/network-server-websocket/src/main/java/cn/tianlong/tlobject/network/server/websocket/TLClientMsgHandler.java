@@ -37,6 +37,8 @@ public class TLClientMsgHandler extends TLBaseModule {
         super.initProperty();
         if(params!=null)
         {
+            if (params.get("userManagerModule") != null)
+                userManagerModule = params.get("userManagerModule");
             if(params.get("msgidInPool")!=null)
                 msgidInPool =TLDataUtils.splitStrToList(params.get("msgidInPool"),";") ;
             if(params.get("directToModule")!=null)
@@ -64,6 +66,9 @@ public class TLClientMsgHandler extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
+            case USERMANAGER_GETUSERBYCHANNEL:
+                returnMsg = putMsg(userManagerModule,msg);
+                break;
             case "fromClient":
                 returnMsg = fromClient(fromWho, msg);
                 break;
@@ -132,9 +137,19 @@ public class TLClientMsgHandler extends TLBaseModule {
         HashMap<String,Object> channelData = (HashMap<String, Object>) msg.getMapParam(TASKRESESSIONDATA,null);
         if(channelData ==null)
             return;
+        msg.removeParam(TASKRESESSIONDATA);
+        if(msg !=null &&msg.containsParam(SOCKETSERVER_R_IFRETURN) && msg.parseBoolean(SOCKETSERVER_R_IFRETURN,false)==true){
+            msg.removeParam(SOCKETSERVER_R_IFRETURN);
+            toClient(this,msg.addMap(channelData));
+            return;
+        }
         String sesstionId = (String) channelData.get(WEBSOCKET_P_SESSION);
         if(sesstionId !=null && !sesstionId.isEmpty())
+        {
+            if(msg ==null)
+                msg =new TLMsg();
             toClient(this,msg.addMap(channelData));
+        }
     }
 
     private TLMsg sendBinary(Object fromWho, TLMsg msg) {
@@ -145,11 +160,12 @@ public class TLClientMsgHandler extends TLBaseModule {
         return TLBaseWebSocketSendFile.sendFile(this,msg,netSession,sendModule);
     }
     private TLMsg toClient(Object fromWho, TLMsg msg) {
-        Map<String,Object> content =msg.getArgs();
-        TLMsg umsg = createMsg().setAction(USERMANAGER_PUTTOUSER)
-                .setParam(USERMANAGER_P_USERID,msg.getParam(USERMANAGER_P_USERID))
-                .setParam(USERMANAGER_P_USERCHANNEL,msg.getParam(USERMANAGER_P_USERCHANNEL));
-         msg.removeParam(USERMANAGER_P_USERCHANNEL);
+        TLMsg umsg = createMsg().setAction(USERMANAGER_PUTTOUSER);
+        if(!msg.isNull(USERMANAGER_P_USERID))
+            umsg.setParam(USERMANAGER_P_USERID,msg.getAndRemoveParam(USERMANAGER_P_USERID));
+        if(!msg.isNull(USERMANAGER_P_USERCHANNEL))
+            umsg .setParam(USERMANAGER_P_USERCHANNEL,msg.getAndRemoveParam(USERMANAGER_P_USERCHANNEL));
+         Map<String,Object> content =msg.getArgs();
          umsg.setParam(WEBSOCKET_P_CONTENT, TLMsgUtils.mapToWebsocketJsonMap(content));
         return putMsg(userManagerModule, umsg);
     }
@@ -198,12 +214,10 @@ public class TLClientMsgHandler extends TLBaseModule {
             netSession.saveSesstiondata(notifyId,clientMsg);
             return null;
         }
-        String channel  = (String) msg.getParam(USERMANAGER_P_USERCHANNEL);
         String clientMsgid =clientMsg.getMsgId();
-        String sesstionId = (String) clientMsg.getParam(WEBSOCKET_P_SESSION);
         if(clientMsgid !=null && msgidInPool !=null && msgidInPool.contains(clientMsgid))
         {
-            despatchMsgBySessionPool(clientMsgid ,clientMsg,channel, sesstionId);
+            despatchMsgBySessionPool(clientMsgid ,clientMsg);
             return null ;
         }
         String destination =clientMsg.getDestination();
@@ -214,6 +228,7 @@ public class TLClientMsgHandler extends TLBaseModule {
             if( !directToModule.contains(destination) && !directToModule.contains("*"))
                 return null ;
         }
+        String sesstionId = (String) clientMsg.getParam(WEBSOCKET_P_SESSION);
         TLMsg returnMsg = despatchMsg(clientMsg) ;
         if(sesstionId ==null)
              return returnMsg ;
@@ -229,21 +244,23 @@ public class TLClientMsgHandler extends TLBaseModule {
             return createMsg().setParam(WEBSOCKET_P_SESSION,sesstionId).setParam(SOCKETSERVER_R_IFRETURN,true);
     }
 
-    protected void despatchMsgBySessionPool(String clientMsgid  ,TLMsg clientMsg, String channel, String sesstionId) {
+    protected void despatchMsgBySessionPool(String clientMsgid  ,TLMsg clientMsg) {
         ArrayList<TLMsg> msgLists =msgTable.get(clientMsgid );
         if(msgLists==null || msgLists.isEmpty())
             return;
+        HashMap<String,Object> channelData = (HashMap<String, Object>) clientMsg.getParam(USERMANAGER_P_CHANNELDATA);
+        String channel = (String) channelData.get(USERMANAGER_P_USERCHANNEL);
         TLBaseModule threadPool = (TLBaseModule) sessionPool.getModuleByIndex(channel);
         if(threadPool ==null)
             return  ;
+        String sesstionId = (String) clientMsg.getParam(WEBSOCKET_P_SESSION);
+        if(sesstionId !=null)
+            channelData.put(WEBSOCKET_P_SESSION,sesstionId);
         for(int i=0; i<msgLists.size();i++)
         {
             TLMsg rmsg =msgLists.get(i);
             TLMsg bmsg=createMsg().copyFrom(rmsg);
             bmsg.addArgs(clientMsg.getArgs());
-            HashMap<String,Object> channelData =new HashMap<>();
-            channelData.put(USERMANAGER_P_USERCHANNEL, channel);
-            channelData.put(WEBSOCKET_P_SESSION,sesstionId);
             bmsg.setParam(TASKRESESSIONDATA,channelData);
             bmsg.setParam(TASKRESULTFOR,this);
             bmsg.setParam(TASKRESULTACTION,"threadReturn");
