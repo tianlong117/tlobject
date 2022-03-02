@@ -194,6 +194,7 @@ public class TLWebSocketClientAgent extends TLBaseModule {
     protected TLMsg  loginResult(Object fromWho, TLMsg msg) {
         switch ((String)msg.getParam("status")) {
             case "open":
+                putLog("登陆成功",LogLevel.DEBUG,"loginopen");
                 mclient = (TLWebSocketClient) msg.getParam("socketClient");
                 connected =true ;
                 authState =true ;
@@ -201,8 +202,8 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                    putMsg(this,connectNotifyMsg.setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_OPEN).setParam(WEBSOCKET_R_CLIENTAGENT,name));
                 else if(connectNotifyMsgId !=null)
                     putMsg(this,createMsg().setMsgId(connectNotifyMsgId)
-                            .setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_OPEN).setParam(WEBSOCKET_R_CLIENTAGENT,name));
-                putLog("登陆成功",LogLevel.DEBUG,"login");
+                           .setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_OPEN).setParam(WEBSOCKET_R_CLIENTAGENT,name));
+
                 String mchannel =Thread.currentThread().getId()+"";
                 TLMsg mmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
                         .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
@@ -216,12 +217,7 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                  break;
             case "failure":
                 connected =false ;
-                String channel =Thread.currentThread().getId()+"";
-                TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
-                        .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGOUT)
-                        .setParam(USERMANAGER_P_USERID, userName)
-                        .setParam(USERMANAGER_P_USERCHANNEL, channel);
-                putMsg(M_MSGBROADCAST, bmsg);
+                putLog("连接断开",LogLevel.DEBUG,"loginfailure");
                 Response response = (Response) msg.getParam(WEBRESPONSE);
                 if(response !=null)
                 {
@@ -229,14 +225,20 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                     if(message.equals("Forbidden"))
                     {
                         authState=false;
-                        putLog("auth failure;",LogLevel.DEBUG,"failure");
+                        putLog("auth failure;",LogLevel.DEBUG,"Forbidden");
                     }
                 }
+                String channel =Thread.currentThread().getId()+"";
+                TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
+                        .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGOUT)
+                        .setParam(USERMANAGER_P_USERID, userName)
+                        .setParam(USERMANAGER_P_USERCHANNEL, channel);
+                putMsg(M_MSGBROADCAST, bmsg);
                 if(connectNotifyMsg !=null)
                     return   putMsg(this,connectNotifyMsg.setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE).setParam(WEBSOCKET_R_CLIENTAGENT,name));
                 else if(connectNotifyMsgId !=null)
                     return   putMsg(this,createMsg().setMsgId(connectNotifyMsgId).setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE).setParam(WEBSOCKET_R_CLIENTAGENT,name));
-                break;
+               break;
             default:
                 ;
         }

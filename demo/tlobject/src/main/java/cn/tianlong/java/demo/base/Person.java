@@ -207,7 +207,9 @@ public class Person extends DemoCommon {
     private TLMsg fromXiaoMing(Object fromWho, TLMsg msg) {
         System.out.print("收到小明的Msg：");
          TLMsgUtils.printMsg(msg);
-         return createMsg().setParam("data"," yes") ;
+         return createMsg().setParam(MSG_P_MSGID,"fromServerWife")
+                 .setParam(SOCKETSERVER_R_IFRETURN,true)
+                 .setParam("data"," yes") ;
     }
 
     private void toWife() {

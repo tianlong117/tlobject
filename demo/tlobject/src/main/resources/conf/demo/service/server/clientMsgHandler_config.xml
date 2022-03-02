@@ -38,7 +38,7 @@
             <msg  destination="wife" action="getFile" waitFlag="false" inthreadPool="true" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="fromXiaoMing"  msgTableUseType="useMsg" >
-            <msg  destination="wife" action="fromXiaoMing" waitFlag="false" msgTableUseType="useMsg" />
+            <msg  destination="wife" action="fromXiaoMing"  msgTableUseType="useMsg" />
         </msgid>
     </msgTable>
 

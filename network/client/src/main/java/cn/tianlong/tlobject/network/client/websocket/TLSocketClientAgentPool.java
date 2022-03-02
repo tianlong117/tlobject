@@ -96,10 +96,12 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         }
     }
     protected void addAndConnectToServer(String serverName , HashMap<String, String> serverParams){
-        addServer( serverName , serverParams);
-        connectToServer(serverName);
+        TLBaseModule serverObj =addServer( serverName , serverParams);
+        TLMsg nmsg =createMsg().setAction("fromAgent").setDestination(name);
+        TLMsg msg =createMsg().setAction(WEBSOCKET_CONNECT).setParam(WEBSOCKET_P_CONNNECTNOTIFYMSG,nmsg) ;
+        putMsg(serverObj,msg) ;
     }
-    protected void addServer(String serverName ,HashMap<String, String> serverParams){
+    protected TLBaseModule addServer(String serverName ,HashMap<String, String> serverParams){
         if(serverParams.get(RESULTFOR) ==null)
             serverParams.put(RESULTFOR,name);
         if(serverParams.get(RESULTACTION) ==null)
@@ -107,13 +109,20 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         String module =(serverParams.get("module")==null ||serverParams.get("module").isEmpty() )? "webSocketClientAgent" :serverParams.get("module") ;
         TLBaseModule serverObj = (TLBaseModule) getNewModule(serverName,module,serverParams);
         serversModule.put(serverName,serverObj) ;
+        return serverObj;
     }
     protected void connectToServer(String serverName){
         TLBaseModule serverObj = serversModule.get(serverName);
         if(serverObj ==null)
-            return;
+        {
+            HashMap<String, String> serverParams =servers.get(serverName) ;
+            if(serverParams ==null || serverName.isEmpty())
+                return;
+            serverObj = addServer(serverName,serverParams) ;
+        }
         TLMsg nmsg =createMsg().setAction("fromAgent").setDestination(name);
-        TLMsg cmsg =createMsg().setAction(WEBSOCKET_CONNECT).setParam(WEBSOCKET_P_CONNNECTNOTIFYMSG,nmsg) ;
+        TLMsg cmsg =createMsg().setAction(WEBSOCKET_CONNECT)
+                .setParam(WEBSOCKET_P_CONNNECTNOTIFYMSG,nmsg) ;
         putMsg(serverObj,cmsg) ;
     }
     @Override
@@ -377,6 +386,10 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         if(sucessServers.containsKey(serverName))
             return;
         HashMap<String,String> serverParams = (HashMap<String, String>) msg.getParam(SOCKETCLIENTAGENTPOOL_P_SERVERPARAM);
+        if(serverParams ==null)
+            serverParams =servers.get(serverName) ;
+        if(serverParams ==null || serverName.isEmpty())
+            return;
         addAndConnectToServer(serverName,serverParams) ;
     }
     protected void fromAgent(Object fromWho, TLMsg msg) {
