@@ -30,7 +30,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected HashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> paramsModules;   //定义参数适用的模块，getmodule 时自动赋值
-    protected Map<String, Object> modules = new ConcurrentHashMap<String, Object>();
+    protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
+    protected Map<String, Method> classMethods = new ConcurrentHashMap<>();   // 类方法的实例，名字对应该方法的实例
     protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
     protected ArrayList<TLMsg> initMsgTable;          //初始化时的消息队列
     protected ArrayList<TLMsg> startMsgTable;          //初始化时的消息队列
@@ -737,19 +738,26 @@ public abstract class TLBaseModule extends TLBaseObject {
                 .setParam(MODULE_PARAMS,paramName));
        return (String) returnMsg.getParam(paramName);
     }
-
+    protected void invokeActionInThread(String action ,IObject fromWho ,TLMsg msg)
+    {
+        TLMsg thMsg =createMsg().setAction("runActionInThread").setParam(MSG_P_ACTION,action)
+                .setParam("dmsg",msg) .setWaitFlag(false);
+        thMsg.setParam(INTHREADPOOL,msg.parseBoolean(INTHREADPOOL,true));
+        thMsg.copyParam(THREADPOOLNAME,msg);
+        fromWho.putMsg(this,thMsg);
+    }
     protected TLMsg invokeAction(String action,Object fromWho,TLMsg msg){
-        Class<?> clazz = this.getClass();
-        Method method = null;
-        try {
-            method = clazz.getDeclaredMethod(action,Object.class,TLMsg.class);
-        } catch (NoSuchMethodException e) {
-            e.printStackTrace();
-        }
+        String actionName =this.getClass().getSimpleName()+":"+action;
+        Method method =  classMethods.get(actionName);
         if(method==null)
-            return null ;
-        if(!method.isAccessible())
-            method.setAccessible(true);
+        {
+            method = getDeclaredMethod(this,action);
+            if(method==null)
+                return null ;
+            if(!method.isAccessible())
+                method.setAccessible(true);
+            classMethods.put(actionName,method);
+        }
         TLMsg result = null;
         try {
             result = (TLMsg) method.invoke(this,fromWho,msg);
@@ -759,6 +767,25 @@ public abstract class TLBaseModule extends TLBaseObject {
             e.printStackTrace();
         }
         return result;
+    }
+    /**
+     * 循环向上转型, 获取对象的 DeclaredMethod
+     * @param object : 子类对象
+     * @param methodName : 父类中的方法名
+     * @return 父类中的方法对象
+     */
+     protected Method getDeclaredMethod(Object object, String methodName){
+        Method method = null ;
+        for(Class<?> clazz = object.getClass(); clazz != Object.class; clazz = clazz.getSuperclass()) {
+            try {
+                method = clazz.getDeclaredMethod(methodName,Object.class,TLMsg.class);
+                return method ;
+            } catch (Exception e) {
+                //这里甚么都不要做！并且这里的异常必须这样写，不能抛出去。
+                //如果这里的异常打印或者往外抛，则就不会执行clazz = clazz.getSuperclass(),最后就不会进入到父类中了
+            }
+        }
+        return null;
     }
     protected TLMsg runAction(Object fromWho, TLMsg msg) {
         String action = msg.getAction();
@@ -839,6 +866,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             case MODULE_MSGTRANSFER:
                 returnMsg = msgTransfer(fromWho, msg);
                 break;
+            case "runActionInThread":
+                returnMsg = runActionInThread(fromWho, msg);
+                break;
             case MODULE_DESTROY:
                 returnMsg = destroy(fromWho, msg);
                 break;
@@ -848,6 +878,12 @@ public abstract class TLBaseModule extends TLBaseObject {
         Long actionTime =System.currentTimeMillis()-startTime ;
         putLog(name +" action:"+ action +" 运行时间:"+ actionTime+"(ms)", LogLevel.TRACE,"runAction");
         return returnMsg;
+    }
+
+    private TLMsg runActionInThread(Object fromWho, TLMsg msg) {
+        String action = (String) msg.getParam(MSG_P_ACTION);
+        TLMsg dmsg = (TLMsg) msg.getParam("dmsg");
+        return invokeAction(action, fromWho,dmsg);
     }
 
     private void msleep(Object fromWho, TLMsg msg) {
@@ -1174,6 +1210,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     /**
      * 异步put
      ****/
+
     @Override
     public TLMsg putMsgNoWait(IObject toWho, TLMsg msg) {
         Object taskResultFor = msg.getParam(TASKRESULTFOR);

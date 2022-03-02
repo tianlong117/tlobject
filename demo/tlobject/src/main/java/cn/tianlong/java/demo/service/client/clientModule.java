@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool;
 
 import java.util.HashMap;
 
+import static java.lang.Thread.sleep;
+
 public class clientModule  extends TLSocketClientAgentPool {
     private  int failureNumber =0;
     public clientModule(String name , TLObjectFactory modulefactory) {
@@ -19,9 +21,6 @@ public class clientModule  extends TLSocketClientAgentPool {
             case "startRun" :
                 startRun(fromWho,msg) ;
                 break;
-            case "work" :
-                work(fromWho,msg) ;
-                break;
             case WEBSOCKETCLIENTAGENT_PUTTOSERVICE :
                  fromServer(fromWho,msg) ;
                 break;
@@ -29,10 +28,6 @@ public class clientModule  extends TLSocketClientAgentPool {
                 super.checkMsgAction(fromWho,msg);
         }
         return returnMsg;
-    }
-
-    private void work(Object fromWho, TLMsg msg) {
-        startWork() ;
     }
 
     private void startRun(Object fromWho, TLMsg msg) {
@@ -45,8 +40,7 @@ public class clientModule  extends TLSocketClientAgentPool {
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (status.equals(WEBSOCKET_R_OPEN))
         {
-      //      putMsg(this,createMsg().setAction("work").setWaitFlag(false));
-         startWork() ;
+        startWork() ;
             return;
         }
         if (status.equals(WEBSOCKET_R_FAILURE))
@@ -58,10 +52,13 @@ public class clientModule  extends TLSocketClientAgentPool {
     }
 
     private void startWork() {
-        TLMsg msg =createMsg().setParam("data","wakeup1")
+        TLMsg smsg =createMsg().setParam("data","wakeup1")
                 .setParam(MSG_P_MSGID,"fromXiaoMing");
-       // putToServerAndWait(this,msg) ;
-        putMsgToServer(this,msg) ;
+        for(int i =0 ;i <100 ;i++)
+        {
+            invokeActionInThread("putToServerAndWait",this,smsg);
+        }
+      //  putMsgToServer(this,msg) ;
     }
 
     private void fromServer(Object fromWho, TLMsg msg) {

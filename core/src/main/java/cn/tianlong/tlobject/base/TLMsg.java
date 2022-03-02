@@ -223,7 +223,8 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg copyParam(String param ,TLMsg msg)
     {
-        args.put(param,msg.getParam(param));
+        if(msg.containsParam(param))
+           args.put(param,msg.getParam(param));
         return this;
     }
     public TLMsg copyParams(String[] paramsKey ,TLMsg msg)
@@ -233,7 +234,7 @@ public class TLMsg implements Serializable , Cloneable{
         else {
            for (int i=0 ;i<paramsKey.length;i++)
            {
-               if(!msg.isNull(paramsKey[i]))
+               if(msg.containsParam(paramsKey[i]))
                    args.put(paramsKey[i],msg.getParam(paramsKey[i]));
            }
        }

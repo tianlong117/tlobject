@@ -21,10 +21,10 @@
         <!-- 用户自定义模块 -->
         <module name="clientModule" classfile=".service.client.clientModule" configfile="clientModule_config.xml"/>
         <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
-        <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
 
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="xiaoming" usePreReturnMsg="false" />
         </factoryBoot>
 </moduleConfig>
