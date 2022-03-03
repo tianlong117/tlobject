@@ -33,10 +33,17 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         else
         {
             msg.setWaitFlag(true);
-            int waitTime =msg.getIntParam(TASKWAITTIME,0);
+            int waitTime =-1 ;
+            if (!msg.isNull(TASKWAITTIME))
+            {
+                msg.setParam(TASKMAINTHREAD,Thread.currentThread());
+                waitTime =  msg.parseInt(TASKWAITTIME,-1);
+            }
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
-            if (waitTime==0)
+            if (waitTime==-1)
                 return  returnMsg ;
+            if(waitTime ==0)
+                waitTime =Integer.MAX_VALUE ;
             ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
             try {
                 sleep(waitTime);
@@ -48,8 +55,6 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
     }
     /**  异步put****/
     public TLMsg putMsgNoWait(IObject toWho,TLMsg msg){
-        if (!msg.isNull(TASKWAITTIME))
-              msg.setParam(TASKMAINTHREAD,Thread.currentThread());
         ThreadTask threadTask=  new ThreadTask(toWho,msg,this);
         if(msg.parseBoolean(SESSIONDEAMON,false)==true)
         {
@@ -101,53 +106,38 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             this.fromWho=fromWho;
             if(msg.getParam(EXCEPTIONMSG) !=null && msg.getParam(EXCEPTIONMSG) instanceof TLMsg)
                   exceptionMsg = (TLMsg) msg.getParam(EXCEPTIONMSG);
-            if (!msg.isNull(TASKWAITTIME) && !msg.isNull(TASKMAINTHREAD))
+            if (!msg.isNull(TASKMAINTHREAD) && !msg.isNull(TASKWAITTIME))
             {
-                mainThread = (Thread) msg.getParam(TASKMAINTHREAD);
+                mainThread = (Thread) msg.getAndRemoveParam(TASKMAINTHREAD);
                 msg.removeParam(TASKWAITTIME);
-                msg.removeParam(TASKMAINTHREAD);
             }
             if(!msg.isNull(TASKRESULTFOR) )
-            {
-                taskResultFor = (IObject) msg.getParam(TASKRESULTFOR);
-                msg.removeParam(TASKRESULTFOR);
-            }
+                taskResultFor = (IObject) msg.getAndRemoveParam(TASKRESULTFOR);
             if(!msg.isNull(TASKRESULTMSG) )
-            {
-                taskResultMsg = (TLMsg) msg.getParam(TASKRESULTMSG);
-                msg.removeParam(TASKRESULTMSG);
-            }
+                taskResultMsg = (TLMsg)  msg.getAndRemoveParam(TASKRESULTMSG);
             else if(!msg.isNull(TASKRESULTACTION) )
-            {
-                taskResultAction = (String) msg.getParam(TASKRESULTACTION);
-                msg.removeParam(taskResultAction);
-            }
+                taskResultAction = (String) msg.getAndRemoveParam(TASKRESULTACTION);
             if(!msg.isNull(TASKRESESSIONDATA) )
-            {
-                taskSessionData=  msg.getParam(TASKRESESSIONDATA);
-                msg.removeParam(TASKRESESSIONDATA);
-            }
+                taskSessionData=  msg.getAndRemoveParam(TASKRESESSIONDATA);
         }
        public void run() {
            try{
                if(msg.isNull(TASKDELAYTIME))
                    returnMsg=toWho.getMsg(fromWho,msg);
                else {
-                   int time = (int) msg.getParam(TASKDELAYTIME);
+                   int time =  msg.getIntParam(TASKDELAYTIME,0);
                    sleep(time);
                    returnMsg=toWho.getMsg(fromWho,msg);
                }
                isThreadOver =true ;
                if(mainThread !=null)
-               {
                    mainThread.interrupt();
-                   return;
-               }
                if(taskResultFor !=null)
                {
-                   if(returnMsg==null)
-                       returnMsg =new TLMsg();
-                   if(taskResultMsg ==null){
+                   if(taskResultMsg ==null)
+                   {
+                       if(returnMsg==null)
+                           returnMsg =new TLMsg();
                        returnMsg.setAction(taskResultAction);
                        if(taskSessionData!=null)
                            returnMsg.setParam(TASKRESESSIONDATA,taskSessionData);
@@ -155,7 +145,8 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                    }
                    else
                    {
-                       taskResultMsg.addArgs(returnMsg.getArgs());
+                       if(returnMsg!=null)
+                          taskResultMsg.addArgs(returnMsg.getArgs());
                        putMsg(taskResultFor,taskResultMsg);
                    }
                }

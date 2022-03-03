@@ -8,7 +8,7 @@
     </startMsg>
     <msgTable>
         <msgid  value="fromServerWife" >
-            <msg  destination="xiaoming" action="sing" />
+            <msg  destination="xiaoming" action="cook" />
         </msgid>
         <msgid  value="receiveBinaryFile"  >
             <msg  destination="webSocketReceiveFIleModule" action="receiveBinaryFile" msgTableUseType="useMsg" />

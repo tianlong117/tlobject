@@ -31,7 +31,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected HashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> paramsModules;   //定义参数适用的模块，getmodule 时自动赋值
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
-    protected Map<String, Method> classMethods = new ConcurrentHashMap<>();   // 类方法的实例，名字对应该方法的实例
+    protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
     protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
     protected ArrayList<TLMsg> initMsgTable;          //初始化时的消息队列
     protected ArrayList<TLMsg> startMsgTable;          //初始化时的消息队列
@@ -740,24 +740,31 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
     protected void invokeActionInThread(String action ,IObject fromWho ,TLMsg msg)
     {
+        TLMsg thMsg =createMsg().setAction("runActionInThread")
+                   .setParam(MSG_P_ACTION,action)
+                   .setWaitFlag(false);
+        if(msg !=null)
+        {
+            thMsg.setParam("dmsg",msg) ;
+            thMsg.setParam(INTHREADPOOL,msg.parseBoolean(INTHREADPOOL,true));
+            thMsg.copyParam(THREADPOOLNAME,msg);
+        }
+        fromWho.putMsg(this,thMsg);
+    }
+    protected TLMsg invokeActionInThreadAndWait(String action ,TLBaseModule fromWho ,TLMsg msg)
+    {
         TLMsg thMsg =createMsg().setAction("runActionInThread").setParam(MSG_P_ACTION,action)
                 .setParam("dmsg",msg) .setWaitFlag(false);
         thMsg.setParam(INTHREADPOOL,msg.parseBoolean(INTHREADPOOL,true));
         thMsg.copyParam(THREADPOOLNAME,msg);
-        fromWho.putMsg(this,thMsg);
+        thMsg.setWaitFlag(false);
+        thMsg.setParam(TASKWAITTIME,0);
+        return  fromWho.putMsg(this,thMsg);
     }
     protected TLMsg invokeAction(String action,Object fromWho,TLMsg msg){
-        String actionName =this.getClass().getSimpleName()+":"+action;
-        Method method =  classMethods.get(actionName);
+        Method method =getMethod(action) ;
         if(method==null)
-        {
-            method = getDeclaredMethod(this,action);
-            if(method==null)
-                return null ;
-            if(!method.isAccessible())
-                method.setAccessible(true);
-            classMethods.put(actionName,method);
-        }
+            return null ;
         TLMsg result = null;
         try {
             result = (TLMsg) method.invoke(this,fromWho,msg);
@@ -768,17 +775,46 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
         return result;
     }
+
+    private Method getMethod(String action) {
+        String actionName =this.getClass().getSimpleName()+":"+action;
+        Method method = null;
+        if(classMethods !=null)
+            method =  classMethods.get(actionName);
+        if(method==null)
+        {
+           synchronized (this)
+           {
+               if(classMethods ==null)
+                   classMethods = new ConcurrentHashMap<>();
+               else {
+                   method =  classMethods.get(actionName);
+                   if(method !=null)
+                       return method ;
+               }
+               method = getDeclaredMethod(this,action);
+               if(method==null)
+                   return null ;
+               if(!method.isAccessible())
+                   method.setAccessible(true);
+               classMethods.put(actionName,method);
+           }
+        }
+        return method ;
+    }
+
     /**
      * 循环向上转型, 获取对象的 DeclaredMethod
      * @param object : 子类对象
      * @param methodName : 父类中的方法名
      * @return 父类中的方法对象
      */
-     protected Method getDeclaredMethod(Object object, String methodName){
+    private Method getDeclaredMethod(Object object, String methodName){
         Method method = null ;
         for(Class<?> clazz = object.getClass(); clazz != Object.class; clazz = clazz.getSuperclass()) {
             try {
                 method = clazz.getDeclaredMethod(methodName,Object.class,TLMsg.class);
+                putLog("获取类方法，类："+clazz.getName()+" ,方法:"+methodName,LogLevel.DEBUG,"getMethod");
                 return method ;
             } catch (Exception e) {
                 //这里甚么都不要做！并且这里的异常必须这样写，不能抛出去。
@@ -1134,11 +1170,22 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
+    /**
+     *
+     * @param moduleName
+     * @param msg
+     * @param waitTime  -1 不等候 0 永远等候  大于0则等候 waitTime时间 ，单位为毫秒
+     * @return
+     */
     public TLMsg putMsgInThreadAndWait(String moduleName, TLMsg msg,int waitTime) {
-            if(waitTime ==0)
+            if(waitTime <0)
                 return putMsg(moduleName,msg);
             else
-                return putMsg(moduleName,msg.setParam(TASKWAITTIME,waitTime));
+            {
+                msg.setWaitFlag(false);
+                msg.setParam(TASKWAITTIME,waitTime);
+                return putMsg(moduleName,msg);
+            }
     }
 
     public TLMsg putMsgInThreadAndWaitReturn(String moduleName, TLMsg msg) {

@@ -321,7 +321,9 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public boolean parseBoolean(String param ,boolean defaultValue)
     {
-        Object value = getParam(param,defaultValue);
+        Object value = getParam(param);
+        if(value ==null)
+            return defaultValue ;
         if (value instanceof Boolean )
            return (boolean)value;
         else if(value instanceof String )

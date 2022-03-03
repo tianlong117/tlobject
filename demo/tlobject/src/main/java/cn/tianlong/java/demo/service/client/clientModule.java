@@ -3,6 +3,7 @@ package cn.tianlong.java.demo.service.client;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.HashMap;
 
@@ -16,14 +17,12 @@ public class clientModule  extends TLSocketClientAgentPool {
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        String action =msg.getAction();
         TLMsg returnMsg = null;
-        switch (msg.getAction()) {
+        switch (action) {
             case "startRun" :
-                startRun(fromWho,msg) ;
-                break;
-            case WEBSOCKETCLIENTAGENT_PUTTOSERVICE :
-                 fromServer(fromWho,msg) ;
-                break;
+            case "fromServer" :
+                return invokeAction(action,fromWho,msg);
             default:
                 super.checkMsgAction(fromWho,msg);
         }
@@ -40,7 +39,7 @@ public class clientModule  extends TLSocketClientAgentPool {
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (status.equals(WEBSOCKET_R_OPEN))
         {
-        startWork() ;
+            invokeActionInThread("startWork", this, null);
             return;
         }
         if (status.equals(WEBSOCKET_R_FAILURE))
@@ -51,14 +50,15 @@ public class clientModule  extends TLSocketClientAgentPool {
         }
     }
 
-    private void startWork() {
-        TLMsg smsg =createMsg().setParam("data","wakeup1")
-                .setParam(MSG_P_MSGID,"fromXiaoMing");
-        for(int i =0 ;i <100 ;i++)
+    private void startWork(Object fromWho, TLMsg msg) {
+        for(int i=0 ;i <10 ;i ++)
         {
-            invokeActionInThread("putToServerAndWait",this,smsg);
+            TLMsg smsg =createMsg().setParam("data","wakeup1")
+                    .setParam(MSG_P_MSGID,"fromXiaoMing");
+            TLMsg returnMsg = putToServerAndWait(this,smsg);
+            println(i+" 服务返回：");
+            TLMsgUtils.printMsg(returnMsg);
         }
-      //  putMsgToServer(this,msg) ;
     }
 
     private void fromServer(Object fromWho, TLMsg msg) {

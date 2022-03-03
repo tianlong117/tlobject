@@ -18,11 +18,12 @@ import static java.lang.Thread.sleep;
  */
 public class TLNetSession extends TLBaseModule {
     protected int  waitTime=20000 ;
+    protected int  initialCapacity=3200 ;
     protected String onFailMsgid ;
     protected String clientIp ;
-    protected static Map<Integer, Long> sessionsId = new ConcurrentHashMap<>();
-    protected static Map<String, TLMsg> msgSessions = new ConcurrentHashMap<>();
-    protected static Map<String, Thread> threads = new ConcurrentHashMap<>();
+    protected static Map<Integer, Long> sessionsId ;
+    protected static Map<String, TLMsg> msgSessions ;
+    protected static Map<String, Thread> threads ;
 
     public TLNetSession() {
         super();
@@ -38,6 +39,9 @@ public class TLNetSession extends TLBaseModule {
 
     @Override
     protected void  setModuleParams(){
+        if(params !=null && params.get("initialCapacity")!=null) {
+            initialCapacity=Integer.parseInt(params.get("initialCapacity"));
+        }
         if(params !=null && params.get("clientIp")!=null) {
             clientIp=params.get("clientIp");
         }
@@ -61,6 +65,9 @@ public class TLNetSession extends TLBaseModule {
                 e.printStackTrace();
             }
         }
+        sessionsId = new ConcurrentHashMap<>(initialCapacity);
+        msgSessions = new ConcurrentHashMap<>(initialCapacity);
+        threads = new ConcurrentHashMap<>(initialCapacity);
         return this ;
     }
     @Override
