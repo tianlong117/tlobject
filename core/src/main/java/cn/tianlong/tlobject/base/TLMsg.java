@@ -1,6 +1,8 @@
 package cn.tianlong.tlobject.base;
 
 
+import cn.tianlong.tlobject.utils.TLDataUtils;
+
 import java.io.Serializable;
 import java.util.HashMap;
 import java.util.List;
@@ -22,7 +24,8 @@ public class TLMsg implements Serializable , Cloneable{
     protected String previous;  //上一个处理消息的对象
     protected String nowObject;  //当前处理消息的对象
     protected String destination;  //消息目的地
-    protected HashMap<String, Object> args= new HashMap<>();
+    protected HashMap<String, Object> args;   //消息参数
+    protected HashMap<String, Object> systemArgs;   //系统消息参数
     protected String action;
     protected String msgId ;       //消息id，对象可根据消息id 查询信息路由表或信息表中获取相关处理信息
     protected TLMsg  nextMsg=null;          //形成msg链，下一个msg
@@ -127,6 +130,73 @@ public class TLMsg implements Serializable , Cloneable{
         this.action = action;
         return this;
     }
+    public TLMsg setSystemArgs(HashMap args)
+    {
+        this.systemArgs=args ;
+        return  this ;
+    }
+    public TLMsg addSystemArgs(Map<String, Object> params)
+    {
+        if(params==null)
+            return  this ;
+        if(systemArgs ==null)
+            systemArgs= new HashMap<>() ;
+        systemArgs.putAll(params);
+        return  this ;
+    }
+    public TLMsg setSystemParam(String param ,Object value)
+    {
+        if(systemArgs ==null)
+            systemArgs= new HashMap<>() ;
+        systemArgs.put(param,value);
+        return this;
+    }
+    public Object getSystemParam(String param,Object defaultValue)
+    {
+        if(systemArgs ==null)
+            return defaultValue ;
+        Object value = systemArgs.get(param) ;
+        if(value ==null)
+            return defaultValue ;
+        return value ;
+    }
+    public Object  getSystemParam(String param)
+    {
+        if(systemArgs ==null)
+            return null ;
+        return systemArgs.get(param) ;
+    }
+    public HashMap getSystemArgs()
+    {
+        return systemArgs ;
+    }
+    public boolean systemParamIsNull(String param )
+    {
+        if(systemArgs ==null ||systemArgs.isEmpty())
+            return true ;
+        Object value = systemArgs.get(param) ;
+        if(value==null)
+            return  true ;
+        return false ;
+    }
+    public Boolean containsSystemParam(String param)
+    {
+        if(systemArgs ==null ||systemArgs.isEmpty())
+            return false ;
+        return systemArgs.containsKey(param) ;
+    }
+    public Object removeSystemParam(String param)
+    {
+        if(systemArgs ==null)
+            return null ;
+        return systemArgs.remove(param) ;
+    }
+    public TLMsg clearSystemArgs()
+    {
+        if(systemArgs !=null)
+            systemArgs.clear();
+        return this;
+    }
     public HashMap getArgs()
     {
         return args ;
@@ -147,6 +217,8 @@ public class TLMsg implements Serializable , Cloneable{
     {
         if(params==null)
             return  this ;
+        if(args ==null)
+            args= new HashMap<>() ;
         args.putAll(params);
         return  this ;
     }
@@ -199,20 +271,30 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public Object removeParam(String param)
     {
+        if(args ==null)
+            return null ;
         return args.remove(param) ;
     }
     public TLMsg setParam(String param ,Object value)
     {
+        if(args ==null)
+            args= new HashMap<>() ;
         args.put(param,value);
         return this;
     }
     public Object setParamIfAbsent(String param ,Object value)
     {
+        if(args ==null)
+            args= new HashMap<>() ;
         return args.putIfAbsent(param,value);
     }
     public TLMsg setParam(Map<String,Object> params)
     {
-       args.putAll(params);
+        if(params ==null)
+            return this ;
+        if(args ==null)
+            args= new HashMap<>() ;
+        args.putAll(params);
         return this;
     }
     public TLMsg clearParam()
@@ -223,12 +305,19 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg copyParam(String param ,TLMsg msg)
     {
+
         if(msg.containsParam(param))
-           args.put(param,msg.getParam(param));
+        {
+            if(args ==null)
+                args= new HashMap<>() ;
+            args.put(param,msg.getParam(param));
+        }
         return this;
     }
     public TLMsg copyParams(String[] paramsKey ,TLMsg msg)
     {
+        if(args ==null)
+            args= new HashMap<>() ;
        if(paramsKey==null || paramsKey.length==0)
            addArgs(msg.getArgs());
         else {
@@ -252,161 +341,57 @@ public class TLMsg implements Serializable , Cloneable{
     public Long getLongParam(String param ,Long defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Long )
-            return (Long)value;
-        return defaultValue ;
+        return TLDataUtils.getLongParam(value,defaultValue);
     }
     public Double getDoubleParam(String param ,Double defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Double )
-            return (Double)value;
-        return defaultValue ;
+        return TLDataUtils.getDoubleParam(value,defaultValue);
     }
     public String getStringParam(String param ,String defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value instanceof String )
-            return (String)value;
-        return defaultValue ;
+        return TLDataUtils.getStringParam(value,defaultValue);
     }
     public int getIntParam(String param ,int defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value instanceof Integer )
-            return (int)value;
-        return defaultValue ;
+        return TLDataUtils.getIntParam(value,defaultValue);
     }
     public boolean getBooleanParam(String param ,boolean defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Boolean )
-            return (Boolean) value;
-        return defaultValue ;
+        return TLDataUtils.getBooleanParam(value,defaultValue);
     }
     public byte getByeParam(String param ,byte defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Byte )
-            return (byte) value;
-        return defaultValue ;
+        return TLDataUtils.getByeParam(value,defaultValue);
     }
     public Map getMapParam(String param ,Map defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Map )
-            return (Map) value;
-        return defaultValue ;
+        return TLDataUtils.getMapParam(value,defaultValue);
     }
     public List getListParam(String param , List defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof List )
-            return (List) value;
-        return defaultValue ;
+        return TLDataUtils.getListParam(value,defaultValue);
     }
     public Set getSetParam(String param , Set defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null && value  instanceof Set )
-            return (Set) value;
-        return defaultValue ;
+        return TLDataUtils.getSetParam(value,defaultValue);
     }
     public Object getArrayParam(String param , Object defaultValue)
     {
         Object value = getParam(param);
-        if (value !=null  && value.getClass().isArray() )
-            return  value;
-        return defaultValue ;
+        return TLDataUtils.getArrayParam(value,defaultValue);
     }
     public boolean parseBoolean(String param ,boolean defaultValue)
     {
         Object value = getParam(param);
-        if(value ==null)
-            return defaultValue ;
-        if (value instanceof Boolean )
-           return (boolean)value;
-        else if(value instanceof String )
-            return Boolean.parseBoolean((String)value) ;
-        else if(value instanceof Integer )
-        {
-            if((int)value ==0)
-                return false ;
-            else
-                return true ;
-        }
-        else
-            return defaultValue ;
-    }
-    public int parseInt(String param ,int defaultValue)
-    {
-        Object value = getParam(param);
-        if (value !=null  )
-        {
-           if( value instanceof Integer)
-               return (int) value;
-           else if (value instanceof String && !((String) value).isEmpty())
-               return Integer.parseInt((String) value);
-           else if (value instanceof Double )
-               return  ((Double)value).intValue();
-           else if ( value instanceof Long)
-               return  ((Long)value).intValue();
-           else
-               return defaultValue ;
-        }
-        else
-            return defaultValue ;
-    }
-    public Long parseLong(String param ,Long defaultValue)
-    {
-        Object value = getParam(param);
-        if (value !=null  )
-        {
-            if( value instanceof Long)
-                return (Long) value;
-            else if (value instanceof String && !((String) value).isEmpty())
-                return Long.parseLong((String) value);
-            else if (value instanceof Double )
-                return  ((Double)value).longValue();
-            else if (value instanceof Integer )
-                return  ((Integer)value).longValue();
-            else
-                return defaultValue ;
-        }
-        else
-            return defaultValue ;
-    }
-    public Double parseDouble(String param ,Double defaultValue)
-    {
-        Object value = getParam(param);
-        if (value !=null  )
-        {
-            if( value instanceof Double)
-                return (Double) value;
-            else if (value instanceof String && !((String) value).isEmpty())
-                return Double.parseDouble((String) value);
-            else if (value instanceof Integer )
-                return  ((Integer)value).doubleValue();
-            else if (value instanceof Long )
-                return  ((Long)value).doubleValue();
-            else
-                return defaultValue ;
-        }
-        else
-            return defaultValue ;
-    }
-    public String parseString(String param ,String defaultValue)
-    {
-        Object value = getParam(param);
-        if (value !=null  )
-        {
-            if( value instanceof String)
-                return (String) value;
-            else
-                return String.valueOf(value);
-        }
-        else
-            return defaultValue ;
+        return TLDataUtils.parseBoolean(value,defaultValue);
     }
     public TLMsg clear()
     {

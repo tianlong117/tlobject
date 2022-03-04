@@ -13,7 +13,7 @@
     </params>
     <commonParams>
         <ifLog value="true"/>
-        <loglevel value="trace"/>
+        <loglevel value="debug"/>
         <applicationId value="demo"/>
     </commonParams>
 

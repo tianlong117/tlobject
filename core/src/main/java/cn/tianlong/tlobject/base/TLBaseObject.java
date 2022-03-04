@@ -37,7 +37,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             if (!msg.isNull(TASKWAITTIME))
             {
                 msg.setParam(TASKMAINTHREAD,Thread.currentThread());
-                waitTime =  msg.parseInt(TASKWAITTIME,-1);
+                waitTime = (int) msg.getParam(TASKWAITTIME);
             }
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
             if (waitTime==-1)
@@ -125,7 +125,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                if(msg.isNull(TASKDELAYTIME))
                    returnMsg=toWho.getMsg(fromWho,msg);
                else {
-                   int time =  msg.getIntParam(TASKDELAYTIME,0);
+                   int time = (int) msg.getAndRemoveParam(TASKDELAYTIME);
                    sleep(time);
                    returnMsg=toWho.getMsg(fromWho,msg);
                }

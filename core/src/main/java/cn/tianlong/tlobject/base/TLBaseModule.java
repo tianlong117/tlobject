@@ -29,7 +29,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected boolean ifMonitor = false;    //是否开启工厂监控 ，默认关闭
     protected HashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
     protected HashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
-    protected HashMap<String, HashMap<String, String>> paramsModules;   //定义参数适用的模块，getmodule 时自动赋值
+    protected HashMap<String, HashMap<String, String>> paramsForModules;   //定义参数适用的模块，getmodule 时自动赋值
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
     protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
     protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
@@ -187,7 +187,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             modulesClass = mconfig.getModulesClass();
             modulesParams =mconfig.getModulesParams();
-            paramsModules =mconfig.getParamsModules();
+            paramsForModules =mconfig.getParamsModules();
             initMsgTable = mconfig.getInitMsg();
             msgTable = mconfig.getMsgTable();
             beforeMsgTable = mconfig.getBeforeMsgTable();
@@ -209,8 +209,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected void reMakeProperty() {
         if(modulesParams !=null && !modulesParams.isEmpty())
             splitModulesParams(modulesParams);
-        if(paramsModules !=null && !paramsModules.isEmpty())
-            splitParamsModules(paramsModules);
+        if(paramsForModules !=null && !paramsForModules.isEmpty())
+            splitParamsModules(paramsForModules);
         if(initMsgTable !=null && !initMsgTable.isEmpty())
             setParamsFromMsg(initMsgTable);
         if(beforeMsgTable !=null && !beforeMsgTable.isEmpty())
@@ -347,8 +347,8 @@ public abstract class TLBaseModule extends TLBaseObject {
    protected void  setMsgTableUseType(ArrayList<TLMsg> msgList ,String msgTableUserType){
         for(int i=0 ;i <msgList.size() ; i++){
             TLMsg msg =msgList.get(i) ;
-            if(msg.getParam(MSGTABLEUSETYPE) ==null || ((String)msg.getParam(MSGTABLEUSETYPE)).isEmpty())
-                msg.setParam(MSGTABLEUSETYPE,msgTableUserType) ;
+            if(msg.systemParamIsNull(MSGTABLEUSETYPE))
+                msg.setSystemParam(MSGTABLEUSETYPE,msgTableUserType) ;
         }
     }
 
@@ -403,11 +403,12 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected void setParamsFromMsg(ArrayList<TLMsg> msgList){
         for (int i = 0; i <  msgList.size(); i++){
             TLMsg msg =msgList.get(i) ;
-            if(!msg.isNull(PARAMSFROMMSG) )
+            String paramsFromMsg = (String) msg.getSystemParam(PARAMSFROMMSG,null);
+            if(paramsFromMsg !=null )
             {
-                String[] paramskey =((String)msg.getParam(PARAMSFROMMSG)).trim().split(";");
+                String[] paramskey =(paramsFromMsg.trim().split(";"));
                 if(paramskey !=null && paramskey.length >0)
-                    msg.setParam(PARAMSFROMMSG,paramskey) ;
+                    msg.setSystemParam(PARAMSFROMMSG,paramskey) ;
             }
         }
     }
@@ -567,11 +568,11 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             TLMsg msgInMsgList = msgList.get(i);
             TLMsg cmsg ;
-            String msgTableUserType = msgInMsgList.getStringParam(MSGTABLEUSETYPE,null);
+            String msgTableUserType = (String) msgInMsgList.getSystemParam(MSGTABLEUSETYPE,null);
             if (msgTableUserType !=null && msgTableUserType.equals(MSGTABLEONLY))
                 cmsg =msgInMsgList ;
             else {
-                String[] paramKeys = (String[]) msgInMsgList.getArrayParam(PARAMSFROMMSG,null);
+                String[] paramKeys = (String[]) msgInMsgList.getSystemParam(PARAMSFROMMSG,null);
                 if (msgTableUserType !=null && msgTableUserType.equals(USEMSG))
                 {
                     cmsg =msg ;
@@ -582,16 +583,16 @@ public abstract class TLBaseModule extends TLBaseObject {
                     cmsg = new TLMsg();
                     cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
                     if (msg != null ) {
-                        cmsg.setParam(DOWITHMAG, msg);
-                        if(msgInMsgList.parseBoolean(USEINPUTMSG,true)==true )
+                        cmsg.setSystemParam(DOWITHMAG, msg);
+                        if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEINPUTMSG),true)==true )
                             cmsg.copyParams(paramKeys,msg);
                     }
                 }
-                if (returnMsg != null && msgInMsgList.parseBoolean(USEPRERETURNMSG,false)==true)
+                if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)
                     cmsg.copyParams(paramKeys,returnMsg);
                 if (actionReturnMsg != null ) {
-                    cmsg.setParam(PRERESULT, actionReturnMsg);
-                    if(msgInMsgList.parseBoolean(USEACTIONRETURNMSG,false)==true)
+                    cmsg.setSystemParam(PRERESULT, actionReturnMsg);
+                    if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEACTIONRETURNMSG),false)==true)
                         cmsg.copyParams(paramKeys,actionReturnMsg );
                 }
             }
@@ -604,8 +605,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             }
             if (i == msgListSize-1 || !ifDoNextMsg(returnMsg)  )
             {
-                if ( msgInMsgList.parseBoolean(RETURNACTIONRETURNMSG,false)==true
-                        || (msg !=null && msg.parseBoolean(RETURNACTIONRETURNMSG,false)==true))
+                if ( TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(RETURNACTIONRETURNMSG),false)==true
+                        ||
+                    (msg !=null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(RETURNACTIONRETURNMSG),false)==true))
                     returnMsg= actionReturnMsg;
                 break;
             }
@@ -1049,27 +1051,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     private TLMsg copyMsgFromMsgTable(TLMsg msg, TLMsg fromMsg) {
-        HashMap<String ,Object> sourceParams =fromMsg.getArgs();
-        if(sourceParams !=null && !sourceParams.isEmpty()){
-            String[] paramsKey = (String[]) fromMsg.getArrayParam(PARAMSFROMMSG,null);
-            if(paramsKey==null || paramsKey.length==0)
-            {
-                for(String key :sourceParams.keySet()){
-                    if(!key.equals(MSGTABLEUSETYPE) && !key.equals(PARAMSFROMMSG)
-                            && !key.equals(USEPRERETURNMSG)
-                            && !key.equals(RETURNACTIONRETURNMSG)
-                            && !key.equals(USEINPUTMSG))
-                        msg.setParam(key,sourceParams.get(key));
-                }
-            }
-            else {
-                for (int i=0 ;i<paramsKey.length;i++)
-                {
-                    String key =paramsKey[i] ;
-                    msg.setParam(key,sourceParams.get(key));
-                }
-            }
-        }
+        String[] paramsKey = (String[]) fromMsg.getSystemParam(PARAMSFROMMSG,null);
+        msg.copyParams(paramsKey,fromMsg);
         msg.setAction(fromMsg.getAction());
         msg.setMsgId(fromMsg.getMsgId());
         msg.setNextMsg(fromMsg.getNextMsg());

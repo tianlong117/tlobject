@@ -133,7 +133,7 @@ public interface TLParamString {
     final String MSGTABLECOPY= "msgTableCopy";                //根据msgtable 的msg创建新对象
     final String USEMSG= "useMsg";                //使用传入的msg
     final String USEINPUTMSG = "useInputMsg";        //是否使用执行msg其中的参数
-    final String USEPRERETURNMSG = "usePreReturn";   //是否使用前一个运行后的返回结果
+    final String USEPRERETURNMSG = "usePreReturnMsg";   //是否使用前一个运行后的返回结果
     final String USEACTIONRETURNMSG = "useActionReturn";  //是否使用执行msg的返回结果
     final String RETURNACTIONRETURNMSG = "returnActionReturn";
     final String RESULTFORNEXTMSG = "resultForNext";

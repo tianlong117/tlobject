@@ -10,10 +10,7 @@ import com.google.gson.reflect.TypeToken;
 import java.io.*;
 import java.lang.reflect.Type;
 import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 import static cn.tianlong.tlobject.base.TLParamString.*;
 
@@ -25,8 +22,40 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
 
 public class TLMsgUtils {
     public static  int binaryHeaderLength=14;
+    public static ArrayList<String> msgSystemArgs = new ArrayList<>();
     public static Gson gson ;
     public static Type clientJsonType = new TypeToken<Map<String, Object>>() { }.getType();
+    static {
+        msgSystemArgs.add(IFLOADMODULE);
+        msgSystemArgs.add(IGNOREMODULEISNULL);
+        msgSystemArgs.add(SESSIONDEAMON);
+        msgSystemArgs.add(SESSIONJOIN);
+        msgSystemArgs.add(JOINTIME);
+        msgSystemArgs.add(INTHREADPOOL);
+        msgSystemArgs.add(IFDOMSGTRANSFERACTION);
+        msgSystemArgs.add(THREADPOOLNAME);
+        msgSystemArgs.add(RESULTFOR);
+        msgSystemArgs.add(RESULTACTION);
+        msgSystemArgs.add(PARAMSFROMMSG);
+        msgSystemArgs.add(MSGTABLEUSETYPE);
+        msgSystemArgs.add(MSGTABLEONLY);
+        msgSystemArgs.add(USEMSG);
+        msgSystemArgs.add(USEINPUTMSG);
+        msgSystemArgs.add(USEPRERETURNMSG);
+        msgSystemArgs.add(USEACTIONRETURNMSG);
+        msgSystemArgs.add(RETURNACTIONRETURNMSG);
+        msgSystemArgs.add(RESULTFORNEXTMSG);
+        msgSystemArgs.add(IGNOREBEFORE);
+        msgSystemArgs.add(IGNOREAFTER);
+        msgSystemArgs.add(TASKRESULTFOR);
+        msgSystemArgs.add(TASKRESULTACTION);
+        msgSystemArgs.add(TASKRESULTMSG);
+        msgSystemArgs.add(TASKRESESSIONDATA);
+        msgSystemArgs.add(TASKDELAYTIME);
+        msgSystemArgs.add(TASKWAITTIME);
+        msgSystemArgs.add(TASKMAINTHREAD);
+        msgSystemArgs.add(TASKDELAYTIME);
+    }
     public static Gson getGson ()
     {
        if(gson==null)
@@ -96,7 +125,17 @@ public class TLMsgUtils {
                 msg.setNextMsg(nextmsg2);
                 break;
             default:
-                msg.setParam(key, value);
+               {
+                if(msgSystemArgs.contains(key))
+                    msg.setSystemParam(key, value);
+                else
+                {
+                    if(key.length()>6 && key.substring(0,6).equals("TLSYS_"))
+                        msg.setSystemParam(key, value);
+                    else
+                       msg.setParam(key, value);
+                }
+               };
         }
         return msg;
     }
@@ -118,8 +157,10 @@ public class TLMsgUtils {
         logBuffer.append(msgActionToStr(msg));
         logBuffer.append(" params:");
         HashMap<String, Object> args = msg.getArgs();
-        if (args != null || !args.isEmpty()) {
-            for (String key : args.keySet()) {
+        if (args != null && !args.isEmpty())
+        {
+            for (String key : args.keySet())
+            {
                 logBuffer.append(key);
                 logBuffer.append(": ");
                 Object value = args.get(key);

@@ -12,6 +12,151 @@ import java.util.regex.Pattern;
 import static cn.tianlong.tlobject.base.TLParamString.FENHAO;
 
 public class TLDataUtils {
+    public static boolean parseBoolean(Object value ,boolean defaultValue)
+    {
+        if(value ==null)
+            return defaultValue ;
+        if (value instanceof Boolean )
+            return (boolean)value;
+        else if(value instanceof String )
+            return Boolean.parseBoolean((String)value) ;
+        else if(value instanceof Integer )
+        {
+            if((int)value ==0)
+                return false ;
+            else
+                return true ;
+        }
+        else
+            return defaultValue ;
+    }
+    public static int parseInt(Object value ,int defaultValue)
+    {
+        if (value !=null  )
+        {
+            if( value instanceof Integer)
+                return (int) value;
+            else if (value instanceof String && !((String) value).isEmpty())
+                return Integer.parseInt((String) value);
+            else if (value instanceof Double )
+                return  ((Double)value).intValue();
+            else if ( value instanceof Long)
+                return  ((Long)value).intValue();
+            else
+                return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public static Long parseLong(Object value ,Long defaultValue)
+    {
+        if (value !=null  )
+        {
+            if( value instanceof Long)
+                return (Long) value;
+            else if (value instanceof String && !((String) value).isEmpty())
+                return Long.parseLong((String) value);
+            else if (value instanceof Double )
+                return  ((Double)value).longValue();
+            else if (value instanceof Integer )
+                return  ((Integer)value).longValue();
+            else
+                return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public static Double parseDouble(Object value ,Double defaultValue)
+    {
+        if (value !=null  )
+        {
+            if( value instanceof Double)
+                return (Double) value;
+            else if (value instanceof String && !((String) value).isEmpty())
+                return Double.parseDouble((String) value);
+            else if (value instanceof Integer )
+                return  ((Integer)value).doubleValue();
+            else if (value instanceof Long )
+                return  ((Long)value).doubleValue();
+            else
+                return defaultValue ;
+        }
+        else
+            return defaultValue ;
+    }
+    public static String parseString(Object value ,String defaultValue)
+    {
+        if (value !=null  )
+        {
+            if( value instanceof String)
+                return (String) value;
+            else
+                return String.valueOf(value);
+        }
+        else
+            return defaultValue ;
+    }
+    public static Long getLongParam( Object value ,Long defaultValue)
+    {
+       if (value !=null && value  instanceof Long )
+            return (Long)value;
+        return defaultValue ;
+    }
+    public static Double getDoubleParam( Object value ,Double defaultValue)
+    {
+       if (value !=null && value  instanceof Double )
+            return (Double)value;
+        return defaultValue ;
+    }
+    public static String getStringParam( Object value ,String defaultValue)
+    {
+       if (value !=null && value instanceof String )
+            return (String)value;
+        return defaultValue ;
+    }
+    public static int getIntParam( Object value ,int defaultValue)
+    {
+        if (value !=null && value instanceof Integer )
+            return (int)value;
+        return defaultValue ;
+    }
+    public static boolean getBooleanParam( Object value ,boolean defaultValue)
+    {
+        if (value !=null && value  instanceof Boolean )
+            return (Boolean) value;
+        return defaultValue ;
+    }
+    public static byte getByeParam( Object value ,byte defaultValue)
+    {
+        if (value !=null && value  instanceof Byte )
+            return (byte) value;
+        return defaultValue ;
+    }
+    public static Map getMapParam( Object value ,Map defaultValue)
+    {
+        if (value !=null && value  instanceof Map )
+            return (Map) value;
+        return defaultValue ;
+    }
+    public static List getListParam( Object value , List defaultValue)
+    {
+        if (value !=null && value  instanceof List )
+            return (List) value;
+        return defaultValue ;
+    }
+    public static Set getSetParam( Object value , Set defaultValue)
+    {
+       if (value !=null && value  instanceof Set )
+            return (Set) value;
+        return defaultValue ;
+    }
+    public static Object getArrayParam( Object value , Object defaultValue)
+    {
+       if (value !=null  && value.getClass().isArray() )
+            return  value;
+        return defaultValue ;
+    }
+
     public  static ArrayList mapListToList(List<Map<String, Object>> mapList, String key){
         ArrayList list = new ArrayList();
         for(Map map :mapList) {

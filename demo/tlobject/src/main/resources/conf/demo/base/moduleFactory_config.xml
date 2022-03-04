@@ -21,6 +21,6 @@
         <module name="wife" classfile="cn.tianlong.java.demo.base.Person" />
     </modules>
     <factoryBoot>
-        <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" />
+        <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" TLSYS_test1="true"/>
     </factoryBoot>
 </moduleConfig>

@@ -3,6 +3,7 @@ package cn.tianlong.java.demo.base;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.HashMap;
 
@@ -46,6 +47,6 @@ public class testMain extends TLAppStartUp {
         Double i =100D;
         msg.setParam("p1",i) ;
         int  p1 =msg.getIntParam("p1",  0);
-       int  p2 =msg.parseInt("p1",  0);
+       int  p2 =TLDataUtils.parseInt(msg.getParam("p1"),  0);
     }
 }

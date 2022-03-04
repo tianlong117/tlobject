@@ -40,6 +40,7 @@ public class clientModule  extends TLSocketClientAgentPool {
         if (status.equals(WEBSOCKET_R_OPEN))
         {
             invokeActionInThread("startWork", this, null);
+          //  startWork( fromWho,  msg);
             return;
         }
         if (status.equals(WEBSOCKET_R_FAILURE))
@@ -51,7 +52,7 @@ public class clientModule  extends TLSocketClientAgentPool {
     }
 
     private void startWork(Object fromWho, TLMsg msg) {
-        for(int i=0 ;i <10 ;i ++)
+        for(int i=0 ;i <1 ;i ++)
         {
             TLMsg smsg =createMsg().setParam("data","wakeup1")
                     .setParam(MSG_P_MSGID,"fromXiaoMing");

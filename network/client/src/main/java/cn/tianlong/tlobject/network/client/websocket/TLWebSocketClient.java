@@ -182,9 +182,7 @@ public class TLWebSocketClient extends TLHttpClient {
             msg.setParam(RESULTFOR, resultFor);
         } else if (resultFor instanceof String)
             resultFor = getModule((String) resultFor);
-        boolean reConnect = true;
-        if (!msg.isNull("reConnect"))
-            reConnect = (boolean) msg.getParam("reConnect");
+        boolean reConnect = msg.parseBoolean("reConnect",true);
         webSocketListener = new MyWebSocketListener((IObject) resultFor, resultAction, reConnect);
         putLog("webSocket contecting..", LogLevel.DEBUG, "connect");
         mWebSocket = client.newWebSocket(request, webSocketListener);
