@@ -101,7 +101,7 @@ public abstract class TLBaseLog extends TLBaseModule {
                 setLog(fromWho,msg);
                 return ;
             }
-            TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG, msg.setAction("log")).setParam(THREADPOOL_P_TASKMODULE, this);
+            TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG, msg.setAction("log")).setParam(THREADPOOL_P_TASKMODULE, this);
             putMsg(threadPool, tmsg);
         }
     }

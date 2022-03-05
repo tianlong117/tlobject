@@ -207,9 +207,10 @@ public class Person extends DemoCommon {
     private TLMsg fromXiaoMing(Object fromWho, TLMsg msg) {
         System.out.print("收到小明的Msg：");
          TLMsgUtils.printMsg(msg);
-         return createMsg().setParam(MSG_P_MSGID,"fromServerWife")
-                 .setParam(SOCKETSERVER_R_IFRETURN,true)
+         TLMsg clientMsg= createMsg().setMsgId("fromServerWife")
                  .setParam("data"," yes") ;
+         return createMsg().setSystemParam(SOCKETSERVER_R_IFRETURN,true)
+                 .setArgs(TLMsgUtils.msgToMap(clientMsg));
     }
 
     private void toWife() {
@@ -221,7 +222,7 @@ public class Person extends DemoCommon {
 
          for(int i =0 ; i<1 ; i++){
              TLMsg msg1 =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("data","wakeup"+i)
-                     .setParam(MSG_P_MSGID,"fromXiaoMing").setWaitFlag(false).setParam(INTHREADPOOL,true);
+                     .setParam(MSG_P_MSGID,"fromXiaoMing").setWaitFlag(false).setSystemParam(INTHREADPOOL,true);
              TLMsg returnMsg1= putMsg("socketClientAgentPool",msg1);
              System.out.print(i+"......");
              TLMsgUtils.printMsg(returnMsg1);

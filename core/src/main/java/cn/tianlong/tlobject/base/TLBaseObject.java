@@ -1,5 +1,7 @@
 package cn.tianlong.tlobject.base;
 
+import cn.tianlong.tlobject.utils.TLDataUtils;
+
 import static java.lang.Thread.sleep;
 
 /**
@@ -34,10 +36,10 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         {
             msg.setWaitFlag(true);
             int waitTime =-1 ;
-            if (!msg.isNull(TASKWAITTIME))
+            if (!msg.systemParamIsNull(TASKWAITTIME))
             {
-                msg.setParam(TASKMAINTHREAD,Thread.currentThread());
-                waitTime = (int) msg.getParam(TASKWAITTIME);
+                msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
+                waitTime = (int) msg.getSystemParam(TASKWAITTIME);
             }
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
             if (waitTime==-1)
@@ -56,27 +58,17 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
     /**  异步put****/
     public TLMsg putMsgNoWait(IObject toWho,TLMsg msg){
         ThreadTask threadTask=  new ThreadTask(toWho,msg,this);
-        if(msg.parseBoolean(SESSIONDEAMON,false)==true)
-        {
-            msg.removeParam(SESSIONDEAMON);
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONDEAMON),false)==true)
             threadTask.setDaemon(true);
-        }
-        if(msg.getParam(EXCEPTIONHANDLER) !=null )
-        {
+        if(msg.getSystemParam(EXCEPTIONHANDLER) !=null )
             threadTask.setUncaughtExceptionHandler((Thread.UncaughtExceptionHandler) msg.getParam(EXCEPTIONHANDLER));
-            msg.removeParam(EXCEPTIONHANDLER );
-        }
         threadTask.start();
-        if(msg.parseBoolean(SESSIONJOIN,false)==true)
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONJOIN),false)==true)
         {
-            msg.removeParam(SESSIONJOIN);
-            try {
-                long joinTime =msg.getLongParam(JOINTIME,0L);
+             try {
+                long joinTime =TLDataUtils.parseLong(msg.getSystemParam(JOINTIME),0L);
                 if(joinTime >0L)
-               {
-                   msg.removeParam(JOINTIME);
-                   threadTask.join(joinTime);
-               }
+                    threadTask.join(joinTime);
                else
                    threadTask.join();
             } catch (InterruptedException e) {
@@ -104,28 +96,21 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             this.toWho=toWho;
             this.msg =msg ;
             this.fromWho=fromWho;
-            if(msg.getParam(EXCEPTIONMSG) !=null && msg.getParam(EXCEPTIONMSG) instanceof TLMsg)
-                  exceptionMsg = (TLMsg) msg.getParam(EXCEPTIONMSG);
-            if (!msg.isNull(TASKMAINTHREAD) && !msg.isNull(TASKWAITTIME))
-            {
-                mainThread = (Thread) msg.getAndRemoveParam(TASKMAINTHREAD);
-                msg.removeParam(TASKWAITTIME);
-            }
-            if(!msg.isNull(TASKRESULTFOR) )
-                taskResultFor = (IObject) msg.getAndRemoveParam(TASKRESULTFOR);
-            if(!msg.isNull(TASKRESULTMSG) )
-                taskResultMsg = (TLMsg)  msg.getAndRemoveParam(TASKRESULTMSG);
-            else if(!msg.isNull(TASKRESULTACTION) )
-                taskResultAction = (String) msg.getAndRemoveParam(TASKRESULTACTION);
-            if(!msg.isNull(TASKRESESSIONDATA) )
-                taskSessionData=  msg.getAndRemoveParam(TASKRESESSIONDATA);
+            exceptionMsg = (TLMsg) msg.getSystemParam(EXCEPTIONMSG);
+            if (!msg.systemParamIsNull(TASKMAINTHREAD) && !msg.systemParamIsNull(TASKWAITTIME))
+                mainThread = (Thread) msg.getSystemParam(TASKMAINTHREAD);
+            taskResultFor = (IObject) msg.getSystemParam(TASKRESULTFOR);
+            taskResultAction = (String) msg.getSystemParam(TASKRESULTACTION);
+            if(taskResultAction==null )
+               taskResultMsg = (TLMsg)  msg.getSystemParam(TASKRESULTMSG);
+            taskSessionData=  msg.getSystemParam(TASKRESESSIONDATA);
         }
        public void run() {
            try{
-               if(msg.isNull(TASKDELAYTIME))
+               if(msg.systemParamIsNull(TASKDELAYTIME))
                    returnMsg=toWho.getMsg(fromWho,msg);
                else {
-                   int time = (int) msg.getAndRemoveParam(TASKDELAYTIME);
+                   int time = (int) msg.getSystemParam(TASKDELAYTIME);
                    sleep(time);
                    returnMsg=toWho.getMsg(fromWho,msg);
                }
@@ -140,7 +125,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                            returnMsg =new TLMsg();
                        returnMsg.setAction(taskResultAction);
                        if(taskSessionData!=null)
-                           returnMsg.setParam(TASKRESESSIONDATA,taskSessionData);
+                           returnMsg.setSystemParam(TASKRESESSIONDATA,taskSessionData);
                        putMsg(taskResultFor,returnMsg);
                    }
                    else

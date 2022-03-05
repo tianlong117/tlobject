@@ -105,7 +105,7 @@ public class appClientAgent extends adminCommon {
         serverMsg.addMap(msg.getArgs())
                  .setParam(MSG_P_ACTION,msg.getAction())
                  .setParam(MSG_P_DESTINATION,moduleName)
-                 .setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+                 .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
         return putMsg(serverClient,serverMsg);
     }
 }

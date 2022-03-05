@@ -35,7 +35,7 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onDelete(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         redisTable.del(rediskey);
@@ -44,7 +44,7 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
 
     @Override
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         insertRedisTable(sqlParams,null);
         return (TLMsg) msg.getParam(PRERESULT);
@@ -82,7 +82,7 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
 
     @Override
     protected TLMsg onUpdate(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         boolean isExist = redisTable.exists(rediskey);
@@ -124,7 +124,7 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
     @Override
     protected TLMsg onQuery(Object fromWho, TLMsg msg) {
         TLMsg preResultMsg =(TLMsg) msg.getParam(PRERESULT);
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         if(preResultMsg ==null){
             HashMap<String,String> result=queryRedis(nmsg);
             if(result !=null && !result.isEmpty()  )
@@ -135,13 +135,13 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
                 {
                     List<Map> dbresult =new ArrayList();
                     dbresult.add(dbData);
-                    return msg.setParam(DB_R_RESULT,dbresult).setParam(MODULE_DONEXTMSG,false);
+                    return msg.setParam(DB_R_RESULT,dbresult).setSystemParam(MODULE_DONEXTMSG,false);
                 }
                 else
-                    return msg.setParam(DB_R_RESULT,dbData).setParam(MODULE_DONEXTMSG,false);
+                    return msg.setParam(DB_R_RESULT,dbData).setSystemParam(MODULE_DONEXTMSG,false);
             }
             else if(ifQueryDb==false)
-                return msg.setParam(MODULE_DONEXTMSG,false);
+                return msg.setSystemParam(MODULE_DONEXTMSG,false);
             else
                 return null ;
         }

@@ -74,7 +74,7 @@ public class TLThreadPool extends TLBaseModule {
     }
 
     protected TLMsg execute(Object fromWho, TLMsg msg) {
-        TLMsg  dmsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg  dmsg = (TLMsg) msg.getParam(THREADPOOL_P_TASKMSG);
         IObject toWho = (IObject) msg.getParam(THREADPOOL_P_TASKMODULE);
         if(toWho ==null )
         {

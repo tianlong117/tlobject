@@ -62,15 +62,15 @@ public abstract class TLDBTrigger extends TLBaseModule {
         TLBaseDataUnit tb=getTable(table);
         TLMsg returnmsg=putMsg(tb, msg);
         if(returnmsg!=null)
-          return returnmsg.setParam(MODULE_DONEXTMSG,"false");
+          return returnmsg.setSystemParam(MODULE_DONEXTMSG,false);
         else
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
     }
     protected TLMsg changeTable(TLBaseDataUnit table, TLMsg msg) {
         TLMsg returnmsg=putMsg(table, msg);
         if(returnmsg!=null)
-            return returnmsg.setParam(MODULE_DONEXTMSG,"false");
+            return returnmsg.setSystemParam(MODULE_DONEXTMSG,false);
         else
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
     }
 }

@@ -52,7 +52,7 @@ public  class TLMsgLog extends TLBaseModule {
     }
 
     protected TLMsg transferLog(Object fromWho, TLMsg msg) {
-        TLMsg  domsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
         TLMsg  transferMsg = (TLMsg) domsg.getParam("msg");
         String transferMsgstr=msgToStr(transferMsg);
         LocalDate today = LocalDate.now();
@@ -63,7 +63,7 @@ public  class TLMsgLog extends TLBaseModule {
 
     protected TLMsg fromFactoryGetModule(Object fromWho, TLMsg msg) {
         if (msgTable == null || msgTable.isEmpty()) return msg;
-        TLMsg  returnMsg = (TLMsg) msg.getParam(PRERESULT);
+        TLMsg  returnMsg = (TLMsg) msg.getSystemParam(PRERESULT);
         if(returnMsg ==null || returnMsg.getParam("new")==null) return msg;
         String moduleName= (String) returnMsg.getParam("moduleName");
         if(moduleName ==null || moduleName==name) return msg;
@@ -101,8 +101,8 @@ public  class TLMsgLog extends TLBaseModule {
         return addmsg;
     }
     protected TLMsg startLog(Object fromWho, TLMsg msg) {
-        TLMsg  domsg = (TLMsg) msg.getParam(DOWITHMAG);
-        TLMsg  returnMsg = (TLMsg) msg.getParam(PRERESULT);
+        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg  returnMsg = (TLMsg) msg.getSystemParam(PRERESULT);
         TLMsg  netxMsg =  msg.getNextMsg();
         String domsgStr=msgToStr(domsg);
         String netxMsgstr=msgToStr(netxMsg);

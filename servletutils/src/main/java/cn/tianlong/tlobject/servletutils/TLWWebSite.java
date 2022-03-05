@@ -81,7 +81,7 @@ public class TLWWebSite extends TLWServModule{
             if(checkIp(prohibitIp,request.getRemoteAddr())==true)
             {
                 putError("ip禁止");
-                return  createMsg().setParam(MODULE_DONEXTMSG,"false");
+                return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
             }
         }
         if(serverName!=null )
@@ -100,7 +100,7 @@ public class TLWWebSite extends TLWServModule{
             if(isServerName == false)
             {
                 putError("server名字错误");
-                return  createMsg().setParam(MODULE_DONEXTMSG,"false");
+                return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
             }
         }
         if(ifOpen ==false)
@@ -111,11 +111,11 @@ public class TLWWebSite extends TLWServModule{
                 if(checkIp(permitIp,request.getRemoteAddr())==false)
                 {
                     putError("服务关闭");
-                    return  createMsg().setParam(MODULE_DONEXTMSG,"false");
+                    return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
                 }
             }
             else
-                return  createMsg().setParam(MODULE_DONEXTMSG,"false");
+                return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         }
         return null ;
     }

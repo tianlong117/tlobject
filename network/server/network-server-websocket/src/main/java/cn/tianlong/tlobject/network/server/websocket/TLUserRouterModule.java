@@ -73,8 +73,6 @@ public class TLUserRouterModule extends TLBaseModule {
     }
 
     private void fromRouteServerToRouter(Object fromWho, TLMsg msg) {
-        msg.removeParam(DOWITHMAG);
-        msg.removeParam(PRERESULT);
         String userid= (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg routeMsg =createMsg().setAction(USERMANAGER_PUTTOUSER)
                 .setParam(WEBSOCKET_P_CONTENT,msg.getArgs() ).setParam(USERMANAGER_P_USERID,userid);
@@ -136,7 +134,7 @@ public class TLUserRouterModule extends TLBaseModule {
            sdatas.put("msgid",msgid);
            sdatas.put("server",server);
            TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
-                   .setParam(WEBSOCKET_P_CONTENT,sdatas).setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
+                   .setParam(WEBSOCKET_P_CONTENT,sdatas).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
           return putMsg(socketClientAgentPool,serverMsg);
        }
        return null ;

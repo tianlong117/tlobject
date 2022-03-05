@@ -49,7 +49,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
         for (int i =0 ;i < taskNumbs ;i ++)
         {
             TLMsg msg =createMsg().setAction("autoTask").setWaitFlag(false)
-                    .setParam(INTHREADPOOL,true).setParam(THREADPOOLNAME,threadPoolName);
+                    .setSystemParam(INTHREADPOOL,true).setSystemParam(THREADPOOLNAME,threadPoolName);
             putMsg(this,msg) ;
         }
         return this ;
@@ -75,7 +75,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     }
 
     private TLMsg beforeModuleAction(Object fromWho, TLMsg msg) {
-        TLMsg qmsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg qmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
         addMsgInQueue( qmsg.setDestination(msg.getPrevious()),true);
         return createMsg().setParam(MODULE_DONEXTMSG ,false);
     }

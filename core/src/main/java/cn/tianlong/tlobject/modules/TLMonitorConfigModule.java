@@ -53,7 +53,7 @@ public class TLMonitorConfigModule extends TLBaseModule {
     @Override
     protected TLBaseModule init() {
         putMsg(this,createMsg().setAction("checkModules")
-                .setParam(SESSIONDEAMON,true)
+                .setSystemParam(SESSIONDEAMON,true)
                 .setParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
         putLog("监听配置文件模块启动",LogLevel.DEBUG);

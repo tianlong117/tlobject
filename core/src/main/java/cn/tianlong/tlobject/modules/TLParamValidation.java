@@ -209,7 +209,7 @@ public class TLParamValidation extends TLBaseModule {
         Set<String> paramSet = msgParams.keySet();
        for(String paramName : paramSet)
        {
-           if(paramName.equals(DOWITHMAG) || paramName.equals("noPassAction"))
+           if( paramName.equals("noPassAction"))
                continue;
            String moduleParamName =((IObject)fromWho).getName()+":"+paramName;
            ArrayList<TLMsg> validattionMsgList =paramsTable.get(moduleParamName);
@@ -226,7 +226,7 @@ public class TLParamValidation extends TLBaseModule {
                {
                    TLMsg emsg =createMsg().setAction(noPassAction).setArgs(result);
                    putMsg((IObject) fromWho,emsg);
-                   return createMsg().setParam(MODULE_DONEXTMSG,false) ;
+                   return createMsg().setSystemParam(MODULE_DONEXTMSG,false) ;
                }
                else
                  return   noPassValidate(result);
@@ -239,7 +239,7 @@ public class TLParamValidation extends TLBaseModule {
         if(failureMsgid !=null)
             return getMsg(this,createMsg().setMsgId(failureMsgid).setArgs(result));
         else
-            return  createMsg().setArgs(result).setParam(MODULE_DONEXTMSG,false);
+            return  createMsg().setArgs(result).setSystemParam(MODULE_DONEXTMSG,false);
     }
 
     protected HashMap<String,String> validateParam(String paramName, String value, ArrayList<TLMsg> validationMsgList) {

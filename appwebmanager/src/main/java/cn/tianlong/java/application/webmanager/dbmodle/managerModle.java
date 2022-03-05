@@ -95,7 +95,7 @@ public class managerModle extends TLBaseTableModle {
         TLMsg returnMsg =  createMsg().addArgs(infos);
         int status= (int) returnMsg.getParam("status");
         if (status==0)
-            returnMsg.setParam(MODULE_DONEXTMSG,false).setParam("errorMessage","账户禁用");
+            returnMsg.setSystemParam(MODULE_DONEXTMSG,false).setParam("errorMessage","账户禁用");
         return returnMsg ;
     }
 

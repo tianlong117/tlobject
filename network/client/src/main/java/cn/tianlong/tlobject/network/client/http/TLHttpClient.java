@@ -132,7 +132,7 @@ public class TLHttpClient extends TLBaseModule {
     }
     private void download(Object fromWho, TLMsg msg) {
         String url=(String)msg.getParam(HTTP_P_URL);
-        String    resultAction = (String) msg.getParam(RESULTACTION);
+        String    resultAction = (String) msg.getSystemParam(RESULTACTION);
         Object  resultFor =getResultObject(msg);
         String    path = (String) msg.getParam(HTTP_P_DOWNLOAD_SAVEPATH);
         String    filename = (String) msg.getParam(HTTP_P_DOWNLOAD_FILENAME);
@@ -290,7 +290,7 @@ public class TLHttpClient extends TLBaseModule {
         return  builder ;
     }
     private TLMsg httpCallExecute(RequestCall requestCall, Object fromWho, TLMsg msg){
-        String    resultAction = (String) msg.getParam(RESULTACTION);
+        String    resultAction = (String) msg.getSystemParam(RESULTACTION);
         if(msg.containsParam("connTimeOut"))
             requestCall.connTimeOut((Long) msg.getParam("connTimeOut")*1000);
         else if(connTimeOut >0L)
@@ -305,7 +305,7 @@ public class TLHttpClient extends TLBaseModule {
             requestCall.writeTimeOut(writeTimeOut);
         if(resultAction !=null )
         {
-            Object  resultFor =msg.getParam(RESULTFOR);
+            Object  resultFor =msg.getSystemParam(RESULTFOR);
             if(resultFor ==null )
                 resultFor=fromWho ;
             else if (resultFor instanceof String)

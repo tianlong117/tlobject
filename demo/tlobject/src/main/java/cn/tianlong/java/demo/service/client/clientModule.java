@@ -54,9 +54,9 @@ public class clientModule  extends TLSocketClientAgentPool {
     private void startWork(Object fromWho, TLMsg msg) {
         for(int i=0 ;i <1 ;i ++)
         {
-            TLMsg smsg =createMsg().setParam("data","wakeup1")
-                    .setParam(MSG_P_MSGID,"fromXiaoMing");
-            TLMsg returnMsg = putToServerAndWait(this,smsg);
+            TLMsg smsg =createMsg().setMsgId("fromXiaoMing").setParam("data","wakeup1");
+            TLMsg pmsg =createMsg().setArgs(TLMsgUtils.msgToMap(smsg));
+            TLMsg returnMsg = putToServerAndWait(this,pmsg);
             println(i+" 服务返回：");
             TLMsgUtils.printMsg(returnMsg);
         }

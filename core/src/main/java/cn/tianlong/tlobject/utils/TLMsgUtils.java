@@ -38,7 +38,6 @@ public class TLMsgUtils {
         msgSystemArgs.add(RESULTACTION);
         msgSystemArgs.add(PARAMSFROMMSG);
         msgSystemArgs.add(MSGTABLEUSETYPE);
-        msgSystemArgs.add(MSGTABLEONLY);
         msgSystemArgs.add(USEMSG);
         msgSystemArgs.add(USEINPUTMSG);
         msgSystemArgs.add(USEPRERETURNMSG);
@@ -326,16 +325,15 @@ public class TLMsgUtils {
                destination = (String) map.get(MSG_P_MODULE);
         if (destination != null && !destination.isEmpty())
              msg.setDestination(destination);
-        String sessionId = (String) map.get(WEBSOCKET_P_SESSION);
-        if(sessionId !=null)
-            msg.setParam(WEBSOCKET_P_SESSION,sessionId);
-        String nid = (String) map.get( WEBSOCKET_P_NOTIFYID);
-        if(nid !=null)
-             msg.setParam(WEBSOCKET_P_NOTIFYID,nid);
         if(map.get(MSG_P_PARAMS)!=null )
         {
             LinkedTreeMap<String, Object> datas = (LinkedTreeMap<String, Object>) map.get(MSG_P_PARAMS);
             msg.addArgs(datas);
+        }
+        if(map.get(MSG_P_SYSTEMARGS)!=null )
+        {
+            LinkedTreeMap<String, Object> systemArgs = (LinkedTreeMap<String, Object>) map.get(MSG_P_SYSTEMARGS);
+            msg.addSystemArgs(systemArgs);
         }
         return msg;
     }
@@ -396,12 +394,14 @@ public class TLMsgUtils {
         if(action !=null )
             map.put(MSG_P_ACTION,action);
         String destination = msg.getDestination();
-        if(destination ==null)
-            destination = (String) msg.getParam(MSG_P_MODULE);
-        map.put(MSG_P_DESTINATION,destination);
+        if(destination !=null)
+            map.put(MSG_P_DESTINATION,destination);
         HashMap<String,Object> params =msg.getArgs();
         if(params !=null && !params.isEmpty())
             map.put(MSG_P_PARAMS,params);
+        HashMap<String,Object> systemArgs =msg.getSystemArgs();
+        if(systemArgs !=null && !systemArgs.isEmpty())
+            map.put(MSG_P_SYSTEMARGS,systemArgs);
         return map;
     }
 

@@ -47,7 +47,7 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         if(tableName == null)
             tableName=((TLTable)fromWho).getName();
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         if( nmsg ==null)
             nmsg =msg ;
         String table = (String) nmsg.getParam("dbtable");
@@ -147,9 +147,9 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
                orderDatas=listDataToOrder((ArrayList)totaldatas,(String)msg.getParam(DB_P_ORDERBY));
             else if(totaldatas instanceof Map)
                 orderDatas=mapDataToOrder((Map)totaldatas);
-            return createMsg().setParam(DB_R_RESULT,orderDatas).setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setParam(DB_R_RESULT,orderDatas).setSystemParam(MODULE_DONEXTMSG,false);
         }
-        return createMsg().setParam(DB_R_RESULT,totaldatas).setParam(MODULE_DONEXTMSG,"false");
+        return createMsg().setParam(DB_R_RESULT,totaldatas).setSystemParam(MODULE_DONEXTMSG,false);
     }
 
     protected   Map<Object ,Map<String,Object>> mapDataToOrder(Map<String,Map<String,Object>> totaldatas){

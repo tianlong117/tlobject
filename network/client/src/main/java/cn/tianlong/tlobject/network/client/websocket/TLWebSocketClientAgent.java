@@ -78,8 +78,8 @@ public class TLWebSocketClientAgent extends TLBaseModule {
         String ccerFile =(params.get("cerFile")!=null)? params.get("cerFile"):cerFile ;
         TLMsg connectMsg =createMsg().setAction(WEBSOCKET_CONNECT)
                 .setParam(URL,curl)
-                .setParam(RESULTFOR,this)
-                .setParam(RESULTACTION,"loginResult");
+                .setSystemParam(RESULTFOR,this)
+                .setSystemParam(RESULTACTION,"loginResult");
         if(ccerFile!=null){
             connectMsg .setParam(SSL_SCERFILE,ccerFile);
             connectMsg.setParam(HTTP_P_ISHTTPS ,true);
@@ -183,10 +183,10 @@ public class TLWebSocketClientAgent extends TLBaseModule {
         String content =gson.toJson(msg.getParam(WEBSOCKET_P_CONTENT));
         TLMsg clientMsg =createMsg().setAction(WEBSOCKET_SEND)
                 .setParam(WEBSOCKET_P_CONTENT,content);
-        if(!msg.isNull(RESULTFOR))
+        if(!msg.systemParamIsNull(RESULTFOR))
         {
-            clientMsg .setParam(RESULTFOR,msg.getParam(RESULTFOR));
-            clientMsg.setParam(RESULTACTION,msg.getParam(RESULTACTION));
+            clientMsg.setSystemParam(RESULTFOR,msg.getSystemParam(RESULTFOR));
+            clientMsg.setSystemParam(RESULTACTION,msg.getSystemParam(RESULTACTION));
         }
        return   putMsg(mclient ,clientMsg);
     }

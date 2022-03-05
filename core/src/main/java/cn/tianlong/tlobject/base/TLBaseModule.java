@@ -549,14 +549,12 @@ public abstract class TLBaseModule extends TLBaseObject {
     private TLMsg selectReturnMsg(TLMsg msg, TLMsg returnMsg) {
             if (returnMsg == null)
                 return msg;
-            if (returnMsg.parseBoolean(RESULTFORNEXTMSG,false)==true)
-            {
-                returnMsg.removeParam(RESULTFORNEXTMSG) ;
-                return returnMsg ;
-            }
-            msg.setParam(PRERESULT, returnMsg);
-            if (msg.parseBoolean(RESULTFORNEXTMSG,false)==true
-                    || msg.parseBoolean(USEPRERETURNMSG,false)==true)
+            if (!returnMsg.systemParamIsNull(RESULTFORNEXTMSG) && TLDataUtils.parseBoolean(returnMsg.getSystemParam(RESULTFORNEXTMSG),false)==true)
+               return returnMsg ;
+            msg.setSystemParam(PRERESULT, returnMsg);
+            if (TLDataUtils.parseBoolean(msg.getSystemParam(USEPRERETURNMSG),false)==true
+                    ||TLDataUtils.parseBoolean(msg.getSystemParam(RESULTFORNEXTMSG),false)==true
+                   )
                 msg.addArgs(returnMsg.getArgs());
             return msg;
     }
@@ -568,34 +566,37 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             TLMsg msgInMsgList = msgList.get(i);
             TLMsg cmsg ;
-            String msgTableUserType = (String) msgInMsgList.getSystemParam(MSGTABLEUSETYPE,null);
+            String msgTableUserType = (String) msgInMsgList.getSystemParam(MSGTABLEUSETYPE);
             if (msgTableUserType !=null && msgTableUserType.equals(MSGTABLEONLY))
                 cmsg =msgInMsgList ;
-            else {
-                String[] paramKeys = (String[]) msgInMsgList.getSystemParam(PARAMSFROMMSG,null);
-                if (msgTableUserType !=null && msgTableUserType.equals(USEMSG))
+            else
                 {
-                    cmsg =msg ;
-                    cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
-                }
-                else
-                {
-                    cmsg = new TLMsg();
-                    cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
-                    if (msg != null ) {
-                        cmsg.setSystemParam(DOWITHMAG, msg);
-                        if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEINPUTMSG),true)==true )
-                            cmsg.copyParams(paramKeys,msg);
+                    String[] paramKeys = (String[]) msgInMsgList.getSystemParam(PARAMSFROMMSG);
+                    if (msgTableUserType !=null && msgTableUserType.equals(USEMSG))
+                    {
+                        cmsg =msg ;
+                        cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
+                     }
+                    else
+                        {
+                             cmsg = new TLMsg();
+                             cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
+                             if (msg != null )
+                             {
+                                 cmsg.setSystemParam(DOWITHMAG, msg);
+                                  if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEINPUTMSG),true)==true )
+                                     cmsg.copyParams(paramKeys,msg);
+                         }
                     }
+                     if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)
+                        cmsg.copyParams(paramKeys,returnMsg);
+                     if (actionReturnMsg != null )
+                     {
+                        cmsg.setSystemParam(PRERESULT, actionReturnMsg);
+                        if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEACTIONRETURNMSG),false)==true)
+                            cmsg.copyParams(paramKeys,actionReturnMsg );
+                      }
                 }
-                if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)
-                    cmsg.copyParams(paramKeys,returnMsg);
-                if (actionReturnMsg != null ) {
-                    cmsg.setSystemParam(PRERESULT, actionReturnMsg);
-                    if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEACTIONRETURNMSG),false)==true)
-                        cmsg.copyParams(paramKeys,actionReturnMsg );
-                }
-            }
             putLog(cmsg,LogLevel.DEBUG,"doMsgList");
             if(cmsg.getWaitFlag()==true)
                 returnMsg = putMsg(name, cmsg);
@@ -607,7 +608,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             {
                 if ( TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(RETURNACTIONRETURNMSG),false)==true
                         ||
-                    (msg !=null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(RETURNACTIONRETURNMSG),false)==true))
+                    (msg !=null && TLDataUtils.parseBoolean(msg.getSystemParam(RETURNACTIONRETURNMSG),false)==true))
                     returnMsg= actionReturnMsg;
                 break;
             }
@@ -634,7 +635,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         String destination = msg.getDestination();
         if (!ifToMySelf(destination) )
         {
-            if(ifDoMsgTransfer ==true && msg.parseBoolean(IFDOMSGTRANSFERACTION,false) ==true)
+            if(ifDoMsgTransfer ==true && TLDataUtils.parseBoolean(msg.getSystemParam(IFDOMSGTRANSFERACTION),false) ==true)
             {
                 TLMsg tranferMsg = createMsg().setAction(MODULE_MSGTRANSFER).setParam("domsg", msg);
                 msg = tranferMsg;
@@ -659,7 +660,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             if(beforeMsgTable  !=null && !beforeMsgTable.isEmpty() && msg.parseBoolean(IGNOREBEFORE,false) == false)
             {
                 returnMsg =doBeforMsgTable( action, msg);
-                preResult= (TLMsg) returnMsg.getParam(PRERESULT);
+                preResult= (TLMsg) returnMsg.getSystemParam(PRERESULT);
             }
             else
                 returnMsg =msg ;
@@ -675,13 +676,13 @@ public abstract class TLBaseModule extends TLBaseObject {
                  TLMsg nextMsg = msg.getNextMsg(); //  执行nextmsg
                  if (nextMsg != null && ifDoNextMsg(returnMsg))
                  {
-                     if (returnMsg != null && nextMsg.parseBoolean(USEPRERETURNMSG,false)==true)
-                         nextMsg.copyParams((String[]) nextMsg.getArrayParam(PARAMSFROMMSG,null),returnMsg);
+                     if (returnMsg != null && TLDataUtils.parseBoolean(returnMsg.getSystemParam(USEPRERETURNMSG),false)==true)
+                         nextMsg.copyParams((String[]) nextMsg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
                      returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
                  }
             } else
                 {
-                preResult.removeParam(MODULE_DONEXTMSG);
+                preResult.removeSystemParam(MODULE_DONEXTMSG);
                 returnMsg = preResult;
                 }
         }
@@ -730,7 +731,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected Boolean ifDoNextMsg(TLMsg returnMsg) {
          if(returnMsg ==null)
              return true ;
-         return returnMsg.parseBoolean(MODULE_DONEXTMSG,true);
+         return TLDataUtils.parseBoolean(returnMsg.getSystemParam(MODULE_DONEXTMSG),true);
     }
     protected String getFactoryParam(String paramName){
         return moduleFactory.getParam(paramName) ;
@@ -748,8 +749,8 @@ public abstract class TLBaseModule extends TLBaseObject {
         if(msg !=null)
         {
             thMsg.setParam("dmsg",msg) ;
-            thMsg.setParam(INTHREADPOOL,msg.parseBoolean(INTHREADPOOL,true));
-            thMsg.copyParam(THREADPOOLNAME,msg);
+            thMsg.setSystemParam(INTHREADPOOL,msg.getSystemParam(INTHREADPOOL,true));
+            thMsg.setSystemParam(THREADPOOLNAME,msg.getSystemParam(THREADPOOLNAME));
         }
         fromWho.putMsg(this,thMsg);
     }
@@ -757,10 +758,10 @@ public abstract class TLBaseModule extends TLBaseObject {
     {
         TLMsg thMsg =createMsg().setAction("runActionInThread").setParam(MSG_P_ACTION,action)
                 .setParam("dmsg",msg) .setWaitFlag(false);
-        thMsg.setParam(INTHREADPOOL,msg.parseBoolean(INTHREADPOOL,true));
-        thMsg.copyParam(THREADPOOLNAME,msg);
+        thMsg.setSystemParam(INTHREADPOOL,msg.getSystemParam(INTHREADPOOL,true));
+        thMsg.setSystemParam(THREADPOOLNAME,msg.getSystemParam(THREADPOOLNAME));
         thMsg.setWaitFlag(false);
-        thMsg.setParam(TASKWAITTIME,0);
+        thMsg.setSystemParam(TASKWAITTIME,0);
         return  fromWho.putMsg(this,thMsg);
     }
     protected TLMsg invokeAction(String action,Object fromWho,TLMsg msg){
@@ -1059,6 +1060,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         msg.setDestination(fromMsg.getDestination());
         msg.setWaitFlag(fromMsg.getWaitFlag());
         msg.setSource(name) ;
+        msg.addSystemArgs(fromMsg.getSystemArgs());
         return msg ;
     }
 
@@ -1132,11 +1134,11 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     public TLMsg putMsg(String moduleName, TLMsg msg) {
         IObject module ;
-        if(msg.parseBoolean(IFLOADMODULE,true) ==true)
+        if((boolean)(msg.getSystemParam(IFLOADMODULE,true)) ==true)
             module = (IObject) getModule(moduleName);
         else
         {
-            msg.removeParam(IFLOADMODULE) ;
+            msg.removeSystemParam(IFLOADMODULE) ;
             module = (IObject) getExistintModule(moduleName);
         }
         if (module != null)
@@ -1145,7 +1147,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             return putMsg(module, msg);
         }
         else {
-            if(msg.parseBoolean(IGNOREMODULEISNULL,false) ==true)
+            if((boolean)(msg.getSystemParam(IGNOREMODULEISNULL,false)) ==true)
                 return null ;
             putLog("module is not exist " + moduleName, LogLevel.ERROR);
             moduleFactory.shutdown(-1);
@@ -1166,7 +1168,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             else
             {
                 msg.setWaitFlag(false);
-                msg.setParam(TASKWAITTIME,waitTime);
+                msg.setSystemParam(TASKWAITTIME,waitTime);
                 return putMsg(moduleName,msg);
             }
     }
@@ -1243,29 +1245,29 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     @Override
     public TLMsg putMsgNoWait(IObject toWho, TLMsg msg) {
-        Object taskResultFor = msg.getParam(TASKRESULTFOR);
+        Object taskResultFor = msg.getSystemParam(TASKRESULTFOR);
         if (taskResultFor != null) {
             if (taskResultFor instanceof String) {
                 taskResultFor = getModule((String) taskResultFor);
-                msg.setParam(TASKRESULTFOR, taskResultFor);
+                msg.setSystemParam(TASKRESULTFOR, taskResultFor);
             }
         }
-        if (msg.parseBoolean(INTHREADPOOL,false)==false) {
-            msg.removeParam(INTHREADPOOL);
+        if (TLDataUtils.parseBoolean(msg.getSystemParam(INTHREADPOOL),false)==false) {
+            msg.removeSystemParam(INTHREADPOOL);
             return super.putMsgNoWait(toWho, msg);
         }
-        msg.removeParam(INTHREADPOOL);
-        if (!msg.isNull(TASKWAITTIME))
-            msg.setParam(TASKMAINTHREAD,Thread.currentThread());
-        TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG, msg).setParam(THREADPOOL_P_TASKMODULE, toWho);
-        String threadPoolName = (String) msg.getParam(THREADPOOLNAME);
+        msg.removeSystemParam(INTHREADPOOL);
+        if (!msg.systemParamIsNull(TASKWAITTIME))
+            msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
+        TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG, msg).setParam(THREADPOOL_P_TASKMODULE, toWho);
+        String threadPoolName = (String) msg.getSystemParam(THREADPOOLNAME);
         if (threadPoolName == null)
             threadPoolName = DEFAULTTHREADPOOL;
         return   putMsg(threadPoolName, tmsg);
     }
 
     protected Object getResultObject(TLMsg msg) {
-        Object resultFor = msg.getParam(RESULTFOR);
+        Object resultFor = msg.getSystemParam(RESULTFOR);
         if (resultFor == null)
             return null;
         if (resultFor instanceof String && !((String) resultFor).isEmpty())
@@ -1319,11 +1321,11 @@ public abstract class TLBaseModule extends TLBaseObject {
         {
             msg.setAction("log");
             msg.setWaitFlag(false);
-            msg.setParam(INTHREADPOOL,true) ;
+            msg.setSystemParam(INTHREADPOOL,true) ;
             if(threadPool !=null)
-                msg.setParam(THREADPOOLNAME,threadPool);
+                msg.setSystemParam(THREADPOOLNAME,threadPool);
             else
-                msg.setParam(THREADPOOLNAME, DEFAULTLOGTTHREADPOOL);
+                msg.setSystemParam(THREADPOOLNAME, DEFAULTLOGTTHREADPOOL);
         }
         else
             msg.setAction(LOG_PUTLOG);

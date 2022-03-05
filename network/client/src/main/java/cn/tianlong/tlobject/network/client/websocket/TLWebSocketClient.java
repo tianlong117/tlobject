@@ -175,11 +175,11 @@ public class TLWebSocketClient extends TLHttpClient {
         }
         request = builder.build();
         //建立连接
-        String resultAction = (String) msg.getParam(RESULTACTION);
-        Object resultFor = msg.getParam(RESULTFOR);
+        String resultAction = (String) msg.getSystemParam(RESULTACTION);
+        Object resultFor = msg.getSystemParam(RESULTFOR);
         if (resultFor == null) {
             resultFor = fromWho;
-            msg.setParam(RESULTFOR, resultFor);
+            msg.setSystemParam(RESULTFOR, resultFor);
         } else if (resultFor instanceof String)
             resultFor = getModule((String) resultFor);
         boolean reConnect = msg.parseBoolean("reConnect",true);
@@ -190,7 +190,7 @@ public class TLWebSocketClient extends TLHttpClient {
     }
 
     protected TLMsg send(Object fromWho, TLMsg msg) {
-        if (!msg.isNull(RESULTFOR))
+        if (!msg.systemParamIsNull(RESULTFOR))
             setResultFor(fromWho, msg);
         String content = (String) msg.getParam(WEBSOCKET_P_CONTENT);
         boolean result = webSocketSend(content);
@@ -212,11 +212,11 @@ public class TLWebSocketClient extends TLHttpClient {
     }
 
     private TLMsg setResultFor(Object fromWho, TLMsg msg) {
-        String resultAction = (String) msg.getParam(RESULTACTION);
+        String resultAction = (String) msg.getSystemParam(RESULTACTION);
         if (resultAction == null)
             return null;
         webSocketListener.setResultAction(resultAction);
-        Object resultFor = msg.getParam(RESULTFOR);
+        Object resultFor = msg.getSystemParam(RESULTFOR);
         if (resultFor instanceof String)
             resultFor = getModule((String) resultFor);
         webSocketListener.setResultFor((IObject) resultFor);
@@ -291,10 +291,10 @@ public class TLWebSocketClient extends TLHttpClient {
             if (returnMsg != null) {
                 if (!returnMsg.isNull("reConnect"))
                     reConnect = (Boolean) returnMsg.getParam("reConnect");
-                if (!returnMsg.isNull(RESULTFOR))
-                    resultFor = (IObject) returnMsg.getParam(RESULTFOR);
-                if (!returnMsg.isNull(RESULTACTION))
-                    resultAction = (String) returnMsg.getParam(RESULTACTION);
+                if (!returnMsg.systemParamIsNull(RESULTFOR))
+                    resultFor = (IObject) returnMsg.getSystemParam(RESULTFOR);
+                if (!returnMsg.systemParamIsNull(RESULTACTION))
+                    resultAction = (String) returnMsg.getSystemParam(RESULTACTION);
             }
         }
 

@@ -49,7 +49,7 @@ public  class CheckNameTrigger extends TLDBTrigger {
     }
 
     private TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> tparams= (LinkedHashMap<String, Object>) nmsg.getMapParam(DB_P_PARAMS,null);
         if(tparams ==null)
             return null ;

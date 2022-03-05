@@ -193,7 +193,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         if(threadPool ==null)
             return  null;
         msg.setDestination(name).setAction("receiveFile");
-        TLMsg  threadMsg =createMsg().setAction(THREADPOOL_EXECUTE).setParam(DOWITHMAG,msg);
+        TLMsg  threadMsg =createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG,msg);
         putMsg(threadPool,threadMsg);
         return createMsg().setParam(RESULT, true);
     }
@@ -418,9 +418,9 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
             sessionMsg.setArgs(resultMsg.getArgs()) ;
         sessionMsg.setParam(USERMANAGER_P_USERCHANNEL,channel);
         if(sessionMsg.getStringParam("sesstionType","server").equals("server"))
-            sessionMsg.setParam(WEBSOCKET_P_SESSION,appSessionId);
+            sessionMsg.setSystemParam(WEBSOCKET_P_SESSION,appSessionId);
         else
-            sessionMsg.setParam(WEBSOCKET_P_NOTIFYID,appSessionId);
+            sessionMsg.setSystemParam(WEBSOCKET_P_NOTIFYID,appSessionId);
         getMsg(this, sessionMsg);
     }
 

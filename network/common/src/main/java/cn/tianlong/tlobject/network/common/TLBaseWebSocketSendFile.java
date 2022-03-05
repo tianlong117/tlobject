@@ -71,7 +71,6 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
         int cmdCode = (int) msg.getParam(WEBSOCKET_P_BINARYCMDCODE);
         int sessionId = getBinarySessionId(msg);
         String binaryMsgid = (msg.isNull(WEBSOCKET_P_BINARYMSGID)) ? WEBSOCKET_V_BINARYRECEIVEFILEMSGID : (String) msg.getParam(WEBSOCKET_P_BINARYMSGID);
-        msg.removeParam(DOWITHMAG);
         msg.removeParam(WEBSOCKET_P_BINARYSESSION);
         msg.removeParam(WEBSOCKET_P_IFMAKESESSION);
         msg.removeParam(WEBSOCKET_P_BINARYCMDCODE);
@@ -154,7 +153,7 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
             TLMsg fmsg =new TLMsg() .setAction(USERMANAGER_SENDFILE)
                     .addArgs(msgArgs)
                     .setParam("fileGroupId",fileGroupId)
-                    .setParam(INTHREADPOOL,true)
+                    .setSystemParam(INTHREADPOOL,true)
                     .setParam(WEBSOCKET_P_SENDFILENAME,fileName);
             msgList.add(fmsg);
         }

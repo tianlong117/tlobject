@@ -40,7 +40,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onDelete(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG); msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if(rediskey ==null)
@@ -80,7 +80,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         lpushRedisTable(sqlParams,null);
         return  (TLMsg) msg.getParam(PRERESULT);
@@ -120,7 +120,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
     @Override
     protected TLMsg onQuery(Object fromWho, TLMsg msg) {
         TLMsg preResultMsg =(TLMsg) msg.getParam(PRERESULT);
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         if(preResultMsg ==null)
             return getValueFromRedis(nmsg);
         else
@@ -170,7 +170,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
         if(tableLen < end+1)
         {
             if(ifQueryDb==false)
-                return msg.setParam(MODULE_DONEXTMSG,"false");
+                return msg.setSystemParam(MODULE_DONEXTMSG,false);
             else
                 return null ;
         }
@@ -178,14 +178,14 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
         if( result ==null)
         {
             if(ifQueryDb==false)
-                return msg.setParam(MODULE_DONEXTMSG,"false");
+                return msg.setSystemParam(MODULE_DONEXTMSG,false);
             else
                 return null ;
         }
         if(result.size()>0)
         {
            if(fields !=null && fields.size()==1)
-               return msg.setParam(DB_R_RESULT,result).setParam(MODULE_DONEXTMSG,"false");
+               return msg.setParam(DB_R_RESULT,result).setSystemParam(MODULE_DONEXTMSG,false);
            else
             {
                 List<Map> dbresult =new ArrayList();
@@ -196,11 +196,11 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
                     Map<String ,Object> data = gson.fromJson(value,type);
                     dbresult.add( data);
                 }
-                return msg.setParam(DB_R_RESULT,dbresult).setParam(MODULE_DONEXTMSG,"false");
+                return msg.setParam(DB_R_RESULT,dbresult).setSystemParam(MODULE_DONEXTMSG,false);
             }
         }
         else if(ifQueryDb==false)
-            return msg.setParam(MODULE_DONEXTMSG,"false");
+            return msg.setSystemParam(MODULE_DONEXTMSG,false);
         else
             return null ;
     }

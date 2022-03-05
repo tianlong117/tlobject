@@ -78,7 +78,7 @@ public class TLServerManagerClientModule extends TLBaseServiceModule {
             sparam.put("token",token);
             sparam.put("cerFile",cerFile) ;
             sparam.put("autoConnect","false") ;
-            TLMsg serverMsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_ADDSERVER).setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server)
+            TLMsg serverMsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_ADDSERVER).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server)
                     .setParam(SOCKETCLIENTAGENTPOOL_P_SERVERPARAM,sparam);
             putMsg(socketClientAgentPool,serverMsg);
         }

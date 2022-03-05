@@ -230,7 +230,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
         }
         redis.close();
          **/
-        return  createMsg().setParam(DB_R_RESULT,datas).setParam(MODULE_DONEXTMSG,"false");
+        return  createMsg().setParam(DB_R_RESULT,datas).setSystemParam(MODULE_DONEXTMSG,false);
     }
     protected TLMsg delContentFromMapTable(TLMsg msg , String mapTableName) {
         TLMsg  returnMsg =getValueFromRedis(msg);
@@ -250,7 +250,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         redisTable.del(rediskey);
-        return  createMsg().setParam(DB_R_RESULT,result).setParam(MODULE_DONEXTMSG,"false");
+        return  createMsg().setParam(DB_R_RESULT,result).setSystemParam(MODULE_DONEXTMSG,false);
     }
     protected TLMsg delWithMapTable(TLMsg msg , String mapTableName) {
         TLMsg returnMsg =onDelete(this, msg);

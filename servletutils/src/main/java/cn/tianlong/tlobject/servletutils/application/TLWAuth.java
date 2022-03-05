@@ -244,7 +244,7 @@ public class TLWAuth extends TLBaseModule {
             StringBuffer logBuffer = new StringBuffer().append("没有对应认证策略:") .append(AUTH_P_POLICYNAME).append((String) msg.getParam(AUTH_P_POLICYNAME))
                     .append(AUTH_P_TAG).append((String) msg.getParam(AUTH_P_TAG));
             putLog(logBuffer.toString(),LogLevel.ERROR,"auth");
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         }
         if(policy.isEmpty())
             return null ;
@@ -260,24 +260,24 @@ public class TLWAuth extends TLBaseModule {
             if(denyMsgId !=null)
                putMsg(this,createMsg().setMsgId(denyMsgId).setParam("type",policyResult[0])
                     .setParam("value",policyResult[1]));
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         }
         return null ;
     }
 
     protected TLMsg authInModule(Object fromWho, TLMsg msg) {
-        TLMsg dmsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg dmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
         if(dmsg==null)
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         String checkModule=((IObject)fromWho).getName();
         return authForMsg(checkModule,  dmsg) ;
     }
 
     protected TLMsg authInUrlMap(Object fromWho, TLMsg msg) {
-        TLMsg doWithmsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
         TLMsg dmsg = (TLMsg) doWithmsg.getParam(msgNameForCheck);
         if(dmsg==null)
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         String checkModule=dmsg.getDestination();
         return authForMsg( checkModule,  dmsg) ;
     }
@@ -303,7 +303,7 @@ public class TLWAuth extends TLBaseModule {
             logBuffer.append("没有对应认证策略:模块: ").append(checkModule).append("动作:").append(checkAction)
                     .append("认证策略:").append(policyName);
             putLog(logBuffer.toString(),LogLevel.ERROR,"auth");
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         }
         if(policy.isEmpty())
             return null ;
@@ -317,7 +317,7 @@ public class TLWAuth extends TLBaseModule {
             if(denyMsgId !=null)
                putMsg(this,createMsg().setMsgId(denyMsgId).setParam("type",policyResult[0])
                                                .setParam("value",policyResult[1]));
-            return createMsg().setParam(MODULE_DONEXTMSG,"false");
+            return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         }
         return null ;
     }

@@ -105,7 +105,7 @@ public class TLMsgBroadCast extends TLBaseModule {
             bmsg.setWaitFlag(false);
             putLog("broadCastMsg broadcasting, receiver:" + bmsg.getDestination()+ "  messageType:" + messageType , LogLevel.DEBUG, "broadcast");
             if(threadPool !=null)
-                bmsg.setParam(INTHREADPOOL,true).setParam(THREADPOOLNAME,threadPool) ;
+                bmsg.setSystemParam(INTHREADPOOL,true).setSystemParam(THREADPOOLNAME,threadPool) ;
             putMsg(this,bmsg);
         }
     }

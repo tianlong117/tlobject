@@ -61,6 +61,7 @@ public interface TLParamString {
     final String MSG_P_NEXTMSGID= "nextMsgid";
     final String MSG_P_MODULE= "module";
     final String MSG_P_PARAMS= "params";
+    final String MSG_P_SYSTEMARGS= "systemArgs";
 
     final String FACTORY_ADDFACTORY = "addFactory";
     final String FACTORY_GETMODULE = "getModule";
@@ -198,6 +199,7 @@ public interface TLParamString {
     final String THREADPOOL_POOL = "threadPool";
     final String THREADPOOL_TASK = "task";
     final String THREADPOOL_P_POOLTYPE = "poolType";
+    final String THREADPOOL_P_TASKMSG = "taskMsg";
     final String THREADPOOL_P_POOLSIZE = "poolSize";
     final String THREADPOOL_P_TASKMODULE = "taskModule";
 
@@ -301,7 +303,7 @@ public interface TLParamString {
     final String SOCKETCLIENTAGENTPOOL_P_SERVERPARAM = "serverParam";
 
     final String NETSESSION_P_WAITTIME = "waittimeOnNetSession";
-    final String ETSESSION_P_RETRYTIMES = "retrytimesOnNetSession";
+    final String NETSESSION_P_RETRYTIMES = "retrytimesOnNetSession";
 
     final String USERMANAGER_SETSERVER= "setServer";
     final String USERMANAGER_LOGIN= "login";

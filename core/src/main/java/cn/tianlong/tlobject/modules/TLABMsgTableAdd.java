@@ -60,7 +60,7 @@ public  class TLABMsgTableAdd extends TLBaseModule {
 
     private TLMsg fromFactoryGetModule(Object fromWho, TLMsg msg) {
         if (msgTable == null || msgTable.isEmpty()) return msg;
-        TLMsg  returnMsg = (TLMsg) msg.getParam(PRERESULT);
+        TLMsg  returnMsg = (TLMsg) msg.getSystemParam(PRERESULT);
         if(returnMsg ==null || returnMsg.getParam("new")==null) return msg;
         String moduleName= (String) returnMsg.getParam("moduleName");
         if(moduleName ==null || moduleName==name) return msg;

@@ -373,7 +373,7 @@ public class TLTable extends TLBaseDataUnit {
         if (resultFor == null)
             return msg;
         else {
-            msg.setAction((String) msg.getParam(RESULTACTION));
+            msg.setAction((String) msg.getSystemParam(RESULTACTION));
             putMsg((IObject) resultFor, msg);
             return msg;
         }

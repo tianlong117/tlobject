@@ -235,7 +235,6 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         int cmdCode = (int) msg.getParam(WEBSOCKET_P_BINARYCMDCODE);
         int sessionId = getBinarySessionId(msg);
         String binaryMsgid = (msg.isNull(WEBSOCKET_P_BINARYMSGID)) ? WEBSOCKET_V_BINARYRECEIVEFILEMSGID : (String) msg.getParam(WEBSOCKET_P_BINARYMSGID);
-        msg.removeParam(DOWITHMAG);
         msg.removeParam(WEBSOCKET_P_BINARYSESSION);
         msg.removeParam(WEBSOCKET_P_IFMAKESESSION);
         HashMap<String, Object> contentMap = new HashMap<>();

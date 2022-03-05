@@ -524,7 +524,7 @@ public class TLDataBase extends TLBaseModule {
             triggerObj = getModule( prefixTrigger+triggerName,classFile,false,false,tparams);
             dbObjs.put(prefixTrigger+triggerName, triggerObj);
         }
-        TLMsg trmsg = TLMsgUtils.strToMsg(trigAction).setDestination(prefixTrigger+triggerName).setParam(IFLOADMODULE ,false);
+        TLMsg trmsg = TLMsgUtils.strToMsg(trigAction).setDestination(prefixTrigger+triggerName).setSystemParam(IFLOADMODULE ,false);
         TLMsg bmsg = createMsg().setAction(addTriggerAction).setParam("action", onAction).setParam("msg", trmsg);
         putMsg(tbobj, bmsg);
         TLMsg addModuleMsg =createMsg().setAction(ADDMODULE).setParam(MODULENAME,prefixTrigger+triggerName).setParam(INSTANCE,triggerObj);

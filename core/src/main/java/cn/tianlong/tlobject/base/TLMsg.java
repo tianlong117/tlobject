@@ -412,6 +412,7 @@ public class TLMsg implements Serializable , Cloneable{
         waitFlag=msg.getWaitFlag();
         source=msg.getSource();
         previous=msg.getPrevious();
+        addSystemArgs(msg.getSystemArgs());
         return this;
     }
     public TLMsg copyTo(TLMsg nmsg){

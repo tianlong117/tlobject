@@ -91,7 +91,7 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     protected TLMsg loginBeforeGsonMap(Object fromWho, TLMsg msg) {
-        TLMsg doWithmsg = (TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
         TLMsg dmsg = (TLMsg) doWithmsg.getParam("domsg");
         return login(fromWho, dmsg);
     }
@@ -143,7 +143,7 @@ public class TLWUserByToken extends TLWAbstractUser {
         }
         if (token == null )
         {
-            TLMsg domsg = (TLMsg) msg.getParam(DOWITHMAG);
+            TLMsg domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
             if(domsg ==null)
                 return null ;
             token = (String) domsg.getParam(TOKENUSER_P_TOKEN);

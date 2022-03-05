@@ -29,7 +29,7 @@ public class TLMsgTask extends TLBaseModule {
     protected Map<String, TLMsg>  taskMsgTable = new ConcurrentHashMap<>();
     protected Map<String, HashMap<String, Object>> taskDatas = new ConcurrentHashMap<>();
     protected int poolSize = 0;
-    protected TLMsg denyMsg = new TLMsg().setParam(MODULE_DONEXTMSG, "false");
+    protected TLMsg denyMsg = new TLMsg().setSystemParam(MODULE_DONEXTMSG,false);
 
     public TLMsgTask() {
         super();

@@ -37,7 +37,7 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onDelete(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if(rediskey ==null)
@@ -54,7 +54,7 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if(rediskey ==null)
@@ -79,7 +79,7 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
     @Override
     protected TLMsg onQuery(Object fromWho, TLMsg msg) {
         TLMsg preResultMsg =(TLMsg) msg.getParam(PRERESULT);
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         if(preResultMsg ==null)
             return getValueFromRedis(nmsg);
         else
@@ -101,7 +101,7 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
                 List result = new ArrayList();
                 if(ifExist)
                     result.add(value);
-                return msg.setParam(DB_R_RESULT,result).setParam(MODULE_DONEXTMSG,"false");
+                return msg.setParam(DB_R_RESULT,result).setSystemParam(MODULE_DONEXTMSG,false);
             }
             else {
                 List<HashMap<String,Object>> dbdata;
@@ -113,7 +113,7 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
                         if(ifQueryDb)
                             return (TLMsg) msg.getParam(PRERESULT);
                         else
-                            return msg.setParam(MODULE_DONEXTMSG,"false");
+                            return msg.setSystemParam(MODULE_DONEXTMSG,false);
                     }
                     dbdata = redisToDbdata(members,key);
                 }
@@ -124,11 +124,11 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
                         if(ifQueryDb)
                             return (TLMsg) msg.getParam(PRERESULT);
                         else
-                            return msg.setParam(MODULE_DONEXTMSG,"false");
+                            return msg.setSystemParam(MODULE_DONEXTMSG,false);
                     }
                     dbdata = redisToDbdata(members,key);
                 }
-                return msg.setParam(DB_R_RESULT,dbdata).setParam(MODULE_DONEXTMSG,"false");
+                return msg.setParam(DB_R_RESULT,dbdata).setSystemParam(MODULE_DONEXTMSG,false);
             }
         }
         return (TLMsg) msg.getParam(PRERESULT);

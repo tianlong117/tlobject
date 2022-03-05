@@ -132,12 +132,11 @@ public class TLWebSocketServer extends TLBaseServer {
         } else
             return false;
     }
-    public void handleClientMsg(TLMsg clientMsg,  Channel clientChannel) {
-        TLMsg returnMsg = clientMsgHandler.getMsg(this, clientMsg);
-        if (returnMsg != null  && returnMsg.parseBoolean(SOCKETSERVER_R_IFRETURN,false))
+    public void handleClientMsg(TLMsg handleMsg,  Channel clientChannel) {
+        TLMsg returnMsg = clientMsgHandler.getMsg(this, handleMsg);
+        if (returnMsg != null  && ((Boolean)returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true)
         {
-            returnMsg.removeParam(SOCKETSERVER_R_IFRETURN);
-            HashMap<String, Object> serverData = returnMsg.getArgs();
+             HashMap<String, Object> serverData = returnMsg.getArgs();
             if(serverData !=null && !serverData.isEmpty())
             {
                 String jsonString = gson.toJson(serverData);

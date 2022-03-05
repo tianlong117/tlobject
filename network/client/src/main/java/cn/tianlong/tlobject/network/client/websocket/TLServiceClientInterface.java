@@ -61,19 +61,19 @@ public class TLServiceClientInterface extends TLSocketClientAgentPool {
          List<String> services = msgToService.get(msgid);
         if (services == null &&  defaultServer !=null)
         {
-            msg.setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
+            msg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
             return toService(fromWho,msg) ;
         }
         int serviceSize =services.size();
         if( serviceSize==1 )
         {
-            msg.setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,services.get(0));
+            msg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,services.get(0));
             return toService(fromWho,msg) ;
         }
         ArrayList<TLMsg> returnList = new ArrayList<>();
         for (String server : services) {
             TLMsg smsg =createMsg().copyFrom(msg);
-            smsg.setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+            smsg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
             TLMsg returnMsg = toService(fromWho,smsg);
             returnList.add(returnMsg);
         }
@@ -81,7 +81,7 @@ public class TLServiceClientInterface extends TLSocketClientAgentPool {
     }
 
     private TLMsg toService(Object fromWho, TLMsg msg) {
-        if(msg.parseBoolean(WEBSOCKETCLIENTAGENT_ISWAIT,true))
+        if((Boolean)msg.getSystemParam(WEBSOCKETCLIENTAGENT_ISWAIT,true) ==true)
           return   putToServerAndWait(fromWho,msg);
         else
           return   putMsgToServer(fromWho,msg);

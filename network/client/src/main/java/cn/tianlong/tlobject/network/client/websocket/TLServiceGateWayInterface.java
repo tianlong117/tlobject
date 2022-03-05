@@ -59,7 +59,7 @@ public class TLServiceGateWayInterface extends TLSocketClientAgentPool {
         datas.put("msgids",msgids);
         TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
                 .setParam(WEBSOCKET_P_CONTENT,datas)
-                .setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName);
+                .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName);
        putToServer(this,serverMsg);
     }
 
@@ -98,7 +98,7 @@ public class TLServiceGateWayInterface extends TLSocketClientAgentPool {
         TLMsg toUserMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET);
         userInfo.put(MSG_P_MSGID,"fromService");
         userInfo.put("servicedatas",returnMsg.getArgs());
-        toUserMsg.setParam(WEBSOCKET_P_CONTENT,userInfo).setParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+        toUserMsg.setParam(WEBSOCKET_P_CONTENT,userInfo).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
         putToServer(this,toUserMsg);
         return null ;
     }

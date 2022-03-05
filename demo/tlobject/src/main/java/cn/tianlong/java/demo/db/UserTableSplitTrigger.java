@@ -30,7 +30,7 @@ public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
 
     @Override
     protected TLMsg selectTable(Object fromWho, TLMsg msg){
-        TLMsg nmsg=(TLMsg) msg.getParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
         String isWait = (String) nmsg.getParam("isWait");
         if(isWait!=null && isWait.equals("false"))
             nmsg.setWaitFlag(false);
