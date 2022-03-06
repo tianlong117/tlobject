@@ -129,13 +129,13 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case WEBSOCKETCLIENTAGENT_PUTTOSOCKET:
+            case WEBSOCKET_PUT:
                 returnMsg = putToServer(fromWho, msg);
                 break;
-            case SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT:
+            case WEBSOCKET_PUTANDWAIT:
                 returnMsg = putToServerAndWait(fromWho, msg);
                 break;
-            case SOCKETCLIENTAGENTPOOL_PUTMSGTOSERVER:
+            case WEBSOCKET_PUTMSG:
                 returnMsg = putMsgToServer(fromWho, msg);
                 break;
             case WEBSOCKET_SENDFILE:
@@ -220,14 +220,21 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         return TLBaseWebSocketSendFile.sendFile(this,msg,netSession,server);
     }
 
+    protected TLMsg putToServer(Object fromWho, TLMsg msg) {
+        String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
+        IObject server =getServer(serverName);
+        if(server ==null)
+            return createMsg().setParam(RESULT,0) ;
+        return putMsg(server,msg);
+    }
+
     protected TLMsg putMsgToServer(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
         IObject server =getServer(serverName);
         if(server ==null)
             return createMsg().setParam(RESULT,0) ;
-        Map<String,Object> content =msg.getArgs();
-        TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
-                .setParam(WEBSOCKET_P_CONTENT,TLMsgUtils.mapToWebsocketJsonMap(content));
+        TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
+                .setParam(WEBSOCKET_P_CONTENT,msg.getArgs());
         return putMsg(server,serverMsg);
     }
 
@@ -247,7 +254,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         }
         String sessionId = netSession.makeSessionId();
         systemArgs.put(WEBSOCKET_P_SESSION,sessionId);
-        TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
+        TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
                 .setParam(WEBSOCKET_P_CONTENT,content);
         TLMsg resultMsg=putMsg(server,serverMsg);
         Boolean result = (Boolean) resultMsg.getParam(RESULT);
@@ -257,37 +264,19 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         if(serverReturnMsg.getMsgId() !=null)
             return getMsg(this,serverReturnMsg);
         else
-            return serverReturnMsg ;
+        {
+            String arrivedMsgId= (String) serverReturnMsg.getSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID);
+            if(arrivedMsgId !=null)
+                return getMsg(this,serverReturnMsg.setMsgId(arrivedMsgId));
+        }
+         return serverReturnMsg ;
     }
 
     protected TLMsg proxyPut(Object fromWho, TLMsg msg) {
-        String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
-        IObject server =getServer(serverName);
-        if(server ==null)
-            return createMsg().setParam(RESULT,0) ;
-        String module = (String) msg.getParam(MSG_P_MODULE);
-        if(module ==null)
-        {
-            module =msg.getNowObject() ;
-            msg.setParam(MSG_P_MODULE,module);
-        }
-        int waitTime = (int) msg.getSystemParam(NETSESSION_P_WAITTIME,this.waitTime );
-        int retryTimes = (int) msg.getSystemParam(NETSESSION_P_RETRYTIMES,0);
-        String sessionId = netSession.makeSessionId();
-        msg.clearSystemArgs();
-        msg.setSystemParam(WEBSOCKET_P_SESSION,sessionId);
-        TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
-                .setParam(WEBSOCKET_P_CONTENT,TLMsgUtils.msgToMap(msg));
-        TLMsg resultMsg=putMsg(server,serverMsg);
-        Boolean result = (Boolean) resultMsg.getParam(RESULT);
-        if(result ==false)
-            return resultMsg ;
-        TLMsg serverReturnMsg = netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
-        if(serverReturnMsg.getMsgId() !=null)
-            return getMsg(this,serverReturnMsg);
-        else
-            return serverReturnMsg ;
+        msg.setArgs(TLMsgUtils.msgToMap(msg));
+        return putToServerAndWait( fromWho, msg) ;
     }
+
     protected TLMsg getServer(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
         if(serverName !=null)
@@ -297,73 +286,76 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     }
 
     protected TLMsg onMessage(Object fromWho, TLMsg msg) {
-        TLMsg smsg  = (TLMsg) msg.getParam(USERMANAGER_P_CLIENTMSG);
-        if(smsg ==null)
+        TLMsg serverMsg  = (TLMsg) msg.getParam(USERMANAGER_P_CLIENTMSG);
+        String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
+        if(serverMsg ==null)
         {
             String content = (String) msg.getParam(WEBRESPONSE);
             if(content.equals("otherlogin"))
                 return createMsg().setParam("reConnect",false);
-            smsg =  TLMsgUtils.websocketJsonStrToMsg(content);
-            if(smsg ==null)
+            serverMsg =  TLMsgUtils.websocketJsonStrToMsg(content);
+            if(serverMsg ==null)
             {
                 putLog("非json字符:"+content, LogLevel.WARN);
                 return null ;
             }
         }
-        if(!smsg.systemParamIsNull(WEBSOCKET_P_SESSION)){
-           String sessionId =(String) smsg.getSystemParam(WEBSOCKET_P_SESSION);
-            netSession.saveSesstiondata( sessionId,smsg);
+        serverMsg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+        if(!serverMsg.systemParamIsNull(WEBSOCKET_P_SESSION)){
+           String sessionId =(String) serverMsg.getSystemParam(WEBSOCKET_P_SESSION);
+            netSession.saveSesstiondata( sessionId,serverMsg);
             return null;
         }
-        String notifyId = (String) smsg.getSystemParam( WEBSOCKET_P_NOTIFYID);
-        String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
-        smsg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
-        smsg.removeParam( WEBSOCKET_P_NOTIFYID);
+        String notifyId = (String) serverMsg.getSystemParam( WEBSOCKET_P_NOTIFYID);
+        String  arrivedMsgid = (String) serverMsg.getSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID);
+        boolean socketSessionIsarrived = (boolean) serverMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED,false);
+        if(socketSessionIsarrived ==true && notifyId !=null)
+        {
+            HashMap<String,Object> echodata = new HashMap<>();
+            echodata.put(MSG_P_SYSTEMARGS,serverMsg.getSystemArgs());
+            TLMsg echoMsg =createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT,echodata)
+                    .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+            putToServer(this,echoMsg);
+        }
         TLMsg returnMsg ;
         if(onMessageModule !=null )
-            returnMsg= putMsg(onMessageModule, smsg);
+            returnMsg= putMsg(onMessageModule, serverMsg);
         else  if(onMessageMsgid !=null )
         {
-            TLMsg mmsg =createMsg().setMsgId(onMessageMsgid).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server).addArgs(smsg.getArgs());
+            TLMsg mmsg =createMsg().setMsgId(onMessageMsgid).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server).addArgs(serverMsg.getArgs());
             returnMsg=getMsg(this, mmsg );
         }
         else
-            returnMsg=  getMsg(this, smsg);
-        if(notifyId!=null)
+            returnMsg=  getMsg(this, serverMsg);
+        if(notifyId !=null)
         {
-            if(returnMsg !=null)
-            {
-                Map<String,Object>  params =returnMsg.getArgs();
-                if(params !=null && !params.isEmpty())
-                {
-                    HashMap<String,Object> rparams =new HashMap<>();
-                    rparams.putAll(params);
-                    returnMsg.clearParam();
-                    returnMsg.setParam(MSG_P_PARAMS,rparams);
-                }
-                returnMsg.setParam(WEBSOCKET_P_NOTIFYID,notifyId);
-            }
-            else
-                returnMsg= createMsg().setParam(WEBSOCKET_P_NOTIFYID,notifyId);
+            returnMsg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_NOTIFYID,notifyId,returnMsg);
+            if( arrivedMsgid !=null)
+                returnMsg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSIONARRIVEDMSGID,  arrivedMsgid,returnMsg);
         }
-        if (notifyId!=null ||(returnMsg != null  && returnMsg.parseBoolean(SOCKETSERVER_R_IFRETURN,false)))
+
+        if(notifyId!=null
+           || (returnMsg !=null && ((Boolean)returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true))
         {
-            TLMsg toUserMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET);
-            toUserMsg.setParam(WEBSOCKET_P_CONTENT,returnMsg.getArgs()).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
+            TLMsg toUserMsg =createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT,returnMsg.getArgs())
+                            .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);
             return putToServer(this,toUserMsg);
         }
         return null ;
     }
+
     protected TLMsg closeServer(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
         return closeServer(  serverName);
     }
+
     protected TLMsg closeServer(String serverName) {
         IObject server =sucessServers.get(serverName);
         if(server ==null)
             return null ;
         return putMsg(server,createMsg().setAction(WEBSOCKET_CLOSE)) ;
     }
+
     protected void removeServer(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
         closeServer(serverName);
@@ -381,6 +373,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
             return;
         addAndConnectToServer(serverName,serverParams) ;
     }
+
     protected void fromAgent(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
@@ -393,13 +386,6 @@ public class TLSocketClientAgentPool extends TLBaseModule {
                     .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName).setParam(WEBSOCKET_P_STATUS,status));
     }
 
-    protected TLMsg putToServer(Object fromWho, TLMsg msg) {
-        String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
-        IObject server =getServer(serverName);
-        if(server ==null)
-            return createMsg().setParam(RESULT,0) ;
-        return putMsg(server,msg);
-    }
     protected IObject getServer( String serverName){
          if(serverName ==null)
              serverName =defaultServer ;
@@ -407,6 +393,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
              return null ;
          return  sucessServers.get(serverName);
      }
+
     protected class myConfig extends TLModuleConfig {
         protected HashMap<String, HashMap<String, String>> servers;
          public myConfig(String configFile ,String configDir) {

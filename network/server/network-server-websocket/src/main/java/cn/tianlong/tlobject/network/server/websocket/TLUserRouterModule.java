@@ -125,7 +125,7 @@ public class TLUserRouterModule extends TLBaseModule {
                 msgid ="fromRouteServer" ;
             sdatas.put("msgid",msgid);
             IObject serverObj =servers.get(server) ;
-            TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET).setParam(WEBSOCKET_P_CONTENT,sdatas);
+            TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT,sdatas);
             return putMsg(serverObj,serverMsg);
         }
        if(defaultServer !=null){
@@ -133,7 +133,7 @@ public class TLUserRouterModule extends TLBaseModule {
                msgid ="fromRouteServer" ;
            sdatas.put("msgid",msgid);
            sdatas.put("server",server);
-           TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
+           TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
                    .setParam(WEBSOCKET_P_CONTENT,sdatas).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
           return putMsg(socketClientAgentPool,serverMsg);
        }

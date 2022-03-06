@@ -72,8 +72,20 @@ public class WebSocketServerHandler extends TLBaseServerInboundHandler<Object> {
             server.putLog("client发送非json字符，IP：" + ip , LogLevel.WARN);
             return ;
         }
+        boolean socketSessionIsarrived = (boolean) clientMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED,false);
+        if(socketSessionIsarrived ==true && !clientMsg.systemParamIsNull(WEBSOCKET_P_SESSION))
+            notifySessionIsArrived (clientMsg,ctx);
         String channelName =ctx.channel().id().asLongText();
         doClientMsg(clientMsg ,ip ,channelName,ctx);
+    }
+
+    private void notifySessionIsArrived(TLMsg clientMsg, ChannelHandlerContext ctx) {
+        HashMap<String,Object> echodata = new HashMap<>();
+        echodata.put(MSG_P_SYSTEMARGS,clientMsg.getSystemArgs());
+        String content =gson.toJson(echodata);
+        clientMsg.removeSystemParam(WEBSOCKET_P_SESSION);
+        TextWebSocketFrame tws = new TextWebSocketFrame(content);
+        ctx.channel().writeAndFlush(tws);
     }
 
     private void handlerBinaryWebSocketFrame(ChannelHandlerContext ctx, BinaryWebSocketFrame frame) {

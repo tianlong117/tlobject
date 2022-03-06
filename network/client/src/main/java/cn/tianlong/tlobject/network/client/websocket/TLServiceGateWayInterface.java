@@ -57,7 +57,7 @@ public class TLServiceGateWayInterface extends TLSocketClientAgentPool {
         HashMap<String ,Object> datas =new HashMap<>() ;
         datas.put("msgid","setServiceMsgid");
         datas.put("msgids",msgids);
-        TLMsg serverMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET)
+        TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
                 .setParam(WEBSOCKET_P_CONTENT,datas)
                 .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName);
        putToServer(this,serverMsg);
@@ -95,7 +95,7 @@ public class TLServiceGateWayInterface extends TLSocketClientAgentPool {
         if(sesstionId !=null)
             returnMsg.setParam(WEBSOCKET_P_SESSION,sesstionId);
         Map<String,Object> userInfo = (Map<String, Object>) gateWayDatas.get(SERVICEGATEMAY_P_USERINFO);
-        TLMsg toUserMsg =createMsg().setAction(WEBSOCKETCLIENTAGENT_PUTTOSOCKET);
+        TLMsg toUserMsg =createMsg().setAction(WEBSOCKET_PUT);
         userInfo.put(MSG_P_MSGID,"fromService");
         userInfo.put("servicedatas",returnMsg.getArgs());
         toUserMsg.setParam(WEBSOCKET_P_CONTENT,userInfo).setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);

@@ -98,9 +98,9 @@ public class appClientAgent extends adminCommon {
     public TLMsg putToServer(String moduleName,String server ,TLMsg msg){
         TLMsg serverMsg =createMsg();
         if(msg.parseBoolean("waitServerReturn",true))
-            serverMsg.setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT) ;
+            serverMsg.setAction(WEBSOCKET_PUTANDWAIT) ;
         else
-            serverMsg.setAction(SOCKETCLIENTAGENTPOOL_PUTMSGTOSERVER) ;
+            serverMsg.setAction(WEBSOCKET_PUTMSG) ;
         msg.removeParam("waitServerReturn");
         serverMsg.addMap(msg.getArgs())
                  .setParam(MSG_P_ACTION,msg.getAction())

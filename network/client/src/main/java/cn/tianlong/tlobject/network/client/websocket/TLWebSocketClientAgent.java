@@ -106,7 +106,7 @@ public class TLWebSocketClientAgent extends TLBaseModule {
             case WEBSOCKET_CONNECT:
                 returnMsg =connect( fromWho,  msg);
                 break;
-            case WEBSOCKETCLIENTAGENT_PUTTOSOCKET:
+            case WEBSOCKET_PUT:
                 returnMsg =postToSocket( fromWho,  msg);
                 break;
             case WEBSOCKET_SENDFILE:

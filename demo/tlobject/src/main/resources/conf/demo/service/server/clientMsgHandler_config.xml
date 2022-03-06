@@ -2,7 +2,7 @@
 <moduleConfig>
     <!-- 目录相对于filter配置目录下-->
     <params>
-        <msgidInPool   value="getFile;findUser;fromXiaoMing" />
+        <msgidInPool   value="getFile;findUser;fromXiaoMing99" />
         <directToModule value="wife" />
     </params>
     <modulesParams>

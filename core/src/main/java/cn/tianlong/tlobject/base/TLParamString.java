@@ -253,6 +253,8 @@ public interface TLParamString {
     final String WEBSOCKET_CLOSE = "close";
     final String WEBSOCKET_P_CONTENT = "content";
     final String WEBSOCKET_P_SESSION = "socketSession";
+    final String WEBSOCKET_P_SESSIONISARRIVED = "sessionIsarrived";
+    final String WEBSOCKET_P_SESSIONARRIVEDMSGID = "sessionarrivedmsgid";
     final String WEBSOCKET_P_BINARYSESSION = "binarySession";
     final String WEBSOCKET_P_BINARYCMDCODE = "cmdcode";
     final String WEBSOCKET_P_IFMAKESESSION = "ifMakeSession";
@@ -289,12 +291,12 @@ public interface TLParamString {
     final String SERVICEGATEMAY_P_USERID = "userid";
     final String SERVICEGATEMAY_P_USERINFO = "userInfoInGeteWay";
 
+    final String WEBSOCKET_PUT = "postToSocket";
+    final String WEBSOCKET_PUTANDWAIT = "putToAndWait";
+    final String WEBSOCKET_PUTMSG = "putMsgToSocket";
     final String WEBSOCKETCLIENTAGENT_GETLOGINSTATE = "getLoginState";
-    final String WEBSOCKETCLIENTAGENT_PUTTOSOCKET = "postToSocket";
     final String WEBSOCKETCLIENTAGENT_PUTTOSERVICE = "postToService";
     final String WEBSOCKETCLIENTAGENT_ISWAIT = "isWaitService";
-    final String SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT = "putToServerAndWait";
-    final String SOCKETCLIENTAGENTPOOL_PUTMSGTOSERVER = "putMsgToServer";
     final String SOCKETCLIENTAGENTPOOL_ADDSERVER = "addServer";
     final String SOCKETCLIENTAGENTPOOL_REMOVESERVER= "removeServer";
     final String SOCKETCLIENTAGENTPOOL_GETSERVER = "getServer";
@@ -335,8 +337,6 @@ public interface TLParamString {
     final String USERMANAGER_R_LOGINRESULT = "code";
     final String USERMANAGER_R_USERINFO = "userInfo";
     final String USERMANAGER_R_USERIP = "clientIP";
-    final String CLIENTMSGHANDLER_TOCLIENTANDWWAIT = "toClientAndWait";
-    final String CLIENTMSGHANDLER_TOCLIENT = "toClient";
 
     final String USERROUTE_ROUSER = "toUser";
     final String USERROUTE_TOSERVER= "toServer";

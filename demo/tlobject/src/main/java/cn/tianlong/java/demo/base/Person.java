@@ -114,7 +114,7 @@ public class Person extends DemoCommon {
 
     private TLMsg sing(Object fromWho, TLMsg msg) {
         printState(" 开心的唱起了歌....");
-        TLMsg wmsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("content","来自小明的消息")
+        TLMsg wmsg =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setParam("content","来自小明的消息")
                 .setParam(MSG_P_MSGID,"fromXiaoMing");
         putMsg("wife",wmsg);
         say(" 给老婆发送个消息");
@@ -149,8 +149,9 @@ public class Person extends DemoCommon {
                     e.printStackTrace();
                 }
                 TLMsg cmsg =createMsg().setMsgId("fromServerWife");
-                TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToMap(cmsg)) ;
-                return  returnMsg ;
+                putToClient(cmsg,true,msg.getSystemArgs());
+            //    TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToMap(cmsg)) ;
+           //     return  returnMsg ;
             }
             else {
                 say( "屋子亮啦，回家的感觉真好。 上上网吧 " + thread);
@@ -170,6 +171,17 @@ public class Person extends DemoCommon {
         }
         return  null ;
     }
+
+    private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
+        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
+        if( !wait)
+            msg.setAction(WEBSOCKET_PUTMSG);
+        else
+            msg.setAction(WEBSOCKET_PUTANDWAIT);
+       TLMsg returnMsg =  putMsg("clientMsgHandler",msg);
+       TLMsgUtils.printMsg(returnMsg);
+    }
+
     private void webclient(String url) {
         TLMsg msg =createMsg().setAction("get") .setParam("url", url);
         TLMsg resultMsg =putMsg("httpClient", msg);
@@ -214,14 +226,14 @@ public class Person extends DemoCommon {
     }
 
     private void toWife() {
-        TLMsg msg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("data","wakeup1")
+        TLMsg msg =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setParam("data","wakeup1")
                 .setParam(MSG_P_MSGID,"fromXiaoMing");
        TLMsg returnMsg= putMsg("socketClientAgentPool",msg);
        System.out.print("1......");
        TLMsgUtils.printMsg(returnMsg);
 
          for(int i =0 ; i<1 ; i++){
-             TLMsg msg1 =createMsg().setAction(SOCKETCLIENTAGENTPOOL_PUTTOSERVERANDWAIT).setParam("data","wakeup"+i)
+             TLMsg msg1 =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setParam("data","wakeup"+i)
                      .setParam(MSG_P_MSGID,"fromXiaoMing").setWaitFlag(false).setSystemParam(INTHREADPOOL,true);
              TLMsg returnMsg1= putMsg("socketClientAgentPool",msg1);
              System.out.print(i+"......");

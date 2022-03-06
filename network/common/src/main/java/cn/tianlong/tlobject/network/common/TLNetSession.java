@@ -35,6 +35,9 @@ public class TLNetSession extends TLBaseModule {
 
     public TLNetSession(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
+        String uuid = UUID.randomUUID().toString();
+        uuid = uuid.replace("-", "");
+        this.name =this.name+"_"+uuid;
     }
 
     @Override
@@ -76,7 +79,7 @@ public class TLNetSession extends TLBaseModule {
     }
 
     public String makeSessionId() {
-      return clientIp+":"+name+Thread.currentThread().getName()+System.currentTimeMillis() ;
+      return name+"_"+Thread.currentThread().getId()+"_"+System.currentTimeMillis() ;
     }
     public synchronized int makeBinSessionId( ) {
        int start =1;

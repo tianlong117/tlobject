@@ -249,11 +249,6 @@ public class TLMsgUtils {
         return jsonString;
     }
 
-    public static String mapToGson(Map<String, Object> map) {
-        GsonBuilder gsonBuilder = new GsonBuilder();
-        String jsonString = gsonBuilder.serializeNulls().create().toJson(map);
-        return jsonString;
-    }
     public static TLMsg jsonToMsg(String jstr) {
         Gson gson = new Gson();
         try {
@@ -337,54 +332,7 @@ public class TLMsgUtils {
         }
         return msg;
     }
-    public static   HashMap<String,Object> mapToWebsocketJsonMap(Map<String,Object> map){
-        if(map ==null || map.isEmpty())
-            return null ;
-        HashMap<String,Object> jsonMap =new HashMap<>();
-        HashMap<String,Object> params = new HashMap<>();
-        params.putAll(map);
-        String msgid = (String) map.get(MSG_P_MSGID);
-        if (msgid != null && !msgid.isEmpty())
-        {
-            jsonMap.put(MSG_P_MSGID,msgid);
-            params.remove(MSG_P_MSGID);
-        }
-        String sessionId = (String) map.get(WEBSOCKET_P_SESSION);
-        if(sessionId !=null)
-        {
-            jsonMap.put(WEBSOCKET_P_SESSION,sessionId);
-            params.remove(WEBSOCKET_P_SESSION);
-        }
-        String nid = (String) map.get( WEBSOCKET_P_NOTIFYID);
-        if(nid !=null)
-        {
-            jsonMap.put(WEBSOCKET_P_NOTIFYID,nid);
-            params.remove(WEBSOCKET_P_NOTIFYID);
-        }
-        String destination = (String) map.get(MSG_P_DESTINATION);
-        if(destination !=null)
-        {
-            jsonMap.put(MSG_P_DESTINATION,destination);
-            params.remove(MSG_P_DESTINATION);
-        }
-        String action = (String) map.get(MSG_P_ACTION);
-        if (action != null && !action.isEmpty())
-        {
-            jsonMap.put(MSG_P_ACTION,action);
-            params.remove(MSG_P_ACTION);
-        }
-        if(params.containsKey(DOWITHMAG))
-           params.remove(DOWITHMAG);
-        if(params.containsKey(USERMANAGER_P_USERCHANNEL))
-            params.remove(USERMANAGER_P_USERCHANNEL);
-        if(params.containsKey(USERMANAGER_P_USERID))
-            params.remove(USERMANAGER_P_USERID);
-        if(params.containsKey(USERMANAGER_P_USERIP))
-            params.remove(USERMANAGER_P_USERIP);
-        if( !params.isEmpty())
-            jsonMap.put(MSG_P_PARAMS,params);
-        return jsonMap ;
-    }
+
     public static   HashMap<String,Object> msgToMap(TLMsg msg){
         HashMap<String,Object> map =new HashMap<>();
         String msgid =msg.getMsgId();
@@ -405,37 +353,30 @@ public class TLMsgUtils {
         return map;
     }
 
-    public static TLMsg jsonMapToMsg(String jstr) {
-        TLMsg msg = null;
-        try {
-            Type type = new TypeToken<Map<String, Object>>() {
-            }.getType();
-            LinkedTreeMap<String, Object> contentmap;
-            try {
-                Gson gson = new Gson();
-                contentmap = gson.fromJson(jstr, type);
-            } catch (JsonSyntaxException e) {
-                contentmap = null;
-            }
-            if (contentmap == null)
-                return null;
-            msg = new TLMsg().addArgs(contentmap);
-        } catch (Exception e) {
-            e.printStackTrace();
+    public static   TLMsg addSystemArgToMsg(String key , Object value , TLMsg msg){
+        Map<String,Object> systemArgs;
+        if(msg ==null)
+        {
+            systemArgs =new HashMap<>();
+            msg =new TLMsg().setParam(MSG_P_SYSTEMARGS,systemArgs);
         }
-        return msg;
-
+        else {
+            systemArgs =  msg.getMapParam(MSG_P_SYSTEMARGS,null);
+            if(systemArgs ==null)
+            {
+                systemArgs =new HashMap<>();
+                msg.setParam(MSG_P_SYSTEMARGS,systemArgs);
+            }
+        }
+        systemArgs.put(key,value);
+        return msg ;
     }
 
     public static void printMsg(TLMsg msg) {
         if (msg == null)
             return;
-        HashMap<String, Object> params = msg.getArgs();
-        if (params == null || params.isEmpty())
-            return;
-        printMap(params);
+        printMap(msgToMap(msg));
     }
-
     public static void printMap(Map<String, Object> map) {
         if (map == null || map.isEmpty())
             return;

@@ -66,20 +66,23 @@ public class TLClientMsgHandler extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case USERMANAGER_GETUSERBYCHANNEL:
-                returnMsg = putMsg(userManagerModule,msg);
-                break;
             case "fromClient":
                 returnMsg = fromClient(fromWho, msg);
                 break;
+            case USERMANAGER_GETUSERBYCHANNEL:
+                returnMsg = putMsg(userManagerModule,msg);
+                break;
+            case WEBSOCKET_PUT:
+                returnMsg = putoClient(fromWho, msg);
+                break;
+            case WEBSOCKET_PUTMSG:
+                returnMsg = putMsgToClient(fromWho, msg);
+                break;
+            case WEBSOCKET_PUTANDWAIT:
+                returnMsg = putToClientAndWait(fromWho, msg);
+                break;
             case WEBSOCKET_SENDFILE:
                 returnMsg = sendFile(fromWho, msg);
-                break;
-            case CLIENTMSGHANDLER_TOCLIENT:
-                returnMsg = toClient(fromWho, msg);
-                break;
-            case CLIENTMSGHANDLER_TOCLIENTANDWWAIT:
-                returnMsg = toClientAndWait(fromWho, msg);
                 break;
             case USERMANAGER_SENDBINARY:
                 returnMsg = sendBinary(fromWho, msg);
@@ -99,79 +102,92 @@ public class TLClientMsgHandler extends TLBaseModule {
         return returnMsg;
     }
 
-    private TLMsg receiveBinary(Object fromWho, TLMsg msg) {
-        if (msg.isNull(WEBSOCKET_P_BINARYCMDCODE))
-            return createMsg().setParam(RESULT, false);
-        byte cmdCode = (byte) msg.getParam(WEBSOCKET_P_BINARYCMDCODE);
-        switch (cmdCode) {
-            case WEBSOCKET_V_BINARYMFILEDATACMDERRORCODE:
-                return sendFileError( fromWho,msg);
-            case WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE:
-                receiveFileOver( msg);
-                break;
-            default:
-                return null;
+    protected TLMsg fromClient(Object fromWho, TLMsg msg) {
+        TLMsg clientMsg = (TLMsg) msg.getParam(USERMANAGER_P_CLIENTMSG);
+        if(clientMsg ==null)
+            return null ;
+        if(!clientMsg.systemParamIsNull(WEBSOCKET_P_NOTIFYID))
+        {
+            String notifyId =(String) clientMsg.getSystemParam(WEBSOCKET_P_NOTIFYID);
+            netSession.saveSesstiondata(notifyId,clientMsg);
+            return null;
         }
-        return null ;
-    }
-
-    private TLMsg sendFileError(Object fromWho, TLMsg msg) {
-        return putMsg(userManagerModule,msg.setAction(USERMANAGER_SENDFILEERROR));
-    }
-    private void receiveFileOver(TLMsg msg) {
-        if(msg.isNull(WEBSOCKET_P_BINARYSESSION) && !(msg.getParam(WEBSOCKET_P_BINARYSESSION) instanceof  Integer ))
-            return ;
-        int sessionId = (int) msg.getParam(WEBSOCKET_P_BINARYSESSION);
-        netSession.saveSesstiondata( String.valueOf(sessionId),msg);
-        return ;
-    }
-    private void onUserLogout(Object fromWho, TLMsg msg) {
-        String channel =  msg.getStringParam(USERMANAGER_P_USERCHANNEL,null);
-        if(channel ==null)
-            return;
-        sessionPool.removeUser(channel);
-    }
-
-    private void threadReturn(Object fromWho, TLMsg msg) {
-        sessionPool.useModuleOver();
-        HashMap<String,Object> channelData = (HashMap<String, Object>) msg.getSystemParam(TASKRESESSIONDATA,null);
-        if(channelData ==null)
-            return;
-        String sesstionId = (String) channelData.get(WEBSOCKET_P_SESSION);
+        String clientMsgid =clientMsg.getMsgId();
+        if(clientMsgid !=null && msgidInPool !=null && msgidInPool.contains(clientMsgid))
+        {
+            despatchMsgBySessionPool(clientMsgid ,clientMsg);
+            return null ;
+        }
+        String destination =clientMsg.getDestination();
+        if(destination !=null)
+        {
+            if(directToModule ==null)
+                return null ;
+            if( !directToModule.contains(destination) && !directToModule.contains("*"))
+                return null ;
+        }
+        if(destination !=null){
+           despatchMsgBySessionPool( clientMsg);
+           return null ;
+        }
+        String sesstionId = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSION);
+        String  arrivedMsgid = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID);
+        TLMsg returnMsg = despatchMsg(clientMsg) ;
         if(sesstionId !=null)
         {
-            Map<String,Object> systemArgs;
-            if(msg ==null)
-            {
-                systemArgs =new HashMap<>();
-                systemArgs.put(WEBSOCKET_P_SESSION,sesstionId);
-                msg =new TLMsg().setParam(MSG_P_SYSTEMARGS,systemArgs);
-            }
-            else {
-                systemArgs =  msg.getMapParam(MSG_P_SYSTEMARGS,null);
-                if(systemArgs ==null)
-                {
-                    systemArgs =new HashMap<>();
-                    systemArgs.put(WEBSOCKET_P_SESSION,sesstionId);
-                    msg.setParam(MSG_P_SYSTEMARGS,systemArgs);
-                }
-                else
-                    systemArgs.put(WEBSOCKET_P_SESSION,sesstionId);
-            }
+            returnMsg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSION,sesstionId,returnMsg);
+            if(arrivedMsgid !=null)
+                returnMsg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSIONARRIVEDMSGID, arrivedMsgid,returnMsg);
+            returnMsg.setSystemParam(SOCKETSERVER_R_IFRETURN,true);
         }
-        if(sesstionId !=null
-                || (msg !=null && ((Boolean)msg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true))
-            toClient(this, msg.addSystemArgs(channelData) );
+        return  returnMsg ;
     }
 
-    private TLMsg sendBinary(Object fromWho, TLMsg msg) {
-        return putMsg(userManagerModule,msg.setDestination(null));
+    private void despatchMsgBySessionPool(TLMsg clientMsg) {
+        HashMap<String,Object> clientSystemArgs = (HashMap<String, Object>) clientMsg.getSystemArgs();
+        String channel = (String) clientSystemArgs.get(USERMANAGER_P_USERCHANNEL);
+        TLBaseModule threadPool = (TLBaseModule) sessionPool.getModuleByIndex(channel);
+        if(threadPool ==null)
+            return  ;
+        clientMsg.setSystemParam(TASKRESESSIONDATA,clientSystemArgs);
+        clientMsg.setSystemParam(TASKRESULTFOR,this);
+        clientMsg.setSystemParam(TASKRESULTACTION,"threadReturn");
+        TLMsg  threadMsg =createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG,clientMsg);
+        putMsg(threadPool,threadMsg);
     }
-    private TLMsg sendFile(Object fromWho, TLMsg msg) {
-        IObject  sendModule = (IObject) getModule(userManagerModule);
-        return TLBaseWebSocketSendFile.sendFile(this,msg,netSession,sendModule);
+
+    protected void despatchMsgBySessionPool(String clientMsgid  ,TLMsg clientMsg) {
+        ArrayList<TLMsg> msgLists =msgTable.get(clientMsgid );
+        if(msgLists==null || msgLists.isEmpty())
+            return;
+        HashMap<String,Object> clientSystemArgs = (HashMap<String, Object>) clientMsg.getSystemArgs();
+        String channel = (String) clientSystemArgs.get(USERMANAGER_P_USERCHANNEL);
+        TLBaseModule threadPool = (TLBaseModule) sessionPool.getModuleByIndex(channel);
+        if(threadPool ==null)
+            return  ;
+        for(int i=0; i<msgLists.size();i++)
+        {
+            TLMsg rmsg =msgLists.get(i);
+            TLMsg bmsg=createMsg().copyFrom(rmsg);
+            bmsg.addArgs(clientMsg.getArgs());
+            bmsg.setSystemParam(TASKRESESSIONDATA,clientSystemArgs);
+            bmsg.setSystemParam(TASKRESULTFOR,this);
+            bmsg.setSystemParam(TASKRESULTACTION,"threadReturn");
+            TLMsg  threadMsg =createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG,bmsg);
+            putMsg(threadPool,threadMsg);
+        }
+
     }
-    private TLMsg toClient(Object fromWho, TLMsg msg) {
+
+    protected TLMsg despatchMsg(TLMsg clientMsg) {
+        return getMsg(this,clientMsg) ;
+    }
+
+    protected TLMsg putoClient(Object fromWho, TLMsg msg) {
+        return putMsg(userManagerModule, msg.setAction(USERMANAGER_PUTTOUSER));
+    }
+
+    protected TLMsg putMsgToClient(Object fromWho, TLMsg msg) {
         TLMsg umsg = createMsg().setAction(USERMANAGER_PUTTOUSER)
                 .setSystemParam(USERMANAGER_P_USERCHANNEL,msg.getSystemParam(USERMANAGER_P_USERCHANNEL))
                 .setSystemParam(USERMANAGER_P_USERID,msg.getSystemParam(USERMANAGER_P_USERID))
@@ -179,7 +195,7 @@ public class TLClientMsgHandler extends TLBaseModule {
         return putMsg(userManagerModule, umsg);
     }
 
-    private TLMsg toClientAndWait(Object fromWho, TLMsg msg) {
+    protected TLMsg putToClientAndWait(Object fromWho, TLMsg msg) {
         Object channel =msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
         if(channel ==null)
         {
@@ -201,7 +217,7 @@ public class TLClientMsgHandler extends TLBaseModule {
         }
         systemArgs.put(WEBSOCKET_P_NOTIFYID,sessionId);
         TLMsg cmsg=createMsg().setAction(USERMANAGER_PUTTOUSER)
-                .setParam(USERMANAGER_P_USERCHANNEL,channel)
+                .setSystemParam(USERMANAGER_P_USERCHANNEL,channel)
                 .setParam(WEBSOCKET_P_CONTENT, content);
         TLMsg resultMsg= putMsg(userManagerModule,cmsg);
         Boolean result =  resultMsg.parseBoolean(RESULT,false);
@@ -215,74 +231,67 @@ public class TLClientMsgHandler extends TLBaseModule {
             return clientReturnMsg ;
     }
 
-    protected TLMsg fromClient(Object fromWho, TLMsg msg) {
-        TLMsg clientMsg = (TLMsg) msg.getParam(USERMANAGER_P_CLIENTMSG);
-        if(clientMsg ==null)
-            return null ;
-        if(!clientMsg.isNull(WEBSOCKET_P_NOTIFYID))
-        {
-            String notifyId =(String) clientMsg.getSystemParam(WEBSOCKET_P_NOTIFYID);
-            netSession.saveSesstiondata(notifyId,clientMsg);
-            return null;
-        }
-        String clientMsgid =clientMsg.getMsgId();
-        if(clientMsgid !=null && msgidInPool !=null && msgidInPool.contains(clientMsgid))
-        {
-            despatchMsgBySessionPool(clientMsgid ,clientMsg);
-            return null ;
-        }
-        String destination =clientMsg.getDestination();
-        if(destination !=null)
-        {
-            if(directToModule ==null)
-                return null ;
-            if( !directToModule.contains(destination) && !directToModule.contains("*"))
-                return null ;
-        }
-        String sesstionId = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSION);
-        TLMsg returnMsg = despatchMsg(clientMsg) ;
-        if(sesstionId ==null)
-             return returnMsg ;
-        HashMap<String,Object> systemArgs = new HashMap<>() ;
-        systemArgs.put(WEBSOCKET_P_SESSION,sesstionId);
-        if(returnMsg !=null)
-        {
-               returnMsg.setParam(MSG_P_SYSTEMARGS,systemArgs)
-                      .setSystemParam(SOCKETSERVER_R_IFRETURN,true);
-            return returnMsg;
-        }
-        else
-            return createMsg().setParam(MSG_P_SYSTEMARGS,systemArgs).setSystemParam(SOCKETSERVER_R_IFRETURN,true);
+    protected TLMsg sendFile(Object fromWho, TLMsg msg) {
+        IObject  sendModule = (IObject) getModule(userManagerModule);
+        return TLBaseWebSocketSendFile.sendFile(this,msg,netSession,sendModule);
     }
 
-    protected void despatchMsgBySessionPool(String clientMsgid  ,TLMsg clientMsg) {
-        ArrayList<TLMsg> msgLists =msgTable.get(clientMsgid );
-        if(msgLists==null || msgLists.isEmpty())
+    protected TLMsg sendBinary(Object fromWho, TLMsg msg) {
+        return putMsg(userManagerModule,msg.setDestination(null));
+    }
+
+    protected TLMsg receiveBinary(Object fromWho, TLMsg msg) {
+        if (msg.isNull(WEBSOCKET_P_BINARYCMDCODE))
+            return createMsg().setParam(RESULT, false);
+        byte cmdCode = (byte) msg.getParam(WEBSOCKET_P_BINARYCMDCODE);
+        switch (cmdCode) {
+            case WEBSOCKET_V_BINARYMFILEDATACMDERRORCODE:
+                return sendFileError( fromWho,msg);
+            case WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE:
+                receiveFileOver( msg);
+                break;
+            default:
+                return null;
+        }
+        return null ;
+    }
+
+    protected TLMsg sendFileError(Object fromWho, TLMsg msg) {
+        return putMsg(userManagerModule,msg.setAction(USERMANAGER_SENDFILEERROR));
+    }
+
+    protected void receiveFileOver(TLMsg msg) {
+        if(msg.isNull(WEBSOCKET_P_BINARYSESSION) && !(msg.getParam(WEBSOCKET_P_BINARYSESSION) instanceof  Integer ))
+            return ;
+        int sessionId = (int) msg.getParam(WEBSOCKET_P_BINARYSESSION);
+        netSession.saveSesstiondata( String.valueOf(sessionId),msg);
+        return ;
+    }
+
+    protected void onUserLogout(Object fromWho, TLMsg msg) {
+        String channel =  msg.getStringParam(USERMANAGER_P_USERCHANNEL,null);
+        if(channel ==null)
             return;
-        HashMap<String,Object> channelData = (HashMap<String, Object>) clientMsg.getSystemArgs();
-        String channel = (String) channelData.get(USERMANAGER_P_USERCHANNEL);
-        TLBaseModule threadPool = (TLBaseModule) sessionPool.getModuleByIndex(channel);
-        if(threadPool ==null)
-            return  ;
-        String sesstionId = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSION);
+        sessionPool.removeUser(channel);
+    }
+
+    protected void threadReturn(Object fromWho, TLMsg msg) {
+        sessionPool.useModuleOver();
+        HashMap<String,Object> clientSystemArgs = (HashMap<String, Object>) msg.getSystemParam(TASKRESESSIONDATA,null);
+        if(clientSystemArgs ==null)
+            return;
+        String sesstionId = (String) clientSystemArgs.get(WEBSOCKET_P_SESSION);
         if(sesstionId !=null)
-            channelData.put(WEBSOCKET_P_SESSION,sesstionId);
-        for(int i=0; i<msgLists.size();i++)
         {
-            TLMsg rmsg =msgLists.get(i);
-            TLMsg bmsg=createMsg().copyFrom(rmsg);
-            bmsg.addArgs(clientMsg.getArgs());
-            bmsg.setSystemParam(TASKRESESSIONDATA,channelData);
-            bmsg.setSystemParam(TASKRESULTFOR,this);
-            bmsg.setSystemParam(TASKRESULTACTION,"threadReturn");
-            TLMsg  threadMsg =createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG,bmsg);
-            putMsg(threadPool,threadMsg);
+            msg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSION,sesstionId,msg);
+            String  arrivedMsgid = (String) clientSystemArgs.get(WEBSOCKET_P_SESSIONARRIVEDMSGID);
+            if(arrivedMsgid !=null)
+                msg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSIONARRIVEDMSGID, arrivedMsgid,msg);
         }
-
+        if(sesstionId !=null
+                || (msg !=null && ((Boolean)msg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true))
+            putMsgToClient(this, msg.addSystemArgs(clientSystemArgs) );
     }
 
-    protected TLMsg despatchMsg(TLMsg clientMsg) {
-        return getMsg(this,clientMsg) ;
-    }
 
 }
