@@ -2,7 +2,7 @@
 <moduleConfig>
     <params>
         <name    value="demo1"></name>
-        <putfileName value="BaiduNetdisk_7.6.0.13.exe"></putfileName>
+        <putfileName value="filedemo.sql"></putfileName>
     </params>
     <startMsg>
            <msg action="sleep" sleepTime="8000"/>
