@@ -178,7 +178,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         {
             if (files.size() > maxSessions)
             {
-                String channel = (String) msg.getParam(USERMANAGER_P_USERCHANNEL);
+                String channel = (String) msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
                 putLog(    " 接收文件数已经达到最大值"+maxSessions, LogLevel.WARN, "receiveFile");
                 sendFileErrorMsg(sessionId,channel);
                 return null;
@@ -199,13 +199,12 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
     }
     private void receiveFile( TLMsg msg)
     {
-        String channel=String.valueOf(Thread.currentThread().getId()) ;
-        if(!msg.isNull(USERMANAGER_P_CHANNELDATA))
-        {
-            Map<String,Object> channelData = msg.getMapParam(USERMANAGER_P_CHANNELDATA,null);
-            if(channelData !=null)
-               channel = (String)channelData.get(USERMANAGER_P_USERCHANNEL);
-        }
+        String channel ;
+        if(!msg.systemParamIsNull(USERMANAGER_P_USERCHANNEL))
+           channel = (String)msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
+        else
+            channel=String.valueOf(Thread.currentThread().getId()) ;
+
         int sessionId = (int) msg.getParam(WEBSOCKET_P_BINARYSESSION);
         int order = (int) msg.getParam(WEBSOCKET_P_BINARYDATAORDER);
         if (order == 0)
@@ -416,7 +415,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         TLMsg sessionMsg =sessionMsgList.get(0);
         if(resultMsg !=null)
             sessionMsg.setArgs(resultMsg.getArgs()) ;
-        sessionMsg.setParam(USERMANAGER_P_USERCHANNEL,channel);
+        sessionMsg.setSystemParam(USERMANAGER_P_USERCHANNEL,channel);
         if(sessionMsg.getStringParam("sesstionType","server").equals("server"))
             sessionMsg.setSystemParam(WEBSOCKET_P_SESSION,appSessionId);
         else
@@ -472,7 +471,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
     private void sendFileSucess(int sessionId, String channel) {
         TLMsg overmsg = createMsg().setParam(WEBSOCKET_P_BINARYSESSION,sessionId)
                 .setParam(WEBSOCKET_P_BINARYCMDCODE,WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE)
-                .setParam(USERMANAGER_P_USERCHANNEL,channel)
+                .setSystemParam(USERMANAGER_P_USERCHANNEL,channel)
                 .setParam(WEBSOCKET_P_BINARYMSGID,USERMANAGER_RECEIVEBINARY);
         getMsg(this,overmsg.setMsgId("sendBinary")) ;
     }
@@ -498,7 +497,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
     protected void sendFileErrorMsg(int sessionId, String channel){
         TLMsg msg = createMsg().setParam(WEBSOCKET_P_BINARYSESSION,sessionId)
                 .setParam(WEBSOCKET_P_BINARYCMDCODE,WEBSOCKET_V_BINARYMFILEDATACMDERRORCODE)
-                .setParam(USERMANAGER_P_USERCHANNEL,channel)
+                .setSystemParam(USERMANAGER_P_USERCHANNEL,channel)
                 .setParam(WEBSOCKET_P_BINARYMSGID,USERMANAGER_RECEIVEBINARY);
         getMsg(this,msg.setMsgId("sendBinary")) ;
     }
