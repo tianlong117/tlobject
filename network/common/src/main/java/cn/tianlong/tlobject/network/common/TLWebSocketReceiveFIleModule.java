@@ -66,8 +66,8 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         netSession = new TLNetSession(name + "_session", moduleFactory);
         netSession.start(null, params);
         putMsg(this, createMsg().setAction("checkSessions")
-                .setParam(SESSIONDEAMON, true)
-                .setParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")))
+                .setSystemParam(SESSIONDEAMON, true)
+                .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")))
                 .setWaitFlag(false));
         return this;
     }

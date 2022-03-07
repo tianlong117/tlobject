@@ -62,10 +62,11 @@ public class TLClientMsgHandler extends TLBaseModule {
         return this ;
     }
 
-    @Override
-    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg)
+    {
         TLMsg returnMsg = null;
-        switch (msg.getAction()) {
+        String action = msg.getAction();
+        switch (action) {
             case "fromClient":
                 returnMsg = fromClient(fromWho, msg);
                 break;
@@ -113,7 +114,8 @@ public class TLClientMsgHandler extends TLBaseModule {
             return null;
         }
         String clientMsgid =clientMsg.getMsgId();
-        if(clientMsgid !=null && msgidInPool !=null && msgidInPool.contains(clientMsgid))
+        if(clientMsgid !=null && msgidInPool !=null
+                && (msgidInPool.contains("*") || msgidInPool.contains(clientMsgid)))
         {
             despatchMsgBySessionPool(clientMsgid ,clientMsg);
             return null ;
@@ -208,17 +210,16 @@ public class TLClientMsgHandler extends TLBaseModule {
         int waitTime = (int) msg.getSystemParam(NETSESSION_P_WAITTIME,this.waitTime);
         int retryTimes = (int) msg.getSystemParam(NETSESSION_P_RETRYTIMES,0);
         String sessionId = netSession.makeSessionId();
-        Map<String,Object> content =msg.getArgs();
-        Map<String,Object> systemArgs = (Map<String, Object>) content.get(MSG_P_SYSTEMARGS);
+        Map<String,Object> systemArgs = (Map<String, Object>)msg.getParam(MSG_P_SYSTEMARGS);
         if(systemArgs ==null)
         {
             systemArgs =new HashMap<>();
-            content.put(MSG_P_SYSTEMARGS,systemArgs);
+            msg.setParam(MSG_P_SYSTEMARGS,systemArgs);
         }
         systemArgs.put(WEBSOCKET_P_NOTIFYID,sessionId);
         TLMsg cmsg=createMsg().setAction(USERMANAGER_PUTTOUSER)
                 .setSystemParam(USERMANAGER_P_USERCHANNEL,channel)
-                .setParam(WEBSOCKET_P_CONTENT, content);
+                .setParam(WEBSOCKET_P_CONTENT, msg.getArgs());
         TLMsg resultMsg= putMsg(userManagerModule,cmsg);
         Boolean result =  resultMsg.parseBoolean(RESULT,false);
         if(result ==false)

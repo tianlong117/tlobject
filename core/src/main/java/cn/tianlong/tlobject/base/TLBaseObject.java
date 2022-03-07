@@ -61,7 +61,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONDEAMON),false)==true)
             threadTask.setDaemon(true);
         if(msg.getSystemParam(EXCEPTIONHANDLER) !=null )
-            threadTask.setUncaughtExceptionHandler((Thread.UncaughtExceptionHandler) msg.getParam(EXCEPTIONHANDLER));
+            threadTask.setUncaughtExceptionHandler((Thread.UncaughtExceptionHandler) msg.getSystemParam(EXCEPTIONHANDLER));
         threadTask.start();
         if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONJOIN),false)==true)
         {

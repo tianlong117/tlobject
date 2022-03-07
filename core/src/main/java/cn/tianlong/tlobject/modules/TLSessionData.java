@@ -38,7 +38,7 @@ public class TLSessionData extends TLBaseSessionData {
         if(expire >0L)
         putMsg(this,createMsg().setAction("checkTask")
                 .setSystemParam(SESSIONDEAMON,true)
-                .setParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
+                .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
         return this ;
     }
@@ -63,7 +63,7 @@ public class TLSessionData extends TLBaseSessionData {
         putLog(e.getMessage() +e.getCause(),LogLevel.ERROR);
         putMsg(this,createMsg().setAction("checkTask")
                 .setSystemParam(SESSIONDEAMON,true)
-                .setParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
+                .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
     }
     @Override
