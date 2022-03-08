@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.client.http.TLUrlUtils;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.Connection;
 
@@ -112,7 +113,8 @@ public class TLHttpProxy extends TLBaseModule {
         } catch (IOException e) {
             e.printStackTrace();
         }
-        return createMsg().setArgs(datas);
+        TLMsg resultMsg = createMsg().setArgs(datas);
+        return createMsg().setArgs(TLMsgUtils.msgToMap(resultMsg));
     }
 
     private void putData(HashMap<String,Object> datas) {

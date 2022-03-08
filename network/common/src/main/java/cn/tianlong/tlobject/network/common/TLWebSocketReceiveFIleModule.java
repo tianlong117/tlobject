@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.modules.TLReUsedModulePool;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 import com.google.gson.Gson;
 import com.google.gson.internal.LinkedTreeMap;
 import com.google.gson.reflect.TypeToken;
@@ -125,8 +126,10 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         int sessionId = netSession.makeBinSessionId();
         msg.setParam(WEBSOCKET_P_BINARYSESSION, String.valueOf(sessionId));
         msg.setParam("actionType", "getFile");
-        TLMsg serverMsg = createMsg().setMsgId("getFile").addMap(msg.getArgs())
-                .setParam(MSG_P_PARAMS, msg.getArgs());
+        msg.setMsgId((String) msg.getParam(MSG_P_MSGID));
+        TLMsg serverMsg = createMsg().setMsgId("getFile")
+                .setSystemArgs(msg.getSystemArgs())
+                .addMap(TLMsgUtils.msgToMap(msg));
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
         TLMsg resultMsg = getMsg(this, serverMsg);
