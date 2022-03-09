@@ -6,6 +6,6 @@
     </params>
     <startMsg>
            <msg action="sleep" sleepTime="8000"/>
-           <msg action="putFile"   ></msg>
+           <msg action="putFileFromClient"   ></msg>
     </startMsg>
 </moduleConfig>

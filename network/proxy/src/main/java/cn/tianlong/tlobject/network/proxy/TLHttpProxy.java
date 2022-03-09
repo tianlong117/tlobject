@@ -167,7 +167,7 @@ public class TLHttpProxy extends TLBaseModule {
         return (InputStream) returnMsg.getParam(CACHE_R_VALUE);
     }
     private void putFile(InputStream cacheFileInputStream, TLMsg msg) {
-        TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setArgs(msg.getArgs()).setParam("inputStream",cacheFileInputStream);
+        TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setArgs(msg.getArgs()).setParam(WEBSOCKET_P_SENDINPUTSTREAM,cacheFileInputStream);
          putMsg("socketClientAgentPool",gmsg);
     }
 

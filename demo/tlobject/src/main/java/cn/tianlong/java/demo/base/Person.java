@@ -62,8 +62,8 @@ public class Person extends DemoCommon {
             case "toWife":
                 toWife();
                 break;
-            case "putFile":
-                putFile();
+            case "putFileFromClient":
+                putFileFromClient();
                 break;
             case "onHouse":
                 onHouse(fromWho, msg);
@@ -197,7 +197,7 @@ public class Person extends DemoCommon {
     protected void say(String message){
         System.out.println(name +" 说:"+message);
     }
-    private void putFile() {
+    private void putFileFromClient() {
         String fileName =moduleFactory.getConfigDir()+params.get("putfileName");
         TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE)
                 .setParam("parama","a")
