@@ -23,12 +23,14 @@
      </modulesParams>
     <modules>
         <module name="wife" classfile="cn.tianlong.java.demo.base.Person" />
+        <module name="serverModule" classfile="cn.tianlong.java.demo.service.server.serverModule" />
         <module name="clientSocketServer" proxyModule="webSocketServer" loglevel="trace"
                 serverName="clientSocketServer" clientMsgHandler="clientMsgHandler"/>
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
             <msg action="getModule"  moduleName="msgBroadCast" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="serverModule" usePreReturnMsg="false" />
             <msg action="getModule"  moduleName="wife" usePreReturnMsg="false" />
             <msg destination="clientSocketServer" action="run"  waitFlag="false" usePreReturnMsg="false"/>
           </factoryBoot>

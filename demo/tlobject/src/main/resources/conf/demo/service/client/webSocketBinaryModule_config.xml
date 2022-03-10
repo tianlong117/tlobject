@@ -7,19 +7,19 @@
     </params>
     <msgTable>
         <msgid  value="startPutFile" >
-            <msg  destination="socketClientAgentPool" action="putToServerAndWait" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModul" action="putToServerAndWait" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="sendFile" >
-            <msg  destination="socketClientAgentPool" action="sendFile" msgTableUseType="useMsg"/>
+            <msg  destination="clientInterfaceModul" action="sendFile" msgTableUseType="useMsg"/>
         </msgid>
         <msgid  value="endFile" >
-            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModul" action="putMsgToServer" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="getFile" >
-            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModul" action="putMsgToServer" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="sendBinary" >
-            <msg  destination="socketClientAgentPool" action="sendBinary" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModul" action="sendBinary" msgTableUseType="useMsg" />
         </msgid>
     </msgTable>
 

@@ -1,18 +1,13 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<moduleConfig>
+<appConfig>
     <params>
-        <ifAutoConnect value ="false" />
-        <defaultServer value="clientSocketServe0" />
+        <putfileName value="VFP9.0.rar"></putfileName>
     </params>
     <msgTable>
-        <msgid  value="fromServerWife" >
-            <msg  destination="xiaoming" action="cook" />
+        <msgid  value="start" >
+            <msg action="#putMsgToServer"  />
+            <msg action="putFileFromClient" />
+            <!--msg action="getModule" destination="moduleFactory"   waitFlag="false" moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/-->
         </msgid>
     </msgTable>
-    <servers>
-        <!-- 如设定cerFile ，并且协议为wss 则启动ssl传输  -->
-        <server name="server0"  userType="username"  cerFile__="/mycerts.cer"
-                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
-    </servers>
-
-</moduleConfig>
+</appConfig>

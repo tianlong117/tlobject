@@ -32,13 +32,13 @@
             <msg   action="receiveBinary"   msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="receiveFileFromClient"  msgTableUseType="useMsg" >
-            <msg  destination="wife" action="receiveFileFromClient" msgTableUseType="useMsg" />
+            <msg  destination="serverModule" action="receiveFileFromClient" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="getFile"  msgTableUseType="useMsg" >
             <msg  destination="wife" action="getFile" waitFlag="false" inthreadPool="true" msgTableUseType="useMsg" />
         </msgid>
-        <msgid  value="fromXiaoMing"  msgTableUseType="useMsg" >
-            <msg  destination="wife" action="fromXiaoMing"  msgTableUseType="useMsg" />
+        <msgid  value="receiveClientMsg"  msgTableUseType="useMsg" >
+            <msg  destination="serverModule" action="receiveClientMsg"  msgTableUseType="useMsg" />
         </msgid>
     </msgTable>
 

@@ -1,69 +1,194 @@
 package cn.tianlong.java.demo.service.client;
 
+import cn.tianlong.java.demo.base.DemoCommon;
+import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool;
+
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 
-import static java.lang.Thread.sleep;
 
-public class clientModule  extends TLSocketClientAgentPool {
-    private  int failureNumber =0;
-    public clientModule(String name , TLObjectFactory modulefactory) {
-        super(name, modulefactory);
+
+public class clientModule extends DemoCommon {
+    final String  myInterface = "clientInterfaceModule";
+    public clientModule(String name) {
+        super(name);
     }
+    public clientModule(String name, TLObjectFactory moduleFactory) {
+        super(name, moduleFactory);
+    }
+
+    @Override
+    protected TLBaseModule init() {
+       return this ;
+    }
+
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        String action =msg.getAction();
-        TLMsg returnMsg = null;
-        switch (action) {
-            case "startRun" :
-            case "fromServer" :
-                return invokeAction(action,fromWho,msg);
+        printAction(msg);
+        TLMsg returnMsg =null ;
+        switch (msg.getAction()) {
+            case "putMsgToServer":
+                putMsgToServer(fromWho, msg);
+                break;
+            case "getFileByServer":
+                getFileByServer(msg);
+                break;
+            case "putFileFromClient":
+                putFileFromClient(fromWho, msg);
+                break;
             default:
-                super.checkMsgAction(fromWho,msg);
         }
-        return returnMsg;
+        return  returnMsg;
     }
 
-    private void startRun(Object fromWho, TLMsg msg) {
-        defaultServer="server0";
-        connectToServer(defaultServer);
+    private void putFileFromClient(Object fromWho, TLMsg msg) {
+        invokeActionInThread("putFileFromClientInThread", this, null);
+
     }
-    @Override
-    protected void fromAgent(Object fromWho, TLMsg msg) {
-        super.fromAgent(fromWho,msg);
-        String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
-        if (status.equals(WEBSOCKET_R_OPEN))
+
+    private void putMsgToServer(Object fromWho, TLMsg msg) {
+        invokeActionInThread("putMsgToServerInThread", this, null);
+    }
+    private void putMsgToServerInThread(Object fromWho, TLMsg msg) {
+        TLMsg smsg =createMsg().setMsgId("receiveClientMsg")
+                .setParam("data","你好，来自客户端的发送消息");
+        TLMsg pmsg =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setArgs(TLMsgUtils.msgToMap(smsg));
+        TLMsg returnMsg = putMsg(myInterface,pmsg);
+        println(" 服务返回：");
+        TLMsgUtils.printMsg(returnMsg);
+    }
+
+    private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
+        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
+        if( !wait)
+            msg.setAction(WEBSOCKET_PUTMSG);
+        else
+            msg.setAction(WEBSOCKET_PUTANDWAIT);
+       TLMsg returnMsg =  putMsg("clientMsgHandler",msg);
+       TLMsgUtils.printMsg(returnMsg);
+    }
+
+    private void putFileFromClientInThread(Object fromWho, TLMsg msg) {
+        String fileName =moduleFactory.getConfigDir()+params.get("putfileName");
+        TLMsg smsg =createMsg().setAction(WEBSOCKET_SENDFILE)
+                .setParam("parama","a")
+                .setParam("paramb",true)
+                .setParam("paramc",12)
+                .setParam("paramd",99.1)
+                .setParam(MSG_P_MSGID,"receiveFileFromClient")
+                .setParam("fileName",fileName);
+        //    .setWaitFlag(false);
+        TLMsg returnmsg =putMsg(myInterface,smsg);
+        if(returnmsg.parseBoolean(RESULT,false)==true)
         {
-            invokeActionInThread("startWork", this, null);
-          //  startWork( fromWho,  msg);
-            return;
+            System.out.println("file is send sucessfuliy "+fileName);
         }
-        if (status.equals(WEBSOCKET_R_FAILURE))
-        {
-            failureNumber ++ ;
-            println("failure :"+failureNumber);
-            return;
+        else
+            System.out.println("file is send failure "+fileName);
+
+    }
+
+
+    private void getFileByServer(TLMsg msg) {
+        String fileName = (String) msg.getParam("fileName");
+        TLMsg fmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setParam(msg.getArgs())
+                .setParam("fileName",fileName).setWaitFlag(false);
+        putMsg("socketClientAgentPool",fmsg);
+    }
+    private void doFileList(ArrayList<HashMap<String,Object>> files) {
+        for(HashMap<String,Object> map: files){
+            printFile(map);
         }
     }
 
-    private void startWork(Object fromWho, TLMsg msg) {
-        for(int i=0 ;i <1 ;i ++)
-        {
-            TLMsg smsg =createMsg().setMsgId("fromXiaoMing").setParam("data","wakeup1")
-                        .setSystemParam(WEBSOCKET_P_SESSIONISARRIVED,true)
-                       .setSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID,"fromServerWife");   // 服务器收到后理解返回通知
-            TLMsg pmsg =createMsg().setArgs(TLMsgUtils.msgToMap(smsg));
-            TLMsg returnMsg = putToServerAndWait(this,pmsg);
-            println(i+" 服务返回：");
-            TLMsgUtils.printMsg(returnMsg);
-        }
+    private void printFile(HashMap<String,Object> map) {
+        String tmpfile = (String)  map.get("fileName");
+        String realfile = (String)  map.get("realFileName");
+        TLMsgUtils.printMap(map);
+        File oldName = new File(tmpfile);
+        String path =oldName.getParent();
+        realfile = path+File.separator+realfile;
+        File newName = new File(realfile);
+        if(newName.exists())
+            newName.delete() ;
+        oldName.renameTo(newName);
     }
 
-    private void fromServer(Object fromWho, TLMsg msg) {
+
+    private void sendFilesByServerToHttpProxy() {
+         String  url ="http://www.daqing.net" ;
+         HashMap<String,String> fileList =new HashMap<>();
+        fileList.put("1","D:\\city.sql")        ;
+        fileList.put("2","D:\\2.jpg");
+        fileList.put ("3","D:\\IMG_0433.JPG");
+        HashMap<String,String> datas =new HashMap<>();
+        datas.put("a","1")        ;
+        datas.put("b","2");
+        datas.put ("c","3");
+        HashMap<String,String>httpHeader =new HashMap<>();
+        httpHeader.put("User-Agent", "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.1; WOW64; Trident/5.0; SLCC2; .NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; .NET4.0C; .NET4.0E)");
+        httpHeader.put("Accept", "*/*");
+        httpHeader.put("Accept-Encoding", "gzip, deflate");
+        httpHeader.put("Accept-Language", "zh-CN");
+        HashMap<String,String>cookie =new HashMap<>();
+        cookie.put("username", "dongq");
+        cookie.put("passwd", "1111111111111111");
+        Map <String,Object > result =postFormDataByProxy(url,cookie,datas,httpHeader,fileList);
+   //     TLMsgUtils.printMap(result);
     }
+    protected Map<String,Object> postFormDataByProxy(String url, Map<String,String> cookie, Map<String,String> datas, HashMap<String, String> header, Map<String,String>files )
+    {
+
+        ArrayList<String>  fileList = new ArrayList<>();
+        for(String key : files.keySet())
+            fileList.add(files.get(key));
+        TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE)
+                .setParam(USERMANAGER_P_USERID,"demo_user")
+                .setParam("url",url)
+                .setParam(MSG_P_MSGID,"postFormReturnDoc")
+                .setParam("fileName",url)
+                .setParam("charset","utf-8")
+                .setParam("httpHeader",header)
+                .setParam("fileGroup",fileList) ;
+        if(cookie !=null)
+            gmsg.setParam("cookie",cookie);
+        if(datas !=null)
+            gmsg.setParam("datas",datas);
+        TLMsg returnMsg = putMsg("userManagerModule",gmsg);
+        return returnMsg.getArgs();
+    }
+    private void getFileFromclient(String fileName ,TLMsg msg){
+         TLMsg gmsg =createMsg().setAction("getFile").setParam(msg.getArgs()).setParam(MSG_P_MSGID,"getFile")
+                 .setParam("fileName",fileName).setWaitFlag(false);
+         //  putMsg("socketClientAgentPool",msg);
+         putMsg("webSocketReceiveFIleModule",gmsg);
+     }
+
+    private void  sendFilesByClient() {
+          ArrayList<String> fileList =new ArrayList<>() ;
+        fileList.add("D:\\Art-Kins.-.[唤醒超觉].唤醒超觉盛夏版.mp3")        ;
+        fileList.add("D:\\apache-maven-3.5.3-bin.zip");
+        fileList.add("D:\\IMG_0433.JPG");
+        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE).setParam("parama","A").
+                 setParam("paramb",1001)
+                .setParam(MSG_P_MSGID,"receiveFileFromClient")
+                .setParam("fileGroup",fileList) ;
+        TLMsg returnMsg = putMsg("socketClientAgentPool",msg);
+        if(returnMsg.parseBoolean(RESULT,false)==true)
+        {
+            System.out.println("file is send sucessfuliy ");
+        }
+        else
+            System.out.println("file is send failure ");
+        TLMsgUtils.printMap(returnMsg.getArgs());
+    }
+
+
 }

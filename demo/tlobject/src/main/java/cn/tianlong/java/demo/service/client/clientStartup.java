@@ -25,6 +25,6 @@ public class clientStartup extends TLAppStartUp {
     }
     @Override
     protected void run() {
-        putMsg("clientModule",createMsg().setAction("startRun"));
+        putMsg("clientInterfaceModule",createMsg().setAction("startRun"));
     }
 }

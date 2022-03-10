@@ -19,12 +19,11 @@
 
     <modules>
         <!-- 用户自定义模块 -->
-        <module name="clientModule" classfile=".service.client.clientModule" configfile="clientModule_config.xml"/>
-        <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
-
+        <module name="clientModule" classfile="cn.tianlong.java.demo.service.client.clientModule" />
+        <module name="clientInterfaceModule" classfile=".service.client.clientInterfaceModule" />
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
-            <msg action="getModule"  moduleName="xiaoming" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="clientModule" usePreReturnMsg="false" />
         </factoryBoot>
 </moduleConfig>

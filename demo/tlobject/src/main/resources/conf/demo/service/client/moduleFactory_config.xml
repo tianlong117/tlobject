@@ -23,7 +23,6 @@
         <module name="house" classfile=".base.House"  singleton="true" />
         <module name="light" classfile="cn.tianlong.java.demo.base.Light" singleton="ture"/>
         <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
-        <!--module name="wife" classfile="cn.tianlong.java.demo.base.Person" /-->
         <module name="wife" proxyModule="socketClientAgentPool" configfile="socketClientAgentPool_config.xml" />
         <module name="soceketClientThreadPool" proxyModule="fixedThreadPool" poolSize="100" />
     </modules>

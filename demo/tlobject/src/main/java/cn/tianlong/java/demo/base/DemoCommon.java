@@ -17,7 +17,7 @@ public abstract class DemoCommon extends TLBaseModule {
     }
 
     protected TLMsg printAction( TLMsg msg) {
-        System.out.println("/* 模块: "+name +",运行方法:"+msg.getAction()+" */");
+        System.out.println("/* 模块: "+name +",执行消息，action:"+msg.getAction()+" */");
         return null;
     }
    protected void printState(String state) {
