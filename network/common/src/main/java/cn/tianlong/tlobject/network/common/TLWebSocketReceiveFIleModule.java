@@ -66,42 +66,20 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         sessionPool = (TLReUsedModulePool) getNewModule(fileSessionPoolName,fileSessionPoolName);
         netSession = new TLNetSession(name + "_session", moduleFactory);
         netSession.start(null, params);
-        putMsg(this, createMsg().setAction("checkSessions")
+        TLMsg checkSessionTimeOutMsg =createMsg().setAction("checkSessions")
                 .setSystemParam(SESSIONDEAMON, true)
-                .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")))
-                .setWaitFlag(false));
+                .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")));
+        invokeActionInThread("checkSessions",this,checkSessionTimeOutMsg);
         return this;
     }
 
-    @Override
-    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        TLMsg returnMsg = null;
-        switch (msg.getAction()) {
-            case "receiveBinaryFile":
-                returnMsg = receiveBinaryFile(fromWho, msg);
-                break;
-            case "receiveFile":
-                receiveFile( msg);
-                break;
-            case "checkSessions":
-                try {
-                    checkSessions(fromWho, msg);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                break;
-            case "getFile":
-                returnMsg = getFile(fromWho, msg);
-                break;
-            default:
-                ;
-        }
-        return returnMsg;
-    }
-
-    private void checkSessions(Object fromWho, TLMsg msg) throws InterruptedException {
+    protected void checkSessions(Object fromWho, TLMsg msg) {
         do {
-            Thread.sleep(2000);
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
             for (Integer sessionId : files.keySet())
             {
                 HashMap<String, Object> fileSessionData = files.get(sessionId);
@@ -122,14 +100,34 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
             }
         } while (true);
     }
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        TLMsg returnMsg = null;
+        switch (msg.getAction()) {
+            case "receiveBinaryFile":
+                returnMsg = receiveBinaryFile(fromWho, msg);
+                break;
+            case "receiveFile":
+                receiveFile( msg);
+                break;
+            case "getFile":
+                returnMsg = getFile(fromWho, msg);
+                break;
+            default:
+                ;
+        }
+        return returnMsg;
+    }
+
     private TLMsg getFile(Object fromWho, TLMsg msg) {
         int sessionId = netSession.makeBinSessionId();
-        msg.setParam(WEBSOCKET_P_BINARYSESSION, String.valueOf(sessionId));
-        msg.setParam("actionType", "getFile");
-        msg.setMsgId((String) msg.getParam(MSG_P_MSGID));
+        TLMsg getFileMsg =new TLMsg();
+        getFileMsg.setArgs(msg.getArgs());
+        getFileMsg.setParam(WEBSOCKET_P_BINARYSESSION, String.valueOf(sessionId));
+        getFileMsg.setParam("actionType", "getFile");
+        getFileMsg.setMsgId((String) msg.getParam(MSG_P_MSGID));
         TLMsg serverMsg = createMsg().setMsgId("getFile")
-                .setSystemArgs(msg.getSystemArgs())
-                .addMap(TLMsgUtils.msgToMap(msg));
+                        .addMap(TLMsgUtils.msgToMap(getFileMsg));
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
         TLMsg resultMsg = getMsg(this, serverMsg);
@@ -207,23 +205,19 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
            channel = (String)msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
         else
             channel=String.valueOf(Thread.currentThread().getId()) ;
-
         int sessionId = (int) msg.getParam(WEBSOCKET_P_BINARYSESSION);
         int order = (int) msg.getParam(WEBSOCKET_P_BINARYDATAORDER);
         if (order == 0)
-        {
             doWithDataOrder0(msg,sessionId,channel);
-            return;
-        }
-        if (order == -1) //发送完毕标志
+        else if (order == -1) //发送完毕标志
             doWithDataOrderEnd(sessionId,channel);
         else
         {
             byte[] bytes = (byte[]) msg.getArrayParam(WEBSOCKET_P_CONTENT,null);
-            if(bytes ==null)
-                return;
-            doWithData(bytes,sessionId,order,channel);
+            if(bytes !=null)
+               doWithData(bytes,sessionId,order,channel);
         }
+        sessionPool.useModuleOver();
     }
     private void doWithDataOrder0(TLMsg msg, int sessionId, String channel)
     {
@@ -364,7 +358,6 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
             return ;
         files.remove(sessionId) ;
         sessionPool.removeUser(String.valueOf(sessionId));
-        sessionPool.useModuleOver();
         FileClass fileObj = (FileClass) fileSessionData.get("file");
         String fileName = fileObj.getFileName();
         if( fileObj.receiverOver() ==false)
@@ -416,13 +409,14 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         if(sessionMsgList ==null || sessionMsgList.isEmpty())
             return;
         TLMsg sessionMsg =sessionMsgList.get(0);
-        if(resultMsg !=null)
-            sessionMsg.setArgs(resultMsg.getArgs()) ;
         sessionMsg.setSystemParam(USERMANAGER_P_USERCHANNEL,channel);
+        if(resultMsg ==null)
+            resultMsg =new TLMsg();
         if(sessionMsg.getStringParam("sesstionType","server").equals("server"))
-            sessionMsg.setSystemParam(WEBSOCKET_P_SESSION,appSessionId);
+            resultMsg.setSystemParam(WEBSOCKET_P_SESSION,appSessionId);
         else
-            sessionMsg.setSystemParam(WEBSOCKET_P_NOTIFYID,appSessionId);
+            resultMsg.setSystemParam(WEBSOCKET_P_NOTIFYID,appSessionId);
+        sessionMsg.setArgs(TLMsgUtils.msgToMap(resultMsg)) ;
         getMsg(this, sessionMsg);
     }
 
@@ -467,7 +461,6 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
     private void receiverFileError(String fileName, int sessionId, String channel) {
         files.remove(sessionId) ;
         sessionPool.removeUser(String.valueOf(sessionId));
-        sessionPool.useModuleOver();
         sendFileErrorMsg(sessionId,channel);
     }
 

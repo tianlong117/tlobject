@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
-        <msgHandler value="socketClientAgentPool"  />
+        <msgHandler value="clientInterfaceModule"  />
         <fileSessionPoolName value="reUsedSingleThreadPoolGroup" />
         <filePath   value="data/wsclient\" />
         <maxSessions   value="100" />
@@ -15,22 +15,22 @@
     </modulesParams>
     <msgTable>
         <msgid  value="startPutFile" >
-            <msg  destination="socketClientAgentPool" action="putToServerAndWait" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModule" action="putToAndWait" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="sendFile" >
-            <msg  destination="socketClientAgentPool" action="sendFile" msgTableUseType="useMsg"/>
+            <msg  destination="clientInterfaceModule" action="sendFile" msgTableUseType="useMsg"/>
         </msgid>
         <msgid  value="endFile" >
-            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModule" action="putMsgToSocket" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="getFile" >
-            <msg  destination="socketClientAgentPool" action="putMsgToServer" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModule" action="putMsgToSocket" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="sendBinary" >
-            <msg  destination="socketClientAgentPool" action="sendBinary" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModule" action="sendBinary" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="returnAppResult" >
-            <msg  destination="socketClientAgentPool"  sesstionType="client" action="putMsgToServer" msgTableUseType="useMsg" />
+            <msg  destination="clientInterfaceModule"  sesstionType="client" action="putMsgToSocket" msgTableUseType="useMsg" />
         </msgid>
     </msgTable>
 

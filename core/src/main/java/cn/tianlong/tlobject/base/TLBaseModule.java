@@ -749,8 +749,10 @@ public abstract class TLBaseModule extends TLBaseObject {
         if(msg !=null)
         {
             thMsg.setParam("dmsg",msg) ;
-            thMsg.setSystemParam(INTHREADPOOL,msg.getSystemParam(INTHREADPOOL,true));
-            thMsg.setSystemParam(THREADPOOLNAME,msg.getSystemParam(THREADPOOLNAME));
+            if(!msg.systemParamIsNull(INTHREADPOOL))
+                thMsg.setSystemParam(INTHREADPOOL,msg.getSystemParam(INTHREADPOOL));
+            if(!msg.systemParamIsNull(THREADPOOLNAME))
+               thMsg.setSystemParam(THREADPOOLNAME,msg.getSystemParam(THREADPOOLNAME));
         }
         fromWho.putMsg(this,thMsg);
     }

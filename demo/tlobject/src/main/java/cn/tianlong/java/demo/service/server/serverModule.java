@@ -56,8 +56,8 @@ public class serverModule extends DemoCommon {
             case "onUserLogin":
                onUserLogin(fromWho, msg);
                 break;
-            case "getFile":
-                returnMsg=getFile(fromWho, msg);
+            case "getFileFromClient":
+                returnMsg=getFileFromClient(fromWho, msg);
                 break;
             default:
         }
@@ -93,22 +93,24 @@ public class serverModule extends DemoCommon {
             doFileList(files);
         }
         try {
-            sleep(15000);
+            sleep(1500);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
         return createMsg().setParam("file","received");
     }
 
-    private TLMsg getFile(Object fromWho, TLMsg msg) {
+    private TLMsg getFileFromClient(Object fromWho, TLMsg msg) {
         String fileName= (String) msg.getParam("fileName");
-        String filePath="D:\\";
+        String filePath=moduleFactory.getConfigDir();
         fileName =filePath +fileName ;
         System.out.println("start server sendfile"+ fileName);
-        TLMsg gmsg =createMsg().setAction("sendFile").setArgs(msg.getArgs())
-                .setParam("fileName",fileName)
-                .setParam(USERMANAGER_P_USERID,"demo_user");
-        putMsg("userManagerModule",gmsg);
+        HashMap<String,Object> threadDatas = (HashMap<String, Object>) msg.getSystemParam(TASKRESESSIONDATA);
+        TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE)
+                .setSystemArgs(threadDatas)
+                .setArgs(msg.getArgs())
+                .setParam("fileName",fileName);
+        putMsg("clientMsgHandler",gmsg);
         return null ;
     }
 

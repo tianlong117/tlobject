@@ -21,16 +21,16 @@
             <msg  destination="clientMsgHandler" action="sendFile" />
         </msgid>
         <msgid  value="endFile" >
-            <msg  destination="clientMsgHandler" action="toClient" />
+            <msg  destination="clientMsgHandler" action="putMsgToSocket" />
         </msgid>
         <msgid  value="getFile" >
-            <msg  destination="clientMsgHandler" action="toClient" msgTableUseType="useMsg" />
+            <msg  destination="clientMsgHandler" action="putMsgToSocket" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="sendBinary" >
             <msg  destination="clientMsgHandler" action="sendBinary" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="returnAppResult" >
-            <msg  destination="clientMsgHandler" action="toClient" sesstionType="server" />
+            <msg  destination="clientMsgHandler" action="putMsgToSocket" sesstionType="server" />
         </msgid>
     </msgTable>
 

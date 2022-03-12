@@ -34,26 +34,27 @@ public class clientModule extends DemoCommon {
         printAction(msg);
         TLMsg returnMsg =null ;
         switch (msg.getAction()) {
-            case "putMsgToServer":
-                putMsgToServer(fromWho, msg);
+            case "putMsgToServerAndWait":
+                putMsgToServerAndWait(fromWho, msg);
                 break;
             case "getFileByServer":
                 getFileByServer(msg);
                 break;
             case "putFileFromClient":
-                putFileFromClient(fromWho, msg);
+                invokeActionInThread("putFileFromClientInThread", this, null);
+                break;
+            case "sendFilesByClient":
+                invokeActionInThread("sendFilesByClient", this, null);
+                break;
+            case "getFileFromServer":
+                getFileFromServer(fromWho, msg);
                 break;
             default:
         }
         return  returnMsg;
     }
 
-    private void putFileFromClient(Object fromWho, TLMsg msg) {
-        invokeActionInThread("putFileFromClientInThread", this, null);
-
-    }
-
-    private void putMsgToServer(Object fromWho, TLMsg msg) {
+    private void putMsgToServerAndWait(Object fromWho, TLMsg msg) {
         invokeActionInThread("putMsgToServerInThread", this, null);
     }
     private void putMsgToServerInThread(Object fromWho, TLMsg msg) {
@@ -63,16 +64,6 @@ public class clientModule extends DemoCommon {
         TLMsg returnMsg = putMsg(myInterface,pmsg);
         println(" 服务返回：");
         TLMsgUtils.printMsg(returnMsg);
-    }
-
-    private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
-        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
-        if( !wait)
-            msg.setAction(WEBSOCKET_PUTMSG);
-        else
-            msg.setAction(WEBSOCKET_PUTANDWAIT);
-       TLMsg returnMsg =  putMsg("clientMsgHandler",msg);
-       TLMsgUtils.printMsg(returnMsg);
     }
 
     private void putFileFromClientInThread(Object fromWho, TLMsg msg) {
@@ -94,6 +85,48 @@ public class clientModule extends DemoCommon {
             System.out.println("file is send failure "+fileName);
 
     }
+    private void  sendFilesByClient(Object fromWho, TLMsg msg) {
+        String path =moduleFactory.getConfigDir();
+        ArrayList<String> fileList =new ArrayList<>() ;
+        fileList.add(path+"filedemo.sql")        ;
+        fileList.add(path+"filedemo1.sql");
+        fileList.add(path+"filedemo2.sql");
+        TLMsg smsg =createMsg().setAction(WEBSOCKET_SENDFILE).setParam("parama","A").
+                setParam("paramb",1001)
+                .setParam(MSG_P_MSGID,"receiveFileFromClient")
+                .setParam(WEBSOCKET_P_SENDFILEGROUP,fileList) ;
+        TLMsg returnMsg = putMsg(myInterface,smsg);
+        if(returnMsg.parseBoolean(RESULT,false)==true)
+        {
+            System.out.println("file is send sucessfuliy ");
+        }
+        else
+            System.out.println("file is send failure ");
+        TLMsgUtils.printMap(returnMsg.getArgs());
+    }
+
+
+    private void getFileFromServer(Object fromWho, TLMsg msg) {
+        String fileName="BaiduNetdisk_7.6.0.13.exe";
+        TLMsg gmsg =createMsg().setAction("getFile").setParam(MSG_P_MSGID,"getFileFromClient")
+                .setParam("fileName",fileName).setWaitFlag(false);
+        //  putMsg("socketClientAgentPool",msg);
+        TLMsg returnMsg = putMsg("webSocketReceiveFIleModule",gmsg);
+        TLMsgUtils.printMsg(returnMsg);
+    }
+
+
+
+    private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
+        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
+        if( !wait)
+            msg.setAction(WEBSOCKET_PUTMSG);
+        else
+            msg.setAction(WEBSOCKET_PUTANDWAIT);
+       TLMsg returnMsg =  putMsg("clientMsgHandler",msg);
+       TLMsgUtils.printMsg(returnMsg);
+    }
+
 
 
     private void getFileByServer(TLMsg msg) {
@@ -171,24 +204,6 @@ public class clientModule extends DemoCommon {
          putMsg("webSocketReceiveFIleModule",gmsg);
      }
 
-    private void  sendFilesByClient() {
-          ArrayList<String> fileList =new ArrayList<>() ;
-        fileList.add("D:\\Art-Kins.-.[唤醒超觉].唤醒超觉盛夏版.mp3")        ;
-        fileList.add("D:\\apache-maven-3.5.3-bin.zip");
-        fileList.add("D:\\IMG_0433.JPG");
-        TLMsg msg =createMsg().setAction(WEBSOCKET_SENDFILE).setParam("parama","A").
-                 setParam("paramb",1001)
-                .setParam(MSG_P_MSGID,"receiveFileFromClient")
-                .setParam("fileGroup",fileList) ;
-        TLMsg returnMsg = putMsg("socketClientAgentPool",msg);
-        if(returnMsg.parseBoolean(RESULT,false)==true)
-        {
-            System.out.println("file is send sucessfuliy ");
-        }
-        else
-            System.out.println("file is send failure ");
-        TLMsgUtils.printMap(returnMsg.getArgs());
-    }
 
 
 }

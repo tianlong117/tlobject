@@ -200,13 +200,6 @@ public class TLUserManagerModule extends TLBaseModule {
                    isWrite =channel.isWritable();
                     if(isWrite ==true)
                         channel.writeAndFlush(tws);
-                    else{
-                        try {
-                            sleep(1);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
                 }while (isWrite==false);
             }
             else

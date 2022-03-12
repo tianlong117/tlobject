@@ -2,7 +2,7 @@
 <moduleConfig>
     <!-- 目录相对于filter配置目录下-->
     <params>
-        <msgidInPool   value="getFile;findUser;fromXiaoMing99" />
+        <msgidInPool   value="getFileFromClient;findUser;fromXiaoMing99" />
         <directToModule value="wife" />
     </params>
     <modulesParams>
@@ -34,8 +34,8 @@
         <msgid  value="receiveFileFromClient"  msgTableUseType="useMsg" >
             <msg  destination="serverModule" action="receiveFileFromClient" msgTableUseType="useMsg" />
         </msgid>
-        <msgid  value="getFile"  msgTableUseType="useMsg" >
-            <msg  destination="wife" action="getFile" waitFlag="false" inthreadPool="true" msgTableUseType="useMsg" />
+        <msgid  value="getFileFromClient"  msgTableUseType="useMsg" >
+            <msg  destination="serverModule" action="getFileFromClient"   msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="receiveClientMsg"  msgTableUseType="useMsg" >
             <msg  destination="serverModule" action="receiveClientMsg"  msgTableUseType="useMsg" />

@@ -250,6 +250,14 @@ public class TLWebSocketClient extends TLHttpClient {
     }
 
     private boolean IfQueueCanWrite(int contentsize) {
+        long queueSize ;
+        do{
+            queueSize =mWebSocket.queueSize()+contentsize;
+            if(queueSize < 16777000L)
+                return true ;
+        } while (true);
+    }
+    private boolean IfQueueCanWrite_old(int contentsize) {
         int timeOutTimes =3000;
         long queueSize ;
         int i=0;
@@ -267,7 +275,6 @@ public class TLWebSocketClient extends TLHttpClient {
                 return false ;
         } while (true);
     }
-
     protected class MyWebSocketListener extends WebSocketListener {
         private IObject resultFor;
         private String resultAction;

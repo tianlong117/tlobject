@@ -100,7 +100,7 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
         else
             sessionId =Integer.valueOf(sessionIdStr) ;
         String appSessionId = null;
-        if( msg.isNull("fileGroupId") && !msg.getStringParam("actionType","send").equals("getFile"))
+        if( msg.isNull("fileGroupId") && !(msg.getStringParam("actionType","send").equals("getFile")))
         {
             appSessionId = netSession.makeSessionId();
             msg.setParam(WEBSOCKET_P_APPSESSIONID,appSessionId);

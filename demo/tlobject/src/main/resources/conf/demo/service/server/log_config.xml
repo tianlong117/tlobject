@@ -3,7 +3,7 @@
     <params>
         <ifLog value="true" />
         <logWait value="false" />
-        <level value="debug" />
+        <level value="trace" />
         <logModules value=""/>
         <noLogModules value="httpClient"/>
     </params>
