@@ -100,7 +100,7 @@ public class FileClass {
     public void  errorOnReceive(){
         if(closeStream()==false)
             return ;
-        File file =new File(fileName);
+        File file =new File(saveFileName);
         if(file.exists())
             file.delete() ;
     }

@@ -235,6 +235,8 @@ public   class TLReUsedModulePool extends TLBaseModule {
         return useingModules.containsKey(user);
     }
     public Object  getExistUserModuleInPool(String user){
+        if(ifReachMaxUser())
+            return null;
         nowUserNumber= nowUseingModulesSize.incrementAndGet();
         return useingModules.get(user);
     }

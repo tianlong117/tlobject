@@ -11,7 +11,7 @@
                 initModuleNumbs="50"
                 maxModuleNumbs="100"
                 waitPoolTime="8000"
-                maxUserNumber="5000"/>
+                maxUserNumber="0"/>
     </modulesParams>
     <msgTable>
         <msgid  value="startPutFile" >
