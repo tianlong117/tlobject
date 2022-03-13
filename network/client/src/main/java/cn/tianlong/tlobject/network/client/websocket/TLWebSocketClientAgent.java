@@ -192,6 +192,7 @@ public class TLWebSocketClientAgent extends TLBaseModule {
     }
 
     protected TLMsg  loginResult(Object fromWho, TLMsg msg) {
+        String channel =Thread.currentThread().getId()+"";
         switch ((String)msg.getParam("status")) {
             case "open":
                 putLog("登陆成功",LogLevel.DEBUG,"loginopen");
@@ -204,16 +205,21 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                     putMsg(this,createMsg().setMsgId(connectNotifyMsgId)
                            .setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_OPEN).setParam(WEBSOCKET_R_CLIENTAGENT,name));
 
-                String mchannel =Thread.currentThread().getId()+"";
                 TLMsg mmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
                         .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGIN )
                         .setParam(USERMANAGER_P_USERID, userName)
-                        .setParam(USERMANAGER_P_USERCHANNEL, mchannel);
+                        .setParam(USERMANAGER_P_USERCHANNEL, channel);
                 putMsg(M_MSGBROADCAST, mmsg);
                 break;
             case "message":
                 if(resultFor!=null )
-                   return putMsg(resultFor,msg.setAction(resultAction).setParam(WEBSOCKET_R_CLIENTAGENT,name));
+                {
+                    msg.setAction(resultAction)
+                        .setSystemParam(USERMANAGER_P_USERCHANNEL, channel)
+                        .setSystemParam(USERMANAGER_P_USERID,userName)
+                        .setParam(WEBSOCKET_R_CLIENTAGENT,name);
+                    return putMsg(resultFor,msg.setAction(resultAction).setParam(WEBSOCKET_R_CLIENTAGENT,name));
+                }
                  break;
             case "failure":
                 connected =false ;
@@ -228,7 +234,6 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                         putLog("auth failure;",LogLevel.DEBUG,"Forbidden");
                     }
                 }
-                String channel =Thread.currentThread().getId()+"";
                 TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
                         .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGOUT)
                         .setParam(USERMANAGER_P_USERID, userName)
