@@ -26,6 +26,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 作者:tianlong
  */
 public class TLWebSocketReceiveFIleModule extends TLBaseModule {
+
     protected int maxSessions = 100;
     protected int timeOut = 30000;
     protected String filePath;
@@ -124,10 +125,12 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         TLMsg getFileMsg =new TLMsg();
         getFileMsg.setArgs(msg.getArgs());
         getFileMsg.setParam(WEBSOCKET_P_BINARYSESSION, String.valueOf(sessionId));
-        getFileMsg.setParam("actionType", "getFile");
+        getFileMsg.setParam(WEBSOCKET_P_FILEACTIONTYPE, WEBSOCKET_V_FILEACTION_GETFILE);
         getFileMsg.setMsgId((String) msg.getParam(MSG_P_MSGID));
         TLMsg serverMsg = createMsg().setMsgId("getFile")
+                         .setSystemArgs(msg.getSystemArgs())
                         .addMap(TLMsgUtils.msgToMap(getFileMsg));
+        msg.setParam(WEBSOCKET_P_FILEACTIONTYPE, WEBSOCKET_V_FILEACTION_GETFILE);
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
         TLMsg resultMsg = getMsg(this, serverMsg);
@@ -267,6 +270,9 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
         }
         else
         {
+           String actionType = (String) fileSessionData.get(WEBSOCKET_P_FILEACTIONTYPE);
+            if(actionType ==null )   // 已经有接收文件数据 ，sessionID重复，返回错误
+                return false ;
             fileObj = (FileClass) fileSessionData.get("file");
             if(fileSessionData.get(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM)!=null && (boolean)fileSessionData.get(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM) ==true)
             {
@@ -321,6 +327,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
             fileSessionData.put(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM,args.get(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM));
             args.remove(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM);
         }
+        fileSessionData.put(WEBSOCKET_P_FILEACTIONTYPE,args.get(WEBSOCKET_P_FILEACTIONTYPE));
         fileSessionData.put(MSG_P_PARAMS,args);
         fileSessionData.put("file",fileObj);
         fileSessionData.put("time", System.currentTimeMillis());

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <params>
-        <!--putfileName value="VFP9.0.rar"></putfileName-->
-        <putfileName value="BaiduNetdisk_7.6.0.13.exe"></putfileName>
+        <putfileName value="VFP9.0.rar"></putfileName>
+        <!--putfileName value="BaiduNetdisk_7.6.0.13.exe"></putfileName-->
     </params>
     <msgTable>
         <msgid  value="start" >
             <msg action="#putMsgToServerAndWait"  />
-            <msg action="#putFileFromClient" />
+            <msg action="putFileFromClient" />
             <msg action="#sendFilesByClient" />
-            <msg action="getFileFromServer" />
+            <msg action="#getFileFromServer" />
             <!--msg action="getModule" destination="moduleFactory"   waitFlag="false" moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/-->
         </msgid>
     </msgTable>

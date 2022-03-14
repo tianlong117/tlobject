@@ -268,9 +268,11 @@ public interface TLParamString {
     final String WEBSOCKET_P_SENDFILENAME = "fileName";
     final String WEBSOCKET_R_SENDREALFILENAME = "realFileName";
     final String WEBSOCKET_P_SENDFILEGROUP = "fileGroup";
+    final  String WEBSOCKET_P_FILEACTIONTYPE ="fileActionType";
     final String WEBSOCKET_P_SENDFILEIWITHDATAS = "datas";
     final String WEBSOCKET_R_RECEIVEDFILEGROUP = "receivedfileGroup";
     final String WEBSOCKET_R_SENDFILEGROUPRESULT = "fileGroupStatus";
+    final  String WEBSOCKET_V_FILEACTION_GETFILE ="getFile";
     final String WEBSOCKET_V_BINARYRECEIVEFILEMSGID = "receiveBinaryFile";
     final String WEBSOCKET_V_BINARYRECEIVEMSGID = "receiveBinary";
     final int    WEBSOCKET_V_BINARYMFILEDATACMDCODE = 1;
