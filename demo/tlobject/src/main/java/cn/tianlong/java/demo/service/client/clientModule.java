@@ -107,7 +107,7 @@ public class clientModule extends DemoCommon {
 
 
     private void getFileFromServer(Object fromWho, TLMsg msg) {
-        String fileName="BaiduNetdisk_7.6.0.13.exe";
+        String fileName="apache-tomcat-9.0.56-windows-x64.zip";
         TLMsg gmsg =createMsg().setAction("getFile").setParam(MSG_P_MSGID,"getFileFromClient")
                 .setParam("fileName",fileName).setWaitFlag(false);
         //  putMsg("socketClientAgentPool",msg);

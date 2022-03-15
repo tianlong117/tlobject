@@ -69,8 +69,7 @@ public   class TLReUsedModulePool extends TLBaseModule {
             return this ;
         if(modueInPool ==null || modulePool.isEmpty())
             return this ;
-        if(modulePool !=null && modulePool.isEmpty())
-             makePool(initModuleNumbs, modueInPool);
+        makePool(initModuleNumbs, modueInPool);
         return this ;
     }
     protected synchronized void makePool(int moduleNumber,String modueName){
