@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 描述:
  * 作者:tianlong
  */
-public class TLWebSocketReceiveFIleModule extends TLBaseModule {
+public class TLWebSocketReceiveFileModule extends TLBaseModule {
 
     protected int maxSessions = 100;
     protected int timeOut = 30000;
@@ -37,7 +37,7 @@ public class TLWebSocketReceiveFIleModule extends TLBaseModule {
     protected TLReUsedModulePool sessionPool ;
     protected Type jsonType = new TypeToken<Map<String, Object>>() { }.getType();
 
-    public TLWebSocketReceiveFIleModule(String name, TLObjectFactory modulefactory) {
+    public TLWebSocketReceiveFileModule(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
     }
 

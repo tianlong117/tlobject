@@ -38,7 +38,7 @@ public class clientModule extends DemoCommon {
                 putMsgToServerAndWait(fromWho, msg);
                 break;
             case "getFileByServer":
-                getFileByServer(msg);
+                invokeActionInThread("getFileByServer", this,msg);
                 break;
             case "putFileFromClient":
                 invokeActionInThread("putFileFromClientInThread", this, null);
@@ -49,9 +49,17 @@ public class clientModule extends DemoCommon {
             case "getFileFromServer":
                 getFileFromServer(fromWho, msg);
                 break;
+            case "receiveFileFromServer":
+                returnMsg= receiveFileFromServer(fromWho, msg);
+                break;
             default:
         }
         return  returnMsg;
+    }
+
+    private TLMsg receiveFileFromServer(Object fromWho, TLMsg msg) {
+        TLMsgUtils.printMsg(msg);
+        return createMsg().setParam("message","client have receive file");
     }
 
     private void putMsgToServerAndWait(Object fromWho, TLMsg msg) {
@@ -107,103 +115,26 @@ public class clientModule extends DemoCommon {
 
 
     private void getFileFromServer(Object fromWho, TLMsg msg) {
-        String fileName="apache-tomcat-9.0.56-windows-x64.zip";
+        String fileName="apache.zip";
         TLMsg gmsg =createMsg().setAction("getFile").setParam(MSG_P_MSGID,"getFileFromClient")
                 .setParam("fileName",fileName).setWaitFlag(false);
         //  putMsg("socketClientAgentPool",msg);
-        TLMsg returnMsg = putMsg("webSocketReceiveFIleModule",gmsg);
+        TLMsg returnMsg = putMsg("webSocketReceiveFileModule",gmsg);
         TLMsgUtils.printMsg(returnMsg);
     }
 
-
-
-    private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
-        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
-        if( !wait)
-            msg.setAction(WEBSOCKET_PUTMSG);
-        else
-            msg.setAction(WEBSOCKET_PUTANDWAIT);
-       TLMsg returnMsg =  putMsg("clientMsgHandler",msg);
-       TLMsgUtils.printMsg(returnMsg);
-    }
-
-
-
-    private void getFileByServer(TLMsg msg) {
-        String fileName = (String) msg.getParam("fileName");
-        TLMsg fmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setParam(msg.getArgs())
-                .setParam("fileName",fileName).setWaitFlag(false);
-        putMsg("socketClientAgentPool",fmsg);
-    }
-    private void doFileList(ArrayList<HashMap<String,Object>> files) {
-        for(HashMap<String,Object> map: files){
-            printFile(map);
-        }
-    }
-
-    private void printFile(HashMap<String,Object> map) {
-        String tmpfile = (String)  map.get("fileName");
-        String realfile = (String)  map.get("realFileName");
-        TLMsgUtils.printMap(map);
-        File oldName = new File(tmpfile);
-        String path =oldName.getParent();
-        realfile = path+File.separator+realfile;
-        File newName = new File(realfile);
-        if(newName.exists())
-            newName.delete() ;
-        oldName.renameTo(newName);
-    }
-
-
-    private void sendFilesByServerToHttpProxy() {
-         String  url ="http://www.daqing.net" ;
-         HashMap<String,String> fileList =new HashMap<>();
-        fileList.put("1","D:\\city.sql")        ;
-        fileList.put("2","D:\\2.jpg");
-        fileList.put ("3","D:\\IMG_0433.JPG");
-        HashMap<String,String> datas =new HashMap<>();
-        datas.put("a","1")        ;
-        datas.put("b","2");
-        datas.put ("c","3");
-        HashMap<String,String>httpHeader =new HashMap<>();
-        httpHeader.put("User-Agent", "Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.1; WOW64; Trident/5.0; SLCC2; .NET CLR 2.0.50727; .NET CLR 3.5.30729; .NET CLR 3.0.30729; .NET4.0C; .NET4.0E)");
-        httpHeader.put("Accept", "*/*");
-        httpHeader.put("Accept-Encoding", "gzip, deflate");
-        httpHeader.put("Accept-Language", "zh-CN");
-        HashMap<String,String>cookie =new HashMap<>();
-        cookie.put("username", "dongq");
-        cookie.put("passwd", "1111111111111111");
-        Map <String,Object > result =postFormDataByProxy(url,cookie,datas,httpHeader,fileList);
-   //     TLMsgUtils.printMap(result);
-    }
-    protected Map<String,Object> postFormDataByProxy(String url, Map<String,String> cookie, Map<String,String> datas, HashMap<String, String> header, Map<String,String>files )
-    {
-
-        ArrayList<String>  fileList = new ArrayList<>();
-        for(String key : files.keySet())
-            fileList.add(files.get(key));
+    private void getFileByServer(Object fromWho, TLMsg msg) {
+        String fileName= (String) msg.getParam("fileName");
+        String filePath=moduleFactory.getConfigDir();
+        fileName =filePath +fileName ;
+        System.out.println("start server sendfile"+ fileName);
+        HashMap<String,Object> threadDatas = (HashMap<String, Object>) msg.getSystemParam(TASKRESESSIONDATA);
         TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE)
-                .setParam(USERMANAGER_P_USERID,"demo_user")
-                .setParam("url",url)
-                .setParam(MSG_P_MSGID,"postFormReturnDoc")
-                .setParam("fileName",url)
-                .setParam("charset","utf-8")
-                .setParam("httpHeader",header)
-                .setParam("fileGroup",fileList) ;
-        if(cookie !=null)
-            gmsg.setParam("cookie",cookie);
-        if(datas !=null)
-            gmsg.setParam("datas",datas);
-        TLMsg returnMsg = putMsg("userManagerModule",gmsg);
-        return returnMsg.getArgs();
+                .setSystemArgs(threadDatas)
+                .setArgs(msg.getArgs())
+                .setParam("fileName",fileName);
+        putMsg(myInterface,gmsg);
     }
-    private void getFileFromclient(String fileName ,TLMsg msg){
-         TLMsg gmsg =createMsg().setAction("getFile").setParam(msg.getArgs()).setParam(MSG_P_MSGID,"getFile")
-                 .setParam("fileName",fileName).setWaitFlag(false);
-         //  putMsg("socketClientAgentPool",msg);
-         putMsg("webSocketReceiveFIleModule",gmsg);
-     }
-
 
 
 }

@@ -163,10 +163,12 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
             return  new TLMsg().setParam(RESULT,false);
         boolean result =true ;
         HashMap<String,Boolean> fileStatus= new HashMap<>();
-        for(TLMsg rmsg :resultMsgList){
-            if(rmsg.parseBoolean(RESULT,false) ==false)
+        for(TLMsg rmsg :resultMsgList)
+        {
+            Boolean ifSucessed = rmsg.parseBoolean(RESULT,false) ;
+            if(ifSucessed ==false)
                 result =false ;
-            fileStatus.put((String)rmsg.getParam(WEBSOCKET_P_SENDFILENAME ),(boolean)rmsg.getParam(RESULT));
+            fileStatus.put((String)rmsg.getParam(WEBSOCKET_P_SENDFILENAME ),ifSucessed);
         }
         return  new TLMsg().setParam(RESULT,result).setParam(WEBSOCKET_R_SENDFILEGROUPRESULT ,fileStatus);
     }

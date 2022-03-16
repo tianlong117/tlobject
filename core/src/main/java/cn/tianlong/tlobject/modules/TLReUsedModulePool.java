@@ -67,7 +67,7 @@ public   class TLReUsedModulePool extends TLBaseModule {
     protected TLBaseModule init() {
         if(autoInit==false)
             return this ;
-        if(modueInPool ==null || modulePool.isEmpty())
+        if(modueInPool ==null || modueInPool.isEmpty())
             return this ;
         makePool(initModuleNumbs, modueInPool);
         return this ;

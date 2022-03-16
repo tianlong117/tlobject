@@ -8,8 +8,8 @@
         <msgid  value="start" >
             <msg action="#putMsgToServerAndWait"  />
             <msg action="#putFileFromClient" />
-            <msg action="#sendFilesByClient" />
-            <msg action="getFileFromServer" />
+            <msg action="sendFilesByClient" />
+            <msg action="#getFileFromServer" />
             <!--msg action="getModule" destination="moduleFactory"   waitFlag="false" moduleName="xiaoming" configfile="type/xiaoming_putfile_config.xml"/-->
         </msgid>
     </msgTable>

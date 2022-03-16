@@ -585,7 +585,10 @@ public abstract class TLBaseModule extends TLBaseObject {
                              {
                                  cmsg.setSystemParam(DOWITHMAG, msg);
                                   if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEINPUTMSG),true)==true )
-                                     cmsg.copyParams(paramKeys,msg);
+                                  {
+                                      cmsg.copyParams(paramKeys,msg);
+                                      cmsg.addSystemArgs(msg.getSystemArgs());
+                                  }
                          }
                     }
                      if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)

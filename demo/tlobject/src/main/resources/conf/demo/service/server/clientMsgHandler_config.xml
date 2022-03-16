@@ -13,7 +13,7 @@
                 maxUserNumber="200000"/>
     </modulesParams>
     <startMsg>
-        <msg  action="getModuleByModule"   moduleName="webSocketReceiveFIleModule"  usePreReturnMsg="false" />
+        <msg  action="#getModuleByModule"   moduleName="webSocketReceiveFileModule"  usePreReturnMsg="false" />
     </startMsg>
     <msgTable>
         <msgid  value="login" >
@@ -26,7 +26,7 @@
             <msg  destination="membersModle" action="findUser" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="receiveBinaryFile"  msgTableUseType="useMsg" >
-            <msg  destination="webSocketReceiveFIleModule" action="receiveBinaryFile"   msgTableUseType="useMsg" />
+            <msg  destination="webSocketReceiveFileModule" action="receiveBinaryFile"   msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="receiveBinary"  msgTableUseType="useMsg" >
             <msg   action="receiveBinary"   msgTableUseType="useMsg" />
