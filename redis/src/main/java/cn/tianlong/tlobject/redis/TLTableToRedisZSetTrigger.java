@@ -45,7 +45,7 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
 
     @Override
     protected TLMsg onDelete(Object fromWho, TLMsg msg) {
-        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if (rediskey == null)
@@ -63,7 +63,7 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
 
     @Override
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if (rediskey == null)
@@ -112,7 +112,7 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
     @Override
     protected TLMsg onQuery(Object fromWho, TLMsg msg) {
         TLMsg preResultMsg = (TLMsg) msg.getParam(PRERESULT);
-        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         if (preResultMsg == null)
             return getValueFromRedis(nmsg);
         else

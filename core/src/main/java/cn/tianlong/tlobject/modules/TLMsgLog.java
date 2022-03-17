@@ -52,7 +52,7 @@ public  class TLMsgLog extends TLBaseModule {
     }
 
     protected TLMsg transferLog(Object fromWho, TLMsg msg) {
-        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         TLMsg  transferMsg = (TLMsg) domsg.getParam("msg");
         String transferMsgstr=msgToStr(transferMsg);
         LocalDate today = LocalDate.now();
@@ -101,7 +101,7 @@ public  class TLMsgLog extends TLBaseModule {
         return addmsg;
     }
     protected TLMsg startLog(Object fromWho, TLMsg msg) {
-        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg  domsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         TLMsg  returnMsg = (TLMsg) msg.getSystemParam(PRERESULT);
         TLMsg  netxMsg =  msg.getNextMsg();
         String domsgStr=msgToStr(domsg);

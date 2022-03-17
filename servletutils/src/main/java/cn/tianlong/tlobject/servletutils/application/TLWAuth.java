@@ -266,7 +266,7 @@ public class TLWAuth extends TLBaseModule {
     }
 
     protected TLMsg authInModule(Object fromWho, TLMsg msg) {
-        TLMsg dmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg dmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         if(dmsg==null)
             return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
         String checkModule=((IObject)fromWho).getName();
@@ -274,7 +274,7 @@ public class TLWAuth extends TLBaseModule {
     }
 
     protected TLMsg authInUrlMap(Object fromWho, TLMsg msg) {
-        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         TLMsg dmsg = (TLMsg) doWithmsg.getParam(msgNameForCheck);
         if(dmsg==null)
             return createMsg().setSystemParam(MODULE_DONEXTMSG,false);

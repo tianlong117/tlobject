@@ -147,7 +147,7 @@ public class TLNetSession extends TLBaseModule {
     private TLMsg onWaitFail(String sessionId,TLMsg serverMsg) {
         if(onFailMsgid !=null)
         {
-            TLMsg msg =createMsg().setMsgId(onFailMsgid).setParam(DOWITHMAG,serverMsg);
+            TLMsg msg =createMsg().setMsgId(onFailMsgid).setParam(DOWITHMSG,serverMsg);
             getMsg(this,msg);
         }
         threads.remove(sessionId) ;

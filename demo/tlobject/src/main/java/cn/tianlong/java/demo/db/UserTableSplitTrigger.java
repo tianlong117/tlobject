@@ -4,9 +4,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLBaseTriggerForSplitTable;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 
 
 /**
@@ -30,7 +28,7 @@ public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
 
     @Override
     protected TLMsg selectTable(Object fromWho, TLMsg msg){
-        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         String isWait = (String) nmsg.getParam("isWait");
         if(isWait!=null && isWait.equals("false"))
             nmsg.setWaitFlag(false);

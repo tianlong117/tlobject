@@ -47,7 +47,7 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         if(tableName == null)
             tableName=((TLTable)fromWho).getName();
-        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         if( nmsg ==null)
             nmsg =msg ;
         String table = (String) nmsg.getParam("dbtable");

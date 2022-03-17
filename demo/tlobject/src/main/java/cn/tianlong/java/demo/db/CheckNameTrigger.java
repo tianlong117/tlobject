@@ -2,9 +2,7 @@ package cn.tianlong.java.demo.db;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTriggerForSplitTable;
 import cn.tianlong.tlobject.db.TLDBTrigger;
-import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 
 import java.util.LinkedHashMap;
@@ -49,7 +47,7 @@ public  class CheckNameTrigger extends TLDBTrigger {
     }
 
     private TLMsg onInsert(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String ,Object> tparams= (LinkedHashMap<String, Object>) nmsg.getMapParam(DB_P_PARAMS,null);
         if(tparams ==null)
             return null ;

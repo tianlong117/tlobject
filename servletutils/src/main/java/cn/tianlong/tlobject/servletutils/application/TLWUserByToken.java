@@ -6,7 +6,6 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.common.TLJWT;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.time.DateUtils;
 
 import javax.servlet.http.HttpServletRequest;
@@ -91,7 +90,7 @@ public class TLWUserByToken extends TLWAbstractUser {
     }
 
     protected TLMsg loginBeforeGsonMap(Object fromWho, TLMsg msg) {
-        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         TLMsg dmsg = (TLMsg) doWithmsg.getParam("domsg");
         return login(fromWho, dmsg);
     }
@@ -143,7 +142,7 @@ public class TLWUserByToken extends TLWAbstractUser {
         }
         if (token == null )
         {
-            TLMsg domsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+            TLMsg domsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
             if(domsg ==null)
                 return null ;
             token = (String) domsg.getParam(TOKENUSER_P_TOKEN);

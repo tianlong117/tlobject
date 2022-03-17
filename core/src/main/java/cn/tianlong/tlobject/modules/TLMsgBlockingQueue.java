@@ -75,7 +75,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     }
 
     private TLMsg beforeModuleAction(Object fromWho, TLMsg msg) {
-        TLMsg qmsg = (TLMsg) msg.getSystemParam(DOWITHMAG);
+        TLMsg qmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         addMsgInQueue( qmsg.setDestination(msg.getPrevious()),true);
         return createMsg().setParam(MODULE_DONEXTMSG ,false);
     }

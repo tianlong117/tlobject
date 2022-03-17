@@ -4,7 +4,6 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
-import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -583,7 +582,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                              cmsg = copyMsgFromMsgTable(cmsg, msgInMsgList);
                              if (msg != null )
                              {
-                                 cmsg.setSystemParam(DOWITHMAG, msg);
+                                 cmsg.setSystemParam(DOWITHMSG, msg);
                                   if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEINPUTMSG),true)==true )
                                   {
                                       cmsg.copyParams(paramKeys,msg);

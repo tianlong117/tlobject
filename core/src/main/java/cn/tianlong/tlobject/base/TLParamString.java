@@ -107,7 +107,7 @@ public interface TLParamString {
     final String MODULE_GETAFTERMSG = "getAfterMsg";
     final String MODULE_RELOADCONFIG = "reloadConfig";
     final String MODULE_SETFACTORY = "setFactory";
-    final String DOWITHMAG = "doWiThMsg";
+    final String DOWITHMSG = "doWiThMsg";
     final String MODULE_GETMODULEBYMODULE = "getModuleByModule";
     final String MODULE_GETPARAM = "getParam";
     final String MODULE_SETPARAM = "setParam";
