@@ -50,7 +50,7 @@ public class TLMsg implements Serializable , Cloneable{
 
     public TLMsg(String action, String param, Object value){
         this.action = action;
-        args.put(param,value);
+        setParam(param,value);
     }
     public String getSource()
     {
