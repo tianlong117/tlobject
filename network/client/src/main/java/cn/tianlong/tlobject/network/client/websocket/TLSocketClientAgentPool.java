@@ -148,7 +148,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
                 returnMsg = receiveBinary(fromWho, msg);
                 break;
             case "fromAgent":
-                fromAgent(fromWho, msg);
+                returnMsg = fromAgent(fromWho, msg);
                 break;
             case SOCKETCLIENTAGENTPOOL_GETSERVER :
                 returnMsg =getServer(fromWho, msg);
@@ -374,7 +374,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         addAndConnectToServer(serverName,serverParams) ;
     }
 
-    protected void fromAgent(Object fromWho, TLMsg msg) {
+    protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (status.equals(WEBSOCKET_R_OPEN))
@@ -384,6 +384,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         if(onServerStatusModule !=null )
             putMsg(onServerStatusModule, createMsg().setAction(onServerStatusAction)
                     .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName).setParam(WEBSOCKET_P_STATUS,status));
+        return null;
     }
 
     protected IObject getServer( String serverName){

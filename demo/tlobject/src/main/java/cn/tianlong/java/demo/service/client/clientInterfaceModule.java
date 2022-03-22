@@ -5,8 +5,6 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
-import java.util.HashMap;
-
 import static java.lang.Thread.sleep;
 
 public class clientInterfaceModule extends TLSocketClientAgentPool {
@@ -33,21 +31,22 @@ public class clientInterfaceModule extends TLSocketClientAgentPool {
         connectToServer(defaultServer);
     }
     @Override
-    protected void fromAgent(Object fromWho, TLMsg msg) {
+    protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         super.fromAgent(fromWho,msg);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (status.equals(WEBSOCKET_R_OPEN))
         {
         //    invokeActionInThread("startWork", this, null);
           startWork( fromWho,  msg);
-            return;
+            return msg;
         }
         if (status.equals(WEBSOCKET_R_FAILURE))
         {
             failureNumber ++ ;
             println("failure :"+failureNumber);
-            return;
+            return msg;
         }
+        return msg;
     }
 
     private void startWork(Object fromWho, TLMsg msg) {

@@ -35,16 +35,17 @@ public class TLServiceGateWayInterface extends TLSocketClientAgentPool {
         }
     }
     @Override
-    protected void fromAgent(Object fromWho, TLMsg msg) {
+    protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         super.fromAgent(fromWho,msg);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (!status.equals(WEBSOCKET_R_OPEN))
-            return;
+            return null;
         String serverName = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         HashMap<String,String> serverconfig =servers.get(serverName);
         String serverType=serverconfig.get("serverType");
         if(serverType !=null && serverType.equals("gateWay"))
              putshMsgidToGateWay(serverName) ; //msg网关连接成功后将msgid表推送给网关
+        return null;
     }
     private void putshMsgidToGateWay(String serverName) {
         ArrayList<String> msgids = null;

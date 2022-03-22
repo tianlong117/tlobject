@@ -60,14 +60,15 @@ public class TLServiceRegistInterfaceModule extends TLSocketClientAgentPool {
 
     }
     @Override
-    protected void fromAgent(Object fromWho, TLMsg msg) {
+    protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         super.fromAgent(fromWho,msg);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         if (!status.equals(WEBSOCKET_R_OPEN))
-            return;
+            return null;
         String serverName = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         HashMap<String,String> serverconfig =servers.get(serverName);
 
+        return null;
     }
 
 
