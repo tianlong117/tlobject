@@ -127,10 +127,8 @@ public class TLClientMsgHandler extends TLBaseModule {
                 return null ;
             if( !directToModule.contains(destination) && !directToModule.contains("*"))
                 return null ;
-        }
-        if(destination !=null){
-           despatchMsgBySessionPool( clientMsg);
-           return null ;
+            despatchMsgBySessionPool( clientMsg);
+            return null ;
         }
         String sesstionId = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSION);
         String  arrivedMsgid = (String) clientMsg.getSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID);
