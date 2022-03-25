@@ -4,13 +4,11 @@ import cn.tianlong.java.demo.base.DemoCommon;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 
 import static java.lang.Thread.sleep;
 
@@ -76,7 +74,7 @@ public class serverModule extends DemoCommon {
         TLMsg clientMsg= createMsg()
                 .setParam("data","来自服务器的消息") ;
         return createMsg().setSystemParam(SOCKETSERVER_R_IFRETURN,true)
-                .setArgs(TLMsgUtils.msgToMap(clientMsg));
+                .setArgs(TLMsgUtils.msgToSocketDataMap(clientMsg));
     }
 
     private TLMsg receiveFileFromClient(Object fromWho, TLMsg msg) {

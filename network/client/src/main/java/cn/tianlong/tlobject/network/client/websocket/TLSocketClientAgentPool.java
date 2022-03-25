@@ -273,7 +273,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     }
 
     protected TLMsg proxyPut(Object fromWho, TLMsg msg) {
-        msg.setArgs(TLMsgUtils.msgToMap(msg));
+        msg.setArgs(TLMsgUtils.msgToSocketDataMap(msg));
         return putToServerAndWait( fromWho, msg) ;
     }
 

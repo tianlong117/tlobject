@@ -129,7 +129,7 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         getFileMsg.setMsgId((String) msg.getParam(MSG_P_MSGID));
         TLMsg serverMsg = createMsg().setMsgId("getFile")
                          .setSystemArgs(msg.getSystemArgs())
-                        .addMap(TLMsgUtils.msgToMap(getFileMsg));
+                        .addMap(TLMsgUtils.msgToSocketDataMap(getFileMsg));
         msg.setParam(WEBSOCKET_P_FILEACTIONTYPE, WEBSOCKET_V_FILEACTION_GETFILE);
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
@@ -423,7 +423,7 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
             resultMsg.setSystemParam(WEBSOCKET_P_SESSION,appSessionId);
         else
             resultMsg.setSystemParam(WEBSOCKET_P_NOTIFYID,appSessionId);
-        sessionMsg.setArgs(TLMsgUtils.msgToMap(resultMsg)) ;
+        sessionMsg.setArgs(TLMsgUtils.msgToSocketDataMap(resultMsg)) ;
         getMsg(this, sessionMsg);
     }
 

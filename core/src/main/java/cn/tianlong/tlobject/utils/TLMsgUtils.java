@@ -333,26 +333,37 @@ public class TLMsgUtils {
         return msg;
     }
 
-    public static   HashMap<String,Object> msgToMap(TLMsg msg){
+    public static   HashMap<String,Object> msgToSocketDataMap(TLMsg msg)
+    {
+        return  makeSocketDataMap(msg.getMsgId(),  msg.getAction(),  msg.getArgs(),  msg.getSystemArgs(), msg.getDestination());
+    }
+    public static   HashMap<String,Object> makeSocketDataMap(String action, String destination, HashMap<String,Object> params)
+    {
+        return  makeSocketDataMap(null,  action,  params,  null, destination);
+    }
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, HashMap<String,Object> params, HashMap<String,Object> systemArgs)
+    {
+        return  makeSocketDataMap( msgid,  null,  params,  systemArgs, null);
+    }
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, HashMap<String,Object> params)
+    {
+        return  makeSocketDataMap( msgid,  null,  params,  null, null);
+    }
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, String action, HashMap<String,Object> params, HashMap<String,Object> systemArgs, String destination)
+    {
         HashMap<String,Object> map =new HashMap<>();
-        String msgid =msg.getMsgId();
         if(msgid != null)
             map.put(MSG_P_MSGID,msgid);
-        String action =msg.getAction();
         if(action !=null )
             map.put(MSG_P_ACTION,action);
-        String destination = msg.getDestination();
         if(destination !=null)
             map.put(MSG_P_DESTINATION,destination);
-        HashMap<String,Object> params =msg.getArgs();
         if(params !=null && !params.isEmpty())
             map.put(MSG_P_PARAMS,params);
-        HashMap<String,Object> systemArgs =msg.getSystemArgs();
         if(systemArgs !=null && !systemArgs.isEmpty())
             map.put(MSG_P_SYSTEMARGS,systemArgs);
         return map;
     }
-
     public static   TLMsg addSystemArgToMsg(String key , Object value , TLMsg msg){
         Map<String,Object> systemArgs;
         if(msg ==null)
@@ -375,7 +386,7 @@ public class TLMsgUtils {
     public static void printMsg(TLMsg msg) {
         if (msg == null)
             return;
-        printMap(msgToMap(msg));
+        printMap(msgToSocketDataMap(msg));
     }
     public static void printMap(Map<String, Object> map) {
         if (map == null || map.isEmpty())

@@ -114,7 +114,7 @@ public class TLHttpProxy extends TLBaseModule {
             e.printStackTrace();
         }
         TLMsg resultMsg = createMsg().setArgs(datas);
-        return createMsg().setArgs(TLMsgUtils.msgToMap(resultMsg));
+        return createMsg().setArgs(TLMsgUtils.msgToSocketDataMap(resultMsg));
     }
 
     private void putData(HashMap<String,Object> datas) {

@@ -7,11 +7,8 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
-
 
 
 public class clientModule extends DemoCommon {
@@ -68,7 +65,7 @@ public class clientModule extends DemoCommon {
     private void putMsgToServerInThread(Object fromWho, TLMsg msg) {
         TLMsg smsg =createMsg().setMsgId("receiveClientMsg")
                 .setParam("data","你好，来自客户端的发送消息");
-        TLMsg pmsg =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setArgs(TLMsgUtils.msgToMap(smsg));
+        TLMsg pmsg =createMsg().setAction(WEBSOCKET_PUTANDWAIT).setArgs(TLMsgUtils.msgToSocketDataMap(smsg));
         TLMsg returnMsg = putMsg(myInterface,pmsg);
         println(" 服务返回：");
         TLMsgUtils.printMsg(returnMsg);

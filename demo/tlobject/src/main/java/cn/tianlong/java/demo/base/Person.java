@@ -6,10 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
-import java.io.File;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Map;
 
 import static java.lang.Thread.sleep;
 
@@ -135,7 +132,7 @@ public class Person extends DemoCommon {
                 }
                 TLMsg cmsg =createMsg().setMsgId("fromServerWife");
                 putToClient(cmsg,true,msg.getSystemArgs());
-            //    TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToMap(cmsg)) ;
+            //    TLMsg returnMsg =createMsg().setArgs(TLMsgUtils.msgToSocketDataMap(cmsg)) ;
            //     return  returnMsg ;
             }
             else {
@@ -158,7 +155,7 @@ public class Person extends DemoCommon {
     }
 
     private void putToClient(TLMsg cmsg, boolean wait, HashMap systemArgs) {
-        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToMap(cmsg));
+        TLMsg msg =createMsg().setSystemArgs(systemArgs).setArgs(TLMsgUtils.msgToSocketDataMap(cmsg));
         if( !wait)
             msg.setAction(WEBSOCKET_PUTMSG);
         else
@@ -189,7 +186,7 @@ public class Person extends DemoCommon {
          TLMsg clientMsg= createMsg().setMsgId("fromServerWife")
                  .setParam("data"," yes") ;
          return createMsg().setSystemParam(SOCKETSERVER_R_IFRETURN,true)
-                 .setArgs(TLMsgUtils.msgToMap(clientMsg));
+                 .setArgs(TLMsgUtils.msgToSocketDataMap(clientMsg));
     }
 
     private void toWife() {
