@@ -3,31 +3,30 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>tlobject-network</artifactId>
+        <artifactId>tlobject-network-server</artifactId>
         <groupId>cn.tianlong.tlobject</groupId>
         <version>1.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>tlobject-network-server</artifactId>
-    <packaging>pom</packaging>
-    <modules>
-        <module>network-server-websocket</module>
-        <module>network-server-jetty</module>
-        <module>tlobject-network-server-distributedserver</module>
-    </modules>
+    <artifactId>tlobject-network-server-distributedserver</artifactId>
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
             <artifactId>tlobject-network-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-network-server-websocket</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-network-client</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
     </dependencies>
-    <build>
-        <plugins>
-            <plugin>
-                <artifactId>maven-compiler-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
+
 </project>

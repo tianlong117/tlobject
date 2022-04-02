@@ -340,7 +340,7 @@ public interface TLParamString {
     final String USERMANAGER_R_USERINFO = "userInfo";
     final String USERMANAGER_R_USERIP = "clientIP";
 
-    final String USERROUTE_ROUSER = "toUser";
+    final String USERROUTE_TOUSER = "toUser";
     final String USERROUTE_TOSERVER= "toServer";
     final String USERROUTE_SET= "SET";
     final String USERROUTE_P_SERVERUSERMANAGERMODULE = "serverUserManagerModule";

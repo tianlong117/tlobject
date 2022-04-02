@@ -432,7 +432,7 @@ public class TLUserManagerModule extends TLBaseModule {
         {
             if (userRouteModule != null)
             {
-                TLMsg returnMsg = putMsg(userRouteModule, msg.setAction(USERROUTE_ROUSER));
+                TLMsg returnMsg = putMsg(userRouteModule, msg.setAction(USERROUTE_TOUSER));
                 if (returnMsg != null ) {
                     Boolean result = returnMsg.parseBoolean(RESULT,false);
                     if (result == true)

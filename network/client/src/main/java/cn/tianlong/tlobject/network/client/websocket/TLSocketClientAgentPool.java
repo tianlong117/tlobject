@@ -232,7 +232,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
         IObject server =getServer(serverName);
         if(server ==null)
-            return createMsg().setParam(RESULT,0) ;
+            return createMsg().setParam(RESULT,false) ;
         TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
                 .setParam(WEBSOCKET_P_CONTENT,msg.getArgs());
         return putMsg(server,serverMsg);

@@ -51,7 +51,7 @@ public class TLUserRouterModule extends TLBaseModule {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case USERROUTE_ROUSER:
+            case USERROUTE_TOUSER:
                 returnMsg = toUser(fromWho, msg);
                 break;
             case USERROUTE_TOSERVER:
