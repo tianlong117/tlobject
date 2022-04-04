@@ -337,19 +337,19 @@ public class TLMsgUtils {
     {
         return  makeSocketDataMap(msg.getMsgId(),  msg.getAction(),  msg.getArgs(),  msg.getSystemArgs(), msg.getDestination());
     }
-    public static   HashMap<String,Object> makeSocketDataMap(String action, String destination, HashMap<String,Object> params)
+    public static   HashMap<String,Object> makeSocketDataMap(String action, String destination, Map<String,Object> params)
     {
         return  makeSocketDataMap(null,  action,  params,  null, destination);
     }
-    public static   HashMap<String,Object> makeSocketDataMap(String msgid, HashMap<String,Object> params, HashMap<String,Object> systemArgs)
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, Map<String,Object> params, Map<String,Object> systemArgs)
     {
         return  makeSocketDataMap( msgid,  null,  params,  systemArgs, null);
     }
-    public static   HashMap<String,Object> makeSocketDataMap(String msgid, HashMap<String,Object> params)
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, Map<String,Object> params)
     {
         return  makeSocketDataMap( msgid,  null,  params,  null, null);
     }
-    public static   HashMap<String,Object> makeSocketDataMap(String msgid, String action, HashMap<String,Object> params, HashMap<String,Object> systemArgs, String destination)
+    public static   HashMap<String,Object> makeSocketDataMap(String msgid, String action, Map<String,Object> params, Map<String,Object> systemArgs, String destination)
     {
         HashMap<String,Object> map =new HashMap<>();
         if(msgid != null)
