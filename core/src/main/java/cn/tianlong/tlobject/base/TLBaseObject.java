@@ -103,7 +103,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             taskResultAction = (String) msg.getAndRemoveSystemParam(TASKRESULTACTION);
             if(taskResultAction==null )
                taskResultMsg = (TLMsg)  msg.getAndRemoveSystemParam(TASKRESULTMSG);
-            taskSessionData=  msg.getAndRemoveSystemParam(TASKRESESSIONDATA);
+            taskSessionData=  msg.getSystemParam(TASKRESESSIONDATA);
         }
        public void run() {
            try{
