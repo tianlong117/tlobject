@@ -290,7 +290,7 @@ public class TLHttpClient extends TLBaseModule {
         return  builder ;
     }
     private TLMsg httpCallExecute(RequestCall requestCall, Object fromWho, TLMsg msg){
-        String    resultAction = (String) msg.getSystemParam(RESULTACTION);
+
         if(msg.containsParam("connTimeOut"))
             requestCall.connTimeOut((Long) msg.getParam("connTimeOut")*1000);
         else if(connTimeOut >0L)
@@ -303,7 +303,9 @@ public class TLHttpClient extends TLBaseModule {
             requestCall.writeTimeOut((Long) msg.getParam("writeTimeOut")*1000);
         else if(writeTimeOut >0L)
             requestCall.writeTimeOut(writeTimeOut);
-        if(resultAction !=null )
+        String    resultAction = (String) msg.getSystemParam(RESULTACTION);
+        TLMsg progressMsg =(TLMsg) msg.getSystemParam(HTTP_P_FILE_PROGRESSMSG);
+        if(resultAction !=null ||  progressMsg !=null )
         {
             Object  resultFor =msg.getSystemParam(RESULTFOR);
             if(resultFor ==null )
@@ -313,9 +315,9 @@ public class TLHttpClient extends TLBaseModule {
             String action =msg.getAction();
             Callback callback ;
             if(action.equals(HTTP_POSTFILE))
-                callback=new PostFileCallback(resultFor,resultAction,msg.getParam(HTTP_P_SESSIONDATA),(TLMsg) msg.getParam(HTTP_P_FILE_PROGRESSMSG));
+                callback=new PostFileCallback(resultFor,resultAction,msg.getSystemParam(HTTP_P_SESSIONDATA),progressMsg);
             else
-              callback=new UStringCallback(resultFor,resultAction,msg.getParam(HTTP_P_SESSIONDATA));
+              callback=new UStringCallback(resultFor,resultAction,msg.getSystemParam(HTTP_P_SESSIONDATA));
             requestCall.execute(callback);
             return null ;
         }

@@ -166,6 +166,18 @@ public class TLMsg implements Serializable , Cloneable{
             return null ;
         return systemArgs.get(param) ;
     }
+    public Object  getAndRemoveSystemParam(String param)
+    {
+        if(systemArgs ==null || systemArgs.isEmpty())
+            return null ;
+        if(systemArgs.containsKey(param))
+        {
+            Object value =systemArgs.get(param);
+            systemArgs.remove(param);
+            return value;
+        }
+        return null  ;
+    }
     public HashMap getSystemArgs()
     {
         return systemArgs ;
@@ -230,7 +242,7 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public Object getAndRemoveParam(String param)
     {
-        if(args ==null)
+        if(args ==null || args.isEmpty())
             return null ;
         if(args.containsKey(param))
         {

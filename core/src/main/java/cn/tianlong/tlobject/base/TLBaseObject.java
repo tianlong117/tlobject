@@ -98,19 +98,19 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             this.fromWho=fromWho;
             exceptionMsg = (TLMsg) msg.getSystemParam(EXCEPTIONMSG);
             if (!msg.systemParamIsNull(TASKMAINTHREAD) && !msg.systemParamIsNull(TASKWAITTIME))
-                mainThread = (Thread) msg.getSystemParam(TASKMAINTHREAD);
-            taskResultFor = (IObject) msg.getSystemParam(TASKRESULTFOR);
-            taskResultAction = (String) msg.getSystemParam(TASKRESULTACTION);
+                mainThread = (Thread) msg.getAndRemoveSystemParam(TASKMAINTHREAD);
+            taskResultFor = (IObject) msg.getAndRemoveSystemParam(TASKRESULTFOR);
+            taskResultAction = (String) msg.getAndRemoveSystemParam(TASKRESULTACTION);
             if(taskResultAction==null )
-               taskResultMsg = (TLMsg)  msg.getSystemParam(TASKRESULTMSG);
-            taskSessionData=  msg.getSystemParam(TASKRESESSIONDATA);
+               taskResultMsg = (TLMsg)  msg.getAndRemoveSystemParam(TASKRESULTMSG);
+            taskSessionData=  msg.getAndRemoveSystemParam(TASKRESESSIONDATA);
         }
        public void run() {
            try{
                if(msg.systemParamIsNull(TASKDELAYTIME))
                    returnMsg=toWho.getMsg(fromWho,msg);
                else {
-                   int time = (int) msg.getSystemParam(TASKDELAYTIME);
+                   int time = (int) msg.getAndRemoveSystemParam(TASKDELAYTIME);
                    sleep(time);
                    returnMsg=toWho.getMsg(fromWho,msg);
                }
