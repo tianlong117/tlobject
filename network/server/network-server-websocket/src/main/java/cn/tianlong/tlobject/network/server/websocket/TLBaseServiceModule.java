@@ -3,7 +3,9 @@ package cn.tianlong.tlobject.network.server.websocket;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.util.HashMap;
 import java.util.Map;
 
 public  class TLBaseServiceModule extends TLBaseModule {
@@ -37,14 +39,16 @@ public  class TLBaseServiceModule extends TLBaseModule {
         return (String) userReturnMsg.getParam("userid");
     }
 
-   protected int putDaTaToUser(String userid ,Map<String, Object> datas) {
-        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, datas)
+   protected int putDaTaToUser(String userid ,String msgid ,Map<String, Object> datas) {
+       HashMap<String,Object> socketData=TLMsgUtils.makeSocketDataMap(msgid,datas);
+        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, socketData)
                 .setParam(USERMANAGER_P_USERID,userid);
        TLMsg returnMsg = putMsg(userManagerModule, umsg);
        return (int) returnMsg.getParam(RESULT);
     }
-    protected int putDaTaByChannel(String channel , Map<String, Object> datas) {
-        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, datas)
+    protected int putDaTaByChannel(String channel ,String msgid, Map<String, Object> datas) {
+        HashMap<String,Object> socketData=TLMsgUtils.makeSocketDataMap(msgid,datas);
+        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, socketData)
                 .setSystemParam(USERMANAGER_P_USERCHANNEL, channel);
         TLMsg returnMsg = putMsg(userManagerModule, umsg);
         return (int) returnMsg.getParam(RESULT);

@@ -409,9 +409,15 @@ public class TLUserManagerModule extends TLBaseModule {
         Object userid = msg.getSystemParam(USERMANAGER_P_USERID);
         if(userid ==null)
             userid= msg.getParam(USERMANAGER_P_USERID);
-        if (userid == null && msg.parseBoolean("broadcast", false)) {
-            TLMsg toServer = createMsg().setAction("putToClient").setParam(MSG_CONTENT, msg.getParam(WEBSOCKET_P_CONTENT));
-            return putMsg(serverModule, toServer);
+        if (userid == null )
+        {
+            if(msg.parseBoolean("broadcast", false))
+            {
+                TLMsg toServer = createMsg().setAction("putToClient").setParam(MSG_CONTENT, msg.getParam(WEBSOCKET_P_CONTENT));
+                return putMsg(serverModule, toServer);
+            }
+            else
+                return createMsg().setParam(RESULT, 0);
         }
         if (userid instanceof String)
             channels = getUserChannelAsList((String) userid);

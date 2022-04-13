@@ -7,8 +7,10 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.network.common.TLJWT;
 import cn.tianlong.tlobject.network.server.websocket.TLBaseServiceModule;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -20,6 +22,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     protected String tokenSecret = "sdfsdfsdfsdfsdfwervdgert";
     protected String tokenIssure = "qinqin";
     protected int tokenExpireMinute = 30;
+    protected String msgBroadCast ;
     protected ConcurrentLinkedQueue serverPool = new ConcurrentLinkedQueue();
     public TLServerManagerModule(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
@@ -35,13 +38,26 @@ public class TLServerManagerModule extends TLBaseServiceModule {
                 tokenIssure = params.get("tokenIssure");
             if (params.get("tokenExpireMinute") != null)
                 tokenExpireMinute = Integer.parseInt(params.get("tokenExpireMinute"));
+            if (params.get("msgBroadCast") != null)
+                msgBroadCast = params.get("msgBroadCast");
         }
     }
     @Override
     protected TLBaseModule init() {
+        TLMsg onUserLogInMsg = createMsg().setDestination(name).setAction("onLogin");
+        putMsg(msgBroadCast, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_LOGIN).setParam(MSGBROADCAST_P_RECEIVEMSG, onUserLogInMsg));
+        TLMsg onUserLogoutMsg = createMsg().setDestination(name).setAction("onLogout");
+        putMsg(msgBroadCast, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
+                .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_LOGOUT).setParam(MSGBROADCAST_P_RECEIVEMSG, onUserLogoutMsg));
+
         return this ;
     }
-
+    @Override
+    public void runStartMsg()  {
+        super.runStartMsg();
+        runActionWithFixedDelay("notifyServerlogin",5);
+    }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
@@ -52,16 +68,13 @@ public class TLServerManagerModule extends TLBaseServiceModule {
             case "onLogout":
                 onLogout( fromWho,  msg);
                 break;
-            case "login":
-                returnMsg=login( fromWho,  msg);
-                break;
             default:
                ;
         }
         return returnMsg;
     }
     private void onLogout(Object fromWho, TLMsg msg) {
-        String server = (String) msg.getSystemParam(USERMANAGER_P_USERID);
+        String server = (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg umsg = createMsg().setAction("updateServerStatus")
                    .setParam("server",server).setParam("status", 0);
         putMsg("serverConfigInDBModle", umsg);
@@ -70,17 +83,9 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         putMsg("userLoginModle", cmsg);
     }
 
-    private TLMsg onLogin(Object fromWho, TLMsg msg) {
-       if(msg.isNull(USERMANAGER_R_LOGINRESULT))
-           return null ;
-       String code = (String) msg.getParam(USERMANAGER_R_LOGINRESULT);
-       if(!code.equals("0000"))
-          return  null  ;
-        return login( fromWho, msg);
-    }
-    private TLMsg login(Object fromWho, TLMsg msg)
+    private TLMsg onLogin(Object fromWho, TLMsg msg)
     {
-        String server = (String)  msg.getSystemParam(USERMANAGER_P_USERID);
+        String server = (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg qmsg = createMsg().setAction("getServer")
                 .setParam("server",server);
         TLMsg returnMsg =putMsg("serverConfigInDBModle", qmsg);
@@ -90,7 +95,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         String serverType = (String) serverInfo.get("serverType");
         switch (serverType){
             case "notify":
-                notifyServerAction(server) ;
+                notifyServerAction(serverInfo) ;
                 break;
             case "service":
                 serviceServerAction(server) ;
@@ -98,40 +103,40 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         }
         return  null;
     }
-    private void notifyServerAction(String server) {
-        serverPool.add(server);
-        putMsg("serverManagerTask", createMsg().setAction(TASK_STARTTASK).setParam(TASK_P_TASKMSG, "notifyServerlogin"));
-
+    private void notifyServerAction( HashMap<String,Object> serverInfo) {
+        serverPool.add(serverInfo);
     }
     private void notifyServerlogin(Object fromWho, TLMsg msg) {
-        String server = (String) serverPool.poll();
-        if(server ==null)
-        {
-            putMsg("serverManagerTask", createMsg().setAction(TASK_STOPTASK)
-                    .setParam(TASK_P_TASKMSG, "notifyServerlogin"));
-            return;
-        }
-        putLog("set server: "+server,LogLevel.DEBUG);
-        setNotifyServer(server);
-    }
-    private  void setNotifyServer(String server){
-        TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",server) ;
+        HashMap<String,Object> serverInfo = (HashMap<String, Object>) serverPool.poll();
+        if(serverInfo ==null)
+           return;
+        String loginServer = (String) serverInfo.get("server");
+        putLog("set server: "+loginServer,LogLevel.DEBUG);
+        TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",loginServer) ;
         TLMsg returnMsg = putMsg("serverConfigInDBModle", qMsg);
-        List serversParams = (List) returnMsg.getParam(DB_R_RESULT);
+        List<Map<String,Object>> serversParams = returnMsg.getListParam(DB_R_RESULT,null);
         if(serversParams !=null && !serversParams.isEmpty())
         {
-            HashMap<String ,Object> datas =new HashMap<>();
-            datas.put("servers",serversParams) ;
-            datas.put("token",createToken(server,"", server));
-            HashMap<String,Object> sdatas =new HashMap<>();
-            sdatas.put("msgid","setServersParam");
-            sdatas.put("datas",datas);
-            putDaTaToUser(server,sdatas) ;
+            putServerParamToServer(loginServer,serversParams);
+            ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
+            loginServerData.add(serverInfo)  ;
+            for(Map<String,Object> serverDaTa : serversParams){
+                String server = (String) serverDaTa.get("server");
+                putServerParamToServer(server,loginServerData);
+            }
         }
         TLMsg insertmsg = createMsg().setAction("updateServerStatus")
-                .setParam("server",server).setParam("status", 1);
+                .setParam("server",loginServer).setParam("status", 1);
         putMsg("serverConfigInDBModle", insertmsg);
     }
+
+    private void putServerParamToServer(String server, List<Map<String,Object>>serversParams) {
+        HashMap<String ,Object> datas =new HashMap<>();
+        datas.put("servers",serversParams) ;
+        datas.put("token",createToken(server,"", server));
+        putDaTaToUser(server,"setServersParam",datas) ;
+    }
+
     private String createToken(String userid, String role,String ip) {
         HashMap<String, String> claims = new HashMap<>();
         claims.put("userid", userid);

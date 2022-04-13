@@ -34,10 +34,6 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
             managerServer = params.get("managerServer");
     }
 
-    @Override
-    protected TLBaseModule init() {
-        return  this ;
-    }
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
