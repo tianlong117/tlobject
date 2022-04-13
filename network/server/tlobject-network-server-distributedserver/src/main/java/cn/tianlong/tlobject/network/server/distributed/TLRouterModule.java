@@ -19,6 +19,7 @@ import static java.lang.Thread.sleep;
 public abstract class TLRouterModule extends TLSocketClientAgentPool {
 
      protected String clientUserManagerModule ;
+     protected String managerServer="managerServer" ;
 
     public TLRouterModule(String name , TLObjectFactory modulefactory) {
         super(name, modulefactory);
@@ -29,6 +30,8 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         super.initProperty();
         if(params !=null && params.get("clientUserManagerModule")!=null)
             clientUserManagerModule = params.get("clientUserManagerModule");
+        if(params !=null && params.get("managerServer")!=null)
+            managerServer = params.get("managerServer");
     }
 
     @Override
@@ -53,6 +56,23 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
                 returnMsg =super.checkMsgAction(fromWho,msg);
         }
         return returnMsg;
+    }
+    @Override
+    protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
+        super.fromAgent(fromWho,msg);
+        String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
+        if (status.equals(WEBSOCKET_R_OPEN))
+        {
+            String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
+            if(server.equals(managerServer))
+                startWork( fromWho,  msg);
+            return null;
+        } 
+        return null;
+    }
+
+    private void startWork(Object fromWho, TLMsg msg) {
+
     }
 
     private TLMsg setServersParam(Object fromWho, TLMsg msg) {

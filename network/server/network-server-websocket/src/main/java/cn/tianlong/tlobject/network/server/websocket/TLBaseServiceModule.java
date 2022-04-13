@@ -43,4 +43,18 @@ public  class TLBaseServiceModule extends TLBaseModule {
        TLMsg returnMsg = putMsg(userManagerModule, umsg);
        return (int) returnMsg.getParam(RESULT);
     }
+    protected int putDaTaByChannel(String channel , Map<String, Object> datas) {
+        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, datas)
+                .setSystemParam(USERMANAGER_P_USERCHANNEL, channel);
+        TLMsg returnMsg = putMsg(userManagerModule, umsg);
+        return (int) returnMsg.getParam(RESULT);
+    }
+    protected String getUserid(TLMsg clientMsg) {
+        Map<String,Object> taskDatas = (Map<String, Object>) clientMsg.getSystemParam(TASKRESESSIONDATA);
+        return  (String) taskDatas.get(USERMANAGER_P_USERID);
+    }
+    protected String getChannel(TLMsg clientMsg) {
+        Map<String,Object> taskDatas = (Map<String, Object>) clientMsg.getSystemParam(TASKRESESSIONDATA);
+        return (String) taskDatas.get(USERMANAGER_P_USERCHANNEL);
+    }
 }

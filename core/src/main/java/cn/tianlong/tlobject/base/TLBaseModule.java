@@ -9,6 +9,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
 
@@ -829,6 +832,45 @@ public abstract class TLBaseModule extends TLBaseObject {
             }
         }
         return null;
+    }
+
+    protected ScheduledExecutorService runActionWithFixedDelay(String taskAction ,int period )
+    {
+      return  runActionWithFixedDelay( taskAction,this,null ,0 , period ,TimeUnit.SECONDS);
+    }
+    protected ScheduledExecutorService runActionWithFixedDelay(String taskAction,Object fromWho,TLMsg msg ,int delay ,int period ,TimeUnit unit)
+    {
+        Runnable runnable = new Runnable() {
+            public void run() {
+                try {
+                    invokeAction( taskAction, fromWho, msg);
+                } catch (Exception e) {
+                   putLog("task error:"+taskAction,LogLevel.ERROR);
+                }
+            };
+        };
+        ScheduledExecutorService service = Executors.newSingleThreadScheduledExecutor();
+        service.scheduleWithFixedDelay(runnable, delay, period, unit);
+        return service ;
+    }
+    protected ScheduledExecutorService putMsgWithFixedDelay(String toWho,TLMsg msg ,int period )
+    {
+        return putMsgWithFixedDelay(toWho,msg ,0, period ,TimeUnit.SECONDS);
+    }
+    protected ScheduledExecutorService putMsgWithFixedDelay(String toWho,TLMsg msg ,int delay ,int period ,TimeUnit unit)
+    {
+        Runnable runnable = new Runnable() {
+            public void run() {
+                try {
+                   putMsg(toWho,msg);
+                } catch (Exception e) {
+                    putLog("task error:"+TLMsgUtils.msgToStr(msg),LogLevel.ERROR);
+                }
+            };
+        };
+        ScheduledExecutorService service = Executors.newSingleThreadScheduledExecutor();
+        service.scheduleWithFixedDelay(runnable, delay, period, unit);
+        return service ;
     }
     protected TLMsg runAction(Object fromWho, TLMsg msg) {
         String action = msg.getAction();

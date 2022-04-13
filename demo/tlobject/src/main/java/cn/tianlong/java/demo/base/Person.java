@@ -3,6 +3,7 @@ package cn.tianlong.java.demo.base;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.utils.TLDateUtils;
 import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
@@ -36,6 +37,8 @@ public class Person extends DemoCommon {
     @Override
     public void runStartMsg()  {
         super.runStartMsg();
+      //  runActionWithFixedDelay("cook",5);
+    //      putMsgWithFixedDelay(name,createMsg().setAction("cook"),5);
         if(ifputFile)
         {
             TLMsg receivermsg = createMsg().setDestination(name).setAction("onUserLogin");
@@ -104,6 +107,12 @@ public class Person extends DemoCommon {
     }
 
     private TLMsg cook(Object fromWho, TLMsg msg) {
+        try {
+            sleep(10*1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        println(TLDateUtils.getNowDateStr(null));
         printState(" applicationid:"+applicationId+"  ;"+name+" 做饭..."+ " 进程id: " + Thread.currentThread().getName() );
 
         return createMsg().setParam("content","return from "+name+" cook");

@@ -69,6 +69,51 @@ public class TLServerManagerModule extends TLBaseServiceModule {
                 .setParam(USERMANAGER_P_SERVERNAME,server);
         putMsg("userLoginModle", cmsg);
     }
+
+    private TLMsg onLogin(Object fromWho, TLMsg msg) {
+       if(msg.isNull(USERMANAGER_R_LOGINRESULT))
+           return null ;
+       String code = (String) msg.getParam(USERMANAGER_R_LOGINRESULT);
+       if(!code.equals("0000"))
+          return  null  ;
+        return login( fromWho, msg);
+    }
+    private TLMsg login(Object fromWho, TLMsg msg)
+    {
+        String server = (String)  msg.getSystemParam(USERMANAGER_P_USERID);
+        TLMsg qmsg = createMsg().setAction("getServer")
+                .setParam("server",server);
+        TLMsg returnMsg =putMsg("serverConfigInDBModle", qmsg);
+        HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
+        if(serverInfo ==null || serverInfo.isEmpty())
+            return null ;
+        String serverType = (String) serverInfo.get("serverType");
+        switch (serverType){
+            case "notify":
+                notifyServerAction(server) ;
+                break;
+            case "service":
+                serviceServerAction(server) ;
+                break;
+        }
+        return  null;
+    }
+    private void notifyServerAction(String server) {
+        serverPool.add(server);
+        putMsg("serverManagerTask", createMsg().setAction(TASK_STARTTASK).setParam(TASK_P_TASKMSG, "notifyServerlogin"));
+
+    }
+    private void notifyServerlogin(Object fromWho, TLMsg msg) {
+        String server = (String) serverPool.poll();
+        if(server ==null)
+        {
+            putMsg("serverManagerTask", createMsg().setAction(TASK_STOPTASK)
+                    .setParam(TASK_P_TASKMSG, "notifyServerlogin"));
+            return;
+        }
+        putLog("set server: "+server,LogLevel.DEBUG);
+        setNotifyServer(server);
+    }
     private  void setNotifyServer(String server){
         TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",server) ;
         TLMsg returnMsg = putMsg("serverConfigInDBModle", qMsg);
@@ -94,39 +139,6 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         claims.put("role", role);
         return TLJWT.getToken(claims, tokenSecret, tokenExpireMinute, tokenIssure);
     }
-    private TLMsg onLogin(Object fromWho, TLMsg msg) {
-       if(msg.isNull(USERMANAGER_R_LOGINRESULT))
-           return null ;
-       String code = (String) msg.getParam(USERMANAGER_R_LOGINRESULT);
-       if(!code.equals("0000"))
-          return  null  ;
-        return login( fromWho, msg);
-    }
-    private TLMsg login(Object fromWho, TLMsg msg)
-    {
-        String server = (String)  msg.getSystemParam(USERMANAGER_P_USERID);
-        TLMsg qmsg = createMsg().setAction("getServer")
-                .setParam("server",server);
-        TLMsg returnMsg =putMsg("serverConfigInDBModle", qmsg);
-        HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
-        if(serverInfo ==null || serverInfo.isEmpty())
-            return null ;
-        String serverType = (String) serverInfo.get("serverType");
-        serverActionByType(server,serverType) ;
-        return  null;
-    }
-
-    private void serverActionByType(String server,String serverType) {
-         switch (serverType){
-             case "notify":
-                 setNotifyServer(server);
-                 break;
-             case "service":
-                 serviceServerAction(server) ;
-                 break;
-         }
-    }
-
     private void serviceServerAction(String server) {
         TLMsg insertmsg = createMsg().setAction("updateServerStatus")
                 .setParam("server",server).setParam("status", 1);
