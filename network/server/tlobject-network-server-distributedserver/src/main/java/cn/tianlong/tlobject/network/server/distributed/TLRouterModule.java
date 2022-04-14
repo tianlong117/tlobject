@@ -79,10 +79,13 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         String cerFile =manager.get("cerFile");
         for(Map<String,Object> p :serversParam) {
             String server = (String) p.get("server");
+            String url =(String) p.get("ip_server");
+            if(url ==null || url.isEmpty())
+                continue;
             if(servers.containsKey(server))
                 continue;
             HashMap<String ,String> sparam =new HashMap<>() ;
-            sparam.put("url", (String) p.get("ip_server"));
+            sparam.put("url", url);
             sparam.put("token",token);
             sparam.put("cerFile",cerFile) ;
             sparam.put("autoConnect","false") ;
@@ -119,6 +122,8 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     }
 
     private Object getUserChannel(String userid) {
+        if(clientUserManagerModule==null)
+            return null ;
         TLMsg getChannelMsg =createMsg().setAction(USERMANAGER_GETUSERCHANNELS)
                 .setParam(USERMANAGER_P_USERID,userid);
         TLMsg  userChannelsMsg =putMsg(clientUserManagerModule, getChannelMsg);

@@ -112,6 +112,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     }
     private void notifyServerAction( HashMap<String,Object> serverInfo) {
         String loginServer = (String) serverInfo.get("server");
+        String url = (String) serverInfo.get("ip_server");
         putLog("set server: "+loginServer,LogLevel.DEBUG);
         TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",loginServer) ;
         TLMsg returnMsg = putMsg("serverConfigInDBModle", qMsg);
@@ -119,11 +120,14 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         if(serversParams !=null && !serversParams.isEmpty())
         {
             putServerParamToServer(loginServer,serversParams);
-            ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
-            loginServerData.add(serverInfo)  ;
-            for(Map<String,Object> serverDaTa : serversParams){
-                String server = (String) serverDaTa.get("server");
-                putServerParamToServer(server,loginServerData);
+            if(url !=null && !url.isEmpty())
+            {
+                ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
+                loginServerData.add(serverInfo)  ;
+                for(Map<String,Object> serverDaTa : serversParams){
+                    String server = (String) serverDaTa.get("server");
+                    putServerParamToServer(server,loginServerData);
+                }
             }
         }
         TLMsg insertmsg = createMsg().setAction("updateServerStatus")
