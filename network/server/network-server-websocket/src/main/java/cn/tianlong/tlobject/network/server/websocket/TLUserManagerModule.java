@@ -33,6 +33,9 @@ public class TLUserManagerModule extends TLBaseModule {
     protected TLNetSession netSession ;
     protected binarySendModule binarySendModule;
     protected String msgBroadCast ;
+    protected String loginModule ;
+    protected String  loginAction  ;
+    protected String loginMsgid  ;
 
     public TLUserManagerModule(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
@@ -70,6 +73,12 @@ public class TLUserManagerModule extends TLBaseModule {
                     }
                 }
             }
+            if (params.get("loginModule") != null)
+                loginModule = params.get("loginModule");
+            if (params.get("loginAction") != null)
+                loginAction = params.get("loginAction");
+            if (params.get("loginMsgid") != null)
+                loginMsgid = params.get("loginMsgid");
         }
     }
 
@@ -489,45 +498,79 @@ public class TLUserManagerModule extends TLBaseModule {
         }
     }
 
-    protected String checkUser(TLMsg msg) {
+    protected String checkUser(TLMsg msg)
+    {
         if (userType.equals(USERMANAGER_P_ANONYMOUS))
             return USERMANAGER_P_ANONYMOUS + msg.getParam(USERMANAGER_P_USERIP) + System.currentTimeMillis();
-        if (userType.equals("username")) {
-            if (users != null) {
-                String loginname = (String) msg.getParam(USERMANAGER_P_USERNAME);
-                String passwd = (String) msg.getParam(USERMANAGER_P_USERPASSWORD);
-                if (loginname != null && passwd != null) {
-                    if (users.containsKey(loginname) && users.get(loginname).equals(passwd))
-                        return loginname;
-                    else {
-                        putLog("用户认证错误：" + loginname + "  " + msg.getParam(USERMANAGER_P_USERIP), LogLevel.DEBUG, "login");
-                        return null;
-                    }
-                }
-            } else
-                return null;
+        if (userType.equals("username"))
+             return authByUsername(msg);
+        if (userType.equals("token"))
+            return authByToken(msg);
+        if(userType.equals("all"))
+        {
+            String userid = authByUsername(msg);
+            if(userid ==null)
+                return authByToken(msg);
+            return userid ;
         }
-        if (userType.equals("token")) {
-            String token = (String) msg.getParam("token");
-            if (token == null)
+        if(loginModule !=null)
+        {
+            TLMsg loginMsg ;
+            if(loginAction != null)
+              loginMsg = createMsg().setAction(loginAction).setArgs(msg.getArgs());
+            else if( loginMsgid !=null)
+                loginMsg = createMsg().setMsgId(loginMsgid);
+            else
+                return null ;
+            TLMsg returnMsg = putMsg(loginModule, loginMsg);
+            if (returnMsg == null)
                 return null;
-            HashMap<String, String> claims = TLJWT.parserToken(tokenSecret, token, tokenIssure);
-            if (claims == null || claims.get("expire") != null || claims.get("decode") != null) {
-                putLog("token认证错误" + msg.getParam("ip"), LogLevel.DEBUG, "login");
+            else
+                return  returnMsg.getStringParam(USERMANAGER_P_USERID,null);
+        }
+        if( loginMsgid !=null)
+        {
+            TLMsg loginMsg = createMsg().setMsgId(loginMsgid);
+            TLMsg returnMsg = getMsg(this, loginMsg);
+            if (returnMsg == null)
                 return null;
-            }
-            return claims.get("userid");
-        } else {
-            String str[] = userType.split(":");   //模块认证，模块:方法
-            if (str.length == 2) {
-                TLMsg loginMsg = createMsg().setAction(str[1].trim()).setArgs(msg.getArgs());
-                TLMsg returnMsg = putMsg(str[0].trim(), loginMsg);
-                if (returnMsg == null)
+            else
+                return returnMsg.getStringParam(USERMANAGER_P_USERID, null);
+        }
+        return null ;
+    }
+
+   protected String authByToken(TLMsg msg) {
+        String token = (String) msg.getParam("token");
+        if (token == null)
+            return null;
+        HashMap<String, String> claims = TLJWT.parserToken(tokenSecret, token, tokenIssure);
+        if (claims == null || claims.get("expire") != null || claims.get("decode") != null) {
+            putLog("token认证错误" + msg.getParam("ip"), LogLevel.DEBUG, "login");
+            return null;
+        }
+        return claims.get("userid");
+    }
+
+    protected String authByUsername(TLMsg msg)
+    {
+        if (users != null)
+        {
+            String loginname = (String) msg.getParam(USERMANAGER_P_USERNAME);
+            String passwd = (String) msg.getParam(USERMANAGER_P_USERPASSWORD);
+            if (loginname != null && passwd != null)
+            {
+                if (users.containsKey(loginname) && users.get(loginname).equals(passwd))
+                    return loginname;
+                else {
+                    putLog("用户认证错误：" + loginname + "  " + msg.getParam(USERMANAGER_P_USERIP), LogLevel.DEBUG, "login");
                     return null;
-                return (String) returnMsg.getParam("userid");
-            } else
-                return null;
+                }
+            }
+            return null ;
         }
+        else
+            return null;
     }
 
     protected void userLogin(String userid, String userSource, String channel, String ip) {

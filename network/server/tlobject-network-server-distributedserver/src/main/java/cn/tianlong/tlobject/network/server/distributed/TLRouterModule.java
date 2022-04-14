@@ -61,27 +61,32 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         {
             String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
             if(server.equals(managerServer))
-                startWork( fromWho,  msg);
+                onManagerServerConnect( fromWho,  msg);
             return null;
         } 
         return null;
     }
-
-    private void startWork(Object fromWho, TLMsg msg) {
+    protected void onManagerServerConnect(Object fromWho, TLMsg msg) {
 
     }
 
-    private TLMsg setServersParam(Object fromWho, TLMsg msg) {
+    private synchronized TLMsg setServersParam(Object fromWho, TLMsg msg) {
         String token = (String) msg.getParam("token");
         List<Map<String,Object>> serversParam = (List<Map<String, Object>>) msg.getParam("servers");
         if(serversParam.isEmpty())
             return null;
+        HashMap<String,String> manager =servers.get("managerServer");
+        String cerFile =manager.get("cerFile");
         for(Map<String,Object> p :serversParam) {
             String server = (String) p.get("server");
+            if(servers.containsKey(server))
+                continue;
             HashMap<String ,String> sparam =new HashMap<>() ;
             sparam.put("url", (String) p.get("ip_server"));
             sparam.put("token",token);
+            sparam.put("cerFile",cerFile) ;
             sparam.put("autoConnect","false") ;
+            servers.put(server,sparam);
             addAndConnectToServer(server,sparam);
         }
         return null ;

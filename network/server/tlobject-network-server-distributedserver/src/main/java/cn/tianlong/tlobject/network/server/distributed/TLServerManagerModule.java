@@ -56,7 +56,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     @Override
     public void runStartMsg()  {
         super.runStartMsg();
-        runActionWithFixedDelay("notifyServerlogin",5);
+        runActionWithFixedDelay("serverlogin",5);
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -86,30 +86,31 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     private TLMsg onLogin(Object fromWho, TLMsg msg)
     {
         String server = (String) msg.getParam(USERMANAGER_P_USERID);
+        serverPool.add(server);
+        return  null;
+    }
+    private void serverlogin(Object fromWho, TLMsg msg) {
+        String loginServer = (String) serverPool.poll();
+        if(loginServer ==null)
+           return;
         TLMsg qmsg = createMsg().setAction("getServer")
-                .setParam("server",server);
+                .setParam("server",loginServer);
         TLMsg returnMsg =putMsg("serverConfigInDBModle", qmsg);
         HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
         if(serverInfo ==null || serverInfo.isEmpty())
-            return null ;
+            return  ;
         String serverType = (String) serverInfo.get("serverType");
         switch (serverType){
             case "notify":
                 notifyServerAction(serverInfo) ;
                 break;
             case "service":
-                serviceServerAction(server) ;
+                serviceServerAction(loginServer) ;
                 break;
         }
-        return  null;
+
     }
     private void notifyServerAction( HashMap<String,Object> serverInfo) {
-        serverPool.add(serverInfo);
-    }
-    private void notifyServerlogin(Object fromWho, TLMsg msg) {
-        HashMap<String,Object> serverInfo = (HashMap<String, Object>) serverPool.poll();
-        if(serverInfo ==null)
-           return;
         String loginServer = (String) serverInfo.get("server");
         putLog("set server: "+loginServer,LogLevel.DEBUG);
         TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",loginServer) ;
@@ -129,7 +130,6 @@ public class TLServerManagerModule extends TLBaseServiceModule {
                 .setParam("server",loginServer).setParam("status", 1);
         putMsg("serverConfigInDBModle", insertmsg);
     }
-
     private void putServerParamToServer(String server, List<Map<String,Object>>serversParams) {
         HashMap<String ,Object> datas =new HashMap<>();
         datas.put("servers",serversParams) ;
