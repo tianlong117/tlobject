@@ -26,7 +26,11 @@
             <artifactId>tlobject-network-client</artifactId>
             <version>${project.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-database</artifactId>
+            <version>1.0</version>
+        </dependency>
     </dependencies>
 
 </project>

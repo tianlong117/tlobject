@@ -88,6 +88,8 @@ public class TLUserManagerModule extends TLBaseModule {
         netSession.start(null,params);
         binarySendModule=new binarySendModule("binarySendModule",moduleFactory);
         binarySendModule.start(null,params);
+        if(loginModule !=null)
+            getModule(loginModule);
         return this ;
     }
 
@@ -513,31 +515,23 @@ public class TLUserManagerModule extends TLBaseModule {
                 return authByToken(msg);
             return userid ;
         }
+        TLMsg loginMsg ;
+        if(loginAction != null)
+            loginMsg = createMsg().setAction(loginAction).setArgs(msg.getArgs());
+        else if( loginMsgid !=null)
+            loginMsg = createMsg().setMsgId(loginMsgid).setArgs(msg.getArgs());
+        else
+            return null ;
+        TLMsg returnMsg ;
         if(loginModule !=null)
-        {
-            TLMsg loginMsg ;
-            if(loginAction != null)
-              loginMsg = createMsg().setAction(loginAction).setArgs(msg.getArgs());
-            else if( loginMsgid !=null)
-                loginMsg = createMsg().setMsgId(loginMsgid);
-            else
-                return null ;
-            TLMsg returnMsg = putMsg(loginModule, loginMsg);
-            if (returnMsg == null)
-                return null;
-            else
-                return  returnMsg.getStringParam(USERMANAGER_P_USERID,null);
-        }
-        if( loginMsgid !=null)
-        {
-            TLMsg loginMsg = createMsg().setMsgId(loginMsgid);
-            TLMsg returnMsg = getMsg(this, loginMsg);
-            if (returnMsg == null)
-                return null;
-            else
-                return returnMsg.getStringParam(USERMANAGER_P_USERID, null);
-        }
-        return null ;
+             returnMsg = putMsg(loginModule, loginMsg);
+        else
+             returnMsg = getMsg(this, loginMsg);
+        if (returnMsg == null)
+             return null;
+        else
+             return  returnMsg.getStringParam(USERMANAGER_P_USERID,null);
+
     }
 
    protected String authByToken(TLMsg msg) {

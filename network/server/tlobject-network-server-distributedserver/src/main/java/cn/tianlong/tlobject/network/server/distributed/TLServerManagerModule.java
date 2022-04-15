@@ -77,7 +77,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         String server = (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg umsg = createMsg().setAction("updateServerStatus")
                    .setParam("server",server).setParam("status", 0);
-        putMsg("serverConfigInDBModle", umsg);
+        putMsg("serverConfigInDB", umsg);
         TLMsg cmsg = createMsg().setAction("deleteByServer")
                 .setParam(USERMANAGER_P_SERVERNAME,server);
         putMsg("userLoginModle", cmsg);
@@ -95,14 +95,15 @@ public class TLServerManagerModule extends TLBaseServiceModule {
            return;
         TLMsg qmsg = createMsg().setAction("getServer")
                 .setParam("server",loginServer);
-        TLMsg returnMsg =putMsg("serverConfigInDBModle", qmsg);
+        TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
         HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
         if(serverInfo ==null || serverInfo.isEmpty())
             return  ;
         String serverType = (String) serverInfo.get("serverType");
         switch (serverType){
-            case "notify":
-                notifyServerAction(serverInfo) ;
+            case  "web":
+            case "socket":
+                notifyServerAction(serverInfo,serverType) ;
                 break;
             case "service":
                 serviceServerAction(loginServer) ;
@@ -110,21 +111,21 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         }
 
     }
-    private void notifyServerAction( HashMap<String,Object> serverInfo) {
+    private void notifyServerAction(HashMap<String, Object> serverInfo, String serverType) {
         String loginServer = (String) serverInfo.get("server");
-        String url = (String) serverInfo.get("ip_server");
         putLog("set server: "+loginServer,LogLevel.DEBUG);
-        TLMsg qMsg =createMsg().setAction("getNotifyForServer").setParam("server",loginServer) ;
-        TLMsg returnMsg = putMsg("serverConfigInDBModle", qMsg);
+        TLMsg qMsg =createMsg().setAction("getOnLineServer").setParam("server",loginServer).setParam("serverType",serverType) ;
+        TLMsg returnMsg = putMsg("serverConfigInDB", qMsg);
         List<Map<String,Object>> serversParams = returnMsg.getListParam(DB_R_RESULT,null);
         if(serversParams !=null && !serversParams.isEmpty())
         {
             putServerParamToServer(loginServer,serversParams);
-            if(url !=null && !url.isEmpty())
+            if(serverType.equals("socket"))
             {
                 ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
                 loginServerData.add(serverInfo)  ;
-                for(Map<String,Object> serverDaTa : serversParams){
+                for(Map<String,Object> serverDaTa : serversParams)
+                {
                     String server = (String) serverDaTa.get("server");
                     putServerParamToServer(server,loginServerData);
                 }
@@ -132,9 +133,10 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         }
         TLMsg insertmsg = createMsg().setAction("updateServerStatus")
                 .setParam("server",loginServer).setParam("status", 1);
-        putMsg("serverConfigInDBModle", insertmsg);
+        putMsg("serverConfigInDB", insertmsg);
     }
     private void putServerParamToServer(String server, List<Map<String,Object>>serversParams) {
+        putLog("put server params,server:"+server,LogLevel.DEBUG);
         HashMap<String ,Object> datas =new HashMap<>();
         datas.put("servers",serversParams) ;
         datas.put("token",createToken(server,"", server));
@@ -151,6 +153,6 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     private void serviceServerAction(String server) {
         TLMsg insertmsg = createMsg().setAction("updateServerStatus")
                 .setParam("server",server).setParam("status", 1);
-        putMsg("serverConfigInDBModle", insertmsg);
+        putMsg("serverConfigInDB", insertmsg);
     }
 }

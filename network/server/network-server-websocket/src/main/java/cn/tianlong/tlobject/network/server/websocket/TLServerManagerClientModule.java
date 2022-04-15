@@ -74,7 +74,7 @@ public class TLServerManagerClientModule extends TLBaseServiceModule {
             if(checkIfLogin(server))
                 continue;
             HashMap<String ,Object> sparam =new HashMap<>() ;
-            sparam.put("url",p.get("ip_server"));
+            sparam.put("url",p.get("url"));
             sparam.put("token",token);
             sparam.put("cerFile",cerFile) ;
             sparam.put("autoConnect","false") ;

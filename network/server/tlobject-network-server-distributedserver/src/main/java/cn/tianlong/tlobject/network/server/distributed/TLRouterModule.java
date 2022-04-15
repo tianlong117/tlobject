@@ -79,7 +79,7 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         String cerFile =manager.get("cerFile");
         for(Map<String,Object> p :serversParam) {
             String server = (String) p.get("server");
-            String url =(String) p.get("ip_server");
+            String url =(String) p.get("url");
             if(url ==null || url.isEmpty())
                 continue;
             if(servers.containsKey(server))

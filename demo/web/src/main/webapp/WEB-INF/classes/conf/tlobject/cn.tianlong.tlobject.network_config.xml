@@ -19,9 +19,11 @@
         <module name="serviceGateWayClientMsgHandler" classfile="cn.tianlong.tlobject.network.server.websocket.TLServiceGateWayClientMsgHandler" />
         <module name="userManagerModule"              classfile="cn.tianlong.tlobject.network.server.websocket.TLUserManagerModule" />
         <module name="userRouterModule"               classfile="cn.tianlong.tlobject.network.server.websocket.TLUserRouterModule" />
-        <module name="serverManagerModule"            classfile="cn.tianlong.tlobject.network.server.websocket.TLServerManagerModule" />
-        <module name="serverManagerClientModule"      classfile="cn.tianlong.tlobject.network.server.websocket.TLServerManagerClientModule" />
         <module name="jettyServer"                    classfile="cn.tianlong.tlobject.network.server.jetty.TLJettyServer"/>
-        <module name="webSocketReceiveFileModule"     classfile="cn.tianlong.tlobject.network.common.TLWebSocketReceiveFileModule" />
-       </modules>
+        <module name="webSocketReceiveFIleModule"     classfile="cn.tianlong.tlobject.network.common.TLWebSocketReceiveFIleModule" />
+        <module name="serverManagerModule"            classfile="cn.tianlong.tlobject.network.server.distributed.TLServerManagerModule" />
+        <module name="serverConfigInDB"               classfile="cn.tianlong.tlobject.network.server.distributed.TLServerConfigInDB" />
+        <module name="serverManagerClientModule"      classfile="cn.tianlong.tlobject.network.server.websocket.TLServerManagerClientModule" />
+
+    </modules>
 </moduleConfig>
