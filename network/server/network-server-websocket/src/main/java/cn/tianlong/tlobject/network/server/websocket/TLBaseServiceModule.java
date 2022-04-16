@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 public  class TLBaseServiceModule extends TLBaseModule {
-     protected String userManagerModule ="userManagerModule";
+     protected String clientMsgHandler ="clientMsgHandler";
 
     public TLBaseServiceModule(String main, TLObjectFactory myfactory) {
         super(main, myfactory);
@@ -20,8 +20,8 @@ public  class TLBaseServiceModule extends TLBaseModule {
     protected void initProperty() {
         super.initProperty();
         if(params!=null  ){
-            if( params.get("userManagerModule")!=null)
-                userManagerModule =params.get("userManagerModule");
+            if( params.get("clientMsgHandler")!=null)
+                clientMsgHandler =params.get("clientMsgHandler");
         }
     }
     @Override
@@ -34,23 +34,34 @@ public  class TLBaseServiceModule extends TLBaseModule {
         return null;
     }
 
-    protected String getUser(TLMsg msg) {
-        TLMsg userReturnMsg = putMsg(userManagerModule, createMsg().setAction("getUserByChannel").setParam("channel", msg.getParam("channel")));
-        return (String) userReturnMsg.getParam("userid");
+    protected String getUserIdByChannel(String channel) {
+        TLMsg userReturnMsg = putMsg(clientMsgHandler, createMsg().setAction(USERMANAGER_GETUSERBYCHANNEL).setParam("channel", channel));
+        return (String) userReturnMsg.getParam(USERMANAGER_P_USERID);
     }
-
    protected int putDaTaToUser(String userid ,String msgid ,Map<String, Object> datas) {
        HashMap<String,Object> socketData=TLMsgUtils.makeSocketDataMap(msgid,datas);
-        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, socketData)
-                .setParam(USERMANAGER_P_USERID,userid);
-       TLMsg returnMsg = putMsg(userManagerModule, umsg);
+        TLMsg umsg = createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT, socketData)
+                .setSystemParam(USERMANAGER_P_USERID,userid);
+       TLMsg returnMsg = putMsg(clientMsgHandler, umsg);
        return (int) returnMsg.getParam(RESULT);
+    }
+    protected int putSocketDaTaToUser(String userid ,Map<String, Object>  socketData) {
+      TLMsg umsg = createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT, socketData)
+              .setSystemParam(USERMANAGER_P_USERID,userid);
+        TLMsg returnMsg = putMsg(clientMsgHandler, umsg);
+        return (int) returnMsg.getParam(RESULT);
     }
     protected int putDaTaByChannel(String channel ,String msgid, Map<String, Object> datas) {
         HashMap<String,Object> socketData=TLMsgUtils.makeSocketDataMap(msgid,datas);
-        TLMsg umsg = createMsg().setAction("putToUser").setParam(WEBSOCKET_P_CONTENT, socketData)
+        TLMsg umsg = createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT, socketData)
                 .setSystemParam(USERMANAGER_P_USERCHANNEL, channel);
-        TLMsg returnMsg = putMsg(userManagerModule, umsg);
+        TLMsg returnMsg = putMsg(clientMsgHandler, umsg);
+        return (int) returnMsg.getParam(RESULT);
+    }
+    protected int putSocketDaTaByChannel(String channel , Map<String, Object> socketData) {
+       TLMsg umsg = createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT, socketData)
+                .setSystemParam(USERMANAGER_P_USERCHANNEL, channel);
+        TLMsg returnMsg = putMsg(clientMsgHandler, umsg);
         return (int) returnMsg.getParam(RESULT);
     }
     protected String getUserid(TLMsg clientMsg) {

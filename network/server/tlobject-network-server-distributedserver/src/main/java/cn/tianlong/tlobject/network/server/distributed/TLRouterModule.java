@@ -18,7 +18,7 @@ import static java.lang.Thread.sleep;
  */
 public abstract class TLRouterModule extends TLSocketClientAgentPool {
 
-     protected String clientUserManagerModule ;
+     protected String clientMsgHandler ;
      protected String managerServer="managerServer" ;
 
     public TLRouterModule(String name , TLObjectFactory modulefactory) {
@@ -28,8 +28,8 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     @Override
     protected void initProperty(){
         super.initProperty();
-        if(params !=null && params.get("clientUserManagerModule")!=null)
-            clientUserManagerModule = params.get("clientUserManagerModule");
+        if(params !=null && params.get("clientMsgHandler")!=null)
+            clientMsgHandler = params.get("clientMsgHandler");
         if(params !=null && params.get("managerServer")!=null)
             managerServer = params.get("managerServer");
     }
@@ -39,7 +39,7 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case USERMANAGER_PUTTOUSER:
+            case WEBSOCKET_PUT:
                 returnMsg = toUser(fromWho, msg);
                 break;
             case "fromRouteServer":
@@ -96,22 +96,26 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     }
     protected TLMsg fromRouteServer(Object fromWho, TLMsg msg) {
         String userid= (String) msg.getParam(USERMANAGER_P_USERID);
-        TLMsg routeMsg =createMsg().setAction(USERMANAGER_PUTTOUSER)
+        TLMsg routeMsg =createMsg().setAction(WEBSOCKET_PUT)
                 .setParam(WEBSOCKET_P_CONTENT,msg.getParam("data") ).setParam(USERMANAGER_P_USERID,userid);
-        TLMsg returnMsg =putMsg(clientUserManagerModule,routeMsg) ;
+        TLMsg returnMsg =putMsg(clientMsgHandler,routeMsg) ;
         return returnMsg ;
     }
     private TLMsg toUser(Object fromWho, TLMsg msg) {
-        String userid = (String) msg.getSystemParam(USERMANAGER_P_USERID);
-        Object channel =getUserChannel(userid);
+        Object channel =msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
+        if(channel ==null){
+            String userid = (String) msg.getSystemParam(USERMANAGER_P_USERID);
+            channel =getUserChannel(userid);
+        }
         if(channel !=null)
         {
-           Boolean result = putToLocalUser(channel, msg) ;
-           return createMsg().setParam(RESULT,result).setParam("isUserLocal",true);
+           TLMsg returnMsg = putToLocalUser(channel, msg) ;
+           return returnMsg.setParam("isUserLocal",true);
         }
+        String userid = (String) msg.getSystemParam(USERMANAGER_P_USERID);
         String server = getUserServer(userid);
         if(server ==null )
-            return createMsg().setParam(RESULT,false).setParam("isUserLocal",false);
+            return createMsg().setParam(RESULT,0).setParam("isUserLocal",false);
         HashMap<String,Object> routeDate = new HashMap<>();
         routeDate.put(USERMANAGER_P_USERID,userid);
         routeDate.put("data",msg.getArgs());
@@ -122,24 +126,16 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     }
 
     private Object getUserChannel(String userid) {
-        if(clientUserManagerModule==null)
+        if(clientMsgHandler==null)
             return null ;
         TLMsg getChannelMsg =createMsg().setAction(USERMANAGER_GETUSERCHANNELS)
                 .setParam(USERMANAGER_P_USERID,userid);
-        TLMsg  userChannelsMsg =putMsg(clientUserManagerModule, getChannelMsg);
+        TLMsg  userChannelsMsg =putMsg(clientMsgHandler, getChannelMsg);
         return userChannelsMsg.getParam(USERMANAGER_R_USERCHANNEL) ;
     }
 
-    private Boolean putToLocalUser(Object channel ,TLMsg msg) {
-
-        TLMsg cmsg=createMsg().setAction(USERMANAGER_PUTTOUSER)
-                .setSystemParam(USERMANAGER_P_USERCHANNEL,channel)
-                .setParam(WEBSOCKET_P_CONTENT, msg.getArgs());
-        TLMsg resultMsg= putMsg(clientUserManagerModule,cmsg);
-        Boolean result =  resultMsg.parseBoolean(RESULT,false);
-        if(result ==false)
-            return false ;
-        return true ;
+    private TLMsg putToLocalUser(Object channel ,TLMsg msg) {
+        return putMsg(clientMsgHandler,msg.setSystemParam(USERMANAGER_P_USERCHANNEL,channel));
     }
     protected abstract String getUserServer(String userid);
 }

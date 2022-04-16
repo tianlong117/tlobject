@@ -70,6 +70,9 @@ public class TLClientMsgHandler extends TLBaseModule {
             case "fromClient":
                 returnMsg = fromClient(fromWho, msg);
                 break;
+            case USERMANAGER_GETUSERCHANNELS:
+                returnMsg = putMsg(userManagerModule,msg);
+                break;
             case USERMANAGER_GETUSERBYCHANNEL:
                 returnMsg = putMsg(userManagerModule,msg);
                 break;
