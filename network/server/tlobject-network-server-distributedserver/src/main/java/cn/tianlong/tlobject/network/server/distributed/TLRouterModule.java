@@ -118,11 +118,12 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
             return createMsg().setParam(RESULT,0).setParam("isUserLocal",false);
         HashMap<String,Object> routeDate = new HashMap<>();
         routeDate.put(USERMANAGER_P_USERID,userid);
-        routeDate.put("data",msg.getArgs());
+        routeDate.put("data",msg.getParam("content"));
         HashMap<String,Object> routeDateMap = TLMsgUtils.makeSocketDataMap("fromRouteServer",routeDate);
         TLMsg routeMsg =createMsg().setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server).setArgs(routeDateMap);
         TLMsg resultMsg =putMsgToServer(this,routeMsg);
-        return resultMsg.setParam("isUserLocal",false);
+        int result =resultMsg.getBooleanParam(RESULT,false) ? 1:0 ;
+        return resultMsg.setParam("isUserLocal",false).setParam(RESULT,result);
     }
 
     private Object getUserChannel(String userid) {

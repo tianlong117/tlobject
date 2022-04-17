@@ -117,7 +117,7 @@ public class TLServerConfigInDB extends TLBaseTableModle {
     }
     protected TLMsg getOnLineServer(Object fromWho, TLMsg msg) {
         String serverType = (String) msg.getStringParam("serverType","socket");
-        String sql ="select server ,url,serverType from  [table] " ;
+        String sql ="select server ,routerserver as url,serverType from  [table] " ;
         if(serverType.equals("web"))
            sql = sql+" where serverType='socket'  ";
         else if(serverType.equals("socket"))

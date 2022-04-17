@@ -122,6 +122,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
             putServerParamToServer(loginServer,serversParams);
             if(serverType.equals("socket"))
             {
+                serverInfo.put("url",serverInfo.get("routerserver"));
                 ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
                 loginServerData.add(serverInfo)  ;
                 for(Map<String,Object> serverDaTa : serversParams)
