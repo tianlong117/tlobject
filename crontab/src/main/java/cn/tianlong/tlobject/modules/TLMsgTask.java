@@ -24,7 +24,7 @@ import java.util.concurrent.*;
  消息计划任务模块
  */
 public class TLMsgTask extends TLBaseModule {
-    protected String cronDelay ="1";
+    protected String cronDelay ="100";
     protected ScheduledExecutorService executor;
     protected Map<String, TLMsg>  taskMsgTable = new ConcurrentHashMap<>();
     protected Map<String, HashMap<String, Object>> taskDatas = new ConcurrentHashMap<>();
