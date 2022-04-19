@@ -20,9 +20,9 @@
        times：运行次数
      -->
     <taskMsgTable>
-        <msg destination="pcboy1" action="eat"   taskid="pcboy1_eat" status="stop" timeUnit="s" times="5" delay="5"/>
-        <msg destination="pcboy2" action="play"  status="stop" timeUnit="s"  delay="5"/>
-        <msg destination="pcboy1" action="mysleep" taskid="pcboy1_sleep" status="stop" timeUnit="s" times="1" begin="10" delay="5"/>
+        <msg destination="pcboy1" action="eat"   taskid="pcboy1_eat" status="run" timeUnit="s" times="5" delay="5"/>
+        <msg destination="pcboy2" action="play"  status="run" timeUnit="s"  delay="5"/>
+        <msg destination="pcboy1" action="mysleep" taskid="pcboy1_sleep" status="run" timeUnit="s" times="1" begin="10" delay="5"/>
         <msg destination="pcboy2" action="study" taskid="pcboy2_study"  status="run" cronExp="0 0/2 * * * ? "/>
         <!--msg destination="pcboy1" action="sleep" taskid="pcboy1_sleep" status="run" cronExp="0 6 21 16 2 ? 2019"/-->
     </taskMsgTable>
