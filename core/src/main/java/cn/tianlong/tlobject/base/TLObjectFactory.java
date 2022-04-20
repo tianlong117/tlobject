@@ -566,34 +566,28 @@ public class TLObjectFactory extends TLBaseModule {
                moduleConfigFile =getRealPath(moduleConfigFile,configDir) ;
         Object module;
         if (singleton == false)
-        {
             module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
-            if (module == null)
-                return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
-            if (module instanceof TLBaseModule)
-                ((TLBaseModule) module).runStartMsg();
-        }
         else {
-            Class<?> cls ;
+            Class<?> clazz ;
             try {
-                cls = Class.forName(classFilename);
+                clazz = Class.forName(classFilename);
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
                 putLog(classFilename + " 没有找到类文件", LogLevel.ERROR, "createObject");
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
               }
-            synchronized (cls) {
+            synchronized (clazz)
+            {
                 module = modules.get(newModuleName);
-                if (module == null) {
-                    module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
-                    if (module == null)
-                        return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
+                if (module != null)
+                    return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
+                module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
+                if (module != null)
                     modules.put(newModuleName, module);
-                    if (module instanceof TLBaseModule)
-                        ((TLBaseModule) module).runStartMsg();
-                }
             }
         }
+        if (module != null && module instanceof TLBaseModule)
+            ((TLBaseModule) module).runStartMsg();
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
     }
     public   HashMap<String, String> getModuleParam(String moduleName){
