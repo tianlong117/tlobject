@@ -228,7 +228,7 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                 if(response !=null)
                 {
                     String message = response.message();
-                    if(message.equals("Forbidden"))
+                    if(message.equals(WEBSOCKET_V_AUTHFORBIDDEN))
                     {
                         authState=false;
                         putLog("auth failure;",LogLevel.DEBUG,"Forbidden");
@@ -237,12 +237,27 @@ public class TLWebSocketClientAgent extends TLBaseModule {
                 TLMsg bmsg = createMsg().setDestination("msgBroadCast").setAction(MSGBROADCAST_BROADCAST)
                         .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_CLIENTLOGOUT)
                         .setParam(USERMANAGER_P_USERID, userName)
+                        .setParam(WEBRESPONSE,response)
+                        .setParam(WEBSOCKET_R_AUTHSTATUS,authState)
                         .setParam(USERMANAGER_P_USERCHANNEL, channel);
                 putMsg(M_MSGBROADCAST, bmsg);
                 if(connectNotifyMsg !=null)
-                    return   putMsg(this,connectNotifyMsg.setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE).setParam(WEBSOCKET_R_CLIENTAGENT,name));
+                {
+                    connectNotifyMsg.setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE)
+                            .setParam(WEBSOCKET_R_CLIENTAGENT,name)
+                            .setParam(WEBSOCKET_R_AUTHSTATUS,authState)
+                            .setParam(WEBRESPONSE,response);
+                    return   putMsg(this,connectNotifyMsg);
+                }
                 else if(connectNotifyMsgId !=null)
-                    return   putMsg(this,createMsg().setMsgId(connectNotifyMsgId).setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE).setParam(WEBSOCKET_R_CLIENTAGENT,name));
+                {
+                    TLMsg fmsg=createMsg().setMsgId(connectNotifyMsgId).
+                            setParam(WEBSOCKET_P_STATUS,WEBSOCKET_R_FAILURE)
+                            .setParam(WEBSOCKET_R_CLIENTAGENT,name)
+                            .setParam(WEBSOCKET_R_AUTHSTATUS,authState)
+                            .setParam(WEBRESPONSE,response);
+                    return   putMsg(this,fmsg);
+                }
                break;
             default:
                 ;

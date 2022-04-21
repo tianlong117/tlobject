@@ -57,15 +57,29 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
     protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         super.fromAgent(fromWho,msg);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
+        String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         if (status.equals(WEBSOCKET_R_OPEN))
         {
-            String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
             if(server.equals(managerServer))
                 onManagerServerConnect( fromWho,  msg);
             return null;
-        } 
+        }
+        if (!server.equals(managerServer) && status.equals(WEBSOCKET_R_FAILURE))
+        {
+            Boolean authStatus =  msg.getBooleanParam(WEBSOCKET_R_AUTHSTATUS,true);
+            if(authStatus ==false)
+                getServerParam( server);
+            return null;
+        }
         return null;
     }
+
+    protected void getServerParam(String server) {
+        TLMsg sMsg =createMsg().setMsgId("getServerParam").setParam("server",server);
+        TLMsg routeMsg =createMsg().setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,managerServer).setArgs(TLMsgUtils.msgToSocketDataMap(sMsg));
+        putMsgToServer(this, routeMsg);
+    }
+
     protected void onManagerServerConnect(Object fromWho, TLMsg msg) {
 
     }
@@ -82,7 +96,7 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
             String url =(String) p.get("url");
             if(url ==null || url.isEmpty())
                 continue;
-            if(servers.containsKey(server))
+            if(sucessServers.containsKey(server))
                 continue;
             HashMap<String ,String> sparam =new HashMap<>() ;
             sparam.put("url", url);

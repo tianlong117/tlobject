@@ -374,7 +374,7 @@ public class TLWebSocketClient extends TLHttpClient {
             connected = false;
             if (response != null) {
                 String message = response.message();
-                if (message.equals("Forbidden"))
+                if (message.equals(WEBSOCKET_V_AUTHFORBIDDEN))
                     reConnect = false;
             }
             TLMsg responseMsg = createMsg().setAction(resultAction).setParam(WEBSOCKET_P_STATUS, WEBSOCKET_R_FAILURE)

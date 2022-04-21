@@ -68,11 +68,42 @@ public class TLServerManagerModule extends TLBaseServiceModule {
             case "onLogout":
                 onLogout( fromWho,  msg);
                 break;
+            case "getServerParam":
+                returnMsg=getServerParam( fromWho,  msg);
+                break;
             default:
                ;
         }
         return returnMsg;
     }
+
+    protected TLMsg getServerParam(Object fromWho, TLMsg msg) {
+        String server = (String) msg.getParam("server");
+        String userid = getUserid(msg);
+        List<Map<String,Object>> serverData;
+        if(server != null){
+            TLMsg qmsg = createMsg().setAction("getServer")
+                    .setParam("server",server);
+            TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
+            HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
+            if(serverInfo ==null || serverInfo.isEmpty())
+                return null ;
+            serverInfo.put("url",serverInfo.get("routerserver"));
+            serverData = new ArrayList<>();
+            serverData.add(serverInfo)  ;
+        }
+        else {
+            String serverType =msg.getStringParam("serverType","socket");
+            TLMsg qMsg =createMsg().setAction("getOnLineServer").setParam("server",userid)
+                    .setParam("serverType",serverType) ;
+            TLMsg returnMsg = putMsg("serverConfigInDB", qMsg);
+            serverData = returnMsg.getListParam(DB_R_RESULT,null);
+        }
+        if(!serverData.isEmpty())
+           putServerParamToServer(userid,serverData);
+        return null;
+    }
+
     private void onLogout(Object fromWho, TLMsg msg) {
         String server = (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg umsg = createMsg().setAction("updateServerStatus")

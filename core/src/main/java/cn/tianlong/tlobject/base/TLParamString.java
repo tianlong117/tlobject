@@ -278,6 +278,7 @@ public interface TLParamString {
     final int    WEBSOCKET_V_BINARYMFILEDATACMDCODE = 1;
     final int    WEBSOCKET_V_BINARYMFILEDATACMDERRORCODE =2;
     final int    WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE =3;
+    final String WEBSOCKET_V_AUTHFORBIDDEN ="Forbidden";
     final String WEBSOCKET_P_BINARYMSGID = "binaryMsgid";
     final String WEBSOCKET_P_STATUS = "status";
     final String WEBSOCKET_R_OPEN = "open";
@@ -287,6 +288,7 @@ public interface TLParamString {
     final String WEBSOCKET_R_MESSAGE = "message";
     final String WEBSOCKET_P_CONNNECTNOTIFYMSG = "connectNotifyMsg";
     final String WEBSOCKET_R_CLIENTAGENT = "agent";
+    final String WEBSOCKET_R_AUTHSTATUS = "authstatus";
 
 
 
