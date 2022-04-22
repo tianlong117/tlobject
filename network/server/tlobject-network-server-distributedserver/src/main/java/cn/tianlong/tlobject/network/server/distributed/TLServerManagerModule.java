@@ -79,31 +79,44 @@ public class TLServerManagerModule extends TLBaseServiceModule {
 
     protected TLMsg getServerParam(Object fromWho, TLMsg msg) {
         String server = (String) msg.getParam("server");
-        String userid = getUserid(msg);
+        String loginServer = getUserid(msg);
         List<Map<String,Object>> serverData;
-        if(server != null){
-            TLMsg qmsg = createMsg().setAction("getServer")
-                    .setParam("server",server);
-            TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
-            HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
-            if(serverInfo ==null || serverInfo.isEmpty())
-                return null ;
-            serverInfo.put("url",serverInfo.get("routerserver"));
-            serverData = new ArrayList<>();
-            serverData.add(serverInfo)  ;
-        }
+        if(server != null)
+            serverData =getServerParamForConnect(server) ;
         else {
             String serverType =msg.getStringParam("serverType","socket");
-            TLMsg qMsg =createMsg().setAction("getOnLineServer").setParam("server",userid)
-                    .setParam("serverType",serverType) ;
-            TLMsg returnMsg = putMsg("serverConfigInDB", qMsg);
-            serverData = returnMsg.getListParam(DB_R_RESULT,null);
+            serverData =getServersParam(loginServer ,serverType) ;
         }
-        if(!serverData.isEmpty())
-           putServerParamToServer(userid,serverData);
+        if(serverData !=null && !serverData.isEmpty())
+           putServerParamToServer(loginServer,serverData);
         return null;
     }
 
+    private List<Map<String,Object>> getServersParam(String loginServer, String serverType) {
+        TLMsg qMsg =createMsg().setAction("getOnLineServer").setParam("server",loginServer)
+                .setParam("serverType",serverType) ;
+        TLMsg returnMsg = putMsg("serverConfigInDB", qMsg);
+         return returnMsg.getListParam(DB_R_RESULT,null);
+    }
+    private Map<String,Object> getServerParam(String server) {
+        TLMsg qmsg = createMsg().setAction("getServer")
+                .setParam("server",server);
+        TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
+        HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getMapParam(DB_R_RESULT,null);
+        return  serverInfo ;
+    }
+    private List<Map<String,Object>> getServerParamForConnect(String server) {
+        Map<String,Object> serverInfo = getServerParam( server);
+        if(serverInfo ==null || serverInfo.isEmpty())
+            return null ;
+        return  getServerParamForConnect(serverInfo) ;
+    }
+    private List<Map<String,Object>> getServerParamForConnect( Map<String,Object> serverInfo) {
+        serverInfo.put("url",serverInfo.get("routerserver"));
+        List<Map<String,Object>> serverData = new ArrayList<>();
+        serverData.add(serverInfo)  ;
+        return  serverData ;
+    }
     private void onLogout(Object fromWho, TLMsg msg) {
         String server = (String) msg.getParam(USERMANAGER_P_USERID);
         TLMsg umsg = createMsg().setAction("updateServerStatus")
@@ -124,10 +137,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         String loginServer = (String) serverPool.poll();
         if(loginServer ==null)
            return;
-        TLMsg qmsg = createMsg().setAction("getServer")
-                .setParam("server",loginServer);
-        TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
-        HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getParam(DB_R_RESULT);
+        Map<String,Object> serverInfo =getServerParam(loginServer);
         if(serverInfo ==null || serverInfo.isEmpty())
             return  ;
         String serverType = (String) serverInfo.get("serverType");
@@ -142,20 +152,16 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         }
 
     }
-    private void notifyServerAction(HashMap<String, Object> serverInfo, String serverType) {
+    private void notifyServerAction(Map<String, Object> serverInfo, String serverType) {
         String loginServer = (String) serverInfo.get("server");
         putLog("set server: "+loginServer,LogLevel.DEBUG);
-        TLMsg qMsg =createMsg().setAction("getOnLineServer").setParam("server",loginServer).setParam("serverType",serverType) ;
-        TLMsg returnMsg = putMsg("serverConfigInDB", qMsg);
-        List<Map<String,Object>> serversParams = returnMsg.getListParam(DB_R_RESULT,null);
+        List<Map<String,Object>> serversParams = getServersParam(loginServer ,serverType) ;
         if(serversParams !=null && !serversParams.isEmpty())
         {
             putServerParamToServer(loginServer,serversParams);
             if(serverType.equals("socket"))
             {
-                serverInfo.put("url",serverInfo.get("routerserver"));
-                ArrayList<Map<String,Object>> loginServerData = new ArrayList<>();
-                loginServerData.add(serverInfo)  ;
+                List<Map<String,Object>> loginServerData = getServerParamForConnect(serverInfo);
                 for(Map<String,Object> serverDaTa : serversParams)
                 {
                     String server = (String) serverDaTa.get("server");

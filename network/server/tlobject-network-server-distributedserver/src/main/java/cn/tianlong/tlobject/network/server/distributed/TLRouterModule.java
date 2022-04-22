@@ -58,12 +58,13 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         super.fromAgent(fromWho,msg);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
         String server = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
-        if (status.equals(WEBSOCKET_R_OPEN))
+        if(server.equals(managerServer) )
         {
-            if(server.equals(managerServer))
-                onManagerServerConnect( fromWho,  msg);
-            return null;
+            if(status.equals(WEBSOCKET_R_OPEN))
+                onManagerServerConnect();
         }
+        else
+           onServerConnect( server,status);
         if (!server.equals(managerServer) && status.equals(WEBSOCKET_R_FAILURE))
         {
             Boolean authStatus =  msg.getBooleanParam(WEBSOCKET_R_AUTHSTATUS,true);
@@ -74,13 +75,22 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         return null;
     }
 
+    private void onServerConnect(String server, String status) {
+        TLMsg sMsg =createMsg().setMsgId("setConnectedServer")
+                .setParam("server",server)
+                .setParam("status",status);
+        TLMsg routeMsg =createMsg().setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,managerServer)
+                .setArgs(TLMsgUtils.msgToSocketDataMap(sMsg));
+        putMsgToServer(this, routeMsg);
+    }
+
     protected void getServerParam(String server) {
         TLMsg sMsg =createMsg().setMsgId("getServerParam").setParam("server",server);
         TLMsg routeMsg =createMsg().setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,managerServer).setArgs(TLMsgUtils.msgToSocketDataMap(sMsg));
         putMsgToServer(this, routeMsg);
     }
 
-    protected void onManagerServerConnect(Object fromWho, TLMsg msg) {
+    protected void onManagerServerConnect() {
 
     }
 
