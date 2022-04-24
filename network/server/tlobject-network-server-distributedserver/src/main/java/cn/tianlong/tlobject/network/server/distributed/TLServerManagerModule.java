@@ -140,6 +140,10 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         TLMsg cmsg = createMsg().setAction("deleteByServer")
                 .setParam(USERMANAGER_P_SERVERNAME,server);
         putMsg("userLoginModle", cmsg);
+        String sql ="update [table] set status='failure' where server=?";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>() ;
+        sqlparams.put("server",server);
+        server_connectedTable.updateBySql(sql ,sqlparams);
     }
 
     private TLMsg onLogin(Object fromWho, TLMsg msg)
