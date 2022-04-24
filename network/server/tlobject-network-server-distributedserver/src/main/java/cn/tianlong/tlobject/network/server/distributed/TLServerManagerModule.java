@@ -3,14 +3,12 @@ package cn.tianlong.tlobject.network.server.distributed;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.network.common.TLJWT;
 import cn.tianlong.tlobject.network.server.websocket.TLBaseServiceModule;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
@@ -24,6 +22,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     protected int tokenExpireMinute = 30;
     protected String msgBroadCast ;
     protected ConcurrentLinkedQueue serverPool = new ConcurrentLinkedQueue();
+    protected BeanTable  server_connectedTable ;
     public TLServerManagerModule(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
     }
@@ -50,7 +49,7 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         TLMsg onUserLogoutMsg = createMsg().setDestination(name).setAction("onLogout");
         putMsg(msgBroadCast, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
                 .setParam(MSGBROADCAST_P_MESSAGETYPE, C_MESSAGETYPE_LOGOUT).setParam(MSGBROADCAST_P_RECEIVEMSG, onUserLogoutMsg));
-
+        server_connectedTable =new BeanTable("server_connected",moduleFactory);
         return this ;
     }
     @Override
@@ -71,10 +70,26 @@ public class TLServerManagerModule extends TLBaseServiceModule {
             case "getServerParam":
                 returnMsg=getServerParam( fromWho,  msg);
                 break;
+            case "setConnectedServer":
+               setConnectedServer( fromWho,  msg);
+                break;
             default:
                ;
         }
         return returnMsg;
+    }
+
+    private void setConnectedServer(Object fromWho, TLMsg msg) {
+        String loginServer = getUserid(msg);
+        String server = (String) msg.getParam("server");
+        String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
+        Long statustime = System.currentTimeMillis();
+        LinkedHashMap<String, Object> data = new LinkedHashMap<>();
+        data.put("server",loginServer);
+        data.put("connectedserver",server);
+        data.put("status",status);
+        data.put("statustime",statustime);
+        server_connectedTable.replace(data);
     }
 
     protected TLMsg getServerParam(Object fromWho, TLMsg msg) {
