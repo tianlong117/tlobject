@@ -7,7 +7,7 @@
         -->
         <msg action="#initDataTb"  destination="dbDemo" />
         <msg action="#insertTb"     destination="dbDemo"   username="siren" number="99999999" />
-        <msg action="#queryByTable"  username="dong1"/>
+        <msg action="queryByTable"  username="dong1"/>
         <msg action="#queryResultIsBean" destination="dbDemo" username="dong"/>
         <msg action="#updateByTable"  username="dong1" number="7777"/>
         <msg action="#deleteByTable"  username="dong2"/>

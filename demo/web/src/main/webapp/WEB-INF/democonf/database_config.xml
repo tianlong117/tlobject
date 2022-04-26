@@ -61,14 +61,14 @@
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
    <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="memoryCache"
-             driver="com.mysql.jdbc.Driver"
-             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8"
+             driver="com.mysql.cj.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
              dbuser="root" dbpass="123456"
              connector="c3p0Conn"
              initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
    <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="EhCache"
-             driver="com.mysql.jdbc.Driver"
-             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8"
+             driver="com.mysql.cj.jdbc.Driver"
+             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
              dbuser="root" dbpass="123456"
              connector="c3p0Conn"
              initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
