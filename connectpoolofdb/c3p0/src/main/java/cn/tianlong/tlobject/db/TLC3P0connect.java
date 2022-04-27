@@ -59,12 +59,12 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
 
         params= (HashMap) msg.getParam("params");
         dataSource = new ComboPooledDataSource();// 使用默认的配置
-        dataSource.setJdbcUrl(params.get("dburl"));//设置连接字符串
         try {
             dataSource.setDriverClass(params.get("driver"));//获取驱动
         } catch (PropertyVetoException e) {
-            e.printStackTrace();
+            putLog("没有发现驱动："+params.get("driver"),LogLevel.ERROR);
         }
+        dataSource.setJdbcUrl(params.get("dburl"));//设置连接字符串
         dataSource.setUser(params.get("dbuser"));//用户名
         dataSource.setPassword(params.get("dbpass"));//密码
         dataSource.setInitialPoolSize(Integer.parseInt(params.get("initPoolSize")));//初始化时获取三个连接
