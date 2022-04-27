@@ -18,7 +18,7 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>tlobject-database</artifactId>
+            <artifactId>tlobject-connectpoolofdb-common</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
