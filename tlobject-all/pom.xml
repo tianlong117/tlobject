@@ -81,6 +81,21 @@
             <artifactId>tlobject-execl</artifactId>
             <version>1.0</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-connectpoolofdb-c3p0</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <!--dependency>
+         <groupId>mysql</groupId>
+         <artifactId>mysql-connector-java</artifactId>
+         <version>5.1.45</version>
+       </dependency-->
+        <dependency>
+            <groupId>mysql</groupId>
+            <artifactId>mysql-connector-java</artifactId>
+            <version>8.0.29</version>
+        </dependency>
     </dependencies>
 
 </project>

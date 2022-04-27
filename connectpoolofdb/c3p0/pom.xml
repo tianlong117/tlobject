@@ -3,14 +3,13 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
-        <artifactId>tlobject</artifactId>
+        <artifactId>tlobject-connectpoolofdb</artifactId>
         <groupId>cn.tianlong.tlobject</groupId>
         <version>1.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
-    <artifactId>tlobject-database</artifactId>
-
+    <artifactId>tlobject-connectpoolofdb-c3p0</artifactId>
     <dependencies>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
@@ -18,26 +17,15 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>commons-dbutils</groupId>
-            <artifactId>commons-dbutils</artifactId>
-            <version>1.7</version>
-        </dependency>
-        <dependency>
-            <groupId>commons-beanutils</groupId>
-            <artifactId>commons-beanutils</artifactId>
-            <version>1.9.4</version>
-        </dependency>
-        <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
-            <artifactId>tlobject-cache-filecache</artifactId>
-            <version>1.0</version>
+            <artifactId>tlobject-database</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mchange</groupId>
+            <artifactId>c3p0</artifactId>
+            <version>0.9.5.2</version>
         </dependency>
     </dependencies>
-    <build>
-        <plugins>
-            <plugin>
-                <artifactId>maven-compiler-plugin</artifactId>
-            </plugin>
-        </plugins>
-    </build>
+
 </project>
