@@ -18,6 +18,7 @@
         <module name="demo-web" />
         <module name="demotlobject" />
         <module name="execl" />
+        <module name="hikaricp" />
         <module name="log-common" />
         <module name="log-slf4j" />
         <module name="network-client" />

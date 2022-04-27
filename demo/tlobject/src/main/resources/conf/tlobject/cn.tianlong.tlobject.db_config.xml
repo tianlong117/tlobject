@@ -1,18 +1,20 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <modules>
-       <!-- 系统模块 -->
+       <!-- 系统模块 -->TLHikariCP
         <!-- db -->
         <module name="database" classfile="cn.tianlong.tlobject.db.TLDataBase"  ip="127.0.0.1" />
         <module name="dbserver" classfile="cn.tianlong.tlobject.db.TLDBServer" />
         <module name="dbtable" classfile="cn.tianlong.tlobject.db.TLTable" />
         <module name="vtable" classfile="cn.tianlong.tlobject.db.TLVirtualTable" />
         <module name="dbview" classfile="cn.tianlong.tlobject.db.TLDBView" />
-        <module name="c3p0Conn" classfile="cn.tianlong.tlobject.db.TLC3P0connect" singleton="false" />
         <module name="cachetrigger" classfile="cn.tianlong.tlobject.db.TLDBTriggerForCache" />
         <module name="aftercachetrigger" proxyModule="cachetrigger" />
         <module name="moduleParamsInDBModle" classfile="cn.tianlong.tlobject.db.moduleParamsInDBModle" />
         <module name="moduleManager" classfile="cn.tianlong.tlobject.db.TLModuleManager" />
         <module name="moduleFieldInDb" classfile="cn.tianlong.tlobject.db.dbdata.TLModuleFieldInDb" />
+        <module name="c3p0Conn" classfile="cn.tianlong.tlobject.db.TLC3P0connect" singleton="false" />
+        <module name="HikariCP" classfile="cn.tianlong.tlobject.db.TLHikariCP" singleton="false" />
+
     </modules>
 </moduleConfig>

@@ -45,7 +45,9 @@
             statup:database初始化时是否初始化 ，默认为false
             ifCache:是否开启sql查询缓存，默认false，不开启
             cacheModuleName：缓存模块名，默认为内存缓存memoryCache
-            driver：指明具体的数据库连接驱动模块，如mysql为"com.mysql.jdbc.Driver"
+            driver：指明具体的数据库连接驱动模块，
+                    如mysql5为"com.mysql.jdbc.Driver"
+                    mysql8为"com.mysql.cj.jdbc.Driver"
             dburl：数据集连接url。
             dbuser:数据库连接用户名
             dbpass：用户名密码
@@ -60,18 +62,18 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-   <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="memoryCache"
-             driver="com.mysql.cj.jdbc.Driver"
-             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
-             dbuser="root" dbpass="123456"
-             connector="c3p0Conn"
-             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
-   <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="EhCache"
-             driver="com.mysql.cj.jdbc.Driver"
-             dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
-             dbuser="root" dbpass="123456"
-             connector="c3p0Conn"
-             initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+        <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="memoryCache"
+                  driver="com.mysql.cj.jdbc.Driver"
+                  dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
+                  dbuser="root" dbpass="123456"
+                  connector="HikariCP"
+                  initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+        <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="EhCache"
+                  driver="com.mysql.cj.jdbc.Driver"
+                  dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
+                  dbuser="root" dbpass="123456"
+                  connector="c3p0Conn"
+                  initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
 </dbservers>
 <!--
  tables参数说明：
