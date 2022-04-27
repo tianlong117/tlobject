@@ -57,7 +57,8 @@ public class TLHikariCP extends TLBaseModule implements TLBaseConnectorInterface
         return returnMsg;
     }
     protected void init(Object fromWho, TLMsg msg) {
-
+        if(!msg.isNull("params"))
+            params= (HashMap) msg.getParam("params");
         params= (HashMap) msg.getParam("params");
         dataSource = new HikariDataSource();// 使用默认的配置
         dataSource.setJdbcUrl(params.get("dburl"));//设置连接字符串

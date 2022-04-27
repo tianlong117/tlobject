@@ -56,8 +56,8 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
         return returnMsg;
     }
     protected void init(Object fromWho, TLMsg msg) {
-
-        params= (HashMap) msg.getParam("params");
+        if(!msg.isNull("params"))
+           params= (HashMap) msg.getParam("params");
         dataSource = new ComboPooledDataSource();// 使用默认的配置
         try {
             dataSource.setDriverClass(params.get("driver"));//获取驱动
