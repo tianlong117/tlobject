@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool;
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import java.util.HashMap;
 import java.util.List;
@@ -18,6 +19,7 @@ import static java.lang.Thread.sleep;
  */
 public abstract class TLRouterModule extends TLSocketClientAgentPool {
 
+    protected   boolean   isServer  =true;
      protected String clientMsgHandler ;
      protected String managerServer="managerServer" ;
      protected HashMap<String,String> serverStatus = new HashMap<>();
@@ -33,6 +35,7 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
             clientMsgHandler = params.get("clientMsgHandler");
         if(params !=null && params.get("managerServer")!=null)
             managerServer = params.get("managerServer");
+        isServer = TLMapUtils.parseBoolean(params,"isServer",true);
     }
 
 
@@ -140,6 +143,8 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
         return returnMsg ;
     }
     private TLMsg toUser(Object fromWho, TLMsg msg) {
+        if(!isServer)
+            return super.putToServer(fromWho,msg);
         Object channel =msg.getSystemParam(USERMANAGER_P_USERCHANNEL);
         if(channel ==null){
             String userid = (String) msg.getSystemParam(USERMANAGER_P_USERID);
