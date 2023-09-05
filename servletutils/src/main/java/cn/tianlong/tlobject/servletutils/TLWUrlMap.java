@@ -121,6 +121,8 @@ public class TLWUrlMap extends TLWServModule {
         if(urlMapTable ==null || urlMapTable.isEmpty())
            return putError("no urlMap, Configure urlMap");
         String url=(String) msg.getParam("url");
+        if(url ==null || url.isEmpty())
+           return putError("no url");
         if(prefixUrl!=null)
           url=url.substring(prefixUrl.length());
         ArrayList msgList = urlMapTable.get(url);
