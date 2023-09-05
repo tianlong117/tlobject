@@ -23,7 +23,7 @@ public class TLServletDispatch extends GenericServlet {
     protected  String  name ;
     protected Map<String,HttpServletRequest> requestMap;
     protected Map<String,HttpServletResponse>responseMap ;
-    protected Map<String,HashMap<String ,Object>>sessionDatas ;
+    protected Map<String,HashMap<String ,Object>> threadDatas;
     protected TLObjectFactory moduleFactory;
     protected boolean isStartup =true ;
     protected int initialCapacity=256;
@@ -51,12 +51,12 @@ public class TLServletDispatch extends GenericServlet {
         super.init(config);
         requestMap =new ConcurrentHashMap<>( initialCapacity);
         responseMap =new ConcurrentHashMap<>(initialCapacity);
-        sessionDatas =new ConcurrentHashMap<>(initialCapacity);
+        threadDatas =new ConcurrentHashMap<>(initialCapacity);
         ServletContext context =getServletContext();
         registInfactory( moduleFactory,"servletContext",context);
         registInfactory(moduleFactory, "servletRequest", requestMap);
         registInfactory(moduleFactory, "servletResponse", responseMap);
-        registInfactory(moduleFactory, "sessionDatas", sessionDatas);
+        registInfactory(moduleFactory, "threadDatas", threadDatas);
         moduleFactory.putLog(name+" is statup,configPath:",LogLevel.INFO,"filterInit");
         appCenter = (TLBaseModule) moduleFactory.getModule("appCenter");
         ((TLWAPPCenter)appCenter).setFilter(this);
@@ -79,7 +79,7 @@ public class TLServletDispatch extends GenericServlet {
         datas.put("startTime",startTime);
         requestMap.put(threadName, request);
         responseMap.put(threadName,  response);
-        sessionDatas.put(threadName,datas);
+        threadDatas.put(threadName,datas);
         String uri= request.getRequestURI();
         if (uri == null || uri.isEmpty())
             return ;
@@ -96,7 +96,7 @@ public class TLServletDispatch extends GenericServlet {
         appCenter.getMsg(moduleFactory, msg);
         requestMap.remove(threadName);
         responseMap.remove(threadName);
-        sessionDatas.remove(threadName);
+        threadDatas.remove(threadName);
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         moduleFactory.putLog(name+ " 运行时间：" + runtime,LogLevel.INFO,"doFilter");
