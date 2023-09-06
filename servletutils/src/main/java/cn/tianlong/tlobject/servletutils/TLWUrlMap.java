@@ -180,7 +180,7 @@ public class TLWUrlMap extends TLWServModule {
             for(int i = 0;i < msgListSize; i ++)
             {
                 TLMsg dmsg =createMsg().copyFrom(((TLMsg) msgList.get(i)));
-                if(!map.isEmpty())
+                if(map !=null && !map.isEmpty())
                     dmsg.addArgs(map);
                 returnMsg= doWithUrlMsg(dmsg);
                 if(msgListSize >1 && ifDoNextMsg(returnMsg))
