@@ -20,7 +20,6 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 
 public class TLServletDispatch extends GenericServlet {
     protected TLBaseModule appCenter;
-    protected String prefixUrl ;
     protected  String  name ;
     protected Map<String,HttpServletRequest> requestMap;
     protected Map<String,HttpServletResponse>responseMap ;
@@ -38,9 +37,7 @@ public class TLServletDispatch extends GenericServlet {
     {
         this.initialCapacity =initialCapacity ;
     }
-    protected void setPrefixUrl(String prefixUrl){
-        this.prefixUrl=prefixUrl;
-    }
+
     public  void setIsStartup (boolean isStartup){
         this.isStartup =isStartup ;
     }
@@ -84,12 +81,7 @@ public class TLServletDispatch extends GenericServlet {
         String uri= request.getRequestURI();
         if (uri == null || uri.isEmpty())
             return ;
-        if(prefixUrl !=null)
-        {
-            if(uri.length() < prefixUrl.length())
-                return;
-            uri=uri.substring(prefixUrl.length());
-        }
+
         TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri);
         appCenter.getMsg(moduleFactory, msg);
         requestMap.remove(threadName);

@@ -215,7 +215,6 @@ public class TLJettyServer extends TLBaseModule {
 
     private void initServletDispatch(ServletContextHandler  context) {
         servletdispatch = new TLServletDispatch(name,moduleFactory);
-        servletdispatch.setPrefixUrl(servletPath);
         try {
             servletdispatch.init();
         } catch (ServletException e) {
