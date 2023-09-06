@@ -112,7 +112,7 @@ public class homePageControl extends TLWServModule {
         String[] args ={"p1","p2"};
         //   HashMap<String,Object> userdata=getUserData().getArgs();
         HashMap<String,Object> userdata=getUserData(args).getArgs();
-        if(userdata !=null || !userdata.isEmpty())
+        if(userdata !=null && !userdata.isEmpty())
         for (String key : userdata.keySet()) {
             if(userdata.get(key)!=null)
                 if(key.equals("p1"))
