@@ -220,7 +220,7 @@ public class TLMsg implements Serializable , Cloneable{
         return  this ;
     }
     public  TLMsg  addMap(Map map){
-        if(map ==null)
+        if(map ==null || map.isEmpty())
             return this ;
         for(Object key : map.keySet() ){
             setParam(key.toString(),map.get(key));
@@ -229,7 +229,7 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg addArgs(Map<String, Object> params)
     {
-        if(params==null)
+        if(params==null || params.isEmpty())
             return  this ;
         if(args ==null)
             args= new HashMap<>() ;
