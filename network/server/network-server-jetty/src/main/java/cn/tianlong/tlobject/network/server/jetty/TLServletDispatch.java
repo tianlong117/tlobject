@@ -83,16 +83,13 @@ public class TLServletDispatch extends GenericServlet {
         String uri= request.getRequestURI();
         if (uri == null || uri.isEmpty())
             return ;
-        String url;
         if(prefixUrl !=null)
         {
             if(uri.length() < prefixUrl.length())
                 return;
-            url=uri.substring(prefixUrl.length());
+            uri=uri.substring(prefixUrl.length());
         }
-        else
-            url =uri;
-        TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri).setParam("url",url);
+        TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri);
         appCenter.getMsg(moduleFactory, msg);
         requestMap.remove(threadName);
         responseMap.remove(threadName);
