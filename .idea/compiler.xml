@@ -10,7 +10,6 @@
         <module name="cache-common" />
         <module name="cache-ehcache" />
         <module name="cache-filecache" />
-        <module name="common" />
         <module name="core" />
         <module name="crontab" />
         <module name="database" />
@@ -18,7 +17,6 @@
         <module name="demo-web" />
         <module name="demotlobject" />
         <module name="execl" />
-        <module name="hikaricp" />
         <module name="log-common" />
         <module name="log-slf4j" />
         <module name="network-client" />
@@ -35,6 +33,8 @@
         <module name="tlobject-cache-ehcache" />
         <module name="tlobject-cache-filecache" />
         <module name="tlobject-connectpoolofdb-c3p0" />
+        <module name="tlobject-connectpoolofdb-common" />
+        <module name="tlobject-connectpoolofdb-hikaricp" />
         <module name="tlobject-core" />
         <module name="tlobject-crontab" />
         <module name="tlobject-database" />
@@ -56,8 +56,5 @@
         <module name="web" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel>
-      <module name="connectpoolofdb" target="1.8" />
-    </bytecodeTargetLevel>
   </component>
 </project>
