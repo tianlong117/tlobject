@@ -121,7 +121,7 @@ public class systemManagerControl extends adminCommon {
                 {
                     HashMap<String,Object> sresult = (HashMap<String, Object>) resultMap.get(server);
                     HashMap<String,Object>  result = (HashMap<String, Object>) TLDataUtils.jsonDoubleToInt(sresult);
-                    int number = (int) result.get(RESULT);
+                    int number =  TLDataUtils.parseInt(result.get(RESULT),0);
                     Map<String,Object>  map = new HashMap<>();
                     map.put("name",server);
                     map.put("number",number);
