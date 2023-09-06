@@ -102,7 +102,7 @@ public class appClientAgent extends adminCommon {
         else
             serverMsg.setAction(WEBSOCKET_PUTMSG) ;
         msg.removeParam("waitServerReturn");
-        serverMsg.addMap(msg.getArgs())
+        serverMsg.addArgs(msg.getArgs())
                  .setParam(MSG_P_ACTION,msg.getAction())
                  .setParam(MSG_P_DESTINATION,moduleName)
                  .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);

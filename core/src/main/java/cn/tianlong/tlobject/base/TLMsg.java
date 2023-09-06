@@ -220,6 +220,8 @@ public class TLMsg implements Serializable , Cloneable{
         return  this ;
     }
     public  TLMsg  addMap(Map map){
+        if(map ==null)
+            return this ;
         for(Object key : map.keySet() ){
             setParam(key.toString(),map.get(key));
         }
