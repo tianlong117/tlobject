@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.tianlong.tlobject.base.TLParamString.*;
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 
 public class TLServletDispatch extends GenericServlet {
     protected TLBaseModule appCenter;
@@ -58,7 +59,7 @@ public class TLServletDispatch extends GenericServlet {
         registInfactory(moduleFactory, "servletResponse", responseMap);
         registInfactory(moduleFactory, "threadDatas", threadDatas);
         moduleFactory.putLog(name+" is statup,configPath:",LogLevel.INFO,"filterInit");
-        appCenter = (TLBaseModule) moduleFactory.getModule("appCenter");
+        appCenter =(TLBaseModule) moduleFactory.getModule(M_APPCENTER);
         ((TLWAPPCenter)appCenter).setFilter(this);
         ((TLWAPPCenter)appCenter).setFilterName(name);
     }
