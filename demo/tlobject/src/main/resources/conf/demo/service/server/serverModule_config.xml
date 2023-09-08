@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <msgTable>
-        <msgid  value="onUserLogin" >
+        <msgid  value="#onUserLogin" >
             <msg action="sendFileFromServer"  fileName="apache-tomcat-9.0.56-windows-x64.zip" />
             <msg action="getFileByServer"  fileName="apache.zip" />
         </msgid>
