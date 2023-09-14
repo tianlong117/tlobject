@@ -129,7 +129,10 @@ public abstract class adminCommon extends TLWServModule {
         if(moduleIn==null)
             moduleIn ="factory";
         if(moduleIn.equals("factory"))
+        {
+            msg.removeParam("waitServerReturn");
             return putMsg(moduleName,msg);
+        }
         else  if(moduleIn.equals("app"))
             return   putToApp(moduleName,msg);
         else {
