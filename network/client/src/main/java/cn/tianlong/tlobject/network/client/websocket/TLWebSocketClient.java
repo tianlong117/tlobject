@@ -206,9 +206,9 @@ public class TLWebSocketClient extends TLHttpClient {
         ByteString byteString = ByteString.of(msgbuf, 0, msgbuf.length);
         boolean result = webSocketSend(byteString);
         if(result)
-            putLog("send binary sucess ,order:" + order, LogLevel.DEBUG, "bsend");
+            putLog("send binary sucess ,order:" + order, LogLevel.DEBUG, "binarySend");
         else
-            putLog("send binary failure,order:" + order, LogLevel.DEBUG, "bsend");
+            putLog("send binary failure,order:" + order, LogLevel.DEBUG, "binarySend");
         return result ;
     }
 
