@@ -194,13 +194,22 @@ public class TLWebSocketClient extends TLHttpClient {
             setResultFor(fromWho, msg);
         String content = (String) msg.getParam(WEBSOCKET_P_CONTENT);
         boolean result = webSocketSend(content);
+        if(result ==true)
+            putLog("send sucess:" + content, LogLevel.DEBUG, "send");
+        else
+            putLog("send failure:" + content, LogLevel.DEBUG, "send");
         return createMsg().setParam("result", result);
     }
 
     protected boolean binarySend(String msgid, byte cmdOrder, int sessionId, byte[] buf, int size, int order) {
         byte[] msgbuf = TLMsgUtils.enCodeMsgBuf(msgid, cmdOrder, sessionId, buf,size,order);
         ByteString byteString = ByteString.of(msgbuf, 0, msgbuf.length);
-        return webSocketSend(byteString);
+        boolean result = webSocketSend(byteString);
+        if(result)
+            putLog("send binary sucess ,order:" + order, LogLevel.DEBUG, "bsend");
+        else
+            putLog("send binary failure,order:" + order, LogLevel.DEBUG, "bsend");
+        return result ;
     }
 
     private void close(Object fromWho, TLMsg msg) {
@@ -229,10 +238,7 @@ public class TLWebSocketClient extends TLHttpClient {
         int contentsize = content.length()*3*8 ;
         boolean IfQueueCanWrite= IfQueueCanWrite(contentsize);
         if( IfQueueCanWrite ==true)
-        {
-            putLog("send:" + content, LogLevel.DEBUG, "send");
             return mWebSocket.send(content);
-        }
         return false ;
     }
 
@@ -242,10 +248,7 @@ public class TLWebSocketClient extends TLHttpClient {
          int contentsize =content.size();
          boolean IfQueueCanWrite= IfQueueCanWrite(contentsize);
          if( IfQueueCanWrite ==true)
-         {
-             putLog("send binary size:" + contentsize, LogLevel.DEBUG, "send");
              return mWebSocket.send(content);
-         }
          return false ;
     }
 
