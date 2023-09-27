@@ -193,14 +193,17 @@ public class managersManagerControl extends adminCommon {
         TLMsg returnMsg = putMsg(userobj,createMsg().setAction(USER_GETONLINE));
         Map<String,Object> onlines =returnMsg.getArgs();
         ArrayList<HashMap<String,Object>> userList =new ArrayList<>();
-        for(String userid : onlines.keySet()){
-            HashMap<String,Object> info = (HashMap<String, Object>) onlines.get(userid);
-            Long  logintime = (Long) info.get("logintime");
-            String logintimeStr =TLDateUtils.dateToStr(new Date(logintime),null);
-            HashMap<String,Object> data  = new HashMap<>();
-            data.put("userid",userid);
-            data.put("logintime",logintimeStr);
-            userList.add(data);
+        if(onlines !=null)
+        {
+            for(String userid : onlines.keySet()){
+                HashMap<String,Object> info = (HashMap<String, Object>) onlines.get(userid);
+                Long  logintime = (Long) info.get("logintime");
+                String logintimeStr =TLDateUtils.dateToStr(new Date(logintime),null);
+                HashMap<String,Object> data  = new HashMap<>();
+                data.put("userid",userid);
+                data.put("logintime",logintimeStr);
+                userList.add(data);
+            }
         }
         outData odata =  creatOutDataMsg("onlinesList");
         odata.addData("code","0") ;
