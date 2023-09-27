@@ -320,16 +320,19 @@ public class TLMsgUtils {
                destination = (String) map.get(MSG_P_MODULE);
         if (destination != null && !destination.isEmpty())
              msg.setDestination(destination);
+        if(map.get(MSG_P_SYSTEMARGS)!=null )
+        {
+            LinkedTreeMap<String, Object> systemArgs = (LinkedTreeMap<String, Object>) map.get(MSG_P_SYSTEMARGS);
+            msg.addSystemArgs(systemArgs);
+            map.remove(MSG_P_SYSTEMARGS);
+        }
         if(map.get(MSG_P_PARAMS)!=null )
         {
             LinkedTreeMap<String, Object> datas = (LinkedTreeMap<String, Object>) map.get(MSG_P_PARAMS);
             msg.addArgs(datas);
         }
-        if(map.get(MSG_P_SYSTEMARGS)!=null )
-        {
-            LinkedTreeMap<String, Object> systemArgs = (LinkedTreeMap<String, Object>) map.get(MSG_P_SYSTEMARGS);
-            msg.addSystemArgs(systemArgs);
-        }
+        else
+            msg.addArgs(map);
         return msg;
     }
 
