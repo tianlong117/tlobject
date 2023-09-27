@@ -60,6 +60,9 @@ public class serverModule extends DemoCommon {
             case "sendFileFromServer":
                 returnMsg=sendFileFromServer(fromWho, msg);
                 break;
+            case "sendMsgFromServer":
+                returnMsg=sendMsgFromServer(fromWho, msg);
+                break;
             case "getFileByServer":
                 returnMsg=getFileByServer(fromWho, msg);
                 break;
@@ -136,6 +139,16 @@ public class serverModule extends DemoCommon {
                 .setParam("paramc",12)
                 .setParam("paramd",99.1)
                 .setParam("fileName",fileName);
+        TLMsg returnMsg = putMsg("clientMsgHandler",gmsg);
+        if( returnMsg !=null)
+            TLMsgUtils.printMsg(returnMsg);
+        return null ;
+    }
+
+    private TLMsg sendMsgFromServer(Object fromWho, TLMsg msg) {
+        TLMsg gmsg =createMsg().setAction( WEBSOCKET_PUTMSG)
+                .setSystemArgs(msg.getSystemArgs())
+                .setParam("parama","server put Msg")               ;
         TLMsg returnMsg = putMsg("clientMsgHandler",gmsg);
         if( returnMsg !=null)
             TLMsgUtils.printMsg(returnMsg);
