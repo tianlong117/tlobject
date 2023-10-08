@@ -335,7 +335,7 @@ public class TLUserManagerModule extends TLBaseModule {
             putLog("用户login: " + userid + "  " + ip + "  " + channel, LogLevel.DEBUG, "login");
         } else {
             if (usersInfo.containsKey(userid)) {
-                putLog("用户再次login: " + userid + "  " + ip, LogLevel.INFO, "login");
+                putLog("用户再次login: " + userid + "  " + ip + "  " + channel, LogLevel.INFO, "login");
                 addUserChannel(userid, userSource, channel, ip);
             } else {
                 userLogin(userid, userSource, channel, ip);
