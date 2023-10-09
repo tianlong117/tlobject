@@ -2,6 +2,7 @@
 <moduleConfig>
     <params>
         <defaultServer value="clientSocketServe0" />
+        <ifAutoConnect value="true"  />
     </params>
     <startMsg>
         <msg  action="getModuleByModule"   moduleName="webSocketReceiveFileModule" usePreReturnMsg="false" />

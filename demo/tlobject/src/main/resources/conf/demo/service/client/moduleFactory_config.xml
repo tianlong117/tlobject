@@ -28,5 +28,6 @@
     </modules>
         <factoryBoot>
             <msg action="getModule"  moduleName="threadPool" usePreReturnMsg="false" />
+            <msg action="getModule"  moduleName="wife" usePreReturnMsg="false" />
         </factoryBoot>
 </moduleConfig>
