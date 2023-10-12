@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static java.lang.Thread.sleep;
+
 /**
  * 创建日期：${Date}${time}
  * 描述:
@@ -90,18 +92,28 @@ public class TLSocketClientAgentPool extends TLBaseModule {
             return  ;
         if(servers ==null || servers.isEmpty())
             return  ;
-        for(String serverName :servers.keySet()){
+        for(String serverName :servers.keySet())
+        {
             HashMap<String, String> serverParams =servers.get(serverName) ;
-            addAndConnectToServer(serverName,serverParams) ;
+            boolean autoConnect =true ;
+            if (serverParams.get("autoConnect") != null)
+                autoConnect = Boolean.parseBoolean(serverParams.get("autoConnect"));
+            if(autoConnect )
+            {
+                TLBaseModule serverObj =addServer( serverName , serverParams);
+                connectToServer(serverObj) ;
+            }
+
         }
     }
-    protected void addAndConnectToServer(String serverName , HashMap<String, String> serverParams){
-        TLBaseModule serverObj =addServer( serverName , serverParams);
+    protected void connectToServer(TLBaseModule serverObj ){
+
         TLMsg nmsg =createMsg().setAction("fromAgent").setDestination(name);
         TLMsg msg =createMsg().setAction(WEBSOCKET_CONNECT).setParam(WEBSOCKET_P_CONNNECTNOTIFYMSG,nmsg) ;
         putMsg(serverObj,msg) ;
     }
     protected TLBaseModule addServer(String serverName ,HashMap<String, String> serverParams){
+        serverParams.put("autoConnect","false") ;
         if(serverParams.get(RESULTFOR) ==null)
             serverParams.put(RESULTFOR,name);
         if(serverParams.get(RESULTACTION) ==null)
@@ -120,15 +132,15 @@ public class TLSocketClientAgentPool extends TLBaseModule {
                 return;
             serverObj = addServer(serverName,serverParams) ;
         }
-        TLMsg nmsg =createMsg().setAction("fromAgent").setDestination(name);
-        TLMsg cmsg =createMsg().setAction(WEBSOCKET_CONNECT)
-                .setParam(WEBSOCKET_P_CONNNECTNOTIFYMSG,nmsg) ;
-        putMsg(serverObj,cmsg) ;
+        connectToServer(serverObj) ;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
+            case WEBSOCKET_CONNECT:
+                returnMsg = connectServer(fromWho, msg);
+                break;
             case WEBSOCKET_PUT:
                 returnMsg = putToServer(fromWho, msg);
                 break;
@@ -170,6 +182,27 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         }
         return returnMsg;
     }
+
+    private TLMsg connectServer(Object fromWho, TLMsg msg) {
+        String serverName = (String) msg.getSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME);
+        HashMap<String,String>    serverParams =servers.get(serverName) ;
+        if(serverParams ==null || serverName.isEmpty())
+            return createMsg().setParam(RESULT,false);
+        connectToServer(serverName) ;
+        int i =0;
+        do {
+            try {
+                sleep(20);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            i++;
+            if(sucessServers.get(serverName) !=null)
+                return createMsg().setParam(RESULT,true);
+        }while (i <200);
+        return createMsg().setParam(RESULT,false);
+    }
+
     protected TLMsg receiveBinary(Object fromWho, TLMsg msg) {
         if (msg.isNull(WEBSOCKET_P_BINARYCMDCODE))
             return createMsg().setParam(RESULT, false);
@@ -371,7 +404,8 @@ public class TLSocketClientAgentPool extends TLBaseModule {
             serverParams =servers.get(serverName) ;
         if(serverParams ==null || serverName.isEmpty())
             return;
-        addAndConnectToServer(serverName,serverParams) ;
+        TLBaseModule serverObj =addServer( serverName , serverParams);
+        connectToServer(serverObj) ;
     }
 
     protected TLMsg fromAgent(Object fromWho, TLMsg msg) {

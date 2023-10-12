@@ -131,7 +131,8 @@ public abstract class TLRouterModule extends TLSocketClientAgentPool {
             sparam.put("cerFile",cerFile) ;
             sparam.put("autoConnect","false") ;
             servers.put(server,sparam);
-            addAndConnectToServer(server,sparam);
+            TLBaseModule serverObj =addServer( server,sparam);
+            connectToServer(serverObj) ;
         }
         return null ;
     }

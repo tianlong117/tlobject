@@ -44,7 +44,7 @@
     <servers>
         <!-- 如设定cerFile ，并且协议为wss 则启动ssl传输  -->
         <server name="clientSocketServe0"  userType="username"  cerFile__="/mycerts.cer"
-                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="false"  />
+                url="ws://127.0.0.1:9081/ws" userName="demo_user" userPasswd="12345"  autoConnect="true"  />
 
      </servers>
     <servers1>

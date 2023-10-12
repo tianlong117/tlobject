@@ -28,18 +28,18 @@
             <version>2.4</version>
         </dependency>
         <dependency>
-        <groupId>org.jsoup</groupId>
-        <artifactId>jsoup</artifactId>
-        <version>1.13.1</version>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>1.13.1</version>
         </dependency>
-        <dependency>
+        <!--dependency>
             <groupId>com.zhy</groupId>
             <artifactId>okhttputils</artifactId>
             <version>2.6.2</version>
             <type>jar</type>
             <scope>system</scope>
             <systemPath>${basedir}/lib/okhttputils-2_6_2.jar</systemPath>
-        </dependency>
+        </dependency-->
     </dependencies>
     <build>
         <plugins>
