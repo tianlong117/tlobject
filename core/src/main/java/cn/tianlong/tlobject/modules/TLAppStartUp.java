@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import org.xmlpull.v1.XmlPullParser;
 
+import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -128,7 +129,7 @@ public class TLAppStartUp extends TLBaseModule {
         if (factoryConfigFile == null)
             factoryConfigFile = MODULEFACTORY + "_config.xml";
         if (configdir == null)
-            configdir = CLASSPATH+"/";
+            configdir = CLASSPATH+ File.separator;
         String realConfigDir = getRealPath(configdir,null);
         moduleFactory = TLObjectFactory.getInstance(realConfigDir, factoryConfigFile);
         moduleFactory.startFactory(null,null);

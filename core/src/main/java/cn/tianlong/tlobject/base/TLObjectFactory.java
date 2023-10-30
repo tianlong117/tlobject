@@ -50,9 +50,13 @@ public class TLObjectFactory extends TLBaseModule {
     public void startFactory(String startConfigFile, HashMap<String, String> startParams) {
         moduleFactory = this;
         ifMonitor = false;
-        String lastChar = (String) configDir.subSequence(configDir.length() - 1, configDir.length());
-        if (!lastChar.equals("/"))
-            configDir = configDir + "/";
+        if (configDir != null && !configDir.isEmpty())
+        {
+            String lastCharOfPath = configDir.substring(configDir.length() - 1);
+            if (!lastCharOfPath.equals(File.separator) && ! lastCharOfPath.equals("\\")&& ! lastCharOfPath.equals("/"))
+                configDir = configDir + File.separator;
+        } else
+            configDir =""+ File.separator;
         start(startConfigFile,  startParams);
     }
     public void addConfig( String addConfigFile, String addConfigDir){
@@ -158,7 +162,7 @@ public class TLObjectFactory extends TLBaseModule {
             factoryName =MODULEFACTORY;
         if(configDir ==null)
             configDir="";
-        if (configFile != null)
+        if (configFile != null && !configDir.isEmpty())
         {
             String lastCharOfPath = configDir.substring(configDir.length() - 1);
             if (lastCharOfPath.equals(File.separator) || lastCharOfPath.equals("\\") || lastCharOfPath.equals("/"))
@@ -167,6 +171,7 @@ public class TLObjectFactory extends TLBaseModule {
                 configFile = configDir + File.separator + configFile;
         } else
             configFile = configDir + "/" + factoryName + "_config.xml";
+        System.out.println("configFile:"+configFile);
         if(parentFactory ==null)
             return new TLObjectFactory(factoryName, configFile, configDir);
         else
