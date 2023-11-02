@@ -297,7 +297,7 @@ public  class TLModuleConfig extends TLBaseModule {
             String name =xpp.getAttributeName(i);
             if (name.equals("file")) {
                 String fileName = xpp.getAttributeValue(i);
-                fileName =getRealPath(fileName,configDir) ;
+                fileName =moduleFactory.getConfigRealPath(fileName) ;
                 if (fileName ==null)
                     return;
                 includeConfig = new TLModuleConfig(fileName,configDir);

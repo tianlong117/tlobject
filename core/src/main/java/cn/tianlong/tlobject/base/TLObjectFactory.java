@@ -33,6 +33,7 @@ public class TLObjectFactory extends TLBaseModule {
     protected Map<String, TLBaseModule> factorys = new ConcurrentHashMap<>();
     protected long startTime = System.nanoTime();
     protected TLBaseModule  parentFactory ;
+    protected  String  classPath ;
     public TLObjectFactory(String name, String factoryConfigFile) {
         super(name, factoryConfigFile);
     }
@@ -41,9 +42,12 @@ public class TLObjectFactory extends TLBaseModule {
         super(name, factoryConfigFile);
         this.configDir = configDir;
     }
+    public TLObjectFactory(String name, String factoryConfigFile, String configDir,String classPath) {
+        this(name, factoryConfigFile,configDir);
+        this.classPath =classPath;
+    }
     public TLObjectFactory(String name, String factoryConfigFile, String configDir,TLBaseModule  parentFactory) {
-        super(name, factoryConfigFile);
-        this.configDir = configDir;
+        this(name, factoryConfigFile,configDir);
         this.parentFactory =parentFactory;
         factorys.put(parentFactory.getName(),parentFactory);
     }
@@ -59,6 +63,15 @@ public class TLObjectFactory extends TLBaseModule {
             configDir =""+ File.separator;
         start(startConfigFile,  startParams);
     }
+    public TLBaseModule start(String configFile, HashMap<String, String> startParams) {
+         if( classPath ==null)
+              classPath = ClassLoader.getSystemResource("").getPath();
+        return super.start( configFile,  startParams);
+    }
+    public static String getSysClassPath () {
+        return ClassLoader.getSystemResource("").getPath();
+    }
+
     public void addConfig( String addConfigFile, String addConfigDir){
         if(addConfigDir ==null)
             addConfigDir =configDir ;
@@ -78,7 +91,7 @@ public class TLObjectFactory extends TLBaseModule {
     @Override
     protected Object setConfig() {
         if (configFile == null)
-            configFile = configDir + "/" + name + "_config.xml";
+            configFile = configDir + File.separator + name + "_config.xml";
         myConfig config = new myConfig(configFile, configDir);
         config.setFactory(this);
         config.init();
@@ -151,11 +164,11 @@ public class TLObjectFactory extends TLBaseModule {
             return null ;
         return factorys.get(factory);
     }
-    public static TLObjectFactory getInstance(String configDir, String configFile) {
-      return getInstance(MODULEFACTORY , configDir, configFile);
+    public static TLObjectFactory getInstance(String uconfigDir, String uconfigFile) {
+      return getInstance(MODULEFACTORY , uconfigDir, uconfigFile);
     }
-    public static TLObjectFactory getInstance(String factoryName ,String configDir, String configFile) {
-         return getInstance(factoryName,configDir, configFile, null);
+    public static TLObjectFactory getInstance(String factoryName ,String uconfigDir, String uconfigFile) {
+         return getInstance(factoryName,uconfigDir, uconfigFile, null);
     }
     public static TLObjectFactory getInstance(String factoryName ,String configDir, String configFile,TLBaseModule  parentFactory) {
         if(factoryName ==null)
@@ -166,12 +179,12 @@ public class TLObjectFactory extends TLBaseModule {
         {
             String lastCharOfPath = configDir.substring(configDir.length() - 1);
             if (lastCharOfPath.equals(File.separator) || lastCharOfPath.equals("\\") || lastCharOfPath.equals("/"))
-                configFile = configDir + configFile;
+                configFile =configDir + configFile;
             else
                 configFile = configDir + File.separator + configFile;
         } else
-            configFile = configDir + "/" + factoryName + "_config.xml";
-        System.out.println("configFile:"+configFile);
+            configFile = configDir +  File.separator + factoryName + "_config.xml";
+
         if(parentFactory ==null)
             return new TLObjectFactory(factoryName, configFile, configDir);
         else
@@ -180,9 +193,17 @@ public class TLObjectFactory extends TLBaseModule {
     public String getConfigDir() {
         return configDir;
     }
-
-    public void setConfigDir(String configDir, String factoryConfigFile) {
+    public String getClassPath(){
+        return this.classPath ;
+    }
+    public void setClassPath(String classPath){
+        this.classPath =classPath ;
+    }
+    public void setConfigDir(String configDir) {
         this.configDir = configDir;
+    }
+    public void setfactoryConfigFile(String factoryConfigFile) {
+
         this.factoryConfigFile = factoryConfigFile;
     }
     public String getParam(String paramName){
@@ -306,6 +327,7 @@ public class TLObjectFactory extends TLBaseModule {
         TLObjectFactory factory =getInstance(factoryName , configdir,  configfile,this);
         if(factory ==null)
             return null;
+        factory.setClassPath(classPath);
         factory.startFactory(null,null);
         factorys.put(factoryName,factory) ;
         factory.boot();
@@ -333,6 +355,7 @@ public class TLObjectFactory extends TLBaseModule {
         TLObjectFactory factory =getInstance(moduleName , fconfigdir,  fconfigfile,this);
         if(factory ==null)
             return null;
+        factory.setClassPath(classPath);
         factory.startFactory(null,null);
         factorys.put(moduleName,factory) ;
         factory.boot();
@@ -444,6 +467,57 @@ public class TLObjectFactory extends TLBaseModule {
         if(position !=-1 )
            factory =moduleName.substring(position+1);
         return factory ;
+    }
+    public  String getConfigRealPath_old(String uconfigFile,String defaultConfigPath){
+        String realPath = null;
+        if(uconfigFile.length() >9 && uconfigFile.substring(0, 9).equals(CLASSPATH))
+        {
+
+            String  cpath =uconfigFile.substring(9);
+            java.net.URL cfile = this.getClass().getResource(cpath);
+            if (cfile == null)
+            {
+                System.out.println("no config path:"+uconfigFile);
+                return null ;
+            }
+            realPath =cfile.getPath();
+            System.out.println("cfilePath:"+realPath);
+        }
+        else
+        {
+            if ( !uconfigFile.startsWith("/") && uconfigFile.indexOf(":") < 0 && defaultConfigPath !=null)
+                realPath = defaultConfigPath + uconfigFile;
+        }
+        System.out.println("path:"+realPath);
+        return realPath ;
+    }
+    public  String getConfigRealPath(String configFile){
+        String realPath ;
+        if(configFile.length() >9 && configFile.substring(0, 9).equals(CLASSPATH))
+            realPath =classPath+configFile.substring(9) ;
+        else
+        {
+            if ( !configFile.startsWith(File.separator) && configFile.indexOf(":") < 0 )
+                realPath = configDir + configFile;
+            else
+                return  configFile;
+        }
+        System.out.println("path:"+realPath);
+        return realPath ;
+    }
+    public  static String getConfigRealPath(String configFile ,String classPath ,String configDir){
+        String realPath ;
+        if(configFile.length() >9 && configFile.substring(0, 9).equals(CLASSPATH))
+            realPath =classPath+configFile.substring(9) ;
+        else
+        {
+            if ( !configFile.startsWith(File.separator) && configFile.indexOf(":") < 0 )
+                realPath = configDir + configFile;
+            else
+                return  configFile;
+        }
+        System.out.println("path:"+realPath);
+        return realPath ;
     }
     private TLMsg getModuleFromOtherFactory(String factoryName , TLMsg msg){
         if(factoryName.equals(FACTORY_P_PARENTFACTORY) && parentFactory !=null)
@@ -568,7 +642,7 @@ public class TLObjectFactory extends TLBaseModule {
               moduleConfigFile = moduleConfig.get(MODULE_CONFIGFILE);
 
         if (moduleConfigFile != null && !moduleConfigFile.isEmpty())
-               moduleConfigFile =getRealPath(moduleConfigFile,configDir) ;
+               moduleConfigFile =getConfigRealPath(moduleConfigFile) ;
         Object module;
         if (singleton == false)
             module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);

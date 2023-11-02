@@ -130,8 +130,11 @@ public class TLAppStartUp extends TLBaseModule {
             factoryConfigFile = MODULEFACTORY + "_config.xml";
         if (configdir == null)
             configdir = CLASSPATH+ File.separator;
-        String realConfigDir = getRealPath(configdir,null);
+        String classPath =TLObjectFactory.getSysClassPath();
+        String realConfigDir = TLObjectFactory.getConfigRealPath(configdir,classPath,null);
+        println("realConfigDir  : "+realConfigDir);
         moduleFactory = TLObjectFactory.getInstance(realConfigDir, factoryConfigFile);
+        moduleFactory.setClassPath(classPath);
         moduleFactory.startFactory(null,null);
         moduleFactory.boot();
         appFactory =moduleFactory ;
