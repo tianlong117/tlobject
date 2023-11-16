@@ -24,7 +24,7 @@
     <!-- 方法运行前执行消息表-->
 
     <beforeMsgTable>
-        <action  value="dispatchUrl" >
+        <action  value="start" >
             <msg   action="setup" destination="website"  ></msg>
         </action>
         <!-- 单独方法认证
