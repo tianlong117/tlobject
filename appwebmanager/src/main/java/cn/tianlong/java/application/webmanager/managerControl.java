@@ -8,7 +8,6 @@ import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.servletutils.utils.CapchaHelper;
 import cn.tianlong.tlobject.utils.RSAUtils;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import com.octo.captcha.service.image.ImageCaptchaService;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import javax.servlet.http.HttpServletRequest;
