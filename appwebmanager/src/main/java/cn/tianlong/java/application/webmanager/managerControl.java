@@ -24,7 +24,7 @@ import java.util.Map;
 import static cn.tianlong.tlobject.servletutils.TLParamString.AUTH_P_DEFAULTSUPERUSER;
 
 public class managerControl extends adminCommon {
-    private  ImageCaptchaService captchaService;
+
     protected String superUser;
     protected String loginUrl ;
     public managerControl() {
