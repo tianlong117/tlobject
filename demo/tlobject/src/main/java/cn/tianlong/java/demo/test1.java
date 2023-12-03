@@ -1,5 +1,4 @@
 package cn.tianlong.java.demo;
 
-public class test1 {
-    int i ;
+public class testgit {
 }
