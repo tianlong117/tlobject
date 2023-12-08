@@ -8,7 +8,6 @@ import cn.tianlong.tlobject.db.dbdata.ListInDB;
 import cn.tianlong.tlobject.servletutils.utils.CapchaHelper;
 import cn.tianlong.tlobject.utils.RSAUtils;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import com.octo.captcha.service.image.ImageCaptchaService;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import javax.servlet.http.HttpServletRequest;
@@ -24,7 +23,7 @@ import java.util.Map;
 import static cn.tianlong.tlobject.servletutils.TLParamString.AUTH_P_DEFAULTSUPERUSER;
 
 public class managerControl extends adminCommon {
-    private  ImageCaptchaService captchaService;
+
     protected String superUser;
     protected String loginUrl ;
     public managerControl() {
