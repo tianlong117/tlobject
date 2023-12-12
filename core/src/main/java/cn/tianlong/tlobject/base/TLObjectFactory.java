@@ -239,6 +239,7 @@ public class TLObjectFactory extends TLBaseModule {
     }
 
     public void shutdown(int status) {
+        putLog("app shutdown... " , LogLevel.INFO);
         destroyModule();
         System.exit(status);
     }
