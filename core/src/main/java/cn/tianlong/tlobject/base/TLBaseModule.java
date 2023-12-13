@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.base;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
+import cn.tianlong.tlobject.utils.TLToolsUtils;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
@@ -645,7 +646,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                 try {
                     returnMsg = runAction(fromWho, returnMsg);
                 } catch (Exception e) {
-                    returnMsg = exception(this, returnMsg, e);
+                    returnMsg = exception(returnMsg, e);
                 }
                 if (afterMsgTable !=null && !afterMsgTable.isEmpty() && msg.parseBoolean(IGNOREAFTER,false) == false && ifDoNextMsg(returnMsg))
                      returnMsg = doAfterMsgTable(action, msg, returnMsg);
@@ -671,23 +672,16 @@ public abstract class TLBaseModule extends TLBaseObject {
         return null ;
     }
 
-    protected TLMsg exception(Object fromWho, TLMsg msg, Exception exception) {
+    protected TLMsg exception(TLMsg msg, Exception exception) {
         StringBuilder sb = new StringBuilder();
         sb.append(name);
-        sb.append("\n [msg]:");
-        sb.append(TLMsgUtils.msgToStr(msg));
-        sb.append("\n  [reason]:");
-        sb.append(exception.toString());
-        sb.append("\n");
-        StackTraceElement[] stackArray = exception.getStackTrace();
-        for (int i = 0; i < stackArray.length; i++) {
-            StackTraceElement element = stackArray[i];
-            sb.append("  ");
-            sb.append(i);
-            sb.append(". ");
-            sb.append(element.toString());
-            sb.append("\n");
+        if(msg !=null){
+            sb.append("\n [msg]:");
+            sb.append(TLMsgUtils.msgToStr(msg));
         }
+        sb.append("\n ");
+        sb.append(TLToolsUtils.exceptionToString(exception));
+        sb.append("\n");
         String content = sb.toString();
         putLog(content, LogLevel.ERROR,msg.getAction());
         if(ifExceptionHandle==false)

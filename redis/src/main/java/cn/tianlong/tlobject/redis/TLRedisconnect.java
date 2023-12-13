@@ -103,7 +103,7 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
             if(jedisPool != null){
                 jedisPool.close();
             }
-            exception(this, null,e);
+            exception(createMsg().setAction("initialPool"),e);
         }
     }
     private TLMsg getConnection(Object fromWho, TLMsg msg) {

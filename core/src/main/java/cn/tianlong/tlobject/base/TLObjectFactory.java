@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.base;
 
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLToolsUtils;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.io.File;
@@ -653,7 +654,7 @@ public class TLObjectFactory extends TLBaseModule {
                 clazz = Class.forName(classFilename);
             } catch (ClassNotFoundException e) {
                 e.printStackTrace();
-                putLog(classFilename + " 没有找到类文件", LogLevel.ERROR, "createObject");
+                putLog(classFilename + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e), LogLevel.ERROR, "createObject");
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
               }
             synchronized (clazz)
@@ -736,7 +737,7 @@ public class TLObjectFactory extends TLBaseModule {
             cls = Class.forName(className);
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
-            putLog(className + " 没有找到类文件", LogLevel.ERROR, "createObject");
+            putLog(className + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e), LogLevel.ERROR, "createObject");
             return null ;
         }
         Constructor<?> cons;
