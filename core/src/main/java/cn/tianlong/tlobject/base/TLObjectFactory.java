@@ -737,7 +737,9 @@ public class TLObjectFactory extends TLBaseModule {
             cls = Class.forName(className);
         } catch (ClassNotFoundException e) {
             e.printStackTrace();
-            putLog(className + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e), LogLevel.ERROR, "createObject");
+           String classpath= ClassLoader.getSystemResource("").getPath();
+           String log= classpath +"\n"+className + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e) ;
+            putLog(log, LogLevel.ERROR, "createObject");
             return null ;
         }
         Constructor<?> cons;
