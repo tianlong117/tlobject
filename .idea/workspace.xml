@@ -2,12 +2,18 @@
 <project version="4">
   <component name="ArtifactsWorkspaceSettings">
     <artifacts-to-build>
-      <artifact name="tlobject-demo-web:war exploded" />
+      <artifact name="demo-web:war exploded" />
     </artifacts-to-build>
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
+      <change beforePath="$PROJECT_DIR$/.idea/compiler.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/compiler.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/connectpoolofdb/common/tlobject-connectpoolofdb-common.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/connectpoolofdb/hikaricp/tlobject-connectpoolofdb-hikaricp.iml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/target/" />
     <ignored path="$PROJECT_DIR$/cache/filecache/target/" />
@@ -63,91 +69,83 @@
     <select />
   </component>
   <component name="FileEditorManager">
-    <leaf SIDE_TABS_SIZE_LIMIT_KEY="375">
-      <file leaf-file-name="TLJettyServer.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/network/server/network-server-jetty/src/main/java/cn/tianlong/tlobject/network/server/jetty/TLJettyServer.java">
+    <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+      <file leaf-file-name="TLObjectFactory.java" pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="2950">
-              <caret line="147" column="32" selection-start-line="147" selection-start-column="32" selection-end-line="147" selection-end-column="32" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLWWebSite.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWWebSite.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1950">
-              <caret line="95" selection-start-line="95" selection-end-line="95" />
+            <state relative-caret-position="165">
+              <caret line="586" selection-start-line="586" selection-end-line="586" />
               <folding>
-                <element signature="e#687#688#0" expanded="true" />
-                <element signature="e#728#729#0" expanded="true" />
+                <element signature="docComment;class#TLObjectFactory#0" />
+                <element signature="e#1268#1431#0" />
+                <element signature="e#1436#1624#0" />
+                <element signature="e#1629#1897#0" />
+                <element signature="e#1902#2478#0" />
+                <element signature="e#2483#2729#0" />
+                <element signature="e#2774#2775#0" expanded="true" />
+                <element signature="e#2840#2841#0" expanded="true" />
+                <element signature="e#2847#3631#0" />
+                <element signature="e#3636#3962#0" />
+                <element signature="e#3968#4986#0" />
+                <element signature="e#4992#5164#0" />
+                <element signature="e#5170#5357#0" />
+                <element signature="e#5363#5508#0" />
+                <element signature="e#5513#5717#0" />
+                <element signature="e#6028#6235#0" />
+                <element signature="e#6240#6395#0" />
+                <element signature="e#6400#6580#0" />
+                <element signature="e#6585#7558#0" />
+                <element signature="e#7883#8002#0" />
+                <element signature="e#8097#8289#0" />
+                <element signature="e#8295#8804#0" />
+                <element signature="e#8810#9051#0" />
+                <element signature="e#9057#9203#0" />
+                <element signature="e#9209#10545#0" />
+                <element signature="e#10551#11428#0" />
+                <element signature="e#11433#12160#0" />
+                <element signature="e#12165#12420#0" />
+                <element signature="e#12426#12840#0" />
+                <element signature="e#12845#14074#0" />
+                <element signature="e#14080#14162#0" />
+                <element signature="e#14080#14421#0" />
+                <element signature="e#14427#14642#0" />
+                <element signature="e#14648#16041#0" />
+                <element signature="e#16047#16454#0" />
+                <element signature="e#16459#16671#0" />
+                <element signature="e#16676#17031#0" />
+                <element signature="e#16676#17485#0" />
+                <element signature="e#17490#17784#0" />
+                <element signature="e#17789#18026#0" />
+                <element signature="e#18031#18901#0" />
+                <element signature="e#18906#19429#0" />
+                <element signature="e#19434#20000#0" />
+                <element signature="e#20005#20422#0" />
+                <element signature="e#27462#28379#0" />
+                <element signature="e#29194#29467#0" />
+                <element signature="e#29473#30109#0" />
+                <element signature="e#32858#34126#0" />
+                <element signature="e#33333#34120#0" />
+                <element signature="e#34132#34521#0" />
+                <element signature="e#34527#35023#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLWUrlMap.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWUrlMap.java">
+      <file leaf-file-name="TLToolsUtils.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1675">
-              <caret line="84" column="26" selection-start-line="84" selection-start-column="17" selection-end-line="84" selection-end-column="26" />
+            <state relative-caret-position="150">
+              <caret line="6" column="31" selection-start-line="6" selection-start-column="31" selection-end-line="6" selection-end-column="31" />
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="velocity_config.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/velocity_config.xml">
-          <provider selected="true" editor-type-id="text-editor" />
-        </entry>
-      </file>
-      <file leaf-file-name="appConfig.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/appConfig.xml">
+      <file leaf-file-name="TLAppStartUp.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="38">
-              <caret line="26" column="32" selection-start-line="26" selection-start-column="32" selection-end-line="26" selection-end-column="32" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="managerControl.java" pinned="false" current-in-tab="true">
-        <entry file="file://$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/managerControl.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-367" />
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLFilterWithSingleFactory.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1125">
-              <caret line="65" selection-start-line="65" selection-end-line="65" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLWServModule.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWServModule.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="625">
-              <caret line="25" column="48" selection-start-line="25" selection-start-column="48" selection-end-line="25" selection-end-column="48" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLBaseModule.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="10475">
-              <caret line="419" column="35" selection-start-line="419" selection-start-column="35" selection-end-line="419" selection-end-column="35" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="homePageControl.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/homePageControl.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="2825">
-              <caret line="113" selection-start-line="113" selection-end-line="113" />
+            <state relative-caret-position="180">
+              <caret line="133" column="43" lean-forward="true" selection-start-line="133" selection-start-column="43" selection-end-line="133" selection-end-column="43" />
             </state>
           </provider>
         </entry>
@@ -164,7 +162,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>startMsg</find>
       <find>TLHikariCP</find>
       <find>threadDatas</find>
       <find>&quot;sessionDatas&quot;</find>
@@ -180,7 +177,6 @@
       <find>C_MESSAGETYPE_LOGIN</find>
       <find>&quot;runActionInThread&quot;</find>
       <find>&quot;waitServerReturn&quot;</find>
-      <find>jsoup</find>
       <find>reUsedSingleThreadPoolGroup</find>
       <find>用户login</find>
       <find>autoConnect</find>
@@ -194,6 +190,8 @@
       <find>server名字错误</find>
       <find>webSocketReceiveFile</find>
       <find>3000</find>
+      <find>jsoup</find>
+      <find>CLASSPATH+</find>
     </findStrings>
     <replaceStrings>
       <replace>M_APPCENTER</replace>
@@ -230,9 +228,9 @@
       <dir>TLOBJECT_HOME\appwebmanager</dir>
       <dir>TLOBJECT_HOME\network\client\src\main\java\cn\tianlong\tlobject\network\client\websocket</dir>
       <dir>TLOBJECT_HOME\core</dir>
-      <dir>TLOBJECT_HOME</dir>
       <dir>TLOBJECT_HOME\servletutils\src</dir>
       <dir>TLOBJECT_HOME\network</dir>
+      <dir>TLOBJECT_HOME</dir>
     </dirStrings>
   </component>
   <component name="Git.Settings">
@@ -241,7 +239,6 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/crontab/src/main/java/cn/tianlong/tlobject/modules/TLMsgTask.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/task/msgtask_config.xml" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" />
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClientAgent.java" />
@@ -284,14 +281,15 @@
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" />
         <option value="$PROJECT_DIR$/network/server/tlobject-network-server-distributedserver/src/main/java/cn/tianlong/tlobject/network/server/distributed/TLRouterModule.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/socketClientAgentPool_config.xml" />
-        <option value="$PROJECT_DIR$/network/client/pom.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/base/moduleFactory_config.xml" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLModuleConfig.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" />
-        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java" />
         <option value="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java" />
-        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" />
         <option value="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/appConfig.xml" />
+        <option value="$PROJECT_DIR$/network/client/pom.xml" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" />
       </list>
     </option>
   </component>
@@ -319,6 +317,15 @@
   <component name="MavenProjectNavigator">
     <treeState>
       <expand>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-core" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+        </path>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-core" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
+        </path>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
           <item name="tlobject-servletutils" type="9519ce18:MavenProjectsStructure$ProjectNode" />
@@ -350,8 +357,6 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
-      <pane id="Scope" />
-      <pane id="AndroidView" />
       <pane id="PackagesPane" />
       <pane id="ProjectPane">
         <subPane>
@@ -363,12 +368,90 @@
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="tlobject-all" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="modules" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="utils" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="client" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="External Libraries" type="cb654da1:ExternalLibrariesNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="External Libraries" type="cb654da1:ExternalLibrariesNode" />
+              <item name="Maven: org.jsoup:jsoup:1.13.1" type="70bed36:NamedLibraryElementNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="External Libraries" type="cb654da1:ExternalLibrariesNode" />
+              <item name="Maven: org.jsoup:jsoup:1.13.1" type="70bed36:NamedLibraryElementNode" />
+              <item name="jsoup-1.13.1.jar" type="462c0819:PsiDirectoryNode" />
             </path>
           </expand>
           <select />
         </subPane>
       </pane>
+      <pane id="Scope" />
+      <pane id="AndroidView" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -377,10 +460,10 @@
     <property name="last_opened_file_path" value="$PROJECT_DIR$/../cncapp" />
     <property name="nodejs_interpreter_path.stuck_in_default_project" value="undefined stuck path" />
     <property name="nodejs_npm_path_reset_for_default_project" value="true" />
-    <property name="project.structure.last.edited" value="Modules" />
+    <property name="project.structure.last.edited" value="Artifacts" />
     <property name="project.structure.proportion" value="0.15" />
     <property name="project.structure.side.proportion" value="0.29391304" />
-    <property name="settings.editor.selected.configurable" value="reference.settings.project.maven.repository.indices" />
+    <property name="settings.editor.selected.configurable" value="preferences.applicationServers" />
   </component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
@@ -527,7 +610,7 @@
     <configuration name="tomcat" type="#com.intellij.j2ee.web.tomcat.TomcatRunConfigurationFactory" factoryName="Local" APPLICATION_SERVER_NAME="Tomcat 9.0.8" ALTERNATIVE_JRE_ENABLED="false">
       <option name="UPDATING_POLICY" value="restart-server" />
       <deployment>
-        <artifact name="tlobject-demo-web:war exploded">
+        <artifact name="demo-web:war exploded">
           <settings>
             <option name="CONTEXT_PATH" value="/" />
           </settings>
@@ -782,6 +865,10 @@
       <workItem from="1700122721413" duration="581000" />
       <workItem from="1700123506378" duration="220000" />
       <workItem from="1701996943674" duration="1872000" />
+      <workItem from="1702394777525" duration="1498000" />
+      <workItem from="1702693247853" duration="833000" />
+      <workItem from="1702782239511" duration="590000" />
+      <workItem from="1703295807423" duration="9773000" />
     </task>
     <task id="LOCAL-00065" summary="修改demo模块volecity模板">
       <created>1648801821864</created>
@@ -1130,7 +1217,7 @@
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="1024845000" />
+    <option name="totallyTimeSpent" value="1044894000" />
   </component>
   <component name="TodoView" selected-index="1">
     <todo-panel id="selected-file">
@@ -1142,12 +1229,12 @@
     </todo-panel>
   </component>
   <component name="ToolWindowManager">
-    <frame x="-8" y="-8" width="1456" height="876" extended-state="6" />
+    <frame x="-8" y="-8" width="1616" height="886" extended-state="6" />
     <layout>
       <window_info anchor="right" id="Palette" order="3" />
       <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.21531792" side_tool="true" weight="0.25547445" />
       <window_info anchor="bottom" id="Application Servers" order="11" weight="0.32867134" />
-      <window_info anchor="right" id="Maven Projects" order="8" visible="true" weight="0.12861271" />
+      <window_info anchor="right" id="Maven Projects" order="8" visible="true" weight="0.2622108" />
       <window_info anchor="bottom" id="Database Changes" order="8" show_stripe_button="false" />
       <window_info id="Capture Tool" order="7" />
       <window_info id="Designer" order="2" />
@@ -1157,24 +1244,24 @@
       <window_info id="UI Designer" order="4" />
       <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49927744" weight="0.33868614" />
       <window_info anchor="bottom" id="TODO" order="6" weight="0.1649635" />
-      <window_info anchor="bottom" id="Messages" order="12" weight="0.29051095" />
       <window_info anchor="right" id="Palette&#9;" order="6" />
       <window_info id="Image Layers" order="3" />
       <window_info anchor="bottom" id="Java Enterprise" order="13" />
       <window_info anchor="right" id="Capture Analysis" order="4" />
-      <window_info anchor="bottom" id="Version Control" order="9" sideWeight="0.6806358" weight="0.26131386" />
-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.7846821" weight="0.35328466" />
+      <window_info active="true" anchor="bottom" id="Version Control" order="9" sideWeight="0.6806358" visible="true" weight="0.26104972" />
+      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.7846821" weight="0.24723756" />
       <window_info anchor="bottom" id="Terminal" order="7" weight="0.270073" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.2550578" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.20115681" />
       <window_info id="Web" order="6" side_tool="true" />
+      <window_info anchor="bottom" id="Find" order="1" sideWeight="0.57947975" weight="0.13812155" />
       <window_info anchor="right" id="Theme Preview" order="7" />
       <window_info id="Favorites" order="5" side_tool="true" />
+      <window_info anchor="bottom" id="Messages" order="12" weight="0.29051095" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="2" weight="0.25" />
-      <window_info active="true" anchor="bottom" id="Find" order="1" sideWeight="0.57947975" visible="true" weight="0.13430656" />
     </layout>
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -1275,12 +1362,6 @@
           <option name="timeStamp" value="443" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java</url>
-          <line>353</line>
-          <properties />
-          <option name="timeStamp" value="460" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWWebSite.java</url>
           <line>77</line>
           <properties />
@@ -1295,94 +1376,10 @@
     <option name="FILTER_TARGETS" value="false" />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/cominStartup.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="225">
-          <caret line="10" column="13" selection-start-line="10" selection-start-column="13" selection-end-line="10" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/moduleFactory_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="625">
-          <caret line="25" column="48" selection-start-line="25" selection-start-column="48" selection-end-line="25" selection-end-column="48" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/socketClientAgentPool_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="325">
-          <caret line="46" column="105" selection-start-line="46" selection-start-column="105" selection-end-line="46" selection-end-column="105" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLUserRouterModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="250">
-          <caret line="12" column="13" selection-start-line="12" selection-start-column="13" selection-end-line="12" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLServerManagerClientModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="225">
-          <caret line="17" column="13" selection-start-line="17" selection-start-column="13" selection-end-line="17" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/tlobject-network-server-distributedserver/src/main/java/cn/tianlong/tlobject/network/server/distributed/TLServerManagerModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="225">
-          <caret line="18" column="13" selection-start-line="18" selection-start-column="13" selection-end-line="18" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLParamString.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="457">
-          <caret line="118" column="17" selection-start-line="118" selection-start-column="17" selection-end-line="118" selection-end-column="17" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/utils/uploadFile.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="385">
-          <caret line="200" column="52" selection-start-line="200" selection-start-column="52" selection-end-line="200" selection-end-column="52" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="225">
-          <caret line="9" column="38" selection-start-line="9" selection-start-column="38" selection-end-line="9" selection-end-column="38" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientStartup.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="438">
-          <caret line="26" column="26" selection-start-line="26" selection-start-column="26" selection-end-line="26" selection-end-column="26" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/systemManagerControl.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1675">
-          <caret line="80" column="36" selection-start-line="80" selection-start-column="36" selection-end-line="80" selection-end-column="36" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/menuManagerControl.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-1691">
           <caret line="162" column="35" lean-forward="true" selection-start-line="162" selection-start-column="35" selection-end-line="162" selection-end-column="35" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/adminCommon.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="3425">
-          <caret line="150" column="20" selection-start-line="150" selection-start-column="20" selection-end-line="150" selection-end-column="20" />
         </state>
       </provider>
     </entry>
@@ -1418,13 +1415,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="439">
           <caret line="31" column="55" selection-start-line="31" selection-start-column="55" selection-end-line="31" selection-end-column="55" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/client/pom.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="358">
-          <caret line="41" column="20" selection-start-line="41" selection-start-column="20" selection-end-line="41" selection-end-column="20" />
         </state>
       </provider>
     </entry>
@@ -1488,13 +1478,6 @@
     <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/moduleFactory_config.xml">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="230">
-          <caret line="135" column="44" selection-start-line="135" selection-start-column="44" selection-end-line="135" selection-end-column="44" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/clientinterface/TLWVelocityOutInterface.java">
       <provider selected="true" editor-type-id="text-editor">
         <state>
@@ -1531,66 +1514,6 @@
     <entry file="file://$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/moduleFactory_config.xml">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2375">
-          <caret line="353" column="19" selection-start-line="353" selection-start-column="19" selection-end-line="353" selection-end-column="19" />
-          <folding>
-            <element signature="docComment;class#TLObjectFactory#0" />
-            <element signature="e#1220#1383#0" />
-            <element signature="e#1388#1576#0" />
-            <element signature="e#1581#1849#0" />
-            <element signature="e#1854#2430#0" />
-            <element signature="e#2435#2681#0" />
-            <element signature="e#2799#3583#0" />
-            <element signature="e#3588#3914#0" />
-            <element signature="e#3920#4938#0" />
-            <element signature="e#4944#5116#0" />
-            <element signature="e#5122#5309#0" />
-            <element signature="e#5315#5460#0" />
-            <element signature="e#5465#5669#0" />
-            <element signature="e#5980#6187#0" />
-            <element signature="e#6192#6347#0" />
-            <element signature="e#6352#6532#0" />
-            <element signature="e#6537#7510#0" />
-            <element signature="e#7835#7954#0" />
-            <element signature="e#8049#8241#0" />
-            <element signature="e#8247#8756#0" />
-            <element signature="e#8762#9003#0" />
-            <element signature="e#9009#9103#0" />
-            <element signature="e#9109#10445#0" />
-            <element signature="e#10451#11328#0" />
-            <element signature="e#11333#12060#0" />
-            <element signature="e#12065#12320#0" />
-            <element signature="e#12326#12740#0" />
-            <element signature="e#13980#14062#0" />
-            <element signature="e#13980#14321#0" />
-            <element signature="e#14327#14542#0" />
-            <element signature="e#14548#15941#0" />
-            <element signature="e#15947#16354#0" />
-            <element signature="e#16359#16571#0" />
-            <element signature="e#16576#16931#0" />
-            <element signature="e#16576#17385#0" />
-            <element signature="e#17390#17684#0" />
-            <element signature="e#17689#17926#0" />
-            <element signature="e#17931#18801#0" />
-            <element signature="e#18806#19329#0" />
-            <element signature="e#19334#19900#0" />
-            <element signature="e#19905#20322#0" />
-            <element signature="e#20327#27321#0" />
-            <element signature="e#27326#28243#0" />
-            <element signature="e#28248#29052#0" />
-            <element signature="e#29058#29331#0" />
-            <element signature="e#29337#29973#0" />
-            <element signature="e#29979#32561#0" />
-            <element signature="e#32567#33835#0" />
-            <element signature="e#33042#33829#0" />
-            <element signature="e#33841#34230#0" />
-            <element signature="e#34236#34732#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLWebSocketReceiveFileModule.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="250">
@@ -1614,20 +1537,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWServModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="625">
-          <caret line="25" column="48" selection-start-line="25" selection-start-column="48" selection-end-line="25" selection-end-column="48" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="10475">
-          <caret line="419" column="35" selection-start-line="419" selection-start-column="35" selection-end-line="419" selection-end-column="35" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/velocity_config.xml">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
@@ -1635,20 +1544,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="2825">
           <caret line="113" selection-start-line="113" selection-end-line="113" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1125">
-          <caret line="65" selection-start-line="65" selection-end-line="65" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWUrlMap.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1675">
-          <caret line="84" column="26" selection-start-line="84" selection-start-column="17" selection-end-line="84" selection-end-column="26" />
         </state>
       </provider>
     </entry>
@@ -1675,13 +1570,194 @@
         <state relative-caret-position="-367" />
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLTable.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="12175">
+          <caret line="505" column="41" selection-start-line="505" selection-start-column="41" selection-end-line="505" selection-end-column="41" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLBaseDataUnit.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2775">
+          <caret line="120" column="26" selection-start-line="120" selection-start-column="26" selection-end-line="120" selection-end-column="26" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBServer.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2425">
+          <caret line="117" column="53" selection-start-line="117" selection-start-column="53" selection-end-line="117" selection-end-column="53" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/.gitignore">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="100">
+          <caret line="4" selection-start-line="4" selection-end-line="4" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/servletutils/pom.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="12">
+          <caret line="33" column="43" lean-forward="true" selection-start-line="33" selection-start-column="43" selection-end-line="33" selection-end-column="43" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="177">
+          <caret line="162" column="19" selection-start-line="162" selection-start-column="19" selection-end-line="162" selection-end-column="19" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="369">
+          <caret line="532" column="5" lean-forward="true" selection-start-line="532" selection-start-column="5" selection-end-line="532" selection-end-column="5" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWServModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="274">
+          <caret line="292" column="37" selection-start-line="292" selection-start-column="37" selection-end-line="292" selection-end-column="37" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWUrlMap.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="3250">
+          <caret line="149" selection-start-line="149" selection-end-line="149" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/adminCommon.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="289">
+          <caret line="32" column="5" lean-forward="true" selection-start-line="32" selection-start-column="5" selection-end-line="32" selection-end-column="5" />
+          <folding>
+            <element signature="imports" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/client/pom.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="174">
+          <caret line="34" column="9" lean-forward="true" selection-start-line="34" selection-start-column="9" selection-end-line="34" selection-end-column="9" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/server/network-server-jetty/src/main/java/cn/tianlong/tlobject/network/server/jetty/TLServletDispatch.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="25">
+          <caret line="20" column="13" selection-start-line="20" selection-start-column="13" selection-end-line="20" selection-end-column="13" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="25">
+          <caret line="20" column="13" selection-start-line="20" selection-start-column="13" selection-end-line="20" selection-end-column="13" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/.idea/compiler.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="180">
+          <caret line="133" column="43" lean-forward="true" selection-start-line="133" selection-start-column="43" selection-end-line="133" selection-end-column="43" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="150">
+          <caret line="6" column="31" selection-start-line="6" selection-start-column="31" selection-end-line="6" selection-end-column="31" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="jar://C:/Program Files/Java/jdk1.8.0_102/src.zip!/java/lang/Class.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="192">
+          <caret line="260" column="52" lean-forward="true" selection-start-line="260" selection-start-column="18" selection-end-line="260" selection-end-column="52" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="165">
+          <caret line="586" selection-start-line="586" selection-end-line="586" />
+          <folding>
+            <element signature="docComment;class#TLObjectFactory#0" />
+            <element signature="e#1268#1431#0" />
+            <element signature="e#1436#1624#0" />
+            <element signature="e#1629#1897#0" />
+            <element signature="e#1902#2478#0" />
+            <element signature="e#2483#2729#0" />
+            <element signature="e#2774#2775#0" expanded="true" />
+            <element signature="e#2840#2841#0" expanded="true" />
+            <element signature="e#2847#3631#0" />
+            <element signature="e#3636#3962#0" />
+            <element signature="e#3968#4986#0" />
+            <element signature="e#4992#5164#0" />
+            <element signature="e#5170#5357#0" />
+            <element signature="e#5363#5508#0" />
+            <element signature="e#5513#5717#0" />
+            <element signature="e#6028#6235#0" />
+            <element signature="e#6240#6395#0" />
+            <element signature="e#6400#6580#0" />
+            <element signature="e#6585#7558#0" />
+            <element signature="e#7883#8002#0" />
+            <element signature="e#8097#8289#0" />
+            <element signature="e#8295#8804#0" />
+            <element signature="e#8810#9051#0" />
+            <element signature="e#9057#9203#0" />
+            <element signature="e#9209#10545#0" />
+            <element signature="e#10551#11428#0" />
+            <element signature="e#11433#12160#0" />
+            <element signature="e#12165#12420#0" />
+            <element signature="e#12426#12840#0" />
+            <element signature="e#12845#14074#0" />
+            <element signature="e#14080#14162#0" />
+            <element signature="e#14080#14421#0" />
+            <element signature="e#14427#14642#0" />
+            <element signature="e#14648#16041#0" />
+            <element signature="e#16047#16454#0" />
+            <element signature="e#16459#16671#0" />
+            <element signature="e#16676#17031#0" />
+            <element signature="e#16676#17485#0" />
+            <element signature="e#17490#17784#0" />
+            <element signature="e#17789#18026#0" />
+            <element signature="e#18031#18901#0" />
+            <element signature="e#18906#19429#0" />
+            <element signature="e#19434#20000#0" />
+            <element signature="e#20005#20422#0" />
+            <element signature="e#27462#28379#0" />
+            <element signature="e#29194#29467#0" />
+            <element signature="e#29473#30109#0" />
+            <element signature="e#32858#34126#0" />
+            <element signature="e#33333#34120#0" />
+            <element signature="e#34132#34521#0" />
+            <element signature="e#34527#35023#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
   </component>
   <component name="masterDetails">
     <states>
       <state key="ArtifactsStructureConfigurable.UI">
         <settings>
           <artifact-editor />
-          <last-edited>tlobject-demo-web:war exploded</last-edited>
+          <last-edited>demo-web:war</last-edited>
           <splitter-proportions>
             <option name="proportions">
               <list>
@@ -1729,12 +1805,11 @@
       </state>
       <state key="ModuleStructureConfigurable.UI">
         <settings>
-          <last-edited>tlobject-redis</last-edited>
+          <last-edited>app-webmanager</last-edited>
           <splitter-proportions>
             <option name="proportions">
               <list>
                 <option value="0.29391304" />
-                <option value="0.6" />
               </list>
             </option>
           </splitter-proportions>

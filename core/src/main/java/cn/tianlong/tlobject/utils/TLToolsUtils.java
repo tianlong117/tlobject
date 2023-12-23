@@ -4,7 +4,7 @@ public class TLToolsUtils {
 
     public static  String  exceptionToString (Exception exception){
         StringBuilder sb = new StringBuilder();
-        sb.append("exception]:");
+        sb.append("exception:\n");
         sb.append(exception.toString());
         sb.append("\n");
         StackTraceElement[] stackArray = exception.getStackTrace();

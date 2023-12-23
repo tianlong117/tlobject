@@ -46,6 +46,7 @@
         <module name="tlobject-network-client" />
         <module name="tlobject-network-common" />
         <module name="tlobject-network-proxy" />
+        <module name="tlobject-network-server-distributedserver" />
         <module name="tlobject-network-server-jetty" />
         <module name="tlobject-network-server-websocket" />
         <module name="tlobject-redis" />

@@ -649,14 +649,9 @@ public class TLObjectFactory extends TLBaseModule {
         if (singleton == false)
             module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
         else {
-            Class<?> clazz ;
-            try {
-                clazz = Class.forName(classFilename);
-            } catch (ClassNotFoundException e) {
-                e.printStackTrace();
-                putLog(classFilename + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e), LogLevel.ERROR, "createObject");
+            Class<?> clazz  = myClassforName(classFilename); // 取得Class对象
+            if(clazz ==null)
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
-              }
             synchronized (clazz)
             {
                 module = modules.get(newModuleName);
@@ -732,16 +727,9 @@ public class TLObjectFactory extends TLBaseModule {
 
     protected Object createObject(String moduleName, String className) {
 
-        Class<?> cls = null; // 取得Class对象
-        try {
-            cls = Class.forName(className);
-        } catch (ClassNotFoundException e) {
-            e.printStackTrace();
-           String classpath= ClassLoader.getSystemResource("").getPath();
-           String log= classpath +"\n"+className + " 没有找到类文件\n"+TLToolsUtils.exceptionToString(e) ;
-            putLog(log, LogLevel.ERROR, "createObject");
+        Class<?> cls = myClassforName(className); // 取得Class对象
+        if(cls ==null)
             return null ;
-        }
         Constructor<?> cons;
         try {
             cons = cls.getConstructor(String.class, TLObjectFactory.class);
@@ -794,6 +782,24 @@ public class TLObjectFactory extends TLBaseModule {
             e10.printStackTrace();
             return null ;
         }
+    }
+
+    public  Class<?> myClassforName(String className){
+        Class<?> cls = null; // 取得Class对象
+        try {
+            cls = Class.forName(className);
+        } catch (ClassNotFoundException e)
+        {
+            ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
+            try {
+                cls=Class.forName(className,true,systemClassLoader) ;
+            } catch (ClassNotFoundException e1) {
+                e1.printStackTrace();
+                String log= "classPath:"+classPath +"\n"+className + ": 没有找到类文件\n"+TLToolsUtils.exceptionToString(e1) ;
+                putLog(log, LogLevel.ERROR, "myClassforName");
+            }
+        }
+        return  cls;
     }
 
     public static class myConfig extends TLModuleConfig {
