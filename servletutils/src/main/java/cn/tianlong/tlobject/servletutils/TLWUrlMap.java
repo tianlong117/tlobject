@@ -121,6 +121,7 @@ public class TLWUrlMap extends TLWServModule {
         if(urlMapTable ==null || urlMapTable.isEmpty())
            return putError("no urlMap, Configure urlMap");
         String url=(String) msg.getParam("url");
+        putLog("user url"+url,LogLevel.DEBUG,"doWithUrl");
         if(url ==null || url.isEmpty())
         {
             url= (String) getThreadData("url");
@@ -162,6 +163,7 @@ public class TLWUrlMap extends TLWServModule {
                     dmsg.setAction(maction);
             }
             setThreadData("url" ,url);
+            putLog("url"+url,LogLevel.DEBUG,"doWithUrl");
             msg.removeParam("url");
             dmsg.setDestination(smsg.getDestination());
             dmsg.setWaitFlag(smsg.getWaitFlag());
