@@ -138,6 +138,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
                putLog("没有模板文件:"+template,LogLevel.ERROR);
                return null ;
             }
+            putLog("dataid: "+dataid+" 模板文件:"+template,LogLevel.DEBUG);
             VelocityContext ctx = new VelocityContext();
             for (String key : datas.keySet()) {
                 ctx.put(key,datas.get(key));
