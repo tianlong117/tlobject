@@ -15,6 +15,7 @@
         <module>network-server-websocket</module>
         <module>network-server-jetty</module>
         <module>tlobject-network-server-distributedserver</module>
+        <module>network-server-tomcat</module>
     </modules>
     <dependencies>
         <dependency>

@@ -53,6 +53,7 @@
         <module name="tlobject-servletutils" />
         <module name="tlobject-utils" />
         <module name="tlobjectnetworkserverdistributedserver" />
+        <module name="tomcat" />
         <module name="utils" />
         <module name="web" />
       </profile>
