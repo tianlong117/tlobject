@@ -22,7 +22,7 @@ public class TLTomcat extends TLBaseModule {
     protected  String serverName;
     protected  String resourceBase;
     protected  String contextPath ="/";
-    protected  String webappDir ="/";
+    protected  String webappDir ="";
     protected  String baseDir="temp";
     protected  String sslCerFile ="/" ;
     protected  String sslCerFilePwd ="/" ;
@@ -47,7 +47,7 @@ public class TLTomcat extends TLBaseModule {
             if( params.get("serverName")!=null)
                 serverName = params.get("serverName");
             if( params.get("baseDir")!=null)
-                baseDir = params.get("baseDir ");
+                baseDir = params.get("baseDir");
             if( params.get("webappDir")!=null)
                 webappDir = params.get("webappDir");
             if( params.get("connector")!=null)
@@ -75,6 +75,8 @@ public class TLTomcat extends TLBaseModule {
                 sslCerFilePwd =params.get(SSL_SCERFILE_PWD);
 
         }
+        if(webappDir.isEmpty())
+            webappDir =resourceBase ;
     }
     @Override
     protected TLBaseModule init() {

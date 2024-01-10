@@ -25,12 +25,11 @@ public class startTomcat extends TLAppStartUp {
     public static TLObjectFactory   startModule (HashMap<String,String> configMap  ) {
         HashMap<String,Object> argsMap =new HashMap<>() ;
         argsMap.put("appName","demo0");
-        argsMap.put("configPath",CLASSPATH+"/conf/demo/base/");
-        argsMap.put("factoryConfigFile","moduleFactory_config.xml");
-        argsMap.put("configFile","demoappstart.xml");
+        argsMap.put("configPath",CLASSPATH+"/conf/demo/tomcatserver/");
+        argsMap.put("factoryConfigFile","tomcatserver_factory_config.xml");
         if(configMap !=null)
             argsMap.putAll(configMap);
-        cn.tianlong.java.demo.base.startup instance = new cn.tianlong.java.demo.base.startup("startup");
+        startTomcat instance = new startTomcat("tomcatServer");
         appFactory=  instance.startup(argsMap);
         return appFactory ;
     }

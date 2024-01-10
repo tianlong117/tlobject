@@ -1,6 +1,7 @@
 #忽视的目录
 target
 demofilecache
+/temp
 /out
 
 #忽视类文件

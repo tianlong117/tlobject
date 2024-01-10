@@ -17,6 +17,16 @@
             <artifactId>tlobject-all</artifactId>
             <version>1.0</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-network-server-tomcat</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.mchange</groupId>
+            <artifactId>mchange-commons-java</artifactId>
+            <version>0.2.19</version>
+        </dependency>
         <!--dependency>
  <groupId>mysql</groupId>
  <artifactId>mysql-connector-java</artifactId>
