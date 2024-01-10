@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <ifLog value="true" />
+        <logWait value="false" />
+        <reload value="false" />
+        <level value="debug" />
+        <logModules value=""/>
+        <noLogModules1 value=""/>
+    </params>
+    <moduleSetting>
+        <module name="TLFilterWithSingleFactory"  levels="info;warn"  tags="" ></module>
+        <module name="webServiceCustomerPool"  levels="debug;info;warn"   tags="" ></module>
+        <module name="webSocketClient"  levels="info;warn;error" tags=""  ></module>
+        <module name="clientSocketServer7081"  levels="info;warn;error" tags=""  ></module>
+        <module name="socketClientAgentPool"  levels="info;warn;error" tags=""  ></module>
+    </moduleSetting>
+</moduleConfig>
