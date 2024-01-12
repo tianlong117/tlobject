@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import cn.tianlong.tlobject.modules.LogLevel;
 import org.apache.catalina.LifecycleException;
+import org.apache.catalina.connector.Connector;
 import org.apache.catalina.startup.Tomcat;
 
 /**
@@ -88,6 +89,7 @@ public class TLTomcat extends TLBaseModule {
         tomcat = new Tomcat();
         tomcat.setBaseDir(baseDir);
         tomcat.setPort(port);
+        Connector connector=tomcat.getConnector();
         tomcat.addWebapp(contextPath, webappDir);
     }
     @Override
