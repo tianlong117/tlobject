@@ -5,9 +5,22 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.servletutils.TLWAPPCenter;
+import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.connector.Connector;
 import org.apache.catalina.startup.Tomcat;
+
+import javax.servlet.*;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+import static cn.tianlong.tlobject.servletutils.TLParamString.M_APPCENTER;
 
 /**
  * 创建日期：2018/4/23 on 21:00
@@ -23,6 +36,7 @@ public class TLTomcat extends TLBaseModule {
     protected  String serverName;
     protected  String resourceBase;
     protected  String contextPath ="/";
+    protected  String servletPath ="/";
     protected  String webappDir ="";
     protected  String baseDir="temp";
     protected  String sslCerFile ="/" ;
@@ -69,7 +83,8 @@ public class TLTomcat extends TLBaseModule {
                 resourceBase = params.get("resourceBase");
             if( params.get("contextPath")!=null)
                 contextPath = params.get("contextPath");
-
+            if( params.get("servletPath")!=null)
+                servletPath = params.get("servletPath");
             if( params.get(SSL_SCERFILE)!=null)
                 sslCerFile =params.get(SSL_SCERFILE);
             if( params.get(SSL_SCERFILE_PWD)!=null)
@@ -90,7 +105,25 @@ public class TLTomcat extends TLBaseModule {
         tomcat.setBaseDir(baseDir);
         tomcat.setPort(port);
         Connector connector=tomcat.getConnector();
-        tomcat.addWebapp(contextPath, webappDir);
+        if(params.get("contextType") ==null || !params.get("contextType").equals("webapp"))
+            tomcat.addWebapp(contextPath, webappDir);
+        else {
+            TLServletDispatch   servletdispatch = new TLServletDispatch(name,moduleFactory);
+            try {
+                servletdispatch.init();
+            } catch (ServletException e) {
+                e.printStackTrace();
+            }
+            String lastChar = (String)servletPath.substring(servletPath.length()-1,servletPath.length());
+            String path ;
+            if(lastChar.equals("/"))
+                path=servletPath+"*";
+            else
+                path=servletPath+"/*";
+            Context context = tomcat.addContext("", contextPath);
+            Tomcat.addServlet(context, "default", servletdispatch);
+            context.addServletMappingDecoded(path, "default");
+        }
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -137,5 +170,85 @@ public class TLTomcat extends TLBaseModule {
         stop(null, null) ;
         return  super.destroy(fromWho,msg);
     }
+    public class TLServletDispatch extends GenericServlet {
+        protected TLBaseModule appCenter;
+        protected  String  name ;
+        protected Map<String,HttpServletRequest> requestMap;
+        protected Map<String,HttpServletResponse>responseMap ;
+        protected Map<String,HashMap<String ,Object>> threadDatas;
+        protected TLObjectFactory moduleFactory;
+        protected boolean isStartup =true ;
+        protected int initialCapacity=256;
 
+        public TLServletDispatch(String name ,TLObjectFactory factory)
+        {
+            this.name =name ;
+            this.moduleFactory =factory ;
+        }
+        protected void setInitialCapacity(int initialCapacity)
+        {
+            this.initialCapacity =initialCapacity ;
+        }
+
+        public  void setIsStartup (boolean isStartup){
+            this.isStartup =isStartup ;
+        }
+        public  int getNowRequestNumber(){
+            return requestMap.size();
+        }
+        @Override
+        public void init(ServletConfig config) throws ServletException {
+            super.init(config);
+            requestMap =new ConcurrentHashMap<>( initialCapacity);
+            responseMap =new ConcurrentHashMap<>(initialCapacity);
+            threadDatas =new ConcurrentHashMap<>(initialCapacity);
+            ServletContext context =getServletContext();
+            registInfactory( moduleFactory,"servletContext",context);
+            registInfactory(moduleFactory, "servletRequest", requestMap);
+            registInfactory(moduleFactory, "servletResponse", responseMap);
+            registInfactory(moduleFactory, "threadDatas", threadDatas);
+            moduleFactory.putLog(name+" is statup,configPath:",LogLevel.INFO,"filterInit");
+            appCenter =(TLBaseModule) moduleFactory.getModule(M_APPCENTER);
+            ((TLWAPPCenter)appCenter).setFilter(this);
+            ((TLWAPPCenter)appCenter).setFilterName(name);
+        }
+        @Override
+        public void service(ServletRequest servletRequest, ServletResponse servletResponse) throws IOException {
+            if(isStartup ==false){
+                servletResponse.setContentType("text/html;charset=utf-8");//设置编码格式，以防前端页面出现中文乱码
+                PrintWriter printWriter = servletResponse.getWriter();//创建输出流
+                printWriter.println("<h1>应用关闭</h1>");
+                printWriter.flush();
+                return;
+            }
+            long startTime = System.currentTimeMillis();
+            String threadName=Thread.currentThread().getName();
+            HttpServletRequest request = (HttpServletRequest) servletRequest;
+            HttpServletResponse response = (HttpServletResponse) servletResponse;
+            HashMap<String ,Object> datas =new HashMap<>();
+            datas.put("startTime",startTime);
+            requestMap.put(threadName, request);
+            responseMap.put(threadName,  response);
+            threadDatas.put(threadName,datas);
+            String uri= request.getRequestURI();
+            if (uri == null || uri.isEmpty())
+                return ;
+
+            TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri);
+            appCenter.getMsg(moduleFactory, msg);
+            requestMap.remove(threadName);
+            responseMap.remove(threadName);
+            threadDatas.remove(threadName);
+            Long nowTime = System.currentTimeMillis();
+            Long runtime = nowTime - startTime;
+            moduleFactory.putLog(name+ " 运行时间：" + runtime,LogLevel.INFO,"doFilter");
+        }
+        protected void registInfactory(TLObjectFactory modulefactory, String name, Object object)
+        {
+            TLMsg registInFactoryMsg = new TLMsg().setAction(FACTORY_REGISTINFACTORY)
+                    .setParam(FACTORY_P_MODULENAME, name)
+                    .setParam(INSTANCE, object);
+            modulefactory.putMsg(modulefactory, registInFactoryMsg);
+        }
+    }
 }
