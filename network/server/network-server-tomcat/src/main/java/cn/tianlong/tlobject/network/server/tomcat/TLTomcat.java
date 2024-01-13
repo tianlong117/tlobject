@@ -8,8 +8,11 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLWAPPCenter;
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
+import org.apache.catalina.Wrapper;
 import org.apache.catalina.connector.Connector;
+import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
+import org.apache.jasper.servlet.JspServlet;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -105,7 +108,7 @@ public class TLTomcat extends TLBaseModule {
         tomcat.setBaseDir(baseDir);
         tomcat.setPort(port);
         Connector connector=tomcat.getConnector();
-        if(params.get("contextType") ==null || !params.get("contextType").equals("webapp"))
+        if(params.get("contextType") ==null || params.get("contextType").equals("webapp"))
             tomcat.addWebapp(contextPath, webappDir);
         else {
             TLServletDispatch   servletdispatch = new TLServletDispatch(name,moduleFactory);
@@ -120,9 +123,15 @@ public class TLTomcat extends TLBaseModule {
                 path=servletPath+"*";
             else
                 path=servletPath+"/*";
-            Context context = tomcat.addContext("", contextPath);
-            Tomcat.addServlet(context, "default", servletdispatch);
-            context.addServletMappingDecoded(path, "default");
+            Context context = tomcat.addContext(contextPath,webappDir);
+            tomcat.addServlet(context,"default",new DefaultServlet()); // 处理静态文件
+            context.addServletMappingDecoded("/","default");
+            Wrapper wrapperdispatch = tomcat.addServlet(context, "servletdispatch", servletdispatch);
+     //       context.addServletMappingDecoded(servletPath, "servletdispatch");
+            wrapperdispatch.addMapping(path);
+            context.addWelcomeFile("index.html");
+            context.addWelcomeFile("index.htm");
+            context.addWelcomeFile("index");
         }
     }
     @Override
@@ -170,7 +179,7 @@ public class TLTomcat extends TLBaseModule {
         stop(null, null) ;
         return  super.destroy(fromWho,msg);
     }
-    public class TLServletDispatch extends GenericServlet {
+    protected class TLServletDispatch extends GenericServlet {
         protected TLBaseModule appCenter;
         protected  String  name ;
         protected Map<String,HttpServletRequest> requestMap;
