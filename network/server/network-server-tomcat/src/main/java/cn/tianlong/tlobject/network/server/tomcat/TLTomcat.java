@@ -12,7 +12,8 @@ import org.apache.catalina.Wrapper;
 import org.apache.catalina.connector.Connector;
 import org.apache.catalina.servlets.DefaultServlet;
 import org.apache.catalina.startup.Tomcat;
-import org.apache.jasper.servlet.JspServlet;
+import org.apache.tomcat.util.net.SSLHostConfig;
+import org.apache.tomcat.util.net.SSLHostConfigCertificate;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -108,8 +109,10 @@ public class TLTomcat extends TLBaseModule {
         tomcat.setBaseDir(baseDir);
         tomcat.setPort(port);
         Connector connector=tomcat.getConnector();
+     //   Connector httpsConnector =createSslConnector();
+        Context context ;
         if(params.get("contextType") ==null || params.get("contextType").equals("webapp"))
-            tomcat.addWebapp(contextPath, webappDir);
+            context= tomcat.addWebapp(contextPath, webappDir);
         else {
             TLServletDispatch   servletdispatch = new TLServletDispatch(name,moduleFactory);
             try {
@@ -123,7 +126,7 @@ public class TLTomcat extends TLBaseModule {
                 path=servletPath+"*";
             else
                 path=servletPath+"/*";
-            Context context = tomcat.addContext(contextPath,webappDir);
+            context = tomcat.addContext(contextPath,webappDir);
             tomcat.addServlet(context,"default",new DefaultServlet()); // 处理静态文件
             context.addServletMappingDecoded("/","default");
             Wrapper wrapperdispatch = tomcat.addServlet(context, "servletdispatch", servletdispatch);
@@ -133,6 +136,22 @@ public class TLTomcat extends TLBaseModule {
             context.addWelcomeFile("index.htm");
             context.addWelcomeFile("index");
         }
+       // tomcat.setConnector(httpsConnector);
+    }
+    private Connector createSslConnector(){
+        Connector httpsConnector = new Connector();
+        httpsConnector.setPort(httpsPort);
+        httpsConnector.setSecure(true);
+        httpsConnector.setScheme("https");
+        SSLHostConfig sslConfig = new SSLHostConfig();
+        SSLHostConfigCertificate certConfig = new SSLHostConfigCertificate(sslConfig, SSLHostConfigCertificate.Type.RSA);
+        certConfig.setCertificateKeystoreFile(sslCerFile);
+        certConfig.setCertificateKeystorePassword(sslCerFilePwd);
+        certConfig.setCertificateKeyAlias("mykeyalias");
+        sslConfig.addCertificate(certConfig);
+
+        httpsConnector.addSslHostConfig(sslConfig);
+        return httpsConnector;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
