@@ -10,7 +10,7 @@
     <modelVersion>4.0.0</modelVersion>
     <artifactId>tlobject-network-server-tomcat</artifactId>
     <properties>
-        <tomcat.version>9.0.35</tomcat.version>
+        <tomcat.version>9.0.85</tomcat.version>
     </properties>
     <dependencies>
         <dependency>

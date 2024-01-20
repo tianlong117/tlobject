@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLWAPPCenter;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.apache.catalina.Context;
 import org.apache.catalina.LifecycleException;
 import org.apache.catalina.Wrapper;
@@ -21,6 +22,7 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,6 +49,7 @@ public class TLTomcat extends TLBaseModule {
     protected  String sslCerFile ="/" ;
     protected  String sslCerFilePwd ="/" ;
     protected  String connector="http";
+    protected  ArrayList<String> connectorList;
     protected  int minThreads =10;
     protected  int maxThreads =200 ;
     protected  int idleTimeout =30000 ;
@@ -98,6 +101,7 @@ public class TLTomcat extends TLBaseModule {
         }
         if(webappDir.isEmpty())
             webappDir =resourceBase ;
+         connectorList =TLDataUtils.splitStrToList(connector,";");
     }
     @Override
     protected TLBaseModule init() {
@@ -109,11 +113,15 @@ public class TLTomcat extends TLBaseModule {
         tomcat = new Tomcat();
         tomcat.setBaseDir(baseDir);
         tomcat.setPort(port);
-        Connector connector=tomcat.getConnector();
-        Connector httpsConnector =createSslConnector();
-        Context context ;
+        if(connectorList.contains("http"))
+          tomcat.getConnector();
+        if(connectorList.contains("https"))
+        {
+            Connector httpsConnector =createSslConnector();
+            tomcat.setConnector(httpsConnector);
+        }
         if(params.get("contextType") ==null || params.get("contextType").equals("webapp"))
-            context= tomcat.addWebapp(contextPath, webappDir);
+           tomcat.addWebapp(contextPath, webappDir);
         else {
             TLServletDispatch   servletdispatch = new TLServletDispatch(name,moduleFactory);
             try {
@@ -121,13 +129,13 @@ public class TLTomcat extends TLBaseModule {
             } catch (ServletException e) {
                 e.printStackTrace();
             }
-            String lastChar = (String)servletPath.substring(servletPath.length()-1,servletPath.length());
+            String lastChar = servletPath.substring(servletPath.length()-1,servletPath.length());
             String path ;
             if(lastChar.equals("/"))
                 path=servletPath+"*";
             else
                 path=servletPath+"/*";
-            context = tomcat.addContext(contextPath,webappDir);
+            Context context = tomcat.addContext(contextPath,webappDir);
             tomcat.addServlet(context,"default",new DefaultServlet()); // 处理静态文件
             context.addServletMappingDecoded("/","default");
             Wrapper wrapperdispatch = tomcat.addServlet(context, "servletdispatch", servletdispatch);
@@ -137,7 +145,6 @@ public class TLTomcat extends TLBaseModule {
             context.addWelcomeFile("index.htm");
             context.addWelcomeFile("index");
         }
-        tomcat.setConnector(httpsConnector);
     }
     private Connector createSslConnector(){
         Connector httpsConnector = new Connector();
@@ -150,9 +157,7 @@ public class TLTomcat extends TLBaseModule {
         SSLHostConfigCertificate certConfig = new SSLHostConfigCertificate(sslConfig, SSLHostConfigCertificate.Type.RSA);
         certConfig.setCertificateKeystoreFile(sslCerFile);
         certConfig.setCertificateKeystorePassword(sslCerFilePwd);
-    //    certConfig.setCertificateKeyAlias("mykeyalias");
         sslConfig.addCertificate(certConfig);
-
         httpsConnector.addSslHostConfig(sslConfig);
         return httpsConnector;
     }
@@ -192,7 +197,10 @@ public class TLTomcat extends TLBaseModule {
             putLog("tomcat server start up failure :"+host+ ":"+port,LogLevel.ERROR);
             return createMsg().setParam(RESULT,true);
         }
-        putLog("tomcat server start up  :"+host+ ":"+port,LogLevel.INFO);
+        if(connectorList.contains("http"))
+           putLog("tomcat Http server start up  :"+host+ ":"+port,LogLevel.INFO);
+        if(connectorList.contains("https"))
+            putLog("tomcat Https server start up  :"+host+ ":"+httpsPort,LogLevel.INFO);
         tomcat.getServer().await();
         return createMsg().setParam(RESULT,true);
     }
