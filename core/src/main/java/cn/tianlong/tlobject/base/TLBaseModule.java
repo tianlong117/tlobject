@@ -1254,6 +1254,14 @@ public abstract class TLBaseModule extends TLBaseObject {
      * 异步put
      ****/
 
+    protected void putMsgInThreadResultFor(IObject toWho, TLMsg msg ,Object sessionData) {
+        msg.setSystemParam(TASKRESESSIONDATA,sessionData);
+        msg.setSystemParam(TASKRESULTFOR,this);
+        if(msg.getSystemParam(TASKRESULTACTION,null) ==null)
+            msg.setSystemParam(TASKRESULTACTION,"threadReturn");
+        msg.setWaitFlag(false);
+        putMsg(toWho,msg);
+    }
     @Override
     public TLMsg putMsgNoWait(IObject toWho, TLMsg msg) {
         Object taskResultFor = msg.getSystemParam(TASKRESULTFOR);
