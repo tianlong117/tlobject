@@ -6,7 +6,7 @@
     </params>
     <msgTable>
         <msgid  value="start" >
-            <msg action="putMsgToServerAndWait"  />
+            <msg action="#putMsgToServerAndWait"  />
             <msg action="#putFileFromClient" />
             <msg action="#sendFilesByClient" />
             <msg action="#getFileFromServer" />

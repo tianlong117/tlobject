@@ -146,9 +146,11 @@ public class serverModule extends DemoCommon {
     }
 
     private TLMsg sendMsgFromServer(Object fromWho, TLMsg msg) {
+        TLMsg cliengMsg =createMsg().setMsgId("fromServerMsg")
+                         .setParam("message","this message is  from server");
         TLMsg gmsg =createMsg().setAction( WEBSOCKET_PUTMSG)
                 .setSystemArgs(msg.getSystemArgs())
-                .setParam("parama","server put Msg")               ;
+                .setArgs(TLMsgUtils.msgToSocketDataMap(cliengMsg))  ;            ;
         TLMsg returnMsg = putMsg("clientMsgHandler",gmsg);
         if( returnMsg !=null)
             TLMsgUtils.printMsg(returnMsg);

@@ -41,6 +41,7 @@ public class TLWebSocketClient extends TLHttpClient {
     private OkHttpClient client;
     protected TLNetSession netSession;
     protected binarySendModule binarySendModule;
+    protected TLBaseModule singleThreadPool ;
 
 
     public TLWebSocketClient(String name) {
@@ -70,6 +71,7 @@ public class TLWebSocketClient extends TLHttpClient {
         netSession.start(null, params);
         binarySendModule=new binarySendModule("binarySendModule",moduleFactory);
         binarySendModule.start(null,params);
+        singleThreadPool = (TLBaseModule) getNewModule("singleThreadPool");
         return this;
     }
 
@@ -101,11 +103,19 @@ public class TLWebSocketClient extends TLHttpClient {
             case WEBSOCKET_SENDBINARY:
                 returnMsg = sendBinary(fromWho, msg);
                 break;
+            case "putMessages":
+                 putMessages(fromWho, msg);
+                break;
             default:
 
         }
         return returnMsg;
     }
+
+    private void putMessages(Object fromWho, TLMsg msg) {
+        webSocketListener.onMessages(msg);
+    }
+
     protected TLMsg sendBinary(Object fromWho, TLMsg msg) {
         return binarySendModule.sendBinary(msg);
     }
@@ -323,13 +333,21 @@ public class TLWebSocketClient extends TLHttpClient {
         @Override
         public void onMessage(WebSocket webSocket, String text) {
             putLog("webSocket receive" + text, LogLevel.DEBUG, "onMessage");
-            TLMsg responseMsg = createMsg().setAction(resultAction)
+            TLMsg responseMsg = createMsg().setAction("putMessages")
+                    .setWaitFlag(false)
+                    .setSystemParam(INTHREADPOOL,true)
+                    .setSystemParam(THREADPOOLNAME ,singleThreadPool)
                     .setParam(WEBSOCKET_P_STATUS, WEBSOCKET_R_MESSAGE)
                     .setParam(WEBRESPONSE, text);
-            TLMsg returnMsg = putMsg(resultFor, responseMsg);
+            putMsg(socketClient, responseMsg);
+        //    setByReturnMsg(returnMsg);
+        }
+        public  void  onMessages(TLMsg msg)
+        {
+            msg.setAction(resultAction);
+            TLMsg returnMsg = putMsg(resultFor,msg);
             setByReturnMsg(returnMsg);
         }
-
         @Override
         public void onMessage(WebSocket webSocket, ByteString byteString) {
             putLog("webSocket receive ByteString", LogLevel.DEBUG, "onMessage");

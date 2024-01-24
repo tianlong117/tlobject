@@ -20,6 +20,9 @@
         <msgid  value="getFileByServer" >
             <msg  destination="clientModule" action="getFileByServer" />
         </msgid>
+        <msgid  value="fromServerMsg" >
+            <msg  destination="clientModule" action="fromServerMsg" />
+        </msgid>
     </msgTable>
     <servers>
         <!-- 如设定cerFile ，并且协议为wss 则启动ssl传输  -->

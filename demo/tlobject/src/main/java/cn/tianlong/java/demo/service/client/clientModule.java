@@ -5,10 +5,13 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+
+import static java.lang.Thread.sleep;
 
 
 public class clientModule extends DemoCommon {
@@ -49,9 +52,25 @@ public class clientModule extends DemoCommon {
             case "receiveFileFromServer":
                 returnMsg= receiveFileFromServer(fromWho, msg);
                 break;
+            case "fromServerMsg":
+                returnMsg= fromServerMsg(fromWho, msg);
+                break;
             default:
         }
         return  returnMsg;
+    }
+
+    private TLMsg fromServerMsg(Object fromWho, TLMsg msg) {
+        println("msg From server :");
+        TLMsgUtils.printMsg(msg);
+        println("sleep 15s");
+        try {
+            sleep(15*1000);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        println("sleep over");
+        return null ;
     }
 
     private TLMsg receiveFileFromServer(Object fromWho, TLMsg msg) {
