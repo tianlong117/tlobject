@@ -1279,10 +1279,15 @@ public abstract class TLBaseModule extends TLBaseObject {
         if (!msg.systemParamIsNull(TASKWAITTIME))
             msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
         TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG, msg).setParam(THREADPOOL_P_TASKMODULE, toWho);
-        String threadPoolName = (String) msg.getAndRemoveSystemParam(THREADPOOLNAME);
-        if (threadPoolName == null)
-            threadPoolName = DEFAULTTHREADPOOL;
-        return   putMsg(threadPoolName, tmsg);
+        Object threadPool = msg.getAndRemoveSystemParam(THREADPOOLNAME);
+        if (threadPool == null)
+          return   putMsg(DEFAULTTHREADPOOL, tmsg);
+        if(threadPool instanceof  String)
+             return   putMsg((String)threadPool, tmsg);
+        if(threadPool instanceof  TLBaseModule)
+            return   putMsg(( TLBaseModule)threadPool, tmsg);
+        else
+            return   putMsg(DEFAULTTHREADPOOL, tmsg);
     }
 
     protected Object getResultObject(TLMsg msg) {
