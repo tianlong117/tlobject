@@ -57,7 +57,7 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         netSession = new TLNetSession(name + "_session", moduleFactory);
         netSession.start(null, params);
         putMsg(this, createMsg().setAction("checkSessions")
-                .setSystemParam(SESSIONDEAMON, true)
+                .setSystemParam(IFTASKDEAMON, true)
                 .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")))
                 .setWaitFlag(false));
         return this;

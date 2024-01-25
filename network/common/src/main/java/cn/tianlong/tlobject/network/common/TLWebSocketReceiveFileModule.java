@@ -68,7 +68,7 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         netSession = new TLNetSession(name + "_session", moduleFactory);
         netSession.start(null, params);
         TLMsg checkSessionTimeOutMsg =createMsg().setAction("checkSessions")
-                .setSystemParam(SESSIONDEAMON, true)
+                .setSystemParam(IFTASKDEAMON, true)
                 .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")));
         invokeActionInThread("checkSessions",this,checkSessionTimeOutMsg);
         return this;

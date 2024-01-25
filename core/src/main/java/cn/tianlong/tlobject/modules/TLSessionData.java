@@ -37,7 +37,7 @@ public class TLSessionData extends TLBaseSessionData {
     protected TLBaseModule init() {
         if(expire >0L)
         putMsg(this,createMsg().setAction("checkTask")
-                .setSystemParam(SESSIONDEAMON,true)
+                .setSystemParam(IFTASKDEAMON,true)
                 .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
         return this ;
@@ -62,7 +62,7 @@ public class TLSessionData extends TLBaseSessionData {
         putLog("发生异常，sessiondata模块重启",LogLevel.ERROR);
         putLog(e.getMessage() +e.getCause(),LogLevel.ERROR);
         putMsg(this,createMsg().setAction("checkTask")
-                .setSystemParam(SESSIONDEAMON,true)
+                .setSystemParam(IFTASKDEAMON,true)
                 .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
     }

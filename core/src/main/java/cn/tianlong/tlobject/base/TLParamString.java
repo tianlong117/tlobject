@@ -116,9 +116,9 @@ public interface TLParamString {
     final String IFLOADMODULE = "ifLoadModule";       //true or false .当putmsg ,当模块不存在时，是否通过工厂创建 ,默认创建
     final String IGNOREMODULEISNULL = "ignoreModuleIsNull";
     final String MODULE_DESTROY = "destroy";
-    final String SESSIONDEAMON = "sessiondeamon";
+    final String IFTASKDEAMON = "iftaskdeamon";
     final String EXCEPTIONHANDLER = "exceptionhandler";
-    final String SESSIONJOIN = "sessionjoin";
+    final String IFTASKJOIN = "iftaskjoin";
     final String JOINTIME = "jointime";
     final String EXCEPTIONMSG = "exceptionMsg";
     final String INTHREADPOOL = "inthreadPool";         //msg 是否在线程池中运行

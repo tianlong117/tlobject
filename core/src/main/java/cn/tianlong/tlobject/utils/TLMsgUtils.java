@@ -28,8 +28,8 @@ public class TLMsgUtils {
     static {
         msgSystemArgs.add(IFLOADMODULE);
         msgSystemArgs.add(IGNOREMODULEISNULL);
-        msgSystemArgs.add(SESSIONDEAMON);
-        msgSystemArgs.add(SESSIONJOIN);
+        msgSystemArgs.add(IFTASKDEAMON);
+        msgSystemArgs.add(IFTASKJOIN);
         msgSystemArgs.add(JOINTIME);
         msgSystemArgs.add(INTHREADPOOL);
         msgSystemArgs.add(IFDOMSGTRANSFERACTION);

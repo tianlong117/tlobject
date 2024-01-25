@@ -58,12 +58,12 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
     /**  异步put****/
     public TLMsg putMsgNoWait(IObject toWho,TLMsg msg){
         ThreadTask threadTask=  new ThreadTask(toWho,msg,this);
-        if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONDEAMON),false)==true)
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(IFTASKDEAMON),false)==true)
             threadTask.setDaemon(true);
         if(msg.getSystemParam(EXCEPTIONHANDLER) !=null )
             threadTask.setUncaughtExceptionHandler((Thread.UncaughtExceptionHandler) msg.getSystemParam(EXCEPTIONHANDLER));
         threadTask.start();
-        if(TLDataUtils.parseBoolean(msg.getSystemParam(SESSIONJOIN),false)==true)
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(IFTASKJOIN),false)==true)
         {
              try {
                 long joinTime =TLDataUtils.parseLong(msg.getSystemParam(JOINTIME),0L);
@@ -132,6 +132,8 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                    {
                        if(returnMsg!=null)
                           taskResultMsg.addArgs(returnMsg.getArgs());
+                       if(taskSessionData!=null)
+                          taskResultMsg.setSystemParam(TASKRESESSIONDATA,taskSessionData);
                        putMsg(taskResultFor,taskResultMsg);
                    }
                }
