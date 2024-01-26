@@ -35,24 +35,20 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         else
         {
             msg.setWaitFlag(true);
-            int waitTime =-1 ;
-            if (!msg.systemParamIsNull(TASKWAITTIME))
-            {
-                msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
-                waitTime = (int) msg.getSystemParam(TASKWAITTIME);
-            }
+            if (msg.systemParamIsNull(TASKWAITTIME))
+                return  putMsgNoWait( toWho, msg) ;
+            msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
+            int waitTime = TLDataUtils.getIntParam(msg.getSystemParam(TASKWAITTIME),0) ;
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
-            if (waitTime==-1)
-                return  returnMsg ;
-            if(waitTime ==0)
+            if (waitTime <=0 )
                 waitTime =Integer.MAX_VALUE ;
             ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
             try {
                 sleep(waitTime);
-                return createMsg().setParam(RESULT,false);
             } catch (InterruptedException e) {
                return threadTask.getResult();
             }
+            return createMsg().setParam(RESULT,false);
         }
     }
     /**  异步put****/

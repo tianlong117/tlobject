@@ -41,7 +41,7 @@ public class TLWebSocketClient extends TLHttpClient {
     private OkHttpClient client;
     protected TLNetSession netSession;
     protected binarySendModule binarySendModule;
-    protected TLBaseModule singleThreadPool ;
+    protected TLBaseModule threadPool;
 
 
     public TLWebSocketClient(String name) {
@@ -71,7 +71,7 @@ public class TLWebSocketClient extends TLHttpClient {
         netSession.start(null, params);
         binarySendModule=new binarySendModule("binarySendModule",moduleFactory);
         binarySendModule.start(null,params);
-        singleThreadPool = (TLBaseModule) getNewModule("singleThreadPool");
+        threadPool = (TLBaseModule) getNewModule("singleThreadPool");
         return this;
     }
 
@@ -336,7 +336,7 @@ public class TLWebSocketClient extends TLHttpClient {
             TLMsg responseMsg = createMsg().setAction("putMessages")
                     .setWaitFlag(false)
                     .setSystemParam(INTHREADPOOL,true)
-                    .setSystemParam(THREADPOOLNAME ,singleThreadPool)
+                    .setSystemParam(THREADPOOLNAME , threadPool)
                     .setParam(WEBSOCKET_P_STATUS, WEBSOCKET_R_MESSAGE)
                     .setParam(WEBRESPONSE, text);
             putMsg(socketClient, responseMsg);

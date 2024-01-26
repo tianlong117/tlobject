@@ -1189,20 +1189,9 @@ public abstract class TLBaseModule extends TLBaseObject {
          return  putMsgInThreadAndWaitReturn(module,msg) ;
     }
     public TLMsg putMsgInThreadAndWaitReturn(IObject module, TLMsg msg) {
-        TLMsg returnMsg= putMsg(module,msg.setWaitFlag(false));
-        if(returnMsg ==null || returnMsg.isNull(THREADPOOL_TASK))
-            return returnMsg ;
-        ThreadTask task = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
-        Boolean taskIsOver=false;
-        do {
-            try {
-                sleep(1);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            taskIsOver =task.isThreadOver() ;
-        }while (taskIsOver==false);
-        return task.getResult();
+           msg.setWaitFlag(false)
+              .setSystemParam(TASKWAITTIME,0)   ;
+           return putMsg(module,msg);
     }
     public   TLMsg putMsgGroupByThread(List<TLMsg> msgList, int waitTime){
         int msgNumber =msgList.size() ;
@@ -1254,10 +1243,8 @@ public abstract class TLBaseModule extends TLBaseObject {
      * 异步put
      ****/
 
-    protected void putMsgInThreadResultFor(IObject toWho, TLMsg msg ,Object sessionData)
-    {
-        if (sessionData !=null)
-            msg.setSystemParam(TASKRESESSIONDATA,sessionData);
+    protected void putMsgInThreadResultFor(IObject toWho, TLMsg msg ,Object sessionData) {
+        msg.setSystemParam(TASKRESESSIONDATA,sessionData);
         msg.setSystemParam(TASKRESULTFOR,this);
         if(msg.getSystemParam(TASKRESULTACTION,null) ==null)
             msg.setSystemParam(TASKRESULTACTION,"threadReturn");
