@@ -4,7 +4,9 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 
 import static java.lang.Thread.sleep;
@@ -54,21 +56,48 @@ public class testMain extends TLAppStartUp {
 
     private TLMsg testtask(Object fromWho, TLMsg msg) {
         println(Thread.currentThread().getName()+" testtask run ");
+        int i =msg.getIntParam("time",5);
         try {
-            sleep(10*1000);
+            sleep(i*1000);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
         println(Thread.currentThread().getName()+" task is over");
-        return createMsg().setParam(RESULT,"helo");
+        return createMsg().setParam(RESULT,"helo"+i);
     }
 
     @Override
     protected void run() {
+      //   testTask();
+       // testTask1();
+        testTask2();
+    }
+
+    private void testTask2() {
+        ArrayList<TLMsg> msgGroup =new ArrayList<>();
+        for(int i=6 ; i<12 ;i=i+2){
+            TLMsg msg =createMsg().setAction("testtask").setParam("time",i);
+            msgGroup.add(msg) ;
+        }
+        TLMsg returnMsg = putMsgGroupByThread(msgGroup,20*1000);
+        ArrayList<TLMsg> resultMsg = (ArrayList<TLMsg>) returnMsg.getParam(RESULT);
+        for (TLMsg msg: resultMsg
+             ) {
+            TLMsgUtils.printMsg(msg);
+        }
+    }
+
+    private void testTask1() {
+        TLMsg returnMsg =invokeActionInThreadAndWait("testtask",this,createMsg().setAction("testTask"));
+        println(Thread.currentThread().getName()+" tase result : "+ returnMsg.getStringParam(RESULT,""));
+        println(Thread.currentThread().getName()+" main session run over");
+    }
+
+    private void testTask() {
         TLMsg msg =createMsg().setAction("testtask")
                 .setWaitFlag(false)
-             .setSystemParam(TASKWAITTIME,1*1000)
-              .setSystemParam(INTHREADPOOL,true);
+                .setSystemParam(TASKWAITTIME,60*1000)
+                .setSystemParam(INTHREADPOOL,true);
         TLMsg returnMsg =putMsg(name,msg);
         println(Thread.currentThread().getName()+" tase result : "+ returnMsg.getStringParam(RESULT,""));
         println(Thread.currentThread().getName()+" main session run over");
