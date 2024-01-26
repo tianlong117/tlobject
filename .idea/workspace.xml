@@ -7,9 +7,10 @@
     </artifacts-to-build>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
+    <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/target/" />
     <ignored path="$PROJECT_DIR$/cache/filecache/target/" />
@@ -67,48 +68,56 @@
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="375">
-      <file leaf-file-name="TLHttpProxy.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/network/proxy/src/main/java/cn/tianlong/tlobject/network/proxy/TLHttpProxy.java">
+      <file leaf-file-name="TLNetSession.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLNetSession.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="272">
-              <caret line="119" column="56" lean-forward="true" selection-start-line="119" selection-start-column="56" selection-end-line="119" selection-end-column="56" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLMsgUtils.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="113">
-              <caret line="369" column="79" selection-start-line="369" selection-start-column="79" selection-end-line="369" selection-end-column="79" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLSocketClientAgentPool.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="192">
-              <caret line="320" column="26" selection-start-line="320" selection-start-column="26" selection-end-line="320" selection-end-column="26" />
+            <state relative-caret-position="1900">
+              <caret line="93" column="57" selection-start-line="93" selection-start-column="57" selection-end-line="93" selection-end-column="57" />
               <folding>
-                <element signature="method#setModuleParams#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#runStartMsg#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#connectToServer#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#addServer#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#connectServer#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#receiveBinary#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#receiveFileOver#0;class#TLSocketClientAgentPool#0" />
-                <element signature="method#putToServerAndWait#0;class#TLSocketClientAgentPool#0" />
+                <element signature="e#2903#2904#0" expanded="true" />
+                <element signature="e#2940#2941#0" expanded="true" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLBaseModule.java" pinned="false" current-in-tab="true">
+      <file leaf-file-name="serverModule_config.xml" pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="225">
+              <caret line="9" column="12" lean-forward="true" selection-start-line="9" selection-start-column="12" selection-end-line="9" selection-end-column="12" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="service_moduleFactory_config.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/service_moduleFactory_config.xml">
+          <provider selected="true" editor-type-id="text-editor" />
+        </entry>
+      </file>
+      <file leaf-file-name="serverModule.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverModule.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="2050">
+              <caret line="98" column="18" selection-start-line="98" selection-start-column="18" selection-end-line="98" selection-end-column="18" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="clientModule_config.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="225">
+              <caret line="9" column="26" selection-start-line="9" selection-start-column="26" selection-end-line="9" selection-end-column="26" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLBaseModule.java" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="306">
-              <caret line="1263" column="5" lean-forward="true" selection-start-line="1263" selection-start-column="5" selection-end-line="1263" selection-end-column="5" />
+            <state relative-caret-position="5400">
+              <caret line="1264" column="26" selection-start-line="1264" selection-start-column="26" selection-end-line="1264" selection-end-column="26" />
               <folding>
                 <element signature="docComment;class#TLBaseModule#0" />
                 <element signature="e#2773#2919#0" />
@@ -156,8 +165,6 @@
                 <element signature="e#32751#32781#0" />
                 <element signature="e#32920#33114#0" />
                 <element signature="e#33119#33768#0" />
-                <element signature="class#33298:33576" />
-                <element signature="method#run#0;class#33298:33576" />
                 <element signature="e#33773#33954#0" />
                 <element signature="e#33959#34577#0" />
                 <element signature="e#34582#38178#0" />
@@ -179,59 +186,53 @@
                 <element signature="e#44912#45234#0" />
                 <element signature="e#45239#45684#0" />
                 <element signature="e#45690#46140#0" />
-                <element signature="e#46146#46899#0" />
                 <element signature="e#46905#47045#0" />
                 <element signature="e#46905#47401#0" />
-                <element signature="e#47407#47602#0" />
                 <element signature="e#47607#48223#0" />
                 <element signature="e#48228#49942#0" />
                 <element signature="e#49947#49974#0" />
-                <element signature="e#51091#51425#0" />
-                <element signature="e#51485#51486#0" expanded="true" />
-                <element signature="e#51557#51558#0" expanded="true" />
-                <element signature="e#51677#52009#0" />
-                <element signature="e#52015#52235#0" />
-                <element signature="e#52241#52370#0" />
-                <element signature="e#52376#52643#0" />
-                <element signature="e#52649#53560#0" />
-                <element signature="e#53566#54054#0" />
-                <element signature="e#54222#54688#0" />
-                <element signature="e#54693#54854#0" />
-                <element signature="e#55007#55172#0" />
-                <element signature="e#55177#55327#0" />
-                <element signature="e#55486#55653#0" />
-                <element signature="e#55658#55831#0" />
-                <element signature="e#55837#56028#0" />
-                <element signature="e#56033#56212#0" />
-                <element signature="e#56218#56405#0" />
-                <element signature="e#56410#56582#0" />
-                <element signature="e#56588#58239#0" />
-                <element signature="e#58244#58614#0" />
-                <element signature="e#58619#58923#0" />
-                <element signature="e#58929#59143#0" />
-                <element signature="e#59149#59391#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLClientMsgHandler.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java">
+      <file leaf-file-name="TLThreadPool.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLThreadPool.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="289">
-              <caret line="161" selection-start-line="161" selection-end-line="182" selection-end-column="5" />
+            <state relative-caret-position="2025">
+              <caret line="89" column="45" selection-start-line="89" selection-start-column="45" selection-end-line="89" selection-end-column="45" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLBaseObject.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="600">
+              <caret line="41" column="53" selection-start-line="41" selection-start-column="53" selection-end-line="41" selection-end-column="53" />
               <folding>
-                <element signature="method#despatchMsgBySessionPool#1;class#TLClientMsgHandler#0" />
+                <element signature="docComment;class#TLBaseObject#0" />
+                <element signature="method#createMsg#0;class#TLBaseObject#0" />
+                <element signature="docComment;method#putMsgNoWait#0;class#TLBaseObject#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLReUsedModulePool.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLReUsedModulePool.java">
+      <file leaf-file-name="TLParamString.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="761">
-              <caret line="71" column="13" lean-forward="true" selection-start-line="71" selection-start-column="13" selection-end-line="71" selection-end-column="13" />
+            <state relative-caret-position="3025">
+              <caret line="121" column="17" selection-start-line="121" selection-start-column="17" selection-end-line="121" selection-end-column="17" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLMsgUtils.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="1025">
+              <caret line="53" column="37" selection-start-line="53" selection-start-column="37" selection-end-line="53" selection-end-column="37" />
             </state>
           </provider>
         </entry>
@@ -248,7 +249,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>&quot;uri&quot;</find>
       <find>lientSocketServe</find>
       <find>webSocketReceiveFileModule</find>
       <find>clientInterfaceModule</find>
@@ -278,6 +278,7 @@
       <find>TLLog</find>
       <find>TLSimpleLog</find>
       <find>&quot;singleThreadPool&quot;</find>
+      <find>&quot;onMessage&quot;</find>
     </findStrings>
     <replaceStrings>
       <replace>M_APPCENTER</replace>
@@ -325,10 +326,6 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/connectpoolofdb/hikaricp/pom.xml" />
-        <option value="$PROJECT_DIR$/connectpoolofdb/c3p0/src/main/java/cn/tianlong/tlobject/db/TLC3P0connect.java" />
-        <option value="$PROJECT_DIR$/connectpoolofdb/hikaricp/src/main/java/cn/tianlong/tlobject/db/TLHikariCP.java" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml" />
         <option value="$PROJECT_DIR$/demo/web/src/main/resources/conf/jettyserver/jettyserver_factory_config.xml" />
         <option value="$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/homePageControl.java" />
         <option value="$PROJECT_DIR$/network/server/network-server-jetty/src/main/java/cn/tianlong/tlobject/network/server/jetty/TLJettyServer.java" />
@@ -337,15 +334,10 @@
         <option value="$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/systemManagerControl.java" />
         <option value="$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/adminCommon.java" />
         <option value="$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/appClientAgent.java" />
-        <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverModule.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java" />
         <option value="$PROJECT_DIR$/appwebmanager/src/main/java/cn/tianlong/java/application/webmanager/managersManagerControl.java" />
         <option value="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLUserManagerModule.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/service_moduleFactory_config.xml" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientInterfaceModule_config.xml" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/moduleFactory_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/type/demoappstart_comin.xml" />
         <option value="$PROJECT_DIR$/network/server/tlobject-network-server-distributedserver/src/main/java/cn/tianlong/tlobject/network/server/distributed/TLRouterModule.java" />
@@ -354,7 +346,6 @@
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLModuleConfig.java" />
         <option value="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java" />
         <option value="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/appConfig.xml" />
-        <option value="$PROJECT_DIR$/network/client/pom.xml" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLToolsUtils.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" />
@@ -375,7 +366,17 @@
         <option value="$PROJECT_DIR$/network/server/network-server-tomcat/src/main/java/cn/tianlong/tlobject/network/server/tomcat/TLTomcat.java" />
         <option value="$PROJECT_DIR$/network/proxy/src/main/java/cn/tianlong/tlobject/network/proxy/TLHttpProxy.java" />
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" />
+        <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClientAgent.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientInterfaceModule_config.xml" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverModule.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientModule.java" />
+        <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java" />
+        <option value="$PROJECT_DIR$/network/client/pom.xml" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml" />
       </list>
     </option>
   </component>
@@ -410,11 +411,29 @@
       <expand>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="tlobject-network-proxy" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="tlobject-core" type="9519ce18:MavenProjectsStructure$ProjectNode" />
         </path>
         <path>
           <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
-          <item name="tlobject-network-proxy" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="tlobject-core" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
+        </path>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-demo" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+        </path>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-demo" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+          <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
+        </path>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-network-client" type="9519ce18:MavenProjectsStructure$ProjectNode" />
+        </path>
+        <path>
+          <item name="" type="16c1761:MavenProjectsStructure$RootNode" />
+          <item name="tlobject-network-client" type="9519ce18:MavenProjectsStructure$ProjectNode" />
           <item name="Lifecycle" type="58874e2:MavenProjectsStructure$LifecycleNode" />
         </path>
       </expand>
@@ -439,7 +458,6 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
-      <pane id="Scope" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -450,25 +468,239 @@
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
               <item name="main" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+              <item name="client" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+              <item name="client" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+              <item name="classes" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+              <item name="classes" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+              <item name="classes" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+              <item name="classes" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="target" type="462c0819:PsiDirectoryNode" />
+              <item name="classes" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="service" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
               <item name="main" type="462c0819:PsiDirectoryNode" />
               <item name="java" type="462c0819:PsiDirectoryNode" />
@@ -476,31 +708,63 @@
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
               <item name="main" type="462c0819:PsiDirectoryNode" />
               <item name="java" type="462c0819:PsiDirectoryNode" />
-              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="common" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="main" type="462c0819:PsiDirectoryNode" />
-              <item name="java" type="462c0819:PsiDirectoryNode" />
-              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="base" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="network-server-websocket" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="network-server-websocket" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="network-server-websocket" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="network-server-websocket" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
               <item name="main" type="462c0819:PsiDirectoryNode" />
               <item name="java" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
-              <item name="modules" type="462c0819:PsiDirectoryNode" />
+              <item name="network" type="462c0819:PsiDirectoryNode" />
+              <item name="server" type="462c0819:PsiDirectoryNode" />
+              <item name="network-server-websocket" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="websocket" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
@@ -512,6 +776,7 @@
       </pane>
       <pane id="PackagesPane" />
       <pane id="AndroidView" />
+      <pane id="Scope" />
     </panes>
   </component>
   <component name="PropertiesComponent">
@@ -526,15 +791,12 @@
     <property name="settings.editor.selected.configurable" value="preferences.applicationServers" />
   </component>
   <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\templates\demo" />
+      <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf" />
+    </key>
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
       <recent name="cn.tianlong.tlobject" />
-    </key>
-    <key name="CopyFile.RECENT_KEYS">
-      <recent name="TLOBJECT_HOME\demo\web\target\demo-web\WEB-INF\lib" />
-      <recent name="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\classes\conf\tlobject" />
-      <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf\tlobject" />
-      <recent name="TLOBJECT_HOME\demo\tlobject\src\main\resources\conf\demo\tomcatserver" />
-      <recent name="TLOBJECT_HOME\demo\tlobject\src\main\resources\conf\demo" />
     </key>
     <key name="CopyClassDialog.RECENTS_KEY">
       <recent name="cn.tianlong.java.demo.server" />
@@ -543,9 +805,12 @@
       <recent name="cn.tianlong.tlobject.network.server.websocket" />
       <recent name="cn.tianlong.java.demo.service.client" />
     </key>
-    <key name="MoveFile.RECENT_KEYS">
-      <recent name="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\templates\demo" />
-      <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf" />
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="TLOBJECT_HOME\demo\tlobject\target\classes\conf\demo\service\server" />
+      <recent name="TLOBJECT_HOME\demo\web\target\demo-web\WEB-INF\lib" />
+      <recent name="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\classes\conf\tlobject" />
+      <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf\tlobject" />
+      <recent name="TLOBJECT_HOME\demo\tlobject\src\main\resources\conf\demo\tomcatserver" />
     </key>
   </component>
   <component name="RunDashboard">
@@ -560,17 +825,28 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Application.startTomcat">
+  <component name="RunManager" selected="Application.clientStartup">
     <configuration default="true" type="Application" factoryName="Application">
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     </configuration>
-    <configuration name="cominStartup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.service.client.cominStartup" />
+    <configuration name="clientStartup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.service.client.clientStartup" />
       <module name="tlobject-demo-tlobject" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="cn.tianlong.java.demo.service.client.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+    </configuration>
+    <configuration name="serverStartup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.service.server.serverStartup" />
+      <module name="tlobject-demo-tlobject" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="cn.tianlong.java.demo.service.server.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -604,17 +880,6 @@
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="cn.tianlong.java.demo.base.*" />
-          <option name="ENABLED" value="true" />
-        </pattern>
-      </extension>
-    </configuration>
-    <configuration name="startup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.db.startup" />
-      <module name="tlobject-demo-tlobject" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <extension name="coverage">
-        <pattern>
-          <option name="PATTERN" value="cn.tianlong.java.demo.db.*" />
           <option name="ENABLED" value="true" />
         </pattern>
       </extension>
@@ -743,19 +1008,19 @@
     </configuration>
     <list>
       <item itemvalue="Tomcat Server.tomcat" />
-      <item itemvalue="Application.cominStartup" />
       <item itemvalue="Application.startup (1)" />
-      <item itemvalue="Application.startup" />
       <item itemvalue="Application.startJetty" />
       <item itemvalue="Application.startTomcat" />
+      <item itemvalue="Application.serverStartup" />
+      <item itemvalue="Application.clientStartup" />
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Application.clientStartup" />
+        <item itemvalue="Application.serverStartup" />
         <item itemvalue="Application.startTomcat" />
         <item itemvalue="Application.startJetty" />
         <item itemvalue="Application.startup (1)" />
-        <item itemvalue="Application.startup" />
-        <item itemvalue="Application.cominStartup" />
       </list>
     </recent_temporary>
   </component>
@@ -944,42 +1209,11 @@
       <workItem from="1705474125487" duration="1865000" />
       <workItem from="1705543931822" duration="5864000" />
       <workItem from="1705652449834" duration="1701000" />
-      <workItem from="1705888046962" duration="14899000" />
-    </task>
-    <task id="LOCAL-00075" summary="修改demo模块volecity模板">
-      <created>1650440619775</created>
-      <option name="number" value="00075" />
-      <option name="presentableId" value="LOCAL-00075" />
-      <option name="project" value="LOCAL" />
-      <updated>1650440619776</updated>
-    </task>
-    <task id="LOCAL-00076" summary="修改demo模块volecity模板">
-      <created>1650531115706</created>
-      <option name="number" value="00076" />
-      <option name="presentableId" value="LOCAL-00076" />
-      <option name="project" value="LOCAL" />
-      <updated>1650531115708</updated>
-    </task>
-    <task id="LOCAL-00077" summary="修改demo模块volecity模板">
-      <created>1650615380798</created>
-      <option name="number" value="00077" />
-      <option name="presentableId" value="LOCAL-00077" />
-      <option name="project" value="LOCAL" />
-      <updated>1650615380799</updated>
-    </task>
-    <task id="LOCAL-00078" summary="修改demo模块volecity模板">
-      <created>1650788413003</created>
-      <option name="number" value="00078" />
-      <option name="presentableId" value="LOCAL-00078" />
-      <option name="project" value="LOCAL" />
-      <updated>1650788413004</updated>
-    </task>
-    <task id="LOCAL-00079" summary="修改demo模块volecity模板">
-      <created>1650791809262</created>
-      <option name="number" value="00079" />
-      <option name="presentableId" value="LOCAL-00079" />
-      <option name="project" value="LOCAL" />
-      <updated>1650791809262</updated>
+      <workItem from="1705888046962" duration="15407000" />
+      <workItem from="1705972831399" duration="2728000" />
+      <workItem from="1706058820744" duration="14459000" />
+      <workItem from="1706148455713" duration="12038000" />
+      <workItem from="1706231629612" duration="612000" />
     </task>
     <task id="LOCAL-00080" summary="修改demo模块volecity模板">
       <created>1650960576252</created>
@@ -1289,11 +1523,46 @@
       <option name="project" value="LOCAL" />
       <updated>1705654351340</updated>
     </task>
-    <option name="localTasksCounter" value="124" />
+    <task id="LOCAL-00124" summary="修改demo模块volecity模板">
+      <created>1705913452125</created>
+      <option name="number" value="00124" />
+      <option name="presentableId" value="LOCAL-00124" />
+      <option name="project" value="LOCAL" />
+      <updated>1705913452126</updated>
+    </task>
+    <task id="LOCAL-00125" summary="修改demo模块volecity模板">
+      <created>1706066216321</created>
+      <option name="number" value="00125" />
+      <option name="presentableId" value="LOCAL-00125" />
+      <option name="project" value="LOCAL" />
+      <updated>1706066216322</updated>
+    </task>
+    <task id="LOCAL-00126" summary="修改demo模块volecity模板">
+      <created>1706085127721</created>
+      <option name="number" value="00126" />
+      <option name="presentableId" value="LOCAL-00126" />
+      <option name="project" value="LOCAL" />
+      <updated>1706085127722</updated>
+    </task>
+    <task id="LOCAL-00127" summary="修改demo模块volecity模板">
+      <created>1706164276065</created>
+      <option name="number" value="00127" />
+      <option name="presentableId" value="LOCAL-00127" />
+      <option name="project" value="LOCAL" />
+      <updated>1706164276066</updated>
+    </task>
+    <task id="LOCAL-00128" summary="修改demo模块volecity模板">
+      <created>1706170698435</created>
+      <option name="number" value="00128" />
+      <option name="presentableId" value="LOCAL-00128" />
+      <option name="project" value="LOCAL" />
+      <updated>1706170698435</updated>
+    </task>
+    <option name="localTasksCounter" value="129" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="1116022000" />
+    <option name="totallyTimeSpent" value="1146367000" />
   </component>
   <component name="TodoView" selected-index="1">
     <todo-panel id="selected-file">
@@ -1308,33 +1577,33 @@
     <frame x="-8" y="-8" width="1456" height="876" extended-state="6" />
     <layout>
       <window_info anchor="right" id="Palette" order="3" />
-      <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.21531792" side_tool="true" weight="0.25547445" />
-      <window_info anchor="bottom" id="Application Servers" order="11" weight="0.32846716" />
-      <window_info anchor="right" id="Maven Projects" order="8" visible="true" weight="0.081647396" />
-      <window_info anchor="bottom" id="Database Changes" order="8" show_stripe_button="false" />
-      <window_info id="Capture Tool" order="7" />
-      <window_info id="Designer" order="2" />
-      <window_info anchor="right" id="Database" order="5" weight="0.32875723" />
-      <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
-      <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
-      <window_info id="UI Designer" order="4" />
-      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49927744" weight="0.30072993" />
       <window_info anchor="bottom" id="TODO" order="6" weight="0.27445257" />
-      <window_info anchor="bottom" id="Messages" order="12" weight="0.3240876" />
       <window_info anchor="right" id="Palette&#9;" order="6" />
       <window_info id="Image Layers" order="3" />
       <window_info anchor="bottom" id="Java Enterprise" order="13" weight="0.329927" />
       <window_info anchor="right" id="Capture Analysis" order="4" />
+      <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.21531792" side_tool="true" weight="0.25547445" />
+      <window_info anchor="bottom" id="Application Servers" order="11" weight="0.32846716" />
+      <window_info anchor="right" id="Maven Projects" order="8" visible="true" weight="0.13872832" />
+      <window_info anchor="bottom" id="Database Changes" order="8" show_stripe_button="false" />
       <window_info anchor="bottom" id="Version Control" order="9" sideWeight="0.6806358" weight="0.15474452" />
-      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.7846821" weight="0.29489052" />
+      <window_info anchor="bottom" id="Run" order="2" sideWeight="0.7846821" weight="0.4029197" />
       <window_info anchor="bottom" id="Terminal" order="7" weight="0.270073" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.21387284" />
+      <window_info id="Capture Tool" order="7" />
+      <window_info id="Designer" order="2" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.27528903" />
       <window_info id="Web" order="6" side_tool="true" />
-      <window_info anchor="bottom" id="Find" order="1" sideWeight="0.57947975" weight="0.22919708" />
+      <window_info anchor="right" id="Database" order="5" weight="0.32875723" />
+      <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
+      <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
+      <window_info id="UI Designer" order="4" />
       <window_info anchor="right" id="Theme Preview" order="7" />
       <window_info id="Favorites" order="5" side_tool="true" />
+      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49927744" weight="0.43065694" />
+      <window_info anchor="bottom" id="Messages" order="12" weight="0.3240876" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
+      <window_info anchor="bottom" id="Find" order="1" sideWeight="0.57947975" weight="0.2671533" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="2" weight="0.25" />
@@ -1425,16 +1694,20 @@
           <properties />
           <option name="timeStamp" value="211" />
         </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-method">
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java</url>
+          <line>361</line>
+          <properties />
+          <option name="timeStamp" value="486" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java</url>
-          <line>114</line>
-          <properties class="cn.tianlong.tlobject.network.client.websocket.TLSocketClientAgentPool" method="addServer">
-            <option name="EMULATED" value="true" />
-          </properties>
-          <option name="timeStamp" value="476" />
+          <line>321</line>
+          <properties />
+          <option name="timeStamp" value="488" />
         </line-breakpoint>
       </breakpoints>
-      <option name="time" value="481" />
+      <option name="time" value="490" />
     </breakpoint-manager>
   </component>
   <component name="antWorkspaceConfiguration">
@@ -1442,176 +1715,6 @@
     <option name="FILTER_TARGETS" value="false" />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/moduleFactory_config.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="258">
-          <caret line="137" selection-start-line="137" selection-end-line="137" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="150">
-          <caret line="6" column="78" selection-start-line="6" selection-start-column="67" selection-end-line="6" selection-end-column="78" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/log/common/src/main/java/cn/tianlong/tlobject/modules/TLSimpleLog.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-175">
-          <caret line="9" column="38" selection-start-line="9" selection-start-column="38" selection-end-line="9" selection-end-column="38" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/log/common/src/main/java/cn/tianlong/tlobject/modules/TLBaseLog.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-1750">
-          <caret line="11" column="22" selection-start-line="11" selection-start-column="22" selection-end-line="11" selection-end-column="22" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/web/pom.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/pom.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/pom.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-75" />
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/network-server-jetty/pom.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="275">
-          <caret line="11" column="39" selection-start-line="11" selection-start-column="16" selection-end-line="11" selection-end-column="39" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="uml://MAVEN/cn.tianlong.tlobject:tlobject-demo:1.0">
-      <provider selected="true" editor-type-id="UmlEditorProvider">
-        <state>
-          <ID>MAVEN</ID>
-          <OriginalElement>cn.tianlong.tlobject:tlobject-demo:1.0</OriginalElement>
-          <nodes>
-            <node x="" y="">cn.tianlong.tlobject:tlobject-demo:1.0</node>
-          </nodes>
-          <notes />
-          <edges />
-          <settings layout="Hierarchic Group" zoom="1.0" x="69.0" y="18.0" />
-          <SelectedNodes />
-          <Categories />
-          <SCOPE>All</SCOPE>
-          <VISIBILITY>All</VISIBILITY>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/network/server/server.iml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/pom.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="511">
-          <caret line="27" column="25" selection-start-line="27" selection-start-column="25" selection-end-line="27" selection-end-column="25" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/pom.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/.gitignore">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="100">
-          <caret line="4" column="4" selection-start-line="4" selection-start-column="4" selection-end-line="4" selection-end-column="4" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/tomcatserver/log_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="175">
-          <caret line="7" column="30" lean-forward="true" selection-start-line="7" selection-start-column="30" selection-end-line="7" selection-end-column="30" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/web/target/demo-web/WEB-INF/web.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="581">
-          <caret line="35" column="36" selection-start-line="35" selection-start-column="36" selection-end-line="35" selection-end-column="36" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/target/classes/conf/demo/tomcatserver/log4j2.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/web/target/demo-web/index.html">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/web/target/demo-web/WEB-INF/democonf/moduleFactory_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="388">
-          <caret line="43" column="22" selection-start-line="43" selection-start-column="22" selection-end-line="43" selection-end-column="22" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/web/target/demo-web/WEB-INF/democonf/log4j2.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="25">
-          <caret line="3" column="30" selection-start-line="3" selection-start-column="30" selection-end-line="3" selection-end-column="30" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/server/startTomcat.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="481">
-          <caret line="36" selection-start-line="36" selection-end-line="36" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWWebSite.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="122">
-          <caret line="77" selection-start-line="77" selection-end-line="77" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="25">
-          <caret line="81" selection-start-line="81" selection-end-line="81" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/tlobject/cn.tianlong.tlobject.network_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="271">
-          <caret line="23" selection-start-line="22" selection-start-column="7" selection-end-line="23" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="jar://$MAVEN_REPOSITORY$/org/apache/tomcat/embed/tomcat-embed-core/9.0.35/tomcat-embed-core-9.0.35.jar!/org/apache/catalina/Context.class">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="100">
-          <caret line="7" column="7" selection-start-line="7" selection-start-column="7" selection-end-line="7" selection-end-column="7" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="jar://$MAVEN_REPOSITORY$/org/eclipse/jetty/jetty-server/9.4.38.v20210224/jetty-server-9.4.38.v20210224.jar!/org/eclipse/jetty/server/handler/ContextHandler.class">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="152">
-          <caret line="79" column="13" selection-start-line="79" selection-start-column="13" selection-end-line="79" selection-end-column="13" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="jar://$MAVEN_REPOSITORY$/org/eclipse/jetty/jetty-servlet/9.4.38.v20210224/jetty-servlet-9.4.38.v20210224.jar!/org/eclipse/jetty/servlet/ServletContextHandler.class">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="275">
-          <caret line="65" column="48" selection-start-line="65" selection-start-column="48" selection-end-line="65" selection-end-column="48" />
-        </state>
-      </provider>
-    </entry>
     <entry file="jar://$MAVEN_REPOSITORY$/javax/servlet/javax.servlet-api/4.0.1/javax.servlet-api-4.0.1.jar!/javax/servlet/GenericServlet.class">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-275">
@@ -1623,11 +1726,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="399">
           <caret line="100" column="1" selection-start-line="20" selection-end-line="100" selection-end-column="1" />
-          <folding>
-            <element signature="imports" expanded="true" />
-            <element signature="e#1433#1434#0" expanded="true" />
-            <element signature="e#1475#1476#0" expanded="true" />
-          </folding>
         </state>
       </provider>
     </entry>
@@ -1663,11 +1761,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="25">
           <caret line="123" column="34" selection-start-line="123" selection-start-column="34" selection-end-line="123" selection-end-column="34" />
-          <folding>
-            <element signature="e#1748#1749#0" expanded="true" />
-            <element signature="e#1789#1790#0" expanded="true" />
-            <element signature="method#createThreadPool#0;class#TLJettyServer#0" />
-          </folding>
         </state>
       </provider>
     </entry>
@@ -1713,99 +1806,267 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="165">
-          <caret line="221" column="19" selection-start-line="221" selection-start-column="19" selection-end-line="221" selection-end-column="19" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="113">
-          <caret line="369" column="79" selection-start-line="369" selection-start-column="79" selection-end-line="369" selection-end-column="79" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/network/proxy/src/main/java/cn/tianlong/tlobject/network/proxy/TLHttpProxy.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="272">
-          <caret line="119" column="56" lean-forward="true" selection-start-line="119" selection-start-column="56" selection-end-line="119" selection-end-column="56" />
+        <state relative-caret-position="25">
+          <caret line="119" column="56" selection-start-line="119" selection-start-column="56" selection-end-line="119" selection-end-column="56" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLNetSession.java">
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="140">
-          <caret line="25" column="41" selection-start-line="25" selection-start-column="41" selection-end-line="25" selection-end-column="41" />
+        <state relative-caret-position="340">
+          <caret line="178" column="22" lean-forward="true" selection-start-line="178" selection-start-column="22" selection-end-line="178" selection-end-column="22" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLBaseWebSocketSendFile.java">
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="197">
-          <caret line="90" column="84" selection-start-line="90" selection-start-column="84" selection-end-line="90" selection-end-column="84" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLReUsedModulePool.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="761">
-          <caret line="71" column="13" lean-forward="true" selection-start-line="71" selection-start-column="13" selection-end-line="71" selection-end-column="13" />
-        </state>
+        <state relative-caret-position="-225" />
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLReUsedSingleThreadPoolGroup.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="363">
-          <caret line="21" column="22" lean-forward="true" selection-start-line="21" selection-start-column="21" selection-end-line="21" selection-end-column="39" />
+        <state relative-caret-position="375">
+          <caret line="21" column="39" selection-start-line="21" selection-start-column="21" selection-end-line="21" selection-end-column="39" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/IObject.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="300">
+          <caret line="12" column="10" selection-start-line="12" selection-start-column="10" selection-end-line="12" selection-end-column="10" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="jar://$MAVEN_REPOSITORY$/com/squareup/okhttp3/okhttp/3.12.12/okhttp-3.12.12.jar!/okhttp3/OkHttpClient.class">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="184">
+          <caret line="260" column="21" selection-start-line="260" selection-start-column="21" selection-end-line="260" selection-end-column="21" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/wife_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="225">
+          <caret line="9" column="14" selection-start-line="9" selection-start-column="14" selection-end-line="9" selection-end-column="14" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/socketClientAgentPool_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-300" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/moduleFactory_client_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-286" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/client/pom.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="91">
+          <caret line="34" column="9" selection-start-line="34" selection-start-column="9" selection-end-line="34" selection-end-column="9" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/DemoCommon.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="125">
+          <caret line="7" column="22" selection-start-line="7" selection-start-column="22" selection-end-line="7" selection-end-column="22" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverStartup.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="75">
+          <caret line="4" column="13" selection-start-line="4" selection-start-column="13" selection-end-line="4" selection-end-column="13" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/moduleFactory_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-337" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientStartup.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="439">
+          <caret line="26" column="24" lean-forward="true" selection-start-line="26" selection-start-column="24" selection-end-line="26" selection-end-column="24" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientInterfaceModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="82">
+          <caret line="51" column="53" selection-start-line="51" selection-start-column="53" selection-end-line="51" selection-end-column="53" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="289">
-          <caret line="161" selection-start-line="161" selection-end-line="182" selection-end-column="5" />
+        <state relative-caret-position="198">
+          <caret line="237" column="44" selection-start-line="237" selection-start-column="44" selection-end-line="237" selection-end-column="44" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="146">
+          <caret line="75" column="18" selection-start-line="75" selection-start-column="18" selection-end-line="75" selection-end-column="18" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLBaseWebSocketSendFile.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="397">
+          <caret line="125" column="16" lean-forward="true" selection-start-line="125" selection-start-column="16" selection-end-line="125" selection-end-column="16" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientInterfaceModule_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="182">
+          <caret line="8" column="37" selection-start-line="8" selection-start-column="37" selection-end-line="8" selection-end-column="37" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="102">
+          <caret line="361" selection-start-line="361" selection-end-line="361" />
           <folding>
-            <element signature="method#despatchMsgBySessionPool#1;class#TLClientMsgHandler#0" />
+            <element signature="docComment;class#TLWebSocketClient#0" />
+            <element signature="e#1476#1477#0" expanded="true" />
+            <element signature="e#1503#1504#0" expanded="true" />
+            <element signature="method#setModuleParams#0;class#TLWebSocketClient#0" />
+            <element signature="method#init#0;class#TLWebSocketClient#0" />
+            <element signature="method#sendFileError#0;class#TLWebSocketClient#0" />
+            <element signature="method#connect#0;class#TLWebSocketClient#0" />
+            <element signature="method#send#0;class#TLWebSocketClient#0" />
+            <element signature="method#binarySend#0;class#TLWebSocketClient#0" />
+            <element signature="method#close#0;class#TLWebSocketClient#0" />
+            <element signature="method#setResultFor#0;class#TLWebSocketClient#0" />
+            <element signature="method#webSocketSend#0;class#TLWebSocketClient#0" />
+            <element signature="method#webSocketSend#1;class#TLWebSocketClient#0" />
+            <element signature="method#IfQueueCanWrite#0;class#TLWebSocketClient#0" />
+            <element signature="method#IfQueueCanWrite_old#0;class#TLWebSocketClient#0" />
+            <element signature="method#MyWebSocketListener#0;class#MyWebSocketListener#0;class#TLWebSocketClient#0" />
+            <element signature="method#onOpen#0;class#MyWebSocketListener#0;class#TLWebSocketClient#0" />
+            <element signature="method#onClosed#0;class#MyWebSocketListener#0;class#TLWebSocketClient#0" />
+            <element signature="method#onFailure#0;class#MyWebSocketListener#0;class#TLWebSocketClient#0" />
+            <element signature="method#binarySend#0;class#binarySendModule#0;class#TLWebSocketClient#0" />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java">
+    <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClientAgent.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="660">
-          <caret line="127" column="73" selection-start-line="127" selection-start-column="73" selection-end-line="127" selection-end-column="73" />
-          <folding>
-            <element signature="docComment;class#TLBaseObject#0" />
-            <element signature="method#createMsg#0;class#TLBaseObject#0" />
-            <element signature="method#putMsg#0;class#TLBaseObject#0" />
-            <element signature="docComment;method#putMsgNoWait#0;class#TLBaseObject#0" />
-          </folding>
+        <state relative-caret-position="38">
+          <caret line="214" selection-start-line="214" selection-end-line="214" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="192">
-          <caret line="320" column="26" selection-start-line="320" selection-start-column="26" selection-end-line="320" selection-end-column="26" />
+        <state relative-caret-position="102">
+          <caret line="321" selection-start-line="321" selection-end-line="321" />
           <folding>
             <element signature="method#setModuleParams#0;class#TLSocketClientAgentPool#0" />
-            <element signature="method#runStartMsg#0;class#TLSocketClientAgentPool#0" />
-            <element signature="method#connectToServer#0;class#TLSocketClientAgentPool#0" />
-            <element signature="method#addServer#0;class#TLSocketClientAgentPool#0" />
             <element signature="method#connectServer#0;class#TLSocketClientAgentPool#0" />
-            <element signature="method#receiveBinary#0;class#TLSocketClientAgentPool#0" />
-            <element signature="method#receiveFileOver#0;class#TLSocketClientAgentPool#0" />
             <element signature="method#putToServerAndWait#0;class#TLSocketClientAgentPool#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLWebSocketReceiveFileModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="143">
+          <caret line="192" column="64" selection-start-line="192" selection-start-column="64" selection-end-line="192" selection-end-column="64" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/webSocketBinaryModule_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-341" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/webSocketReceiveFileModule_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="275">
+          <caret line="11" column="36" selection-start-line="11" selection-start-column="36" selection-end-line="11" selection-end-column="36" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLReUsedModulePool.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state>
+          <caret line="29" column="19" selection-start-line="29" selection-start-column="19" selection-end-line="29" selection-end-column="19" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLNetSession.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1900">
+          <caret line="93" column="57" selection-start-line="93" selection-start-column="57" selection-end-line="93" selection-end-column="57" />
+          <folding>
+            <element signature="e#2903#2904#0" expanded="true" />
+            <element signature="e#2940#2941#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLSessionData.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-2385">
+          <caret line="15" column="13" selection-start-line="15" selection-start-column="13" selection-end-line="15" selection-end-column="13" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="jar://C:/Program Files (x86)/Java/jdk1.8.0_102/src.zip!/java/lang/Thread.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="166">
+          <caret line="1945" column="16" selection-start-line="1945" selection-start-column="16" selection-end-line="1945" selection-end-column="16" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1025">
+          <caret line="53" column="37" selection-start-line="53" selection-start-column="37" selection-end-line="53" selection-end-column="37" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="3025">
+          <caret line="121" column="17" selection-start-line="121" selection-start-column="17" selection-end-line="121" selection-end-column="17" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLThreadPool.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2025">
+          <caret line="89" column="45" selection-start-line="89" selection-start-column="45" selection-end-line="89" selection-end-column="45" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="600">
+          <caret line="41" column="53" selection-start-line="41" selection-start-column="53" selection-end-line="41" selection-end-column="53" />
+          <folding>
+            <element signature="docComment;class#TLBaseObject#0" />
+            <element signature="method#createMsg#0;class#TLBaseObject#0" />
+            <element signature="docComment;method#putMsgNoWait#0;class#TLBaseObject#0" />
           </folding>
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="306">
-          <caret line="1263" column="5" lean-forward="true" selection-start-line="1263" selection-start-column="5" selection-end-line="1263" selection-end-column="5" />
+        <state relative-caret-position="5400">
+          <caret line="1264" column="26" selection-start-line="1264" selection-start-column="26" selection-end-line="1264" selection-end-column="26" />
           <folding>
             <element signature="docComment;class#TLBaseModule#0" />
             <element signature="e#2773#2919#0" />
@@ -1853,8 +2114,6 @@
             <element signature="e#32751#32781#0" />
             <element signature="e#32920#33114#0" />
             <element signature="e#33119#33768#0" />
-            <element signature="class#33298:33576" />
-            <element signature="method#run#0;class#33298:33576" />
             <element signature="e#33773#33954#0" />
             <element signature="e#33959#34577#0" />
             <element signature="e#34582#38178#0" />
@@ -1876,38 +2135,36 @@
             <element signature="e#44912#45234#0" />
             <element signature="e#45239#45684#0" />
             <element signature="e#45690#46140#0" />
-            <element signature="e#46146#46899#0" />
             <element signature="e#46905#47045#0" />
             <element signature="e#46905#47401#0" />
-            <element signature="e#47407#47602#0" />
             <element signature="e#47607#48223#0" />
             <element signature="e#48228#49942#0" />
             <element signature="e#49947#49974#0" />
-            <element signature="e#51091#51425#0" />
-            <element signature="e#51485#51486#0" expanded="true" />
-            <element signature="e#51557#51558#0" expanded="true" />
-            <element signature="e#51677#52009#0" />
-            <element signature="e#52015#52235#0" />
-            <element signature="e#52241#52370#0" />
-            <element signature="e#52376#52643#0" />
-            <element signature="e#52649#53560#0" />
-            <element signature="e#53566#54054#0" />
-            <element signature="e#54222#54688#0" />
-            <element signature="e#54693#54854#0" />
-            <element signature="e#55007#55172#0" />
-            <element signature="e#55177#55327#0" />
-            <element signature="e#55486#55653#0" />
-            <element signature="e#55658#55831#0" />
-            <element signature="e#55837#56028#0" />
-            <element signature="e#56033#56212#0" />
-            <element signature="e#56218#56405#0" />
-            <element signature="e#56410#56582#0" />
-            <element signature="e#56588#58239#0" />
-            <element signature="e#58244#58614#0" />
-            <element signature="e#58619#58923#0" />
-            <element signature="e#58929#59143#0" />
-            <element signature="e#59149#59391#0" />
           </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2050">
+          <caret line="98" column="18" selection-start-line="98" selection-start-column="18" selection-end-line="98" selection-end-column="18" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="225">
+          <caret line="9" column="26" selection-start-line="9" selection-start-column="26" selection-end-line="9" selection-end-column="26" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/service_moduleFactory_config.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="225">
+          <caret line="9" column="12" lean-forward="true" selection-start-line="9" selection-start-column="12" selection-end-line="9" selection-end-column="12" />
         </state>
       </provider>
     </entry>
