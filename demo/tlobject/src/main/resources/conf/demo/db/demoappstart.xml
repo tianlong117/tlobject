@@ -20,7 +20,7 @@
         <!-- 第二次使用缓存 -->
         <msg action="#sleep" sleepTime="20000"/>
         <msg action="#dbview"    destination="dbDemo"   username="dong" />
-        <msg action="queryTb"    destination="userModle"   username="dong" />
+        <msg action="#queryTb"    destination="userModle"   username="dong" />
         <msg action="#transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
         <msg action="#queryByTable"  username="dddd3"/>
         <msg action="#queryByTable"  username="yyyy5"/>

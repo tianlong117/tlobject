@@ -68,21 +68,23 @@ public class testMain extends TLAppStartUp {
 
     @Override
     protected void run() {
-      //   testTask();
+    //    testTask();
        // testTask1();
-        testTask2();
+       testTask2();
+      //  testTask3();
     }
 
     private void testTask2() {
         ArrayList<TLMsg> msgGroup =new ArrayList<>();
         for(int i=6 ; i<12 ;i=i+2){
-            TLMsg msg =createMsg().setAction("testtask").setParam("time",i);
+            TLMsg msg =createMsg().setAction("testtask")
+                    .setParam("time",i);
+            msg.setSystemParam(INTHREADPOOL ,true);
             msgGroup.add(msg) ;
         }
-        TLMsg returnMsg = putMsgGroupByThread(msgGroup,20*1000);
+        TLMsg returnMsg = putMsgGroupByThread(msgGroup,7*1000);
         ArrayList<TLMsg> resultMsg = (ArrayList<TLMsg>) returnMsg.getParam(RESULT);
-        for (TLMsg msg: resultMsg
-             ) {
+        for (TLMsg msg: resultMsg ) {
             TLMsgUtils.printMsg(msg);
         }
     }
@@ -95,15 +97,41 @@ public class testMain extends TLAppStartUp {
 
     private void testTask() {
         TLMsg msg =createMsg().setAction("testtask")
-                .setWaitFlag(false)
-                .setSystemParam(TASKWAITTIME,60*1000)
-                .setSystemParam(INTHREADPOOL,true);
-        TLMsg returnMsg =putMsg(name,msg);
-        println(Thread.currentThread().getName()+" tase result : "+ returnMsg.getStringParam(RESULT,""));
+                .setSystemParam(IFTASKRESULT,true)    //通过 msg 返回 task 结果
+                .setWaitFlag(false) ;
+             msg .setSystemParam(TASKWAITTIME,10*1000);
+             msg.setSystemParam(INTHREADPOOL,true);
+        TLMsg returnMsg =putMsg(msg);
+        if(!returnMsg.isNull(TASKRESULTTIMEOUT))
+        {
+            println(" main is time out   ,and have not wait task ");
+            return;
+        }
+        println(Thread.currentThread().getName()+" task result : "+ returnMsg.getStringParam(RESULT,""));
         println(Thread.currentThread().getName()+" main session run over");
 
     }
+    private void testTask3() {
+        TLMsg msg =createMsg().setAction("testtask")
+                .setSystemParam(IFTASKRESULT,true)    //通过 msg 返回 task 结果
+                .setWaitFlag(false) ;
+        msg.setSystemParam(INTHREADPOOL,true);
+        TLMsg returnMsg =putMsg(name,msg);
+        ThreadTask task = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
+        boolean over  ;
+        do {
+            try {
+                sleep(1000);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            over =task.isThreadOver();
+        }  while (!over) ;
+       TLMsg  mresult = (TLMsg) msg.getSystemParam(TASKRESULT); //通过 msg 返回 task 结果
+        println(Thread.currentThread().getName()+" task result : "+ mresult.getStringParam(RESULT,""));
+        println(Thread.currentThread().getName()+" main session run over");
 
+    }
     private void testMsg() {
         TLMsg msg =createMsg();
         Double i =100D;
