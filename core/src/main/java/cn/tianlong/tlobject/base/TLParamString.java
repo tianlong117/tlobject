@@ -62,6 +62,7 @@ public interface TLParamString {
     final String MSG_P_MODULE= "module";
     final String MSG_P_PARAMS= "params";
     final String MSG_P_SYSTEMARGS= "systemArgs";
+    final String MSG_P_TOWHO= "toWho";
 
     final String FACTORY_ADDFACTORY = "addFactory";
     final String FACTORY_GETMODULE = "getModule";
@@ -141,6 +142,9 @@ public interface TLParamString {
     final String IGNOREBEFORE = "ignoreBefore";
     final String IGNOREAFTER = "ignoreAfter";
     final String TASKRESULTFOR = "taskResultFor";
+    final String IFTASKRESULT = "iftaskResult";
+    final String TASKRESULT = "taskResult";
+    final String TASKRESULTTIMEOUT = "taskResultTimeout";
     final String TASKRESULTACTION = "taskResultAction";
     final String TASKRESULTMSG = "taskResultMsg";
     final String TASKRESESSIONDATA= "taskSessionData";

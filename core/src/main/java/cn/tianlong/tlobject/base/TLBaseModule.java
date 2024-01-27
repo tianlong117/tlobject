@@ -1143,6 +1143,17 @@ public abstract class TLBaseModule extends TLBaseObject {
         return createMsg().setParam(RESULT ,false);
     }
 
+    public TLMsg putMsg( TLMsg msg)
+    {
+        String   destination =msg.getDestination();
+        if(destination !=null)
+           return putMsg(destination,msg);
+        IObject toWho = (IObject) msg.getAndRemoveSystemParam(MSG_P_TOWHO);
+        if(toWho !=null)
+            return putMsg(toWho,msg);
+        return putMsg(this,msg);
+    }
+
     public TLMsg putMsg(String moduleName, TLMsg msg) {
         IObject module ;
         if((boolean)(msg.getSystemParam(IFLOADMODULE,true)) ==true)
@@ -1200,7 +1211,8 @@ public abstract class TLBaseModule extends TLBaseObject {
         for(int j=0 ; j < msgList.size() ; j++)
         {
             TLMsg msg = msgList.get(j);
-            TLMsg returnMsg= putMsg(this,msg.setWaitFlag(false));
+            msg.setWaitFlag(false);
+            TLMsg returnMsg= putMsg(msg);
             if(returnMsg !=null && !returnMsg.isNull(THREADPOOL_TASK))
             {
                 ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
@@ -1210,20 +1222,19 @@ public abstract class TLBaseModule extends TLBaseObject {
                 threadTaskList.add(j,null);
             resultMsgList.add(j,null);
         }
-        boolean  ifDoWhile=true ;
-        if(waitTime >0)
-        {
-            try {
-                sleep(waitTime);
-                ifDoWhile = false ;
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-        }
         int resultNumber =0 ;
+        Long runTime =System.currentTimeMillis();
+        Long endTime  =runTime+waitTime ;
+        boolean ifTimeOut =false ;
         do {
             for(int i =0 ; i<msgNumber  ; i++)
             {
+                Long nowTime =System.currentTimeMillis();
+                if( nowTime > endTime)
+                {
+                    ifTimeOut =true ;
+                    break;
+                }
                 ThreadTask task = threadTaskList.get(i);
                 if(task ==null)
                     continue;
@@ -1236,7 +1247,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                     resultNumber ++ ;
                 }
             }
-        }while (resultNumber < msgNumber && ifDoWhile ==true);
+        }while (resultNumber < msgNumber && ifTimeOut ==false);
         return createMsg().setParam(RESULT,resultMsgList);
     }
     /**

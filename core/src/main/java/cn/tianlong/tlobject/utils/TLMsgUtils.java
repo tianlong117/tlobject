@@ -54,6 +54,8 @@ public class TLMsgUtils {
         msgSystemArgs.add(TASKWAITTIME);
         msgSystemArgs.add(TASKMAINTHREAD);
         msgSystemArgs.add(TASKDELAYTIME);
+        msgSystemArgs.add(IFTASKRESULT);
+        msgSystemArgs.add(MSG_P_TOWHO);
     }
     public static Gson getGson ()
     {

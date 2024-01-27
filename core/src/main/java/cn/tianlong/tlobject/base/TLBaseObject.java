@@ -48,7 +48,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             } catch (InterruptedException e) {
                return threadTask.getResult();
             }
-            return createMsg().setParam(RESULT,false);
+            return createMsg().setParam(TASKRESULTTIMEOUT,true);
         }
     }
     /**  异步put****/
@@ -88,17 +88,20 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         private String taskResultAction ;
         private Thread mainThread ;
         protected Boolean isThreadOver =false ;
+        protected Boolean ifTaskResult =false ;
         public ThreadTask(IObject toWho ,TLMsg msg,IObject fromWho){
             this.toWho=toWho;
             this.msg =msg ;
             this.fromWho=fromWho;
             exceptionMsg = (TLMsg) msg.getSystemParam(EXCEPTIONMSG);
-            if (!msg.systemParamIsNull(TASKMAINTHREAD) && !msg.systemParamIsNull(TASKWAITTIME))
+            if (!msg.systemParamIsNull(TASKMAINTHREAD) )
                 mainThread = (Thread) msg.getAndRemoveSystemParam(TASKMAINTHREAD);
             taskResultFor = (IObject) msg.getAndRemoveSystemParam(TASKRESULTFOR);
             taskResultAction = (String) msg.getAndRemoveSystemParam(TASKRESULTACTION);
             if(taskResultAction==null )
                taskResultMsg = (TLMsg)  msg.getAndRemoveSystemParam(TASKRESULTMSG);
+            if(!msg.systemParamIsNull(IFTASKRESULT))
+               ifTaskResult = (Boolean) msg.getAndRemoveSystemParam(IFTASKRESULT);
             taskSessionData=  msg.getSystemParam(TASKRESESSIONDATA);
         }
        public void run() {
@@ -110,6 +113,8 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                    sleep(time);
                    returnMsg=toWho.getMsg(fromWho,msg);
                }
+               if(ifTaskResult)
+                   msg.setSystemParam(TASKRESULT,returnMsg);
                isThreadOver =true ;
                if(mainThread !=null)
                    mainThread.interrupt();
