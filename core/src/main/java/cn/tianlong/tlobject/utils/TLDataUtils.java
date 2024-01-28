@@ -453,4 +453,29 @@ public class TLDataUtils {
         }
         return parent;
     }
+    public static Map<Object, Map<String, Object>> mapDataToOrder(Map<String, Map<String, Object>> totaldatas) {
+        Map<Object, Map<String, Object>> orderData = new TreeMap<>();
+        orderData.putAll(totaldatas);
+        return orderData;
+    }
+
+    public static List listMapDataByOrder(ArrayList<Object> totaldatas, String param) {
+        Map<Object, Map<String, Object>> orderData = new TreeMap<>();
+        for (int i = 0; i < totaldatas.size(); i++) {
+            Map<String, Object> unit = (Map<String, Object>) totaldatas.get(i);
+            Object value =unit.get(param) ;
+            if(value ==null)
+                continue;
+            String orderParam = value.toString();
+            if (orderData.containsKey(orderParam))
+                orderParam = orderParam + i;
+            orderData.put(orderParam, unit);
+        }
+        List<Map> orderList = new ArrayList<>();
+        for (Map value : orderData.values()) {
+            orderList.add(value);
+        }
+        return orderList;
+    }
+
 }

@@ -15,6 +15,7 @@
     </commonParams>
     <modules>
         <!-- 用户自定义模块 -->
+        <module name="userTableModle" classfile=".db.userTableModle" />
         <module name="dbDemo" classfile=".db.DbDemo" />
         <module name="userModle" classfile=".db.userModle" />
     </modules>

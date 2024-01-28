@@ -105,6 +105,11 @@
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
         <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="false" cacheExptime="2"/>
         <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="false" cacheExptime="2"/>
+
+        <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
+        <table name="user1_copy2" dbtable="user1_copy2" dbserver="dbserver1" sameAsTable="userTable1" />
+        <table name="user1_copy3" dbtable="user1_copy3" dbserver="dbserver1" sameAsTable="userTable1" />
+        <table name="user1_copy4" dbtable="user1_copy4" dbserver="dbserver1" sameAsTable="userTable1" />
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
@@ -123,7 +128,8 @@
 -->
     <triggers>
         <!-- 分表触发器   根据name字段进行分表  tableName：要分的表  splitTables：分表列表 splitKey:分表依据的字段-->
-        <trigger name="userTableSplitTrigger" tableName="userTable" splitTables="userTable1;userTable2" splitKey="name"
+        <trigger name="userTableSplitTrigger" tableName="userTable"
+                 splitTables="userTable2;userTable1;user1_copy1;user1_copy2;user1_copy3;user1_copy4" splitKey="name"
                  delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate"
                  classfile=".UserTableSplitTrigger"/>
         <!-- 检测字段触发器  ，当名字为badname,或者number大于maxNumber时，禁止插入   -->

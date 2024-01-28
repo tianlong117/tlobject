@@ -2,28 +2,29 @@
 <appConfig>
     <startMsg>
         <!-- 演示各种不同的数据库表操作。
-           为偷懒，通过设置在action前增加#来不运行该动作, 因为模块没有该动作。
+           为偷懒，通过设置在Dmsg前增加 D 来不运行该动作, 因为DDmsg 不被解析为消息Dmsg。
           实际应用中还是通过xml语法注释掉,因为通过命名不存在的动作，虽然没有运行该动作，但是模块要运行该动作的前后其他准备。
         -->
-        <msg action="#initDataTb"  destination="dbDemo" />
-        <msg action="#insertTb"     destination="dbDemo"   username="siren" number="99999999" />
-        <msg action="queryByTable"  username="dong1"/>
-        <msg action="#queryResultIsBean" destination="dbDemo" username="dong"/>
-        <msg action="#updateByTable"  username="dong1" number="7777"/>
-        <msg action="#deleteByTable"  username="dong2"/>
-        <msg action="#dbBean"    destination="dbDemo"    />
-        <msg action="#dbview"    destination="dbDemo"   username="dong" waitFlag="false" />
-        <msg action="#dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
-        <msg action="#dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
-        <msg action="#dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
-        <msg action="#dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
+        <Dmsg action="initDataTb"  destination="dbDemo" />
+        <Dmsg action="insertTb"     destination="dbDemo"   username="siren" number="99999999" />
+        <Dmsg action="queryByUserName"  username="dong1"/>  根据username分表，分表查询
+        <msg action="queryByNumber"   number="3"/>    //  不通过分表键，所有表并行查询
+        <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
+        <Dmsg action="updateByTable"  username="dong1" number="7777"/>
+        <Dmsg action="deleteByTable"  username="dong2"/>
+        <Dmsg action="dbBean"    destination="dbDemo"    />
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false" />
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
         <!-- 第二次使用缓存 -->
-        <msg action="#sleep" sleepTime="20000"/>
-        <msg action="#dbview"    destination="dbDemo"   username="dong" />
-        <msg action="#queryTb"    destination="userModle"   username="dong" />
-        <msg action="#transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
-        <msg action="#queryByTable"  username="dddd3"/>
-        <msg action="#queryByTable"  username="yyyy5"/>
-        <msg action="#clearTb"    destination="dbDemo"    />
+        <Dmsg action="sleep" sleepTime="20000"/>
+        <Dmsg action="dbview"    destination="dbDemo"   username="dong" />
+        <Dmsg action="queryTb"    destination="userModle"   username="dong" />
+        <Dmsg action="transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
+        <Dmsg action="queryByTable"  username="dddd3"/>
+        <Dmsg action="queryByTable"  username="yyyy5"/>
+        <Dmsg action="clearTb"    destination="dbDemo"    />
     </startMsg>
 </appConfig>

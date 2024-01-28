@@ -5,9 +5,8 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,8 +47,11 @@ public class startup extends TLAppStartUp {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
-            case "queryByTable":
-                queryByTable( fromWho,  msg);
+            case "queryByUserName":
+                queryByUserName( fromWho,  msg);
+                break;
+            case "queryByNumber":
+                queryByNumber( fromWho,  msg);
                 break;
             case "updateByTable":
                 updateTable( fromWho,  msg);
@@ -63,7 +65,20 @@ public class startup extends TLAppStartUp {
         return returnMsg;
     }
 
-    private void queryByTable(Object fromWho, TLMsg msg) {
+    private void queryByNumber(Object fromWho, TLMsg msg) {
+        System.out.println("查询 number="+msg.getParam("number"));
+        TLMsg returnMsg =putMsg("userTableModle",msg.setAction("queryByNumber"));
+        List datas =  returnMsg.getListParam(RESULT,null);
+        if(datas ==null || datas.isEmpty())
+        {
+            System.out.println("没有数据");
+            return;
+        }
+        System.out.println("查询结果:");
+        TLMsgUtils.printList(datas);
+    }
+
+    private void queryByUserName(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
         TLMsg returnMsg =putMsg("dbDemo",msg.setAction("queryTb"));
         Map<String,Object> datas =  returnMsg.getMapParam(RESULT,null);
@@ -77,18 +92,18 @@ public class startup extends TLAppStartUp {
     }
     private void updateTable(Object fromWho, TLMsg msg) {
         System.out.println(" --------- 修改前 ---------------");
-        queryByTable( fromWho, msg);
+        queryByUserName( fromWho, msg);
         putMsg("dbDemo",msg.setAction("updateTb"));
         System.out.println(" --------- 修改后 ---------------");
-        queryByTable( fromWho, msg);
+        queryByUserName( fromWho, msg);
     }
 
     private void deleteByTable(Object fromWho, TLMsg msg) {
         System.out.println(" --------- 删除前 ---------------");
-        queryByTable( fromWho, msg);
+        queryByUserName( fromWho, msg);
         putMsg("dbDemo",msg.setAction("deleteTb"));
         System.out.println(" --------- 删除后 ---------------");
-        queryByTable( fromWho, msg);
+        queryByUserName( fromWho, msg);
     }
 
 
