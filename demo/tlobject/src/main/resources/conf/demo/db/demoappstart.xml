@@ -2,7 +2,7 @@
 <appConfig>
     <startMsg>
         <!-- 演示各种不同的数据库表操作。
-           为偷懒，通过设置在Dmsg前增加 D 来不运行该动作, 因为DDmsg 不被解析为消息Dmsg。
+           为偷懒，通过设置在Dmsg前增加 D 来不运行该动作, 因为Dmsg 不被解析为消息Dmsg。
           实际应用中还是通过xml语法注释掉,因为通过命名不存在的动作，虽然没有运行该动作，但是模块要运行该动作的前后其他准备。
         -->
         <Dmsg action="initDataTb"  destination="dbDemo" />
