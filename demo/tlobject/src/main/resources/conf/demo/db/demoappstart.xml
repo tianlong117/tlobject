@@ -8,7 +8,7 @@
         <Dmsg action="initDataTb"  destination="dbDemo" />
         <Dmsg action="insertTb"     destination="dbDemo"   username="siren" number="99999999" />
         <Dmsg action="queryByUserName"  username="dong1"/>  根据username分表，分表查询
-        <msg action="queryByNumber"   number="3"/>    //  不通过分表键，所有表并行查询
+        <msg action="queryByNumber"   number="3" ifCache="true"/>    //  不通过分表键，所有表并行查询，查询进行缓存
         <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
         <Dmsg action="updateByTable"  username="dong1" number="7777"/>
         <Dmsg action="deleteByTable"  username="dong2"/>
@@ -22,6 +22,8 @@
         <Dmsg action="sleep" sleepTime="20000"/>
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" />
         <Dmsg action="queryTb"    destination="userModle"   username="dong" />
+        <msg action="queryByNumber"   number="3"  ifCache="true"/>    //  不通过分表键，所有表并行查询 .查询进行缓存
+        <msg action="queryByNumber"   number="3" ifCache="false" />    //  不通过分表键，所有表并行查询 .连续运行两次
         <Dmsg action="transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
         <Dmsg action="queryByTable"  username="dddd3"/>
         <Dmsg action="queryByTable"  username="yyyy5"/>

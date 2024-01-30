@@ -35,7 +35,9 @@ public class userTableModle extends TLBaseTableModle {
     }
 
     private TLMsg queryByNumber(Object fromWho, TLMsg msg) {
+        Long startTime  =moduleFactory.getRunTime(false);
         int number=TLDataUtils.parseInt(msg.getParam("number"),0);
+        boolean  ifCache =TLDataUtils.parseBoolean(msg.getAndRemoveParam("ifCache"),false);
         String sql = "select * from  [table]  where  number = ? ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("number", number);
@@ -43,9 +45,13 @@ public class userTableModle extends TLBaseTableModle {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_ORDERBY,"name")
-       //         .setParam("cacheName","usertable_number")
                 .setParam(DB_P_PARAMS, sqlparams);
-        return  putMsg(table, querymsg);
+        if(ifCache)
+            querymsg.setParam("cacheName","usertable_number");
+      TLMsg returnMsg =  putMsg(table, querymsg);
+        Long endTime  =moduleFactory.getRunTime(false);
+        println("run time :"+ (endTime-startTime));
+        return  returnMsg ;
     }
 
 }
