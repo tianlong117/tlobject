@@ -75,7 +75,7 @@ public class TLExeclToDbModule extends TLBaseTableModle {
                 }
             }
         }
-        TLMsg insertmsg = new TLMsg().setAction(DB_BATCh)
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, bparams);
         TLMsg returnMsg = putMsg(table, insertmsg);

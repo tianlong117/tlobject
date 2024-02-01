@@ -161,7 +161,7 @@ public class TLDBUtilis {
                 j++ ;
             }
         }
-        TLMsg insertmsg = new TLMsg().setAction(DB_BATCh)
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, bparams);
        TLMsg resultMsg = table.putMsg(table, insertmsg);

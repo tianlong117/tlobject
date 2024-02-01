@@ -3,19 +3,13 @@ package cn.tianlong.java.demo.db;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.cache.TLMemoryCache;
 import cn.tianlong.tlobject.db.TLDBView;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
-import cn.tianlong.tlobject.db.dbdata.ListInDB;
-import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
-import org.apache.commons.beanutils.BeanUtils;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
 import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
@@ -239,25 +233,25 @@ public class DbDemo extends TLBaseModule {
      * @param msg
      */
     protected void dbBean(Object fromWho, TLMsg msg){
+        String numberStr =msg.getStringParam("number",null);
+        if(numberStr ==null)
+            return  ;
+        int number =Integer.parseInt(numberStr) ;
+        String username =msg.getStringParam("username",null) ;
+        if(username ==null)
+            return  ;
         BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
-        datas.put("name","beanTable");
-        datas.put("number",1);
+        datas.put("name",username);
+        datas.put("number",number);
         datas.put("time",date());
         beanTable.add(datas) ;
-        System.out.println("beanTable插入:");
+        System.out.println("userTable 通过 beanTable 插入:");
         TLMsgUtils.printMap(datas);
-        datas.put("name","tBeanTable");
-        datas.put("number",2);
-        datas.put("time",date());
-        beanTable.add(datas) ;
-        System.out.println("beanTable插入:");
-        TLMsgUtils.printMap(datas);
-      //  datas.clear();
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("name", "tBeanTable");
+        sqlparams.put("name", username);
          ArrayList<Map<String,Object>> result =beanTable.getAll(sqlparams);
-        System.out.println("beanTable查询:");
+        System.out.println("userTable 通过 beanTable 查询:");
         TLMsgUtils.printList(result);
      //   Map<String,Object> alldatas =beanTable.getAllBeanMap(userBean.class);
    //     ArrayList<Object> alldatas =beanTable.getAllBeanList(userBean.class);
@@ -334,7 +328,7 @@ public class DbDemo extends TLBaseModule {
             bparams[i][1] = number;
             bparams[i][2] = date() + 1;
         }
-        TLMsg insertmsg = new TLMsg().setAction(DB_BATCh)
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, bparams);
         putMsg(tb, insertmsg);

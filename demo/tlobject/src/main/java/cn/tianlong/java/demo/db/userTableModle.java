@@ -7,8 +7,12 @@ import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+
+import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 
 /**
  * 创建日期：${Date}${time}
@@ -23,15 +27,40 @@ public class userTableModle extends TLBaseTableModle {
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        TLMsg returnMsg;
+        TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case "queryByNumber":
                 returnMsg=queryByNumber( fromWho,  msg);
+                break;
+            case "batch":
+                batch( fromWho,  msg);
                 break;
             default:
                 returnMsg=null;
         }
         return returnMsg;
+    }
+
+    private void batch(Object fromWho, TLMsg msg) {
+        ArrayList<HashMap<String,Object>> datas =new ArrayList<>() ;
+        String name ="chanp" ;
+        for (int i=2001 ;i<20000 ;i++){
+            LinkedHashMap<String, Object> data =new LinkedHashMap<>();
+            data.put("name",name+i);
+            data.put("number",i+3000);
+            data.put("time",date());
+            datas.add(data);
+        }
+        String sql = "insert into  [table] (name,number,time) values(?,?,?)";
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_PARAMS, datas);
+        Long startTime =System.currentTimeMillis();
+        putMsg(table, insertmsg);
+        System.out.println(" work over ");
+        Long nowTime = System.currentTimeMillis();
+        Long runtime = nowTime - startTime;
+        System.out.println("运行时间：" + runtime);
     }
 
     private TLMsg queryByNumber(Object fromWho, TLMsg msg) {
@@ -47,7 +76,10 @@ public class userTableModle extends TLBaseTableModle {
                 .setParam(DB_P_ORDERBY,"name")
                 .setParam(DB_P_PARAMS, sqlparams);
         if(ifCache)
+        {
             querymsg.setParam("cacheName","usertable_number");
+            println("启动缓存————————");
+        }
       TLMsg returnMsg =  putMsg(table, querymsg);
         Long endTime  =moduleFactory.getRunTime(false);
         println("run time :"+ (endTime-startTime));

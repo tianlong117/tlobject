@@ -395,7 +395,7 @@ public interface TLParamString {
     final String DB_REPLACESQL= "replaceSql";
     final String DB_KEYNAME = "keyName";
     final String DB_P_SQLCONDITION = "sqlCondition";
-    final String DB_BATCh = "batch";
+    final String DB_BATCH = "batch";
     final String DB_FINDALL = "findall";
     final String DB_DELETE = "delete";
     final String DB_DELETERTURN = "deleteReturn";

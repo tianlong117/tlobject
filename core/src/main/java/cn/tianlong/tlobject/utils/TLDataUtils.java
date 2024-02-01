@@ -477,5 +477,22 @@ public class TLDataUtils {
         }
         return orderList;
     }
-
+    public static Object[][] ListMapToArrayData(List<Map>datas) {
+        Map fistData = (Map) ((List) datas).get(0);
+        int totalNumber = datas.size();
+        int size =fistData.size() ;
+        Object[][] arrayData = new Object[totalNumber][size];
+        int j=0;
+        for (Map<String,Object> data: datas )
+        {
+            int i=0;
+            for(String key : data.keySet())
+            {
+                arrayData[j][i]=data.get(key);
+                i++;
+            }
+            j++ ;
+        }
+        return arrayData ;
+    }
 }

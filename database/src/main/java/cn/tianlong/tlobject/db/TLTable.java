@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.db;
 
 import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.apache.commons.dbutils.QueryRunner;
 import org.apache.commons.dbutils.ResultSetHandler;
 import org.apache.commons.lang3.StringUtils;
@@ -78,7 +79,7 @@ public class TLTable extends TLBaseDataUnit {
             case DB_UPDATEUNIT:
                 returnMsg = updateUnit(fromWho, msg);
                 break;
-            case DB_BATCh:
+            case DB_BATCH:
                 returnMsg = batch(fromWho, msg);
                 break;
             case DB_FIND:
@@ -206,11 +207,16 @@ public class TLTable extends TLBaseDataUnit {
         }
         String sql = (String) msg.getParam(DB_P_SQL);
         sql = sql.replace("[table]", dbtable);
+        Object  datas =msg.getParam(DB_P_PARAMS);
+        if(datas instanceof  List)
+        {
+            Object[][] arrayData = TLDataUtils.ListMapToArrayData((List<Map>) datas);
+            datas=arrayData ;
+        }
         QueryRunner runner = new QueryRunner();
-        Object[][] sqlParams = (Object[][]) msg.getParam(DB_P_PARAMS);
         int[] result = null;
         try {
-            result = runner.batch(wconn, sql, sqlParams);
+            result = runner.batch(wconn, sql, (Object[][]) datas);
             connClose(wconn,msg);
         } catch (SQLException e) {
             putLog("batch error", LogLevel.ERROR);

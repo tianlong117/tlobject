@@ -6,13 +6,14 @@
           实际应用中还是通过xml语法注释掉,因为通过命名不存在的动作，虽然没有运行该动作，但是模块要运行该动作的前后其他准备。
         -->
         <Dmsg action="initDataTb"  destination="dbDemo" />
+        <msg action="batch"  destination="userTableModle" /> //批量插入数据
         <Dmsg action="insertTb"     destination="dbDemo"   username="siren" number="99999999" />
         <Dmsg action="queryByUserName"  username="dong1"/>  根据username分表，分表查询
-        <msg action="queryByNumber"   number="3" ifCache="true"/>    //  不通过分表键，所有表并行查询，查询进行缓存
+        <Dmsg action="queryByNumber"   number="3" ifCache="true"/>    //  不通过分表键，所有表并行查询，查询进行缓存
         <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
         <Dmsg action="updateByTable"  username="dong1" number="7777"/>
         <Dmsg action="deleteByTable"  username="dong2"/>
-        <Dmsg action="dbBean"    destination="dbDemo"    />
+        <Dmsg action="dbBean"    destination="dbDemo"   username="同桌1990" number="2024"  />
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false" />
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
@@ -22,8 +23,11 @@
         <Dmsg action="sleep" sleepTime="20000"/>
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" />
         <Dmsg action="queryTb"    destination="userModle"   username="dong" />
-        <msg action="queryByNumber"   number="3"  ifCache="true"/>    //  不通过分表键，所有表并行查询 .查询进行缓存
-        <msg action="queryByNumber"   number="3" ifCache="false" />    //  不通过分表键，所有表并行查询 .连续运行两次
+        <Dmsg action="queryByNumber"   number="3"  ifCache="true"/>    //  不通过分表键，所有表并行查询 .查询进行缓存
+        <Dmsg action="queryByNumber"   number="3" ifCache="false" />    //  不通过分表键，所有表并行查询 .不缓存
+        <Dmsg action="queryByNumber"   number="3"  ifCache="true"/>    //  不通过分表键，所有表并行查询 .查询进行缓存
+        <Dmsg action="queryByNumber"   number="3"  ifCache="true"/>    //  不通过分表键，所有表并行查询 .查询进行缓存
+        <Dmsg action="queryByNumber"   number="3" ifCache="false" />    //  不通过分表键，所有表并行查询 .不缓存
         <Dmsg action="transactionByDB"   destination="dbDemo"  names="dong777;wang999" />
         <Dmsg action="queryByTable"  username="dddd3"/>
         <Dmsg action="queryByTable"  username="yyyy5"/>
