@@ -150,35 +150,34 @@ public class TLDBUtilis {
     }
 
     public static int insertList(String sql, List<LinkedHashMap> datas , TLTable table){
-
-        int  size=(datas.get(0)).size();
-        Object[][] bparams = new Object[datas.size()][size];
-        for(int i=0;i< datas.size();i++){
-            LinkedHashMap<String,Object> unit=  datas.get(i);
-            int j=0;
-            for(String key : unit.keySet()){
-                bparams[i][j]=unit.get(key);
-                j++ ;
-            }
+        int sucessNumber=0 ;
+        for (Map data: datas )
+        {
+            TLMsg insertmsg = new TLMsg().setAction(DB_INSERT)
+                    .setParam(DB_P_SQL, sql)
+                    .setParam(DB_P_PARAMS, data);
+            TLMsg resultMsg = table.putMsg(table, insertmsg);
+            int result = resultMsg.getIntParam(DB_R_RESULT,0);
+            sucessNumber = sucessNumber +result ;
         }
+        return sucessNumber ;
+    }
+    public static int  batchInsertList( List<LinkedHashMap> datas , TLTable table){
+        LinkedHashMap<String,Object> data0 =datas.get(0) ;
+        String sql =createInsertSql(data0,null);
         TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_PARAMS, bparams);
-       TLMsg resultMsg = table.putMsg(table, insertmsg);
-       int[] result = (int[]) resultMsg.getArrayParam(DB_R_RESULT,null);
-       if(result ==null)
-           return 0 ;
-       else
-          return result.length ;
+                .setParam(DB_P_PARAMS, datas);
+        TLMsg resultMsg = table.putMsg(table, insertmsg);
+        int[] result = (int[]) resultMsg.getArrayParam(DB_R_RESULT,null);
+        if(result ==null)
+            return 0 ;
+        else
+            return result.length ;
     }
     public static int insertList(List<LinkedHashMap> datas , TLTable table){
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
-        String sql =createInsertSql(data0,table.getName());
-        return insertList( sql,  datas , table);
-    }
-    public static int replaceList(List<LinkedHashMap> datas , TLTable table){
-        LinkedHashMap<String,Object> data0 =datas.get(0) ;
-        String sql =createReplaceSql(data0,table.getName());
+        String sql =createInsertSql(data0,null);
         return insertList( sql,  datas , table);
     }
     public static  TLDBSqlConditionExpression  makeSqlCondition(String key ,Object value ,String relation ,String nextRelation){

@@ -544,7 +544,7 @@ public class TLTable extends TLBaseDataUnit {
                 e.printStackTrace();
                 putLog(sql, LogLevel.ERROR);
                 connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
-                return createMsg().setParam(RESULT,false);
+                return createMsg().setParam(DB_R_RESULT, 0).setParam(RESULT,false);
             }
             connClose(wconn,msg);
             return msg.setParam(DB_R_RESULT, sucessNumb);

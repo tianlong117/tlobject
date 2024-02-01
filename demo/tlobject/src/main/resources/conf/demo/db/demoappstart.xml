@@ -13,7 +13,7 @@
         <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
         <Dmsg action="updateByTable"  username="dong1" number="7777"/>
         <Dmsg action="deleteByTable"  username="dong2"/>
-        <Dmsg action="dbBean"    destination="dbDemo"   username="同桌1990" number="2024"  />
+        <Dmsg action="dbBean"    destination="dbDemo"   username="同桌1991" number="2024"  />
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false" />
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false"/>

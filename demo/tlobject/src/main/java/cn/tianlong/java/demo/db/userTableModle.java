@@ -4,13 +4,10 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLBaseTableModle;
 import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.*;
 
 import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 
@@ -41,16 +38,20 @@ public class userTableModle extends TLBaseTableModle {
         return returnMsg;
     }
 
+     private List<LinkedHashMap> productDatas(String name){
+         ArrayList<LinkedHashMap> datas =new ArrayList<>() ;
+         for (int i=0 ;i<2000 ;i++){
+             LinkedHashMap<String, Object> data =new LinkedHashMap<>();
+             data.put("name",name+i);
+             data.put("number",i+3000);
+             data.put("time",date());
+             datas.add(data);
+         }
+         return datas ;
+     }
     private void batch(Object fromWho, TLMsg msg) {
-        ArrayList<HashMap<String,Object>> datas =new ArrayList<>() ;
-        String name ="chanp" ;
-        for (int i=2001 ;i<20000 ;i++){
-            LinkedHashMap<String, Object> data =new LinkedHashMap<>();
-            data.put("name",name+i);
-            data.put("number",i+3000);
-            data.put("time",date());
-            datas.add(data);
-        }
+        /**
+        List<LinkedHashMap> datas = productDatas("cpin");
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
         TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
@@ -61,6 +62,17 @@ public class userTableModle extends TLBaseTableModle {
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         System.out.println("运行时间：" + runtime);
+         **/
+       List<LinkedHashMap> datas1 = productDatas("www");
+        BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
+        Long nowTime = System.currentTimeMillis();
+       beanTable.addAll(datas1);
+       System.out.println("addAll 运行时间：" + (System.currentTimeMillis()-nowTime));
+        List<LinkedHashMap> datas2 = productDatas("wwaa");
+        nowTime = System.currentTimeMillis();
+       beanTable.addAllByBatch(datas2);
+       System.out.println("addAllByBatch 运行时间：" + (System.currentTimeMillis()-nowTime));
+
     }
 
     private TLMsg queryByNumber(Object fromWho, TLMsg msg) {

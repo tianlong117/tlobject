@@ -85,18 +85,19 @@ public class BeanTable extends TLBaseTableModle {
         TLMsg returnMsg = replaceHashMap(data);
         return  returnMsg.getIntParam(DB_R_RESULT,0);
     }
-    public boolean addAll(ArrayList<LinkedHashMap> datas){
+    //通过 insert 每条数据插入 ，启动表前插入触发器
+    public boolean addAll(List<LinkedHashMap> datas){
         int datasize =datas.size();
         if(datasize ==0)
              return false;
         int result =TLDBUtilis.insertList( datas , (TLTable) table);
         return (result==datasize)?true : false ;
     }
-    public boolean replaceAll(ArrayList<LinkedHashMap> datas){
+    public boolean addAllByBatch(List<LinkedHashMap> datas){
         int datasize =datas.size();
         if(datasize ==0)
             return false;
-        int result =TLDBUtilis.replaceList( datas , (TLTable) table);
+        int result =TLDBUtilis.batchInsertList( datas , (TLTable) table);
         return (result==datasize)?true : false ;
     }
     public ArrayList<Map<String,Object>> query(String sql,LinkedHashMap<String, Object> sqlparams ) {

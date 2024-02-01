@@ -123,8 +123,7 @@ public class MapInDB extends TLBaseTableModle {
             datas.add(unit);
         }
         int datasize =datas.size();
-        String sql = " replace into  [table] ( id ,mid,mkey,value,type ) values(?,?,?,?,?)";
-        int result =TLDBUtilis.insertList(sql,datas, (TLTable) table);
+        int result =TLDBUtilis.batchInsertList(datas, (TLTable) table);
         return (result==datasize)?true : false ;
     }
 
