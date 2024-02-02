@@ -6,7 +6,8 @@
           实际应用中还是通过xml语法注释掉,因为通过命名不存在的动作，虽然没有运行该动作，但是模块要运行该动作的前后其他准备。
         -->
         <Dmsg action="initDataTb"  destination="dbDemo" />
-        <msg action="batch"  destination="userTableModle" /> //批量插入数据
+        <Dmsg action="isTableExist"  destination="dbDemo" tableName="user22"/>
+        <Dmsg action="batch"  destination="userTableModle" /> //批量插入数据
         <Dmsg action="insertTb"     destination="dbDemo"   username="siren" number="99999999" />
         <Dmsg action="queryByUserName"  username="dong1"/>  根据username分表，分表查询
         <Dmsg action="queryByNumber"   number="3" ifCache="true"/>    //  不通过分表键，所有表并行查询，查询进行缓存
@@ -32,5 +33,6 @@
         <Dmsg action="queryByTable"  username="dddd3"/>
         <Dmsg action="queryByTable"  username="yyyy5"/>
         <Dmsg action="clearTb"    destination="dbDemo"    />
+        <msg action="testMapInDB"    destination="dbDemo"    />  // 测试 map 存储在数据库里
     </startMsg>
 </appConfig>

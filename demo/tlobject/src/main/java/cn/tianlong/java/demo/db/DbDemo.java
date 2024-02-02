@@ -7,7 +7,9 @@ import cn.tianlong.tlobject.db.TLDBView;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
+import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
@@ -24,6 +26,14 @@ import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 
 public class DbDemo extends TLBaseModule {
     static long startTime;
+    static String sql ="-- tldbdemo1.`user22` definition\n" +
+            "\n" +
+            "CREATE TABLE `user22` (\n" +
+            "  `name` varchar(255) CHARACTER SET utf8 COLLATE utf8_general_ci NOT NULL,\n" +
+            "  `number` int DEFAULT NULL,\n" +
+            "  `time` datetime DEFAULT NULL,\n" +
+            "  PRIMARY KEY (`name`) USING BTREE\n" +
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 ROW_FORMAT=DYNAMIC;";
     protected TLTable tb ;
     public DbDemo(String name) {
         super( name);
@@ -73,10 +83,54 @@ public class DbDemo extends TLBaseModule {
             case "clearTb":
                 clearTb(fromWho, msg);
                 break;
+            case "isTableExist":
+                isTableExist(fromWho, msg);
+                break;
+            case "testMapInDB":
+                testMapInDB(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
+    }
+
+    private void testMapInDB(Object fromWho, TLMsg msg) {
+        MapInDB mymap =new MapInDB("myMap",moduleFactory);
+        mymap.put("name","dongq");
+        mymap.put("age",55);
+        mymap.put("googman",true);
+        String name = (String) mymap.get("name");
+        Map map = mymap.getAll();
+        TLMsgUtils.printMap(map);
+        HashMap<String ,Object> data =new HashMap<>();
+        data.put("name","tianlong");
+        data.put("age",55);
+        data.put("googman",true);
+        mymap.put("tianlong",data);
+        Map datasdb = (Map) mymap.get("tianlong");
+        TLMsgUtils.printMap(datasdb);
+        mymap.putAll(data);
+        map = mymap.getAll();
+        TLMsgUtils.printMap(map);
+      //  mymap.clear();
+        MapInDB mymap1 =new MapInDB("myMap",moduleFactory,"mymap");
+        mymap1.put("name","dongq");
+        mymap1.put("dongq",data);
+    }
+
+    private void isTableExist(Object fromWho, TLMsg msg) {
+        String tableName =msg.getStringParam("tableName",null);
+        TLMsg  domsg =createMsg().setAction(DB_ISTABLEEXIST)
+                .setParam(DB_P_SQL,sql)
+                .setParam(DB_P_TABLENAME,tableName);
+        TLMsg resultMsg =putMsg(DEFAULTDATABASE,domsg);
+        boolean result =resultMsg.getBooleanParam(RESULT,false);
+        if(result)
+        println(tableName +"  is exist--------");
+        else
+            println(tableName +"  is not exist !!!----------");
+
     }
 
     private void clearTb(Object fromWho, TLMsg msg) {

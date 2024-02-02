@@ -15,21 +15,51 @@ import java.util.concurrent.ConcurrentHashMap;
  * 作者:tianlong
  */
 public class MapInDB extends TLBaseTableModle {
+    private  String  defaultTable ="tldataunits";
     protected  Long cacheExptime =0L ;   //缓存过期时间毫秒
     protected Map<String, Object> cacheMap ;
+    private  String tableSql ="-- table definition\n" +
+            "\n" +
+            "CREATE TABLE `tldataunits` (\n" +
+            "  `dbid` int NOT NULL AUTO_INCREMENT,\n" +
+            "  `id` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,\n" +
+            "  `mid` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,\n" +
+            "  `mkey` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,\n" +
+            "  `value` varchar(2048) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,\n" +
+            "  `type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,\n" +
+            "  `remarks` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci DEFAULT NULL,\n" +
+            "  PRIMARY KEY (`dbid`) USING BTREE,\n" +
+            "  UNIQUE KEY `id_2` (`id`) USING BTREE,\n" +
+            "  KEY `mid` (`mid`,`dbid`) USING BTREE\n" +
+            ") ENGINE=InnoDB AUTO_INCREMENT=4717 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=DYNAMIC;";
 
 
     public MapInDB(String name , TLObjectFactory moduleFactory){
-         this( name ,  moduleFactory ,"dataunits");
+         this( name ,  moduleFactory ,"");
     }
     public MapInDB(String name ,TLObjectFactory moduleFactory ,String tableName){
             this.moduleFactory = moduleFactory;
         this.name  =name ;
-        this.tableName=tableName;
+        if(tableName ==null ||tableName.isEmpty())
+            this.tableName=defaultTable;
+        else
+            this.tableName =tableName ;
+        isTableExist();
         init();
     }
+
+    private boolean isTableExist() {
+        String sql = tableSql.replace("tldataunits", tableName);
+        TLMsg  domsg =createMsg().setAction(DB_ISTABLEEXIST)
+                .setParam(DB_P_SQL,sql)
+                .setParam(DB_P_TABLENAME,tableName);
+        TLMsg resultMsg =putMsg(DEFAULTDATABASE,domsg);
+        boolean result =resultMsg.getBooleanParam(RESULT,false);
+        return result ;
+    }
+
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute){
-        this( name , moduleFactory,minute,"dataunits");
+        this( name , moduleFactory,minute,"");
     }
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute ,String tableName){
         this( name ,moduleFactory,tableName);
@@ -193,12 +223,12 @@ public class MapInDB extends TLBaseTableModle {
         Object  mvalue ;
         if(type.equals("Map"))
         {
-            MapInDB smap = new MapInDB(value,moduleFactory);
+            MapInDB smap = new MapInDB(value,moduleFactory,tableName);
             mvalue= smap.getAll() ;
         }
         else  if(type.equals("List"))
         {
-            ListInDB list = new ListInDB(value,moduleFactory);
+            ListInDB list = new ListInDB(value,moduleFactory,tableName);
             mvalue= list.getList() ;
         }
         else  if(type.equals("TLMsg"))
@@ -218,7 +248,7 @@ public class MapInDB extends TLBaseTableModle {
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
-        Map<String,String> result = (Map<String, String>) resultMsg.getParam(DB_R_RESULT);
+        Map<String,String> result = (Map<String, String>) resultMsg.getMapParam(DB_R_RESULT,null);
         return result ;
     }
 

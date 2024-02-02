@@ -363,6 +363,7 @@ public interface TLParamString {
     final String DB_CREATEDBTABLE = "createDBTable";
     final String DB_GETVIEW = "getView";
     final String DB_EXECSQL = "execSql";
+    final String DB_ISTABLEEXIST = "isTableExist";
     final String DB_GETTABLEDBNAME= "getTableDbName";
     final String DB_GETTABLEPARAMS= "getTableParams";
     final String DB_P_COPYTABLE = "copyTable";

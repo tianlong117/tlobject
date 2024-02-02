@@ -9,9 +9,7 @@ import org.apache.commons.dbutils.ResultSetHandler;
 import org.apache.commons.dbutils.handlers.*;
 import org.xmlpull.v1.XmlPullParser;
 
-import java.sql.CallableStatement;
-import java.sql.Connection;
-import java.sql.SQLException;
+import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -162,6 +160,9 @@ public class TLDataBase extends TLBaseModule {
             case DB_EXECSQL:
                 returnMsg = execSql(fromWho, msg);
                 break;
+            case DB_ISTABLEEXIST:
+                returnMsg = isTableExist(fromWho, msg);
+                break;
             case DB_STARTTRANSACTION:
                 try {
                     returnMsg = startTranscation(fromWho, msg);
@@ -175,6 +176,67 @@ public class TLDataBase extends TLBaseModule {
         }
         return returnMsg;
     }
+
+    private TLMsg isTableExist(Object fromWho, TLMsg msg) {
+        String tableName = (String) msg.getParam(DB_P_TABLENAME);
+        String dbserver = (String) msg.getParam(DB_DBSERVER);
+        if (dbserver == null)
+        {
+            if(tables.containsKey(tableName))
+            {
+                HashMap<String, String> tableparams = tables.get(tableName);
+                dbserver = tableparams.get("dbserver");
+                if(dbserver==null)
+                    dbserver = params.get("defaultDBserver");
+                else
+                    dbserver = params.get("defaultDBserver");
+            }
+            else
+                dbserver = params.get("defaultDBserver");
+        }
+        else
+            dbserver = params.get("defaultDBserver");
+        Connection conn = getConnection(dbserver);
+        if (conn == null) {
+            putLog("数据库没有连接", LogLevel.ERROR);
+            return createMsg().setParam(RESULT,false);
+        }
+        DatabaseMetaData meta = null;
+        boolean result =false ;
+        try {
+            meta = conn.getMetaData();
+            java.sql.ResultSet tables = meta.getTables (null, null, tableName, null);
+            if (tables.next())
+            {
+                result = true;
+                conn.close();
+            }
+        } catch (SQLException e) {
+            return createMsg().setParam(RESULT,false);
+        }
+        if(result ==true)
+            return createMsg().setParam(RESULT,true);
+        String sql =msg.getStringParam(DB_P_SQL,null);
+        if(sql ==null)
+            return createMsg().setParam(RESULT,result);
+        Statement stmt= null;
+        try {
+            stmt = conn.createStatement();
+            stmt.execute(sql);
+            result =true ;
+            conn.close();
+        } catch (SQLException e) {
+            result=false ;
+            try {
+                conn.close();
+            } catch (SQLException e1) {
+                e1.printStackTrace();
+            }
+            e.printStackTrace();
+        }
+        return createMsg().setParam(RESULT,result);
+    }
+
     private TLMsg startTranscation(Object fromWho, TLMsg msg) throws SQLException {
         ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getParam(DB_P_MSGLIST);
         ArrayList<Connection> connections= new ArrayList<>();
@@ -239,6 +301,12 @@ public class TLDataBase extends TLBaseModule {
         trancsationRollbak(i ,connections);
     }
 
+    private String selectDbServer(TLMsg msg){
+        String dbserver = (String) msg.getParam(DB_P_SERVERNAME);
+        if (dbserver == null || dbserver.isEmpty())
+            dbserver = params.get("defaultDBserver");
+        return dbserver ;
+    }
     private TLMsg createDBTable(Object fromWho, TLMsg msg) {
         String copyTable = (String) msg.getParam(DB_P_COPYTABLE);
         String dbserver = (String) msg.getParam(DB_DBSERVER);
@@ -270,9 +338,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg execSql(Object fromWho, TLMsg msg) {
-        String dbserver = (String) msg.getParam(DB_P_SERVERNAME);
-        if (dbserver == null || dbserver.isEmpty())
-            dbserver = params.get("defaultDBserver");
+        String dbserver =selectDbServer(msg);
         Connection conn = getConnection(dbserver);
         if (conn == null) {
             putLog("数据库没有连接", LogLevel.ERROR);
