@@ -162,9 +162,10 @@ public class TLDBUtilis {
         }
         return sucessNumber ;
     }
-    public static int  batchInsertList( List<LinkedHashMap> datas , TLTable table){
+    public static int  batchInsertList(String sql , List<LinkedHashMap> datas , TLTable table){
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
-        String sql =createInsertSql(data0,null);
+        if(sql ==null || sql.isEmpty())
+          sql =createInsertSql(data0,null);
         TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, datas);

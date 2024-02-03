@@ -40,7 +40,7 @@ public class userTableModle extends TLBaseTableModle {
 
      private List<LinkedHashMap> productDatas(String name){
          ArrayList<LinkedHashMap> datas =new ArrayList<>() ;
-         for (int i=0 ;i<2000 ;i++){
+         for (int i=0 ;i<200 ;i++){
              LinkedHashMap<String, Object> data =new LinkedHashMap<>();
              data.put("name",name+i);
              data.put("number",i+3000);
@@ -50,8 +50,8 @@ public class userTableModle extends TLBaseTableModle {
          return datas ;
      }
     private void batch(Object fromWho, TLMsg msg) {
-        /**
-        List<LinkedHashMap> datas = productDatas("cpin");
+
+        List<LinkedHashMap> datas = productDatas("cpinxxx");
         String sql = "insert into  [table] (name,number,time) values(?,?,?)";
         TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)
@@ -62,7 +62,8 @@ public class userTableModle extends TLBaseTableModle {
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         System.out.println("运行时间：" + runtime);
-         **/
+
+        /**
        List<LinkedHashMap> datas1 = productDatas("www");
         BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
         Long nowTime = System.currentTimeMillis();
@@ -72,7 +73,7 @@ public class userTableModle extends TLBaseTableModle {
         nowTime = System.currentTimeMillis();
        beanTable.addAllByBatch(datas2);
        System.out.println("addAllByBatch 运行时间：" + (System.currentTimeMillis()-nowTime));
-
+      **/
     }
 
     private TLMsg queryByNumber(Object fromWho, TLMsg msg) {

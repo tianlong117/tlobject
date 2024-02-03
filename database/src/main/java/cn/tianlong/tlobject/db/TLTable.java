@@ -490,8 +490,16 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg insert(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) != null)
             return insertAndupdateAndDelete(fromWho, msg);
-        Map<String, Object> params = (HashMap<String, Object>) msg.getParam(DB_P_PARAMS);
-        Set<String> keySet = params.keySet();
+        Object datas = msg.getParam(DB_P_PARAMS);
+        Set<String> keySet = null;
+        if(datas instanceof  Map)
+           keySet = ((Map)datas).keySet();
+        else if( datas instanceof  List){
+            Map firstitem = (Map) ((List)datas).get(0);
+            keySet = firstitem.keySet();
+        }
+        else
+            return createMsg().setParam(RESULT,false);
         String[] keyArray = keySet.toArray(new String[keySet.size()]);
         String keys = StringUtils.join(keyArray, ",");
         String QuestionMark = makeQuestionMark(keyArray.length);
@@ -534,10 +542,11 @@ public class TLTable extends TLBaseDataUnit {
         String sql = (String) msg.getParam(DB_P_SQL);
         sql = sql.replace("[table]", dbtable);
         QueryRunner runner = new QueryRunner();
-        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        Object data = msg.getParam(DB_P_PARAMS);
         putLog(sql, LogLevel.DEBUG, "insertAndupdateAndDelete");
         int sucessNumb = 0;
-        if (sqlParamsList == null) {
+        if (data == null)
+        {
             try {
                 sucessNumb = runner.update(wconn, sql);
             } catch (SQLException e) {
@@ -547,24 +556,52 @@ public class TLTable extends TLBaseDataUnit {
                 return createMsg().setParam(DB_R_RESULT, 0).setParam(RESULT,false);
             }
             connClose(wconn,msg);
-            return msg.setParam(DB_R_RESULT, sucessNumb);
+            return msg.setParam(DB_R_RESULT, sucessNumb).setParam(RESULT,true);
         }
-        Object[] sqlParams = new Object[sqlParamsList.size()];
-        int i = 0;
-        for (String key : sqlParamsList.keySet()) {
-            sqlParams[i] = sqlParamsList.get(key);
+        if(data instanceof LinkedHashMap)
+        {
+            boolean result= insertData( wconn, runner , (LinkedHashMap<String, Object>) data, sql);
+            if(result ==false)
+            {
+                connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
+                return createMsg().setParam(DB_R_RESULT, 0).setParam(RESULT,false);
+            }
+            sucessNumb ++ ;
+
+        }
+        else if(data instanceof List)
+        {
+            for (LinkedHashMap<String,Object> item: (List<LinkedHashMap<String,Object>>)data)
+            {
+                boolean result = insertData( wconn, runner , item, sql);
+                if(result ==false)
+                {
+                    connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
+                    return createMsg().setParam(DB_R_RESULT, sucessNumb).setParam(RESULT,false);
+                }
+                sucessNumb ++ ;
+            }
+        }
+        else
+            return createMsg().setParam(DB_R_RESULT, 0).setParam(RESULT,false);
+        connClose(wconn,msg);
+        return msg.setParam(DB_R_RESULT, sucessNumb).setParam(RESULT,true);
+    }
+    private boolean insertData(Connection wconn,QueryRunner runner ,LinkedHashMap<String,Object> data,String sql){
+        Object[] sqlParams = new Object[data.size()];
+         int i = 0;
+        for (String key : data.keySet()) {
+            sqlParams[i] = data.get(key);
             i++;
         }
         try {
-            sucessNumb = runner.update(wconn, sql, sqlParams);
+            runner.update(wconn, sql, sqlParams);
         } catch (SQLException e) {
             e.printStackTrace();
             putLog(sql, LogLevel.ERROR);
-            connClose(wconn,msg.setParam(DB_P_IFCLOSECONNECTION,true));
-            return createMsg().setParam(RESULT,false);
+            return false ;
         }
-        connClose(wconn,msg);
-        return msg.setParam(DB_R_RESULT, sucessNumb);
+         return true ;
     }
 
     protected void connClose(Connection conn ,TLMsg msg) {

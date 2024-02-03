@@ -29,7 +29,18 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     public TLBaseTableModle(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
     }
-
+    public TLBaseTableModle(String name ,TLObjectFactory moduleFactory ,String tableName){
+        this.moduleFactory = moduleFactory;
+        this.name  =name ;
+        this.tableName =tableName ;
+        init();
+    }
+    public TLBaseTableModle(String name ,TLObjectFactory moduleFactory ,TLBaseDataUnit table){
+        this.moduleFactory = moduleFactory;
+        this.name  =name ;
+        this.table=table ;
+        this.tableName =table.getTableName() ;
+    }
     @Override
     protected void initProperty() {
         super.initProperty();

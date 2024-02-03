@@ -70,6 +70,9 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
             cacheExptime = Integer.parseInt(params.get("cacheExptime"));
 
     }
+    public String getTableName(){
+        return dbtable ;
+    }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;

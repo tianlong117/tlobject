@@ -8,7 +8,7 @@
         <Dmsg action="initDataTb"  destination="dbDemo" />
         <Dmsg action="isTableExist"  destination="dbDemo" tableName="user22"/>
         <Dmsg action="batch"  destination="userTableModle" /> //批量插入数据
-        <Dmsg action="insertTb"     destination="dbDemo"   username="siren" number="99999999" />
+        <msg action="insertTb"     destination="dbDemo"   username="大庆xxxxy" number="99999999" />
         <Dmsg action="queryByUserName"  username="dong1"/>  根据username分表，分表查询
         <Dmsg action="queryByNumber"   number="3" ifCache="true"/>    //  不通过分表键，所有表并行查询，查询进行缓存
         <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
@@ -33,6 +33,6 @@
         <Dmsg action="queryByTable"  username="dddd3"/>
         <Dmsg action="queryByTable"  username="yyyy5"/>
         <Dmsg action="clearTb"    destination="dbDemo"    />
-        <msg action="testMapInDB"    destination="dbDemo"    />  // 测试 map 存储在数据库里
+        <Dmsg action="testMapInDB"    destination="dbDemo"    />  // 测试 map 存储在数据库里
     </startMsg>
 </appConfig>

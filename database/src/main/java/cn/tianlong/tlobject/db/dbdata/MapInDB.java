@@ -37,17 +37,19 @@ public class MapInDB extends TLBaseTableModle {
     public MapInDB(String name , TLObjectFactory moduleFactory){
          this( name ,  moduleFactory ,"");
     }
+    public MapInDB(String name ,TLObjectFactory moduleFactory ,TLBaseDataUnit table){
+        super( name ,  moduleFactory ,table);
+    }
     public MapInDB(String name ,TLObjectFactory moduleFactory ,String tableName){
-            this.moduleFactory = moduleFactory;
-        this.name  =name ;
-        if(tableName ==null ||tableName.isEmpty())
-            this.tableName=defaultTable;
+        if(tableName==null || tableName.isEmpty())
+            this.tableName=defaultTable ;
         else
             this.tableName =tableName ;
-        isTableExist();
+        this.moduleFactory = moduleFactory;
+        this.name  =name ;
         init();
+        isTableExist();
     }
-
     private boolean isTableExist() {
         String sql = tableSql.replace("tldataunits", tableName);
         TLMsg  domsg =createMsg().setAction(DB_ISTABLEEXIST)
@@ -62,7 +64,7 @@ public class MapInDB extends TLBaseTableModle {
         this( name , moduleFactory,minute,"");
     }
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute ,String tableName){
-        this( name ,moduleFactory,tableName);
+        super( name ,moduleFactory,tableName);
         if(minute >0)
         {
             this.cacheExptime =minute * 60 * 1000 ;
@@ -120,14 +122,14 @@ public class MapInDB extends TLBaseTableModle {
 
     protected String saveSonMap(String key,Map<String,Object> value){
         String mname =getValueId(key);
-        MapInDB map =new MapInDB(mname,moduleFactory);
+        MapInDB map =new MapInDB(mname,moduleFactory,table);
         map.putAll( value);
         return  mname ;
     }
 
     protected String saveSonList(String key,List value){
         String mname =getValueId(key);
-        ListInDB map =new ListInDB(mname,moduleFactory);
+        ListInDB map =new ListInDB(mname,moduleFactory,table);
         map.addAll(0,value);
         return  mname ;
     }
@@ -153,7 +155,8 @@ public class MapInDB extends TLBaseTableModle {
             datas.add(unit);
         }
         int datasize =datas.size();
-        int result =TLDBUtilis.batchInsertList(datas, (TLTable) table);
+        String sql = " replace into  [table] ( id ,mid,mkey,value,type ) values(?,?,?,?,?)";
+        int result =TLDBUtilis.batchInsertList(sql,datas, (TLTable) table);
         return (result==datasize)?true : false ;
     }
 
@@ -223,12 +226,12 @@ public class MapInDB extends TLBaseTableModle {
         Object  mvalue ;
         if(type.equals("Map"))
         {
-            MapInDB smap = new MapInDB(value,moduleFactory,tableName);
+            MapInDB smap = new MapInDB(value,moduleFactory,table);
             mvalue= smap.getAll() ;
         }
         else  if(type.equals("List"))
         {
-            ListInDB list = new ListInDB(value,moduleFactory,tableName);
+            ListInDB list = new ListInDB(value,moduleFactory,table);
             mvalue= list.getList() ;
         }
         else  if(type.equals("TLMsg"))
@@ -343,12 +346,12 @@ public class MapInDB extends TLBaseTableModle {
     protected  void deleteSonMap(String name ,String type){
         if(type.equals("Map"))
         {
-            MapInDB map = new MapInDB(name,moduleFactory);
+            MapInDB map = new MapInDB(name,moduleFactory,table);
             map.clear() ;
         }
         else  if(type.equals("List"))
         {
-            ListInDB list = new ListInDB(name,moduleFactory);
+            ListInDB list = new ListInDB(name,moduleFactory,table);
             list.clear() ;
         }
     }

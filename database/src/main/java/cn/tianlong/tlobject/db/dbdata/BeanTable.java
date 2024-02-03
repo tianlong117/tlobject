@@ -97,7 +97,7 @@ public class BeanTable extends TLBaseTableModle {
         int datasize =datas.size();
         if(datasize ==0)
             return false;
-        int result =TLDBUtilis.batchInsertList( datas , (TLTable) table);
+        int result =TLDBUtilis.batchInsertList( "",datas , (TLTable) table);
         return (result==datasize)?true : false ;
     }
     public ArrayList<Map<String,Object>> query(String sql,LinkedHashMap<String, Object> sqlparams ) {

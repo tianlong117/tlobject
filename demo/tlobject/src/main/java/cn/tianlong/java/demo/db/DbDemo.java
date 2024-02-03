@@ -114,9 +114,14 @@ public class DbDemo extends TLBaseModule {
         map = mymap.getAll();
         TLMsgUtils.printMap(map);
       //  mymap.clear();
-        MapInDB mymap1 =new MapInDB("myMap",moduleFactory,"mymap");
+        MapInDB mymap1 =new MapInDB("myMap1",moduleFactory);
         mymap1.put("name","dongq");
+        data.put("address","大庆");
+        data.put("age",77);
         mymap1.put("dongq",data);
+        map = mymap1.getAll();
+        TLMsgUtils.printMap(map);
+
     }
 
     private void isTableExist(Object fromWho, TLMsg msg) {
@@ -159,6 +164,30 @@ public class DbDemo extends TLBaseModule {
            System.out.println("插入失败："+username);
        else
            System.out.println("插入成功："+username);
+
+        TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable1");
+        TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
+        TLBaseModule tb1 = (TLTable) returnmsg.getParam(INSTANCE);
+       ArrayList< LinkedHashMap<String, Object>>  datas =new ArrayList<>();
+       for (int i =0 ;i <200 ;i++)
+       {
+           LinkedHashMap<String, Object> data = new LinkedHashMap<>();
+           data.put("name",username+i);
+           data.put("number", number);
+           data.put("time", date());
+           datas.add(data);
+       }
+       long starttime =System.currentTimeMillis();
+   //   String isql ="insert into  [table] ( name,number,time )  values( ?,?,? ) ";
+       insertmsg = createMsg().setAction(DB_INSERT)
+ //              .setParam(DB_P_SQL ,isql)
+                .setParam(DB_P_PARAMS, datas);
+        returnMsg = putMsg(tb1, insertmsg);
+        if(returnMsg.parseBoolean(RESULT,false) ==true)
+            System.out.println("插入成功："+returnMsg.getIntParam(DB_R_RESULT,0));
+        else
+            System.out.println("插入失败：");
+        println("时间："+(System.currentTimeMillis()-starttime));
     }
 
     private TLMsg dbview(Object fromWho, TLMsg msg) {

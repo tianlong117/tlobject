@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.db.dbdata;
 
 
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.db.TLBaseDataUnit;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -15,6 +16,9 @@ public class ListInDB extends MapInDB {
     }
     public ListInDB(String name, TLObjectFactory moduleFactory ,String tableName) {
         super(name, moduleFactory,tableName);
+    }
+    public ListInDB(String name, TLObjectFactory moduleFactory ,TLBaseDataUnit table) {
+        super(name, moduleFactory,table);
     }
     public ListInDB(String name , TLObjectFactory moduleFactory , Long cacheExptime){
         super( name , moduleFactory,cacheExptime);
