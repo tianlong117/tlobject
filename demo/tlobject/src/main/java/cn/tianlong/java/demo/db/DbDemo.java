@@ -114,7 +114,7 @@ public class DbDemo extends TLBaseModule {
         map = mymap.getAll();
         TLMsgUtils.printMap(map);
       //  mymap.clear();
-        MapInDB mymap1 =new MapInDB("myMap1",moduleFactory);
+        MapInDB mymap1 =new MapInDB("myMap1",moduleFactory,"mymap1");
         mymap1.put("name","dongq");
         data.put("address","大庆");
         data.put("age",77);
@@ -328,13 +328,17 @@ public class DbDemo extends TLBaseModule {
         datas.put("name",username);
         datas.put("number",number);
         datas.put("time",date());
-        beanTable.add(datas) ;
+  //      beanTable.add(datas) ;
         System.out.println("userTable 通过 beanTable 插入:");
         TLMsgUtils.printMap(datas);
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", username);
          ArrayList<Map<String,Object>> result =beanTable.getAll(sqlparams);
         System.out.println("userTable 通过 beanTable 查询:");
+        TLMsgUtils.printList(result);
+        beanTable.remove(sqlparams);
+        result =beanTable.getAll(sqlparams);
+        System.out.println("数据删除，userTable 通过 beanTable 查询:");
         TLMsgUtils.printList(result);
      //   Map<String,Object> alldatas =beanTable.getAllBeanMap(userBean.class);
    //     ArrayList<Object> alldatas =beanTable.getAllBeanList(userBean.class);

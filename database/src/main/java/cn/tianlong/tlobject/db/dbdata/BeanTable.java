@@ -5,12 +5,9 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.*;
 import cn.tianlong.tlobject.modules.LogLevel;
 import org.apache.commons.beanutils.BeanMap;
-import org.apache.commons.beanutils.BeanUtils;
 
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 
-import static org.apache.commons.beanutils.BeanUtils.describe;
 
 /**
  * 创建日期：${Date}${time}
@@ -185,37 +182,21 @@ public class BeanTable extends TLBaseTableModle {
         return (ArrayList<Map<String, Object>>) returMsg.getListParam(DB_R_RESULT,null);
     }
     public ArrayList<Map<String,Object>> getAll( LinkedHashMap<String,Object> params) {
-        LinkedHashMap<String, Object> sqlCondition = makeSqlCondition(params);
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
-                .setParam(DB_P_SQLCONDITION, sqlCondition);
+                .setParam(DB_P_PARAMS, params);
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Map<String, Object>>) returMsg.getListParam(DB_R_RESULT,null);
     }
     public ArrayList<Map<String,Object>> getAll( LinkedHashMap<String,Object> params,String[] fields ) {
-        LinkedHashMap<String, Object> sqlCondition = makeSqlCondition(params);
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_FIELDS,fields)
-                .setParam(DB_P_SQLCONDITION, sqlCondition);
+                .setParam(DB_P_PARAMS, params);
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Map<String, Object>>) returMsg.getListParam(DB_R_RESULT,null);
     }
-    protected  LinkedHashMap<String, Object>  makeSqlCondition(LinkedHashMap<String,Object> params){
-        LinkedHashMap<String, Object> sqlCondition = new LinkedHashMap<>();
-        int i =0;
-        int size =params.size();
-        for(String key : params.keySet()){
-            TLDBSqlConditionExpression sqlConditionExpression ;
-            if(i <  size-1)
-                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","and");
-            else
-                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","");
-            sqlCondition.put(key, sqlConditionExpression);
-            i++ ;
-        }
-        return sqlCondition ;
-    }
+
     public ArrayList<Map<String,Object>> getAll(String[] fields ) {
         TLMsg sqlmsg =createMsg().setAction(DB_FINDALL).setParam(DB_P_FIELDS,fields) ;
         TLMsg returnMsg = putMsg(table,sqlmsg);
@@ -283,10 +264,8 @@ public class BeanTable extends TLBaseTableModle {
         return returnMsg.getIntParam(DB_R_RESULT,0);
     }
     public int  remove(LinkedHashMap<String,Object> params){
-        LinkedHashMap<String, Object> sqlCondition = makeSqlCondition(params);
         TLMsg idmsg=createMsg().setAction(DB_DELETE)
-                .setParam(DB_P_PARAMS, params)
-                .setParam(DB_P_SQLCONDITION, sqlCondition);
+                .setParam(DB_P_PARAMS, params);
         TLMsg returnMsg = putMsg(table, idmsg);
         return returnMsg.getIntParam(DB_R_RESULT,0);
     }

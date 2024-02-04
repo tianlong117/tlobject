@@ -176,6 +176,21 @@ public class TLDBUtilis {
         else
             return result.length ;
     }
+    public static  LinkedHashMap<String, TLDBSqlConditionExpression>  makeSqlCondition(LinkedHashMap<String,Object> params){
+        LinkedHashMap<String, TLDBSqlConditionExpression> sqlCondition = new LinkedHashMap<>();
+        int i =0;
+        int size =params.size();
+        for(String key : params.keySet()){
+            TLDBSqlConditionExpression sqlConditionExpression ;
+            if(i <  size-1)
+                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","and");
+            else
+                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","");
+            sqlCondition.put(key, sqlConditionExpression);
+            i++ ;
+        }
+        return sqlCondition ;
+    }
     public static int insertList(List<LinkedHashMap> datas , TLTable table){
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
         String sql =createInsertSql(data0,null);
