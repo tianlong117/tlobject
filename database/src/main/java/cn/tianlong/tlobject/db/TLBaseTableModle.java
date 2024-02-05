@@ -44,10 +44,10 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     @Override
     protected void initProperty() {
         super.initProperty();
-        if(params!=null && params.get("tableName")!=null)
-            tableName=params.get("tableName");
-        if(params!=null && params.get("databaseName")!=null)
-            databaseName=params.get("databaseName");
+        if(params!=null && params.get(DB_P_TABLENAME)!=null)
+            tableName=params.get(DB_P_TABLENAME);
+        if(params!=null && params.get("database")!=null)
+            databaseName=params.get("database");
     }
     @Override
     protected TLBaseModule init() {

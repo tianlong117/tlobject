@@ -14,7 +14,7 @@
         <Dmsg action="queryResultIsBean" destination="dbDemo" username="dong"/>
         <Dmsg action="updateByTable"  username="dong1" number="7777"/>
         <Dmsg action="deleteByTable"  username="dong2"/>
-        <msg action="dbBean"    destination="dbDemo"   username="同桌2024" number="2024"  />
+        <Dmsg action="dbBean"    destination="dbDemo"   username="同桌2025" number="2024"  />
         <Dmsg action="dbview"    destination="dbDemo"   username="dong" waitFlag="false" />
 
         <!-- 第二次使用缓存 -->
@@ -30,6 +30,6 @@
         <Dmsg action="queryByTable"  username="dddd3"/>
         <Dmsg action="queryByTable"  username="yyyy5"/>
         <Dmsg action="clearTb"    destination="dbDemo"    />
-        <Dmsg action="testMapInDB"    destination="dbDemo"    />  // 测试 map 存储在数据库里
+        <msg action="testMapInDB"    destination="dbDemo"    />  // 测试 map 存储在数据库里
     </startMsg>
 </appConfig>

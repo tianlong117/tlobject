@@ -103,6 +103,8 @@ public class DbDemo extends TLBaseModule {
         String name = (String) mymap.get("name");
         Map map = mymap.getAll();
         TLMsgUtils.printMap(map);
+        map = mymap.getAll();
+        TLMsgUtils.printMap(map);
         HashMap<String ,Object> data =new HashMap<>();
         data.put("name","tianlong");
         data.put("age",55);
@@ -115,10 +117,15 @@ public class DbDemo extends TLBaseModule {
         TLMsgUtils.printMap(map);
       //  mymap.clear();
         MapInDB mymap1 =new MapInDB("myMap1",moduleFactory,"mymap1");
+
+        map = mymap1.getAll();
+        TLMsgUtils.printMap(map);
+        println("-----------");
+        HashMap<String ,Object> data1 =new HashMap<>();
         mymap1.put("name","dongq");
-        data.put("address","大庆");
-        data.put("age",77);
-        mymap1.put("dongq",data);
+        data1.put("address","大庆2222");
+        data1.put("age",99);
+        mymap1.put("dongq",data1);
         map = mymap1.getAll();
         TLMsgUtils.printMap(map);
 
@@ -323,12 +330,16 @@ public class DbDemo extends TLBaseModule {
         String username =msg.getStringParam("username",null) ;
         if(username ==null)
             return  ;
-        BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
+     //   BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
+        TLMsg tableMsg =putMsg(DEFAULTDATABASE,createMsg().setAction(DB_GETBEANTABLE).
+                        setParam(DB_P_TABLENAME,"userTable")
+                        .setParam(DB_P_PRIMARYKEY,"name"));
+        BeanTable beanTable = (BeanTable) tableMsg.getParam(INSTANCE);
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
         datas.put("name",username);
         datas.put("number",number);
         datas.put("time",date());
-  //      beanTable.add(datas) ;
+        beanTable.add(datas) ;
         System.out.println("userTable 通过 beanTable 插入:");
         TLMsgUtils.printMap(datas);
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
@@ -336,10 +347,10 @@ public class DbDemo extends TLBaseModule {
          ArrayList<Map<String,Object>> result =beanTable.getAll(sqlparams);
         System.out.println("userTable 通过 beanTable 查询:");
         TLMsgUtils.printList(result);
-        beanTable.remove(sqlparams);
-        result =beanTable.getAll(sqlparams);
-        System.out.println("数据删除，userTable 通过 beanTable 查询:");
-        TLMsgUtils.printList(result);
+     //   beanTable.remove(sqlparams);
+    //    result =beanTable.getAll(sqlparams);
+    //    System.out.println("数据删除，userTable 通过 beanTable 查询:");
+   //     TLMsgUtils.printList(result);
      //   Map<String,Object> alldatas =beanTable.getAllBeanMap(userBean.class);
    //     ArrayList<Object> alldatas =beanTable.getAllBeanList(userBean.class);
 

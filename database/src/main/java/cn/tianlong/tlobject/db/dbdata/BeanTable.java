@@ -49,10 +49,10 @@ public class BeanTable extends TLBaseTableModle {
     @Override
     protected void initProperty() {
         super.initProperty();
-        if(params!=null && params.get("primaryKey")!=null)
-            primaryKey=params.get("primaryKey");
-        if(params!=null && params.get("IfPrimaryKeyAuto")!=null)
-            IfPrimaryKeyAuto=Boolean.parseBoolean(params.get("IfPrimaryKeyAuto"));
+        if(params!=null && params.get(DB_P_PRIMARYKEY)!=null)
+            primaryKey=params.get(DB_P_PRIMARYKEY);
+        if(params!=null && params.get(DB_P_IFPRIMARYKEYAUTO)!=null)
+            IfPrimaryKeyAuto=Boolean.parseBoolean(params.get(DB_P_IFPRIMARYKEYAUTO));
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {

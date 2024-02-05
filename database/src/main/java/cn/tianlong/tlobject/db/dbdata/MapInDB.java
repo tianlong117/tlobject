@@ -122,14 +122,32 @@ public class MapInDB extends TLBaseTableModle {
 
     protected String saveSonMap(String key,Map<String,Object> value){
         String mname =getValueId(key);
-        MapInDB map =new MapInDB(mname,moduleFactory,table);
+        MapInDB map =getMapModule(mname,"map");
         map.putAll( value);
         return  mname ;
     }
-
+    private MapInDB  getMapModule(String mapName ,String type){
+        MapInDB mapInDB = (MapInDB) modules.get(mapName);
+        if(mapInDB !=null)
+            return mapInDB ;
+        synchronized (this){
+            mapInDB = (MapInDB) modules.get(mapName);
+            if(mapInDB ==null)
+            {
+                if(type.equals("map"))
+                    mapInDB=new MapInDB( mapName,moduleFactory,table);
+                else if(type.equals("list"))
+                    mapInDB=new ListInDB(mapName,moduleFactory,table);
+                else
+                    mapInDB=new MapInDB( mapName,moduleFactory,table);
+                modules.put(mapName ,mapInDB) ;
+            }
+        }
+        return mapInDB ;
+    }
     protected String saveSonList(String key,List value){
         String mname =getValueId(key);
-        ListInDB map =new ListInDB(mname,moduleFactory,table);
+        ListInDB map = (ListInDB) getMapModule(mname,"list");
         map.addAll(0,value);
         return  mname ;
     }
@@ -226,12 +244,12 @@ public class MapInDB extends TLBaseTableModle {
         Object  mvalue ;
         if(type.equals("Map"))
         {
-            MapInDB smap = new MapInDB(value,moduleFactory,table);
+            MapInDB smap = getMapModule(value,"map");
             mvalue= smap.getAll() ;
         }
         else  if(type.equals("List"))
         {
-            ListInDB list = new ListInDB(value,moduleFactory,table);
+            ListInDB list = (ListInDB) getMapModule(value,"list");
             mvalue= list.getList() ;
         }
         else  if(type.equals("TLMsg"))
@@ -346,12 +364,12 @@ public class MapInDB extends TLBaseTableModle {
     protected  void deleteSonMap(String name ,String type){
         if(type.equals("Map"))
         {
-            MapInDB map = new MapInDB(name,moduleFactory,table);
+            MapInDB map = getMapModule(name,"map");
             map.clear() ;
         }
         else  if(type.equals("List"))
         {
-            ListInDB list = new ListInDB(name,moduleFactory,table);
+            ListInDB list = (ListInDB) getMapModule(name,"list");
             list.clear() ;
         }
     }

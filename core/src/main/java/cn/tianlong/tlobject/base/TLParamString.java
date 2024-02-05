@@ -360,6 +360,7 @@ public interface TLParamString {
     final String DB_GETCONN = "getConnection";
     final String DB_GETCONNECTOR= "getConnector";
     final String DB_GETTABLE = "getTable";
+    final String DB_GETBEANTABLE = "getBeanTable";
     final String DB_CREATEDBTABLE = "createDBTable";
     final String DB_GETVIEW = "getView";
     final String DB_EXECSQL = "execSql";
@@ -375,6 +376,8 @@ public interface TLParamString {
     final String DB_P_SQLTYPE = "sqlType";
     final String DB_P_CONNECTION = "CONNECTION";
     final String DB_P_RETURNRECORD = "returnRecord";
+    final String DB_P_PRIMARYKEY = "primaryKey";
+    final String DB_P_IFPRIMARYKEYAUTO = "IfPrimaryKeyAuto";
     final String DB_P_IFCLOSECONNECTION = "ifCloseConnection";
     final String DB_P_IFTRANSACTION = "ifTRANSACTION";
     final String DB_P_INSERTANDIGNORE = "insertorignore";
@@ -405,7 +408,6 @@ public interface TLParamString {
     final String DB_P_HANDERKEY = "handerkey";
     final String DB_P_BEANCLASS = "beanClass";
     final String DB_P_RESULTTYPE = "resultType";
-    final String DB_P_PRIMARYKEY = "primarykey";
     final String DB_R_RESULT = "dbresult";
     final String DB_R_CONNECTOR = "connector";
     final String DB_R_CONN= "connection";

@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.db;
 
 import cn.tianlong.tlobject.base.*;
+import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
@@ -24,6 +25,8 @@ import java.util.LinkedHashMap;
 public class TLDataBase extends TLBaseModule {
     protected String dbPackageName;
     private final static String prefixTable = "table_";
+    private final static String prefixBeanTable = "bean_";
+    private final static String prefixMapTable = "map_";
     private final static String prefixTrigger = "trigger_";
     private final static String prefixView = "view_";
     private final static String prefixServer = "server_";
@@ -153,6 +156,9 @@ public class TLDataBase extends TLBaseModule {
                 break;
             case DB_GETTABLE:
                 returnMsg = getTable(fromWho, msg);
+                break;
+            case DB_GETBEANTABLE:
+                returnMsg = getBeanTable(fromWho, msg);
                 break;
             case DB_GETVIEW:
                 returnMsg = getViews(fromWho, msg);
@@ -481,6 +487,28 @@ public class TLDataBase extends TLBaseModule {
         HashMap<String, String> config = dbservers.get(serverName);
        return createDbServer(serverName,config);
     }
+
+    private TLMsg getBeanTable(Object fromWho, TLMsg msg) {
+        String tablename = (String) msg.getParam(DB_P_TABLENAME);
+        TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
+        if (tableobj != null)
+            return createMsg().setParam(INSTANCE, tableobj);
+        HashMap<String, String> tableparams =new HashMap<>();
+        tableparams.put(DB_P_PRIMARYKEY, msg.getStringParam(DB_P_PRIMARYKEY,null));
+        tableparams.put(DB_P_IFPRIMARYKEYAUTO, msg.getStringParam(DB_P_IFPRIMARYKEYAUTO,null));
+        tableparams.put("database", name);
+        synchronized (BeanTable.class)
+        {
+            tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
+            if (tableobj != null)
+                return createMsg().setParam(INSTANCE, tableobj);
+            tableobj = (TLBaseModule) getNewModule(tablename,"beanTable",tableparams);
+            if(tableobj !=null)
+               dbObjs.put(prefixBeanTable+tablename, tableobj);
+        }
+        return createMsg().setParam(INSTANCE, tableobj);
+    }
+
     private TLMsg getTable(Object fromWho, TLMsg msg) {
         String tablename = (String) msg.getParam(DB_P_TABLENAME);
         TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);

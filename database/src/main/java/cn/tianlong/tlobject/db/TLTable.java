@@ -46,7 +46,7 @@ public class TLTable extends TLBaseDataUnit {
         if (params.get("ifGetStructure") != null)
             ifGetStructure = Boolean.parseBoolean(params.get("ifGetStructure"));
         if (params.get("deleteBackUpTable") != null) {
-            TLMsg tmsg = createMsg().setAction("getTable").setParam("tableName", params.get("deleteBackUpTable"));
+            TLMsg tmsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, params.get("deleteBackUpTable"));
             TLMsg returnmsg = putMsg(database, tmsg);
             deleteBackUpTable = (TLBaseDataUnit) returnmsg.getParam(TLObjectFactory.FACTORY_R_MODULEINSTANCE);
         }
