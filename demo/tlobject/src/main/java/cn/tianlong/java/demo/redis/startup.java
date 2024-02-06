@@ -89,7 +89,7 @@ public class startup extends TLAppStartUp {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST);
         TLMsg  returnMsg = putMsg(userTable, querymsg);
-        ArrayList<LinkedHashMap> datasList = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);
+        ArrayList<LinkedHashMap> datasList = (ArrayList<LinkedHashMap>) returnMsg.getListParam(DB_R_RESULT,null);
         if(datasList ==null || datasList.isEmpty())
         {
             System.out.println("没有数据");

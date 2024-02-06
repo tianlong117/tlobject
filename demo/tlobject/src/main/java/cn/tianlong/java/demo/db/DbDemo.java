@@ -89,12 +89,31 @@ public class DbDemo extends TLBaseModule {
             case "testMapInDB":
                 testMapInDB(fromWho, msg);
                 break;
+            case "testDatabaseSql":
+                testDatabaseSql(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
     }
-
+    protected void testDatabaseSql(Object fromWho, TLMsg msg){
+        String userName = msg.getStringParam("username",null);
+        String sql = "select * from  user2  where  name = ? ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("name", userName);
+        TLMsg querymsg = new TLMsg().setAction(DB_EXECSQL)
+                .setParam(DB_P_SERVERNAME,"dbserver2")
+                .setParam(DB_P_SQLTYPE,DB_QUERY)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+              //  .setParam(DB_P_BEANCLASS,userBean.class)
+                .setParam(DB_P_PARAMS, sqlparams);
+        TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);
+        List data = (List) returnMsg.getParam(DB_R_RESULT);
+        println("result:");
+        TLMsgUtils.printList(data);
+    }
     private void testMapInDB(Object fromWho, TLMsg msg) {
         MapInDB mymap =new MapInDB("myMap",moduleFactory);
         mymap.put("name","dongq");
