@@ -8,4 +8,20 @@
             <msg action="onHouse"   ></msg>
             <msg action="comein"  waitFlag="false" inthreadPool="true"></msg>
     </initMsg>
+    <beforeMsgTable>
+        <action  value="dispatchUrl" >
+            <msg   action="setup" destination="website"  ></msg>
+        </action>
+    </beforeMsgTable>
+    <afterMsgTable>
+        <action  value="cook" >
+            <msg   action="sing"  />
+        </action>
+         <action  value="cook;sleep1;start;walk" >
+            <msg   action="sing2"  />
+        </action>
+        <action  value="cook;sleep1" >
+            <msg   action="sing3"  />
+        </action>
+    </afterMsgTable>
 </moduleConfig>

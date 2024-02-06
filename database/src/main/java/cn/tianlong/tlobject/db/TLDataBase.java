@@ -117,6 +117,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     protected Boolean initTable() {
+        boolean result =true;
         for(String tableName :tables.keySet()){
             HashMap<String, String> config =tables.get(tableName) ;
             if(config.get("statup")!=null && Boolean.parseBoolean(config.get("statup"))==true)
@@ -124,10 +125,10 @@ public class TLDataBase extends TLBaseModule {
                 HashMap<String, String> tableparams = tables.get(tableName);
                 TLBaseModule tableModule =  makeTable(tableName,tableparams);
                 if(tableModule ==null)
-                    return false ;
+                    result =false ;
             }
         }
-        return true ;
+        return result ;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -559,7 +560,10 @@ public class TLDataBase extends TLBaseModule {
             tableobj = (TLBaseModule) getNewModule(tablename,proxyModule,tableparams);
         }
         if(tableobj ==null)
+        {
+            putLog("make table Module is error:"+tablename,LogLevel.ERROR,"makeTable");
             return null ;
+        }
         dbObjs.put(prefixTable+tablename, tableobj);
         addTrigger(tableobj, tableparams);
         return tableobj;

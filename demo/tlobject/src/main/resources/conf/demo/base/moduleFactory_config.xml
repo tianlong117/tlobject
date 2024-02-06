@@ -12,6 +12,19 @@
     <commonParams>
         <loglevel value="trace"/>
     </commonParams>
+    <modulesParams>
+        <module name="module1"  configfile="myServiceMsgInterfaceModule_config.xml"  type="module1"/>
+        <module name="module2"  configfile="myconsoleCmds_config.xml" type="module2"/>
+        <module name="module3"  configfile="myconsoleCmds_config.xml" type="module3"/>
+        <module name="module1;module2"  db="qinqin"/>
+        <module name="module2;module3"  server="heilong"/>
+    </modulesParams>
+    <paramsModules>
+        <param  name="param1"  value="value1"  modules="module1;module2"/>
+        <param  name="param2"  value="value2"  modules="module2;module3"/>
+        <param  name="param3"  value="value3"  modules="module1"/>
+        <param  name="param4"  value="value4"  modules="module4"/>
+    </paramsModules>
     <modules>
         <!-- 用户自定义模块 -->
         <module name="appCenter" classfile=".base.MyAppCenter" configfile="appConfig.xml"/>
