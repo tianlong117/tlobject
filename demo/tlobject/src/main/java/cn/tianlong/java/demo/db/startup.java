@@ -80,8 +80,7 @@ public class startup extends TLAppStartUp {
 
     private void queryByUserName(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
-        TLMsg returnMsg =putMsg("dbDemo",msg.setAction("queryTb"));
-        Map<String,Object> datas =  returnMsg.getMapParam(RESULT,null);
+        Map<String,Object> datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"));
         if(datas ==null || datas.isEmpty())
         {
             System.out.println("没有数据");
