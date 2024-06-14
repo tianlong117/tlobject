@@ -1303,7 +1303,16 @@ public abstract class TLBaseModule extends TLBaseObject {
     public TLMsg putMsg(String moduleName, String action) {
         return putMsg(moduleName, createMsg().setAction(action));
     }
+    public Object putMsgAndGetResult(String moduleName, TLMsg msg ){
+            return putMsgAndGetResult( moduleName, msg ,RESULT );
+    }
 
+    public Object putMsgAndGetResult(String moduleName, TLMsg msg ,String resultName ){
+        TLMsg returnMsg =putMsg(moduleName,msg);
+        if (returnMsg == null)
+            return null ;
+        return returnMsg.getParam(resultName);
+    }
     public void putLog(String content, LogLevel logLevel) {
         putLog(content, logLevel, "default");
     }
