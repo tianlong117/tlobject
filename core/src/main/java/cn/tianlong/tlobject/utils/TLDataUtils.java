@@ -126,7 +126,7 @@ public class TLDataUtils {
             return (Boolean) value;
         return defaultValue ;
     }
-    public static byte getByeParam( Object value ,byte defaultValue)
+    public static byte getByteParam( Object value ,byte defaultValue)
     {
         if (value !=null && value  instanceof Byte )
             return (byte) value;

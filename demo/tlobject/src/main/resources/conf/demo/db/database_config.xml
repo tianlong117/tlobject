@@ -103,8 +103,8 @@
          每个分表与其他表一样，可以单独操作。
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
-        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="true" cacheExptime="2"/>
-        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="true" cacheExptime="2"/>
+        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="true" cacheExptime="3"/>
+        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="true" cacheExptime="3"/>
 
         <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
 

@@ -85,19 +85,10 @@ public class TLDBServer extends TLBaseModule {
         /**
          * 检查是否包含cacheSql，如包含说明正有相同的sql在执行
          */
-        if(cacheSqlList.contains(cacheSql))
-        {
-            int i=1;
-            do {
-                try {
-                    sleep(2);
-                    i++ ;
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                    return cacheModule ;
-                }
-            }while (cacheSqlList.contains(cacheSql) || i<30);
-        }
+        do{
+            if(!cacheSqlList.contains(cacheSql))
+                break;
+        } while (true);
         return cacheModule.getCache( tableName,cacheKey,valueType);
     }
     public Boolean isCacheValue(Object value){
@@ -108,6 +99,9 @@ public class TLDBServer extends TLBaseModule {
     }
     public Boolean removeSqlCacheIndex(String tableName,String cacheKey){
         return   cacheSqlList.remove(tableName+cacheKey);
+    }
+    public Boolean ifSqlCacheIndexExist(String tableName,String cacheKey){
+        return   cacheSqlList.contains(tableName+cacheKey);
     }
     private void setConnector() {
         String dbconnector = params.get(DB_R_CONNECTOR);

@@ -319,6 +319,10 @@ public class TLTable extends TLBaseDataUnit {
                 boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(cacheName,cacheKey);
                 if(addSucess==false)
                 {
+                    do {
+                        if(!((TLDBServer)dbserver).ifSqlCacheIndexExist(cacheName,cacheKey))
+                            break;
+                    }while (true) ;
                     cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
                     if(((TLDBServer)dbserver).isCacheValue(cacheValue))
                         return   msg.setParam(DB_R_RESULT, cacheValue);

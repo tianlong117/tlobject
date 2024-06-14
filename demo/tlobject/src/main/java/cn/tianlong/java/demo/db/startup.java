@@ -80,14 +80,17 @@ public class startup extends TLAppStartUp {
 
     private void queryByUserName(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
+        Long  startTime =System.currentTimeMillis();
         Map<String,Object> datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"));
+        Long  endTime =System.currentTimeMillis();
         if(datas ==null || datas.isEmpty())
         {
-            System.out.println("没有数据");
+            System.out.println("queryByUserName 没有数据");
             return;
         }
-        System.out.println("查询结果:");
+        System.out.println("queryByUserName 查询结果:");
         TLMsgUtils.printMap(datas);
+        System.out.println("queryByUserName 查询时间："+ (endTime-startTime));
     }
     private void updateTable(Object fromWho, TLMsg msg) {
         System.out.println(" --------- 修改前 ---------------");

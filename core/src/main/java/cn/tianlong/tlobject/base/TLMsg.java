@@ -377,10 +377,10 @@ public class TLMsg implements Serializable , Cloneable{
         Object value = getParam(param);
         return TLDataUtils.getBooleanParam(value,defaultValue);
     }
-    public byte getByeParam(String param ,byte defaultValue)
+    public byte getByteParam(String param ,byte defaultValue)
     {
         Object value = getParam(param);
-        return TLDataUtils.getByeParam(value,defaultValue);
+        return TLDataUtils.getByteParam(value,defaultValue);
     }
     public Map getMapParam(String param ,Map defaultValue)
     {

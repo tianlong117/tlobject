@@ -37,6 +37,11 @@
             <artifactId>mysql-connector-java</artifactId>
             <version>8.0.29</version>
         </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>42.2.18</version>
+        </dependency>
     </dependencies>
     <build>
         <!--在父类Maven中使用pluginManagement管理插件便于子类Module继承使用,也便于进行依赖版本控制-->

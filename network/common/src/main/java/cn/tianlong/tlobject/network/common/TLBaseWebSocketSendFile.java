@@ -120,7 +120,7 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
                 execModule.putLog(fileName+" 传输失败，没有收到结束回应" , LogLevel.DEBUG, "sendFile");
                 return sendResultMsg ;
             }
-            byte cmdcode = receiveEndMsg.getByeParam(WEBSOCKET_P_BINARYCMDCODE,(byte)-1);
+            byte cmdcode = receiveEndMsg.getByteParam(WEBSOCKET_P_BINARYCMDCODE,(byte)-1);
             if(cmdcode == WEBSOCKET_V_BINARYMFILRECEIVEOVERCODE)
             {
                 execModule.putLog(fileName+" 收到回应，传输成功" , LogLevel.DEBUG, "sendFile");

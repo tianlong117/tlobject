@@ -114,29 +114,25 @@ public class TLMemoryCache extends TLBaseCache {
     @Override
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
 
+        if(cacheValue ==null)
+            cacheValue = this  ;
         long cacheExptime = takeExptime(cacheName, exptime);
         if (cacheExptime < 0L)
             return false;
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
+        ConcurrentHashMap<String, Object> cacheData ;
         if(cacheMap ==null)
         {
             cacheMap = new ConcurrentHashMap<>();
-            Object result= cacheDatas.putIfAbsent(cacheName,cacheMap);
-            if(result !=null)
-                cacheMap= (ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>) result;
+            cacheData = new ConcurrentHashMap<>();
+            cacheMap.put(cacheKey, cacheData);
+            cacheDatas.put(cacheName,cacheMap);
         }
-        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
-        // 在没有缓存的情况下才能写
-        if (cacheData != null )
-            return false;
-        cacheData = new ConcurrentHashMap<>();
+        else
+            cacheData = cacheMap.get(cacheKey);
         cacheData.put(CACHE_P_EXPTTIME, cacheExptime);
         cacheData.put(CACHE_P_VALUE, cacheValue);
-        Object value = cacheMap.putIfAbsent(cacheKey, cacheData);
-        if(value !=null)
-            return false;
-        else
-            return true;
+        return true;
     }
 
 }
