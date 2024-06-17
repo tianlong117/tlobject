@@ -310,26 +310,10 @@ public class TLTable extends TLBaseDataUnit {
         if(ifQueryCache)
         {
             cacheName= (String) msg.getParam(DB_P_CACHENAME);
-            cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
+            cacheKey =((TLDBServer)dbserver).makeCacheKey(sql,sqlParamsList,dbType);
             Object cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
             if(((TLDBServer)dbserver).isCacheValue(cacheValue))
                 return   msg.setParam(DB_R_RESULT, cacheValue);
-            else
-            {
-                boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(cacheName,cacheKey);
-                if(addSucess==false)
-                {
-                    do {
-                        if(!((TLDBServer)dbserver).ifSqlCacheIndexExist(cacheName,cacheKey))
-                            break;
-                    }while (true) ;
-                    cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
-                    if(((TLDBServer)dbserver).isCacheValue(cacheValue))
-                        return   msg.setParam(DB_R_RESULT, cacheValue);
-                    else
-                        return  msg.setParam(DB_R_RESULT, false);
-                }
-            }
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
        if(rconn ==null){
@@ -386,7 +370,6 @@ public class TLTable extends TLBaseDataUnit {
         {
             int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
            ((TLDBServer)dbserver).writeCache(cacheName,cacheKey, result,  dbType,exptime);
-           ((TLDBServer)dbserver).removeSqlCacheIndex(cacheName,cacheKey);
         }
         msg.setParam(DB_R_RESULT, result);
         Object resultFor = getResultObject(msg);
@@ -397,20 +380,6 @@ public class TLTable extends TLBaseDataUnit {
             putMsg((IObject) resultFor, msg);
             return msg;
         }
-    }
-
-    protected String makeCacheKey(String sql, Map<String,Object> sqlParams ,TLDataBase.RESULT_TYPE resultType ){
-        StringBuilder strBuffer = new StringBuilder().append(sql);
-        if(sqlParams !=null)
-        for(String key :sqlParams.keySet())
-        {
-            strBuffer.append(key) ;
-            Object value =sqlParams.get(key);
-            if(value !=null)
-                strBuffer.append(String.valueOf(value)) ;
-        }
-        strBuffer.append(resultType.toString());
-        return String.valueOf( strBuffer.toString().hashCode());
     }
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {

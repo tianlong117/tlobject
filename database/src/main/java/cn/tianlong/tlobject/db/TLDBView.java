@@ -101,21 +101,10 @@ public class TLDBView extends TLTable {
         if(ifQueryCache)
         {
             cacheName=(params.get("cacheName")!=null)? params.get("cacheName") :name;
-            cacheKey =makeCacheKey(runSql,sqlParamsList,resultType);
+            cacheKey =((TLDBServer)dbserver).makeCacheKey(runSql,sqlParamsList,resultType);
             Object cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, resultType);
             if(((TLDBServer)dbserver).isCacheValue(cacheValue))
                 return   msg.setParam(DB_R_RESULT, cacheValue);
-            else
-            {
-                boolean  addSucess=  ((TLDBServer)dbserver).addSqlCacheIndex(name,cacheKey);
-                if(addSucess==false){
-                    cacheValue =((TLDBServer)dbserver).getCache(name,cacheKey, (TLDataBase.RESULT_TYPE) resultType);
-                    if(((TLDBServer)dbserver).isCacheValue(cacheValue))
-                        return   msg.setParam(DB_R_RESULT, cacheValue);
-                    else
-                        return  msg.setParam(DB_R_RESULT, false);
-                }
-            }
         }
         Connection rconn = (Connection) getConnection("read");
         if(rconn==null){
@@ -150,11 +139,7 @@ public class TLDBView extends TLTable {
             putLog(runSql,LogLevel.ERROR,"query");
         }
         if(cacheKey !=null)
-        {
-
             ((TLDBServer)dbserver).writeCache(cacheName,cacheKey, result,  resultType,cacheExptime);
-            ((TLDBServer)dbserver).removeSqlCacheIndex(cacheName,cacheKey);
-        }
         TLMsg returnMsg=createMsg().setParam(DB_R_RESULT,result);
         return returnMsg;
 

@@ -107,6 +107,7 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_SQLTYPE,DB_QUERY)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_CACHENAME,"testuser")
               //  .setParam(DB_P_BEANCLASS,userBean.class)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);
@@ -309,7 +310,7 @@ public class DbDemo extends TLBaseModule {
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
-                .setParam("cacheName","user")
+                .setParam(DB_P_CACHENAME,"user")
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(tb, querymsg);
     }

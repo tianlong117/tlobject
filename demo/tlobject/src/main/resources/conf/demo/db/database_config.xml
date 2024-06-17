@@ -115,7 +115,7 @@
     -->
     <views>
         <view name="vusers" sql="select * from user1 where  name like  ?&quot;%&quot;  " dbserver="dbserver1"  resultType="MAPLIST"
-              ifCache="true"  cacheName="users" cacheExptime="2"
+              ifCache="true"  cacheName="vusers" cacheExptime="2"
         />
     </views>
     <!--

@@ -30,6 +30,7 @@ public class TLDataBase extends TLBaseModule {
     private final static String prefixTrigger = "trigger_";
     private final static String prefixView = "view_";
     private final static String prefixServer = "server_";
+    protected int cacheExptime=1;
     protected HashMap<String, HashMap<String, String>> dbservers;
     protected HashMap<String, HashMap<String, String>> tables;
     protected HashMap<String, HashMap<String, String>> views;
@@ -346,6 +347,26 @@ public class TLDataBase extends TLBaseModule {
 
     private TLMsg execSql(Object fromWho, TLMsg msg) {
         String dbserver =selectDbServer(msg);
+        Object resultType = msg.getParam(DB_P_RESULTTYPE);
+        RESULT_TYPE dbType =getResultType(resultType);
+        String sqlType = (String) msg.getParam(DB_P_SQLTYPE);
+        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        String sql = (String) msg.getParam(DB_P_SQL);
+        String cacheKey = null;
+        String cacheName = null;
+        TLBaseModule serverModule =getServer(dbserver);
+        if( sqlType.equals(DB_QUERY)){
+            boolean ifQueryCache=((TLDBServer)serverModule).ifCache() && !msg.isNull(DB_P_CACHENAME) ;
+            if(ifQueryCache)
+            {
+                cacheName= (String) msg.getParam(DB_P_CACHENAME);
+                cacheKey =((TLDBServer)serverModule).makeCacheKey(sql,sqlParamsList,dbType);
+                Object cacheValue =((TLDBServer)serverModule).getCache(cacheName,cacheKey, dbType);
+                if(((TLDBServer)serverModule).isCacheValue(cacheValue))
+                    return   msg.setParam(DB_R_RESULT, cacheValue);
+            }
+        }
+
         Connection conn = getConnection(dbserver);
         if (conn == null) {
             putLog("数据库没有连接", LogLevel.ERROR);
@@ -360,17 +381,12 @@ public class TLDataBase extends TLBaseModule {
                 return createMsg().setParam(RESULT, false);
             }
         }
-        Object resultType = msg.getParam(DB_P_RESULTTYPE);
-        RESULT_TYPE dbType =getResultType(resultType);
         ResultSetHandler rsh = getResultSetHandler(dbType,msg);
         if (rsh == null) {
             putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
             return createMsg().setParam(RESULT, false);
         }
-        String sqlType = (String) msg.getParam(DB_P_SQLTYPE);
         QueryRunner runner = new QueryRunner();
-        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam("params");
-        String sql = (String) msg.getParam(DB_P_SQL);
         putLog(sql + " 进程id: " + Thread.currentThread().getName(), LogLevel.DEBUG);
         Object result = null;
         if (sqlParamsList == null)
@@ -389,6 +405,11 @@ public class TLDataBase extends TLBaseModule {
                 }
                 e.printStackTrace();
                 return createMsg().setParam(RESULT, false).setParam(DB_R_CONN,conn);
+            }
+            if( cacheKey !=null && sqlType.equals(DB_QUERY))
+            {
+                int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
+                ((TLDBServer)serverModule).writeCache(cacheName,cacheKey, result,  dbType,exptime);
             }
             return createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
         }
@@ -413,6 +434,11 @@ public class TLDataBase extends TLBaseModule {
             }
             e.printStackTrace();
             return createMsg().setParam(RESULT, false).setParam(DB_R_CONN,conn);
+        }
+        if( cacheKey !=null && sqlType.equals(DB_QUERY))
+        {
+            int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
+            ((TLDBServer)serverModule).writeCache(cacheName,cacheKey, result,  dbType,exptime);
         }
         TLMsg returnMsg = createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
         return returnMsg;

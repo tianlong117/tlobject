@@ -91,6 +91,19 @@ public class TLDBServer extends TLBaseModule {
         } while (true);
         return cacheModule.getCache( tableName,cacheKey,valueType);
     }
+    public String makeCacheKey(String sql, Map<String,Object> sqlParams ,TLDataBase.RESULT_TYPE resultType ){
+        StringBuilder strBuffer = new StringBuilder().append(sql);
+        if(sqlParams !=null)
+            for(String key :sqlParams.keySet())
+            {
+                strBuffer.append(key) ;
+                Object value =sqlParams.get(key);
+                if(value !=null)
+                    strBuffer.append(String.valueOf(value)) ;
+            }
+        strBuffer.append(resultType.toString());
+        return String.valueOf( strBuffer.toString().hashCode());
+    }
     public Boolean isCacheValue(Object value){
         return cacheModule.isCacheValue(value) ;
     }

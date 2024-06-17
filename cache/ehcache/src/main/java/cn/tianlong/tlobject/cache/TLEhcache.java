@@ -86,6 +86,8 @@ public class TLEhcache extends TLBaseCache {
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
         Class<?>  valueTypeClass =getValueType(valueType);
         Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
+        if(cache ==null)
+            return false ;
         try {
             cache.put( cacheKey,cacheValue);
             return true ;
