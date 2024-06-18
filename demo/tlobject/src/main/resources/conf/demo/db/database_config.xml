@@ -62,13 +62,13 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-        <dbserver name="dbserver1" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="memoryCache"
+        <dbserver name="dbserver1" proxyModule="dbserver" statup="true"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
                   connector="HikariCP"
                   initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
-        <dbserver name="dbserver2" proxyModule="dbserver" statup="true" ifCache="true" cacheModule="EhCache"
+        <dbserver name="dbserver2" proxyModule="dbserver" statup="true"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
@@ -103,8 +103,10 @@
          每个分表与其他表一样，可以单独操作。
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
-        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true" ifCache="true" cacheExptime="3"/>
-        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true" ifCache="true" cacheExptime="3"/>
+        <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true"
+               ifCache="true" cacheExptime="3" cacheModule="memoryCache"/>
+        <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true"
+               ifCache="true" cacheExptime="3" cacheModule="EhCache"/>
 
         <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
 
@@ -115,7 +117,7 @@
     -->
     <views>
         <view name="vusers" sql="select * from user1 where  name like  ?&quot;%&quot;  " dbserver="dbserver1"  resultType="MAPLIST"
-              ifCache="true"  cacheName="vusers" cacheExptime="2"
+              ifCache="true"  cacheName="vusers" cacheExptime="2" cacheModule="EhCache"
         />
     </views>
     <!--

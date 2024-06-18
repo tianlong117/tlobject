@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.db;
 
 import cn.tianlong.tlobject.base.*;
+import cn.tianlong.tlobject.cache.TLBaseCache;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
@@ -14,6 +15,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Map;
 
 
 /**
@@ -354,15 +356,17 @@ public class TLDataBase extends TLBaseModule {
         String sql = (String) msg.getParam(DB_P_SQL);
         String cacheKey = null;
         String cacheName = null;
-        TLBaseModule serverModule =getServer(dbserver);
+        TLBaseCache cacheModule=null ;
+        String cacheValueType =dbType.toString().toLowerCase();
         if( sqlType.equals(DB_QUERY)){
-            boolean ifQueryCache=((TLDBServer)serverModule).ifCache() && !msg.isNull(DB_P_CACHENAME) ;
-            if(ifQueryCache)
+            if(!msg.isNull(DB_P_CACHENAME))
             {
+                String  cacheModuleName = msg.getStringParam("cacheModule","memoryCache");
+                cacheModule= (TLBaseCache) getModule(cacheModuleName);
                 cacheName= (String) msg.getParam(DB_P_CACHENAME);
-                cacheKey =((TLDBServer)serverModule).makeCacheKey(sql,sqlParamsList,dbType);
-                Object cacheValue =((TLDBServer)serverModule).getCache(cacheName,cacheKey, dbType);
-                if(((TLDBServer)serverModule).isCacheValue(cacheValue))
+                cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
+                Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
+                if(cacheModule.isCacheValue(cacheValue))
                     return   msg.setParam(DB_R_RESULT, cacheValue);
             }
         }
@@ -409,7 +413,7 @@ public class TLDataBase extends TLBaseModule {
             if( cacheKey !=null && sqlType.equals(DB_QUERY))
             {
                 int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
-                ((TLDBServer)serverModule).writeCache(cacheName,cacheKey, result,  dbType,exptime);
+                cacheModule.writeCache(cacheName,cacheKey, result,  exptime,cacheValueType);
             }
             return createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
         }
@@ -438,7 +442,7 @@ public class TLDataBase extends TLBaseModule {
         if( cacheKey !=null && sqlType.equals(DB_QUERY))
         {
             int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
-            ((TLDBServer)serverModule).writeCache(cacheName,cacheKey, result,  dbType,exptime);
+            cacheModule.writeCache(cacheName,cacheKey, result,  exptime,cacheValueType);
         }
         TLMsg returnMsg = createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
         return returnMsg;
@@ -722,6 +726,19 @@ public class TLDataBase extends TLBaseModule {
         TLBaseModule serverModule =getServer(dbserver);
         return (Connection) putMsg(serverModule, createMsg().setAction(DB_GETCONN))
                 .getParam(DB_R_CONN);
+    }
+    static public String makeCacheKey(String sql, Map<String,Object> sqlParams , TLDataBase.RESULT_TYPE resultType ){
+        StringBuilder strBuffer = new StringBuilder().append(sql);
+        if(sqlParams !=null)
+            for(String key :sqlParams.keySet())
+            {
+                strBuffer.append(key) ;
+                Object value =sqlParams.get(key);
+                if(value !=null)
+                    strBuffer.append(String.valueOf(value)) ;
+            }
+        strBuffer.append(resultType.toString());
+        return String.valueOf( strBuffer.toString().hashCode());
     }
     static public String  getTableDbName(String tableName,TLBaseModule module){
         TLMsg msg = new TLMsg().setAction(DB_GETTABLEPARAMS).setParam(DB_P_TABLENAME,tableName);

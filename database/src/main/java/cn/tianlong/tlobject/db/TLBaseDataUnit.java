@@ -4,7 +4,11 @@ package cn.tianlong.tlobject.db;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.cache.TLBaseCache;
+import cn.tianlong.tlobject.utils.TLDataUtils;
+
 import java.util.HashMap;
+import java.util.Map;
 
 
 /**
@@ -24,6 +28,9 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
     protected TLBaseModule dbserver;
     protected TLBaseModule readserver;
     protected String database ;
+
+    protected TLBaseCache cacheModule ;
+    protected String cacheModuleName="memoryCache";
     public TLBaseDataUnit() {
         super();
     }
@@ -40,7 +47,8 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
     }
 
     @Override
-    protected TLBaseModule init() {
+    protected TLBaseModule init()
+    {
         String dbserverName=params.get("dbserver");
         if(dbserverName ==null || dbserverName.isEmpty())
             dbserverName=params.get("defaultDBserver");
@@ -55,6 +63,8 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
             if(readserver ==null)
                 return null ;
         }
+        if(ifCache)
+            cacheModule= (TLBaseCache) getModule(cacheModuleName);
         return  this ;
     }
 
@@ -65,10 +75,11 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
             dbtable= name;
         database=params.get("database");
         if (params.get("ifCache") != null)
-            ifCache = Boolean.parseBoolean(params.get("ifCache"));
+            ifCache =TLDataUtils.parseBoolean(params.get("ifCache"),false);
         if (params.get("cacheExptime") != null)
-            cacheExptime = Integer.parseInt(params.get("cacheExptime"));
-
+            cacheExptime = TLDataUtils.parseInt(params.get("cacheExptime"),3);
+        if (params.get("cacheModule") != null)
+            cacheModuleName = params.get("cacheModule");
     }
     public String getTableName(){
         return dbtable ;
@@ -136,5 +147,21 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
                         .getParam(DB_R_CONNECTOR);
             return  readConnector.connect();
         }
+    }
+
+
+    protected boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){
+
+        String valueType =resultType.toString().toLowerCase();
+        return cacheModule.writeCache( tableName,cacheKey,cacheValue,exptime,valueType);
+    }
+
+    protected Object getCache (String tableName,String cacheKey ,TLDataBase.RESULT_TYPE resultType){
+        String valueType =resultType.toString().toLowerCase();
+        return cacheModule.getCache( tableName,cacheKey,valueType);
+    }
+
+    public Boolean isCacheValue(Object value){
+        return cacheModule.isCacheValue(value) ;
     }
 }

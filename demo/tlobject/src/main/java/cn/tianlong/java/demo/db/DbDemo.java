@@ -108,6 +108,8 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_CACHENAME,"testuser")
+                .setParam("cacheModule","memoryCache")
+                .setParam(DB_P_CACHEXPTIME,2)
               //  .setParam(DB_P_BEANCLASS,userBean.class)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);
@@ -229,7 +231,7 @@ public class DbDemo extends TLBaseModule {
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_PARAMS, sqlparams);
        TLMsg resultMsg = putMsg(tv, querymsg);
-        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) resultMsg.getListParam(RESULT,null);
+        ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) resultMsg.getListParam(DB_R_RESULT,null);
         if(datas ==null || datas.isEmpty())
         {
             System.out.println("没有数据");

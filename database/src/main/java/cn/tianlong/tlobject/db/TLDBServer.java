@@ -20,12 +20,9 @@ import static java.lang.Thread.sleep;
  */
 
 public class TLDBServer extends TLBaseModule {
-    protected boolean ifCache =false;
+
     protected TLBaseConnectorInterface connector;
 
-    protected TLBaseCache cacheModule ;
-    protected String cacheModuleName="memoryCache";
-    protected CopyOnWriteArrayList<String> cacheSqlList = new CopyOnWriteArrayList<>() ;
     public TLDBServer() {
         super();
     }
@@ -38,15 +35,7 @@ public class TLDBServer extends TLBaseModule {
         super(name, modulefactory);
     }
 
-    @Override
-    protected void setModuleParams() {
-        if (params != null) {
-            if (params.get("ifCache") != null)
-                ifCache = Boolean.parseBoolean(params.get("ifCache"));
-            if (params.get("cacheModule") != null)
-                cacheModuleName = params.get("cacheModule");
-        }
-    }
+
     @Override
     protected TLBaseModule init() {
         setConnector();
@@ -67,55 +56,10 @@ public class TLDBServer extends TLBaseModule {
         }
         putLog("数据库连接",LogLevel.DEBUG,"init");
         connector.close(conn);
-        if(ifCache)
-            cacheModule= (TLBaseCache) getModule(cacheModuleName);
         return this ;
     }
-    public boolean ifCache(){
-        return ifCache;
-    }
-    public boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){
 
-        String valueType =resultType.toString().toLowerCase();
-        return cacheModule.writeCache( tableName,cacheKey,cacheValue,exptime,valueType);
-    }
-    public Object getCache (String tableName,String cacheKey ,TLDataBase.RESULT_TYPE resultType){
-        String valueType =resultType.toString().toLowerCase();
-        String cacheSql =tableName+cacheKey;
-        /**
-         * 检查是否包含cacheSql，如包含说明正有相同的sql在执行
-         */
-        do{
-            if(!cacheSqlList.contains(cacheSql))
-                break;
-        } while (true);
-        return cacheModule.getCache( tableName,cacheKey,valueType);
-    }
-    public String makeCacheKey(String sql, Map<String,Object> sqlParams ,TLDataBase.RESULT_TYPE resultType ){
-        StringBuilder strBuffer = new StringBuilder().append(sql);
-        if(sqlParams !=null)
-            for(String key :sqlParams.keySet())
-            {
-                strBuffer.append(key) ;
-                Object value =sqlParams.get(key);
-                if(value !=null)
-                    strBuffer.append(String.valueOf(value)) ;
-            }
-        strBuffer.append(resultType.toString());
-        return String.valueOf( strBuffer.toString().hashCode());
-    }
-    public Boolean isCacheValue(Object value){
-        return cacheModule.isCacheValue(value) ;
-    }
-    public Boolean addSqlCacheIndex(String tableName,String cacheKey){
-        return   cacheSqlList.addIfAbsent(tableName+cacheKey);
-    }
-    public Boolean removeSqlCacheIndex(String tableName,String cacheKey){
-        return   cacheSqlList.remove(tableName+cacheKey);
-    }
-    public Boolean ifSqlCacheIndexExist(String tableName,String cacheKey){
-        return   cacheSqlList.contains(tableName+cacheKey);
-    }
+
     private void setConnector() {
         String dbconnector = params.get(DB_R_CONNECTOR);
         if (dbconnector == null || dbconnector.isEmpty()) {
@@ -156,6 +100,7 @@ public class TLDBServer extends TLBaseModule {
         }
         return msg.setParam(DB_R_CONN, conn);
     }
+
     private class selfConnector implements TLBaseConnectorInterface {
         public Connection connect() {
             try {

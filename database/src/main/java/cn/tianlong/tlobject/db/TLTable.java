@@ -228,7 +228,7 @@ public class TLTable extends TLBaseDataUnit {
 
     protected TLMsg total(Object fromWho, TLMsg msg) {
         String sql = "select count(*) as total from [table] ";
-        TLMsg amsg = createMsg().copyFrom(msg).setAction("query").setParam("sql", sql);
+        TLMsg amsg = createMsg().copyFrom(msg).setAction(DB_QUERY).setParam(DB_P_SQL, sql);
         amsg.setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP);
         TLMsg returnMsg = getMsg(fromWho, amsg);
         Map<String, Object> result = (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
@@ -304,15 +304,15 @@ public class TLTable extends TLBaseDataUnit {
             return createMsg().setParam(RESULT, false);
         }
         LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
-        boolean ifQueryCache=((TLDBServer)dbserver).ifCache() && ifCache && !msg.isNull(DB_P_CACHENAME) ;
+        boolean ifQueryCache= ifCache && !msg.isNull(DB_P_CACHENAME) ;
         String cacheKey = null;
         String cacheName =null ;
         if(ifQueryCache)
         {
             cacheName= (String) msg.getParam(DB_P_CACHENAME);
-            cacheKey =((TLDBServer)dbserver).makeCacheKey(sql,sqlParamsList,dbType);
-            Object cacheValue =((TLDBServer)dbserver).getCache(cacheName,cacheKey, dbType);
-            if(((TLDBServer)dbserver).isCacheValue(cacheValue))
+            cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList,dbType);
+            Object cacheValue =getCache(cacheName,cacheKey, dbType);
+            if(isCacheValue(cacheValue))
                 return   msg.setParam(DB_R_RESULT, cacheValue);
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
@@ -369,7 +369,7 @@ public class TLTable extends TLBaseDataUnit {
         if(cacheKey !=null)
         {
             int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
-           ((TLDBServer)dbserver).writeCache(cacheName,cacheKey, result,  dbType,exptime);
+            writeCache(cacheName,cacheKey, result,  dbType,exptime);
         }
         msg.setParam(DB_R_RESULT, result);
         Object resultFor = getResultObject(msg);
