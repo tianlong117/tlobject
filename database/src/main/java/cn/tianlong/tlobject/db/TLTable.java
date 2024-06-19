@@ -310,7 +310,9 @@ public class TLTable extends TLBaseDataUnit {
         if(cacheModule != null && ifQueryCache)
         {
             cacheName= (String) msg.getParam(DB_P_CACHENAME);
-            cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList,dbType);
+            cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
+            if(cacheKey ==null)
+                 cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList,dbType);
             Object cacheValue =getCache(cacheName,cacheKey, dbType);
             if(isCacheValue(cacheValue))
                 return   msg.setParam(DB_R_RESULT, cacheValue);

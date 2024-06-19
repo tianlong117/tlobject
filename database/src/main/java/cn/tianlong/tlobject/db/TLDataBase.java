@@ -364,7 +364,9 @@ public class TLDataBase extends TLBaseModule {
                 String  cacheModuleName = msg.getStringParam("cacheModule","memoryCache");
                 cacheModule= (TLBaseCache) getModule(cacheModuleName);
                 cacheName= (String) msg.getParam(DB_P_CACHENAME);
-                cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
+                cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
+                if(cacheKey ==null)
+                    cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
                 Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
                 if(cacheModule.isCacheValue(cacheValue))
                     return   msg.setParam(DB_R_RESULT, cacheValue);
