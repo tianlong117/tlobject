@@ -104,7 +104,7 @@
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
         <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true"
-               ifCache="true" cacheExptime="3" cacheModule="memoryCache"/>
+               ifCache="true" cacheExptime="3" cacheModule="caffeine"  cacheModule_o="memoryCache" />
         <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true"
                ifCache="true" cacheExptime="3" cacheModule="EhCache"/>
 
@@ -117,7 +117,7 @@
     -->
     <views>
         <view name="vusers" sql="select * from user1 where  name like  ?&quot;%&quot;  " dbserver="dbserver1"  resultType="MAPLIST"
-              ifCache="true"  cacheName="vusers" cacheExptime="2" cacheModule="EhCache"
+              ifCache="true"  cacheName="vusers" cacheExptime="2" cacheModule="caffeine"
         />
     </views>
     <!--

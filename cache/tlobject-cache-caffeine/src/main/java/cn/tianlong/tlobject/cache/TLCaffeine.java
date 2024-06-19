@@ -62,7 +62,10 @@ public class TLCaffeine extends TLBaseCache {
         Cache<Object, Object>  caffeine =caches.get(cacheName) ;
         if ( caffeine ==null )
             return this ;
-         return caffeine.getIfPresent(cacheKey) ;
+        Object value = caffeine.getIfPresent(cacheKey) ;
+        if (value ==null)
+            return this ;
+        return value ;
     }
 
     @Override
