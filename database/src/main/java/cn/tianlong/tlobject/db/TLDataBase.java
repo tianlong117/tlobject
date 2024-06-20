@@ -28,7 +28,6 @@ public class TLDataBase extends TLBaseModule {
     protected String dbPackageName;
     private final static String prefixTable = "table_";
     private final static String prefixBeanTable = "bean_";
-    private final static String prefixMapTable = "map_";
     private final static String prefixTrigger = "trigger_";
     private final static String prefixView = "view_";
     private final static String prefixServer = "server_";
@@ -248,7 +247,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg startTranscation(Object fromWho, TLMsg msg) throws SQLException {
-        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getParam(DB_P_MSGLIST);
+        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getListParam(DB_P_MSGLIST,null);
         ArrayList<Connection> connections= new ArrayList<>();
         for(int i = 0 ; i< msgList.size() ; i ++)
         {
@@ -352,24 +351,25 @@ public class TLDataBase extends TLBaseModule {
         Object resultType = msg.getParam(DB_P_RESULTTYPE);
         RESULT_TYPE dbType =getResultType(resultType);
         String sqlType = (String) msg.getParam(DB_P_SQLTYPE);
-        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        LinkedHashMap<String, Object> sqlParamsMap = (LinkedHashMap<String, Object>) msg.getMapParam(DB_P_PARAMS,null);
         String sql = (String) msg.getParam(DB_P_SQL);
         String cacheKey = null;
         String cacheName = null;
         TLBaseCache cacheModule=null ;
         String cacheValueType =dbType.toString().toLowerCase();
+        TLMsg returnMsg =createMsg();
         if( sqlType.equals(DB_QUERY)){
             if(!msg.isNull(DB_P_CACHENAME))
             {
-                String  cacheModuleName = msg.getStringParam("cacheModule","memoryCache");
+                String  cacheModuleName = msg.getStringParam(DB_P_CACHEMODULE ,"memoryCache");
                 cacheModule= (TLBaseCache) getModule(cacheModuleName);
                 cacheName= (String) msg.getParam(DB_P_CACHENAME);
                 cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
                 if(cacheKey ==null)
-                    cacheKey =makeCacheKey(sql,sqlParamsList,dbType);
+                    cacheKey =makeCacheKey(sql,sqlParamsMap,dbType);
                 Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
                 if(cacheModule.isCacheValue(cacheValue))
-                    return   msg.setParam(DB_R_RESULT, cacheValue);
+                    return   returnMsg.setParam(DB_R_RESULT, cacheValue);
             }
         }
 
@@ -394,41 +394,23 @@ public class TLDataBase extends TLBaseModule {
         }
         QueryRunner runner = new QueryRunner();
         putLog(sql + " 进程id: " + Thread.currentThread().getName(), LogLevel.DEBUG);
-        Object result = null;
-        if (sqlParamsList == null)
+        Object result;
+        Object[] sqlParams =null ;
+        if (sqlParamsMap != null)
         {
-            try {
-                result = execSql( conn , runner, sql , sqlType , rsh , null);
-                if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
-                    conn.close();
-            } catch (SQLException e) {
-                if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true) {
-                    try {
-                        conn.close();
-                    } catch (SQLException e1) {
-                        e1.printStackTrace();
-                    }
-                }
-                e.printStackTrace();
-                return createMsg().setParam(RESULT, false).setParam(DB_R_CONN,conn);
+            sqlParams = new Object[sqlParamsMap.size()];
+            int i = 0;
+            for (String key1 : sqlParamsMap.keySet()) {
+                sqlParams[i] = sqlParamsMap.get(key1);
+                i++;
             }
-            if( cacheKey !=null && sqlType.equals(DB_QUERY))
-            {
-                int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
-                cacheModule.writeCache(cacheName,cacheKey, result,  exptime,cacheValueType);
-            }
-            return createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
-        }
-        Object[] sqlParams = new Object[sqlParamsList.size()];
-        int i = 0;
-        for (String key1 : sqlParamsList.keySet()) {
-            sqlParams[i] = sqlParamsList.get(key1);
-            i++;
         }
         try {
             result = execSql( conn , runner, sql , sqlType , rsh , sqlParams);
             if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
                 conn.close();
+            else
+                returnMsg.setParam(DB_R_CONN,conn);
         } catch (SQLException e) {
             if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
             {
@@ -438,15 +420,17 @@ public class TLDataBase extends TLBaseModule {
                     e1.printStackTrace();
                 }
             }
+            else
+                returnMsg.setParam(DB_R_CONN,conn);
             e.printStackTrace();
-            return createMsg().setParam(RESULT, false).setParam(DB_R_CONN,conn);
+            return returnMsg.setParam(RESULT, false);
         }
         if( cacheKey !=null && sqlType.equals(DB_QUERY))
         {
-            int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
+            int exptime = msg.getIntParam(DB_P_CACHEEXPTIME,cacheExptime);
             cacheModule.writeCache(cacheName,cacheKey, result,  exptime,cacheValueType);
         }
-        TLMsg returnMsg = createMsg().setParam(DB_R_RESULT, result).setParam(DB_R_CONN,conn);
+        returnMsg .setParam(DB_R_RESULT, result);
         return returnMsg;
     }
 

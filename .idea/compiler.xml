@@ -27,6 +27,7 @@
         <module name="redis" />
         <module name="servletutils" />
         <module name="slf4j" />
+        <module name="tlobjec-tcache-caffeine" />
         <module name="tlobject-all" />
         <module name="tlobject-app-webmanager" />
         <module name="tlobject-cache-common" />

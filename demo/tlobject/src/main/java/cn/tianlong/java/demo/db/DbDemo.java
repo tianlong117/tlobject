@@ -9,7 +9,6 @@ import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.utils.TLDataUtils;
-import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
@@ -108,8 +107,8 @@ public class DbDemo extends TLBaseModule {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_CACHENAME,"testuser")
-                .setParam("cacheModule","memoryCache")
-                .setParam(DB_P_CACHEXPTIME,2)
+                .setParam(DB_P_CACHEMODULE,"caffeine")
+                .setParam(DB_P_CACHEEXPTIME,2)
               //  .setParam(DB_P_BEANCLASS,userBean.class)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);

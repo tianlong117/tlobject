@@ -370,7 +370,7 @@ public class TLTable extends TLBaseDataUnit {
         }
         if(cacheKey !=null)
         {
-            int exptime = msg.getIntParam(DB_P_CACHEXPTIME,cacheExptime);
+            int exptime = msg.getIntParam(DB_P_CACHEEXPTIME,cacheExptime);
             writeCache(cacheName,cacheKey, result,  dbType,exptime);
         }
         msg.setParam(DB_R_RESULT, result);

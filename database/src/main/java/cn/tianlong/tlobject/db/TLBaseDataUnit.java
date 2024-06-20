@@ -73,13 +73,13 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
             dbtable= params.get("dbtable");
         else
             dbtable= name;
-        database=params.get("database");
-        if (params.get("ifCache") != null)
-            ifCache =TLDataUtils.parseBoolean(params.get("ifCache"),false);
-        if (params.get("cacheExptime") != null)
-            cacheExptime = TLDataUtils.parseInt(params.get("cacheExptime"),3);
-        if (params.get("cacheModule") != null)
-            cacheModuleName = params.get("cacheModule");
+        database=params.get(DEFAULTDATABASE);
+        if (params.get(DB_P_IFCACHE) != null)
+            ifCache =TLDataUtils.parseBoolean(params.get(DB_P_IFCACHE),false);
+        if (params.get(DB_P_CACHEEXPTIME) != null)
+            cacheExptime = TLDataUtils.parseInt(params.get(DB_P_CACHEEXPTIME),3);
+        if (params.get(DB_P_CACHEMODULE) != null)
+            cacheModuleName = params.get(DB_P_CACHEMODULE);
     }
     public String getTableName(){
         return dbtable ;

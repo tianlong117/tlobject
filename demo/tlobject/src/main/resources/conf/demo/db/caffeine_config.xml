@@ -4,6 +4,6 @@
         <!-- 用户自定义模块 -->
         <cacheName name="vusers"   maximumSize="100" expireAfterWrite="120" />
         <cacheName name="user"   maximumSize="100"  expireAfterAccess="120" />
-        <cacheName name="userModle" expireAfterWrite="120" />
+        <cacheName name="testuser" expireAfterWrite="120" />
     </caches>
 </moduleConfig>
