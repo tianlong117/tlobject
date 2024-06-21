@@ -167,6 +167,9 @@ public class TLDataBase extends TLBaseModule {
                 returnMsg = getViews(fromWho, msg);
                 break;
             case DB_EXECSQL:
+            case DB_QUERY:
+            case DB_DELETE:
+            case DB_UPDATE:
                 returnMsg = execSql(fromWho, msg);
                 break;
             case DB_ISTABLEEXIST:
@@ -349,16 +352,16 @@ public class TLDataBase extends TLBaseModule {
     private TLMsg execSql(Object fromWho, TLMsg msg) {
         String dbserver =selectDbServer(msg);
         Object resultType = msg.getParam(DB_P_RESULTTYPE);
-        RESULT_TYPE dbType =getResultType(resultType);
-        String sqlType = (String) msg.getParam(DB_P_SQLTYPE);
+        RESULT_TYPE sqlResultType =getResultType(resultType);
+        String action = msg.getAction();
         LinkedHashMap<String, Object> sqlParamsMap = (LinkedHashMap<String, Object>) msg.getMapParam(DB_P_PARAMS,null);
         String sql = (String) msg.getParam(DB_P_SQL);
         String cacheKey = null;
         String cacheName = null;
         TLBaseCache cacheModule=null ;
-        String cacheValueType =dbType.toString().toLowerCase();
+        String cacheValueType =sqlResultType.toString().toLowerCase();
         TLMsg returnMsg =createMsg();
-        if( sqlType.equals(DB_QUERY)){
+        if( action.equals(DB_QUERY)){
             if(!msg.isNull(DB_P_CACHENAME))
             {
                 String  cacheModuleName = msg.getStringParam(DB_P_CACHEMODULE ,"memoryCache");
@@ -366,7 +369,7 @@ public class TLDataBase extends TLBaseModule {
                 cacheName= (String) msg.getParam(DB_P_CACHENAME);
                 cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
                 if(cacheKey ==null)
-                    cacheKey =makeCacheKey(sql,sqlParamsMap,dbType);
+                    cacheKey =makeCacheKey(sql,sqlParamsMap,sqlResultType);
                 Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
                 if(cacheModule.isCacheValue(cacheValue))
                     return   returnMsg.setParam(DB_R_RESULT, cacheValue);
@@ -387,7 +390,7 @@ public class TLDataBase extends TLBaseModule {
                 return createMsg().setParam(RESULT, false);
             }
         }
-        ResultSetHandler rsh = getResultSetHandler(dbType,msg);
+        ResultSetHandler rsh = getResultSetHandler(sqlResultType,msg);
         if (rsh == null) {
             putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
             return createMsg().setParam(RESULT, false);
@@ -406,7 +409,7 @@ public class TLDataBase extends TLBaseModule {
             }
         }
         try {
-            result = execSql( conn , runner, sql , sqlType , rsh , sqlParams);
+            result = execSql( conn , runner, sql , action , rsh , sqlParams);
             if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
                 conn.close();
             else
@@ -425,7 +428,7 @@ public class TLDataBase extends TLBaseModule {
             e.printStackTrace();
             return returnMsg.setParam(RESULT, false);
         }
-        if( cacheKey !=null && sqlType.equals(DB_QUERY))
+        if( cacheKey !=null && action.equals(DB_QUERY))
         {
             int exptime = msg.getIntParam(DB_P_CACHEEXPTIME,cacheExptime);
             cacheModule.writeCache(cacheName,cacheKey, result,  exptime,cacheValueType);
@@ -434,22 +437,22 @@ public class TLDataBase extends TLBaseModule {
         return returnMsg;
     }
 
-    private Object execSql(Connection conn ,QueryRunner runner,String sql ,String sqlType ,ResultSetHandler rsh ,Object[] sqlParams) throws SQLException {
-        if( sqlType ==null ){
+    private Object execSql(Connection conn ,QueryRunner runner,String sql ,String action ,ResultSetHandler rsh ,Object[] sqlParams) throws SQLException {
+        if( action ==null ){
             if (sqlParams == null)
                 return  runner.execute(conn,sql);
             else
                 return runner.execute(conn,sql, sqlParams);
         }
        else {
-            if( sqlType.equals(DB_QUERY))
+            if( action.equals(DB_QUERY))
             {
                 if (sqlParams == null)
                     return  runner.query(conn, sql, rsh);
                 else
                     return runner.query(conn, sql, rsh, sqlParams);
             }
-            else if(sqlType.equals(DB_UPDATE) || sqlType.equals(DB_INSERT))
+            else if(action.equals(DB_UPDATE) || action.equals(DB_INSERT))
             {
                 if (sqlParams == null)
                     return  runner.update(conn,sql);

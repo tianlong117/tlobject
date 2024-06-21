@@ -91,6 +91,9 @@ public class DbDemo extends TLBaseModule {
             case "testDatabaseSql":
                 testDatabaseSql(fromWho, msg);
                 break;
+            case "testDatabaseSql1":
+                testDatabaseSql1(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -101,9 +104,8 @@ public class DbDemo extends TLBaseModule {
         String sql = "select * from  user2  where  name = ? ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", userName);
-        TLMsg querymsg = new TLMsg().setAction(DB_EXECSQL)
+        TLMsg querymsg = new TLMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SERVERNAME,"dbserver2")
-                .setParam(DB_P_SQLTYPE,DB_QUERY)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_CACHENAME,"testuser")
@@ -115,6 +117,27 @@ public class DbDemo extends TLBaseModule {
         List data = (List) returnMsg.getParam(DB_R_RESULT);
         println("result:");
         TLMsgUtils.printList(data);
+    }
+    protected void testDatabaseSql1(Object fromWho, TLMsg msg){
+        String userName = msg.getStringParam("username",null);
+        int number = TLDataUtils.parseInt(msg.getParam("number"),0);
+        String sql = "update  user2 set number=? where  name = ? ";
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("number", number);
+        sqlparams.put("name", userName);
+        TLMsg querymsg = new TLMsg().setAction(DB_UPDATE)
+                .setParam(DB_P_SERVERNAME,"dbserver2")
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_CACHENAME,"testuser")
+                .setParam(DB_P_CACHEMODULE,"caffeine")
+                .setParam(DB_P_CACHEEXPTIME,2)
+                //  .setParam(DB_P_BEANCLASS,userBean.class)
+                .setParam(DB_P_PARAMS, sqlparams);
+        TLMsg returnMsg= putMsg(DEFAULTDATABASE, querymsg);
+        Object result = returnMsg.getParam(DB_R_RESULT);
+        println("result:"+result.toString());
+
     }
     private void testMapInDB(Object fromWho, TLMsg msg) {
         MapInDB mymap =new MapInDB("myMap",moduleFactory);
