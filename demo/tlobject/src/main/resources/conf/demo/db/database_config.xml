@@ -86,6 +86,7 @@
    readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
    statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为 false。
    ifCache:是否开启sql查询缓存，默认false，不开启
+   cacheModule: 指定缓存模块
    cacheExptime：默认缓存过期时间，单位分钟。默认1分钟,如query查询中没有设置则采用。
    ifGetStructure:实例化时是否获取表结构，默认获取。
    beforeTrigger：访问表前执行的触发模块，一般用来分表或者在查询前执行某些操作，如读cache或redis
@@ -104,9 +105,9 @@
         -->
         <table name="userTable" dbtable="user" dbserver="dbserver2" beforeTrigger="userTableSplitTrigger" statup="true" />
         <table name="userTable1" dbtable="user1" dbserver="dbserver1" beforeTrigger="checkNameTrigger" statup="true"
-               ifCache="true" cacheExptime="3" cacheModule="caffeine"  cacheModule_o="memoryCache" />
+               ifCache="true" cacheExptime="3" cacheModule="caffeine"  cacheModule1="memoryCache" />
         <table name="userTable2" dbtable="user2" dbserver="dbserver2" sameAsTable="userTable1" statup="true"
-               ifCache="true" cacheExptime="3" cacheModule="EhCache"/>
+               ifCache="true" cacheExptime="3" cacheModule="caffeine" cacheModule1="EhCache"/>
 
         <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
 

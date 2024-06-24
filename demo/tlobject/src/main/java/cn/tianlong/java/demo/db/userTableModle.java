@@ -90,7 +90,8 @@ public class userTableModle extends TLBaseTableModle {
                 .setParam(DB_P_PARAMS, sqlparams);
         if(ifCache)
         {
-            querymsg.setParam("cacheName","usertable_number");
+            querymsg.setParam(DB_P_CACHENAME,"number");
+            querymsg.setParam(DB_P_CACHEKEY,String.valueOf(number));
             println("启动缓存————————");
         }
       TLMsg returnMsg =  putMsg(table, querymsg);

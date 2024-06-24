@@ -369,7 +369,7 @@ public class TLDataBase extends TLBaseModule {
                 cacheName= (String) msg.getParam(DB_P_CACHENAME);
                 cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
                 if(cacheKey ==null)
-                    cacheKey =makeCacheKey(sql,sqlParamsMap,sqlResultType);
+                    cacheKey =makeCacheKey(sql,sqlParamsMap);
                 Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
                 if(cacheModule.isCacheValue(cacheValue))
                     return   returnMsg.setParam(DB_R_RESULT, cacheValue);
@@ -716,8 +716,9 @@ public class TLDataBase extends TLBaseModule {
         return (Connection) putMsg(serverModule, createMsg().setAction(DB_GETCONN))
                 .getParam(DB_R_CONN);
     }
-    static public String makeCacheKey(String sql, Map<String,Object> sqlParams , TLDataBase.RESULT_TYPE resultType ){
-        StringBuilder strBuffer = new StringBuilder().append(sql);
+    static public String makeCacheKey(String sql, Map<String,Object> sqlParams  ){
+       String cacheKey =String.valueOf(sql.hashCode());
+        StringBuilder strBuffer = new StringBuilder();
         if(sqlParams !=null)
             for(String key :sqlParams.keySet())
             {
@@ -726,8 +727,8 @@ public class TLDataBase extends TLBaseModule {
                 if(value !=null)
                     strBuffer.append(String.valueOf(value)) ;
             }
-        strBuffer.append(resultType.toString());
-        return String.valueOf( strBuffer.toString().hashCode());
+       cacheKey =cacheKey+ String.valueOf( strBuffer.toString().hashCode());
+       return cacheKey ;
     }
     static public String  getTableDbName(String tableName,TLBaseModule module){
         TLMsg msg = new TLMsg().setAction(DB_GETTABLEPARAMS).setParam(DB_P_TABLENAME,tableName);

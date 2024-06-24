@@ -68,7 +68,7 @@ public class startup extends TLAppStartUp {
     private void queryByNumber(Object fromWho, TLMsg msg) {
         System.out.println("查询 number="+msg.getParam("number"));
         TLMsg returnMsg =putMsg("userTableModle",msg.setAction("queryByNumber"));
-        List datas =  returnMsg.getListParam(RESULT,null);
+        List datas =  returnMsg.getListParam(DB_R_RESULT,null);
         if(datas ==null || datas.isEmpty())
         {
             System.out.println("没有数据");

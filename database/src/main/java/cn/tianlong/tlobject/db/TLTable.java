@@ -311,11 +311,14 @@ public class TLTable extends TLBaseDataUnit {
         {
             cacheName= (String) msg.getParam(DB_P_CACHENAME);
             cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
-            if(cacheKey ==null)
-                 cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList,dbType);
+            if(cacheKey ==null || cacheKey.isEmpty())
+                 cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList);
             Object cacheValue =getCache(cacheName,cacheKey, dbType);
             if(isCacheValue(cacheValue))
+            {
+                putLog("获取缓存，cacheName: "+cacheName+" ，cacheKey: "+cacheKey, LogLevel.DEBUG, "cache");
                 return   msg.setParam(DB_R_RESULT, cacheValue);
+            }
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
        if(rconn ==null){
@@ -371,6 +374,7 @@ public class TLTable extends TLBaseDataUnit {
         if(cacheKey !=null)
         {
             int exptime = msg.getIntParam(DB_P_CACHEEXPTIME,cacheExptime);
+            putLog("写缓存，cacheName: "+cacheName+" ，cacheKey: "+cacheKey, LogLevel.DEBUG, "cache");
             writeCache(cacheName,cacheKey, result,  dbType,exptime);
         }
         msg.setParam(DB_R_RESULT, result);
