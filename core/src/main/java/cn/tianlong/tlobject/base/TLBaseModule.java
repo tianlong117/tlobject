@@ -489,11 +489,12 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     protected TLMsg doBeforMsgTable(String action, TLMsg msg) {
-         ArrayList msgList = beforeMsgTable.get("*");
+        TLMsg msgListReturnMsg = null;
+        ArrayList msgList = beforeMsgTable.get("*");
         if (msgList != null && !msgList.isEmpty())
         {
             putLogForMsglist("*" ,"before");
-            TLMsg msgListReturnMsg = doMsgList(msgList, msg, null);
+            msgListReturnMsg = doMsgList(msgList, msg, null);
             if (!ifDoNextMsg(msgListReturnMsg))
                 return selectReturnMsg(msg, msgListReturnMsg);
         }
@@ -501,10 +502,9 @@ public abstract class TLBaseModule extends TLBaseObject {
         if (msgList != null && !msgList.isEmpty())
         {
             putLogForMsglist(action ,"before");
-            TLMsg msgListReturnMsg = doMsgList(msgList, msg, null);
-            return selectReturnMsg( msg, msgListReturnMsg);
+            msgListReturnMsg = doMsgList(msgList, msg, null);
         }
-        return msg ;
+        return selectReturnMsg( msg, msgListReturnMsg);
     }
 
     private void putLogForMsglist(String action ,String type){
@@ -563,8 +563,8 @@ public abstract class TLBaseModule extends TLBaseObject {
                                       cmsg.copyParams(paramKeys,msg);
                                       cmsg.addSystemArgs(msg.getSystemArgs());
                                   }
-                         }
-                    }
+                             }
+                        }
                      if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)
                         cmsg.copyParams(paramKeys,returnMsg);
                      if (actionReturnMsg != null )
@@ -1080,9 +1080,10 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     protected void addMsgTable(HashMap<String, ArrayList<TLMsg>> tableVar, String tag, TLMsg msg) {
-        String key = (String) msg.getParam(tag);
+        String key =msg.getStringParam(tag,null);
         if (key == null || key.isEmpty())
             return;
+        if(msg.isNull("msg")) return;
         if (msg.getParam("msg") instanceof TLMsg) {
             int position = -1;
             if (msg.getParam("position") != null && msg.getParam("position") instanceof Integer)

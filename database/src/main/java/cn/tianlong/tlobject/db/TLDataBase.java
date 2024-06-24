@@ -621,10 +621,16 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private void addTriggerMstTable(TLBaseModule tbobj, String triggerName, String addTriggerAction, HashMap<String, String> tparams) {
-        String[] actions = {"delete", "update", "insert", "query", "batch"};
-        for (int i = 0; i < actions.length; i++) {
-            if (tparams.get(actions[i]) != null) {
-                insertTriggerMsgTable(tbobj, triggerName, addTriggerAction, actions[i], tparams.get(actions[i]));
+        String[] actions = {"delete", "update", "insert", "query", "batch","all"};
+        for (int i = 0; i < actions.length; i++)
+        {
+            String onAction =actions[i] ;
+            String trigAction =tparams.get(onAction) ;
+            if (trigAction != null && !trigAction.isEmpty())
+            {
+               if(onAction.equals("all"))
+                   onAction = "*";
+                insertTriggerMsgTable(tbobj, triggerName, addTriggerAction, onAction, trigAction);
             }
         }
     }

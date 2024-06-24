@@ -131,7 +131,7 @@
         <!-- 分表触发器   根据name字段进行分表  tableName：要分的表  splitTables：分表列表 splitKey:分表依据的字段-->
         <trigger name="userTableSplitTrigger" tableName="userTable"
                  splitTables="userTable2;userTable1" splitKey="name"
-                 delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate"
+                 delete="onDelete" insert="onInsert" query="onQuery" update="onUpdate" all="all"
                  classfile=".UserTableSplitTrigger"/>
         <!-- 检测字段触发器  ，当名字为badname,或者number大于maxNumber时，禁止插入   -->
         <trigger name="checkNameTrigger" insert="onInsert"  badname="siren"  maxNumber="99999"
