@@ -166,6 +166,9 @@ public class TLDataBase extends TLBaseModule {
             case DB_GETVIEW:
                 returnMsg = getViews(fromWho, msg);
                 break;
+            case DB_FIND:
+            case DB_FINDALL:
+            case DB_TOTAL:
             case DB_EXECSQL:
             case DB_QUERY:
             case DB_DELETE:
@@ -350,6 +353,18 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg execSql(Object fromWho, TLMsg msg) {
+        TLBaseModule tableobj =null ;
+        if (!msg.isNull(DB_P_TABLENAME))
+        {
+            String tablename = (String) msg.getParam(DB_P_TABLENAME);
+            tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
+        }
+        else if (msg.isNull(DB_P_VIEWNAME)){
+            String viewName = (String) msg.getParam(DB_P_VIEWNAME);
+            tableobj = (TLBaseModule) dbObjs.get(prefixView+viewName);
+        }
+        if (tableobj != null)
+           return   putMsg(tableobj,msg) ;
         String dbserver =selectDbServer(msg);
         Object resultType = msg.getParam(DB_P_RESULTTYPE);
         RESULT_TYPE sqlResultType =getResultType(resultType);

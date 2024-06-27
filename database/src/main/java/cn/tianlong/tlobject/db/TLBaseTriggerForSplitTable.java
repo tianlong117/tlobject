@@ -77,9 +77,13 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
                 returnMsg = onBatch(fromWho, msg);
                 break;
             default:
-                returnMsg = null;
+                returnMsg = otherMsgAction( fromWho,  msg);
         }
         return returnMsg;
+    }
+
+    protected TLMsg otherMsgAction(Object fromWho, TLMsg msg) {
+        return null ;
     }
 
     protected TLMsg onQuery(Object fromWho, TLMsg msg) {

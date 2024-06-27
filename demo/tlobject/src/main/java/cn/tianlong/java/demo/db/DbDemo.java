@@ -332,11 +332,13 @@ public class DbDemo extends TLBaseModule {
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
+       //         .setParam(DB_P_TABLENAME,"userTable")
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
                 .setParam(DB_P_CACHENAME,"user")
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(tb, querymsg);
+   //   return  putMsg(DEFAULTDATABASE, querymsg);
     }
     private TLMsg queryResultIsBean(Object fromWho, TLMsg msg) {
         String username=msg.getStringParam("username",null);

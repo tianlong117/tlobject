@@ -292,7 +292,7 @@ public class TLTable extends TLBaseDataUnit {
         String sql = msg.getStringParam(DB_P_SQL,null);
         if(sql==null)
             return createMsg().setParam(RESULT, false);
-        if (msg.getParam(DB_P_TABLENAME) != null)
+        if (!msg.isNull(DB_P_TABLENAME))
             sql = sql.replace("[table]", (CharSequence) msg.getParam(DB_P_TABLENAME));
         else
             sql = sql.replace("[table]", dbtable);

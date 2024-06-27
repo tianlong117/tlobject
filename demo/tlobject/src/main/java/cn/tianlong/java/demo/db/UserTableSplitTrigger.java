@@ -27,14 +27,30 @@ public  class UserTableSplitTrigger extends TLBaseTriggerForSplitTable {
     }
 
     @Override
+    protected TLMsg otherMsgAction(Object fromWho, TLMsg msg) {
+        TLMsg returnMsg;
+        switch (msg.getAction()) {
+            case "all":
+                returnMsg = all(fromWho, msg);
+                break;
+            default:
+                return null;
+        }
+        return returnMsg;
+    }
+
+    private TLMsg all(Object fromWho, TLMsg msg) {
+        println(name+"action: "+msg.getAction());
+        return null ;
+    }
+
+    @Override
     protected TLMsg selectTable(Object fromWho, TLMsg msg){
         TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         String isWait = (String) nmsg.getParam("isWait");
         if(isWait!=null && isWait.equals("false"))
             nmsg.setWaitFlag(false);
-        String table = (String) nmsg.getParam(DB_P_TABLENAME);
-        if(table !=null)
-            return changeTable(table,nmsg);
+        nmsg.removeParam(DB_P_TABLENAME);
         LinkedHashMap<String ,Object> tparams= (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String  username =null;
         if(tparams !=null)
