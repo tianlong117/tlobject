@@ -105,10 +105,10 @@ public class TLHttpClient extends TLBaseModule {
     }
 
     private void cancel(Object fromWho, TLMsg msg) {
-        if(msg.containsParam(HTTP_P_TAG))
+        if(!msg.isNull(HTTP_P_TAG))
             new OkHttpUtils(null).cancelTag(msg.getParam(HTTP_P_TAG));
-        else if(msg.containsParam(HTTP_P_URL)){
-            RequestCall call = OkHttpUtils.get().url((String) msg.getParam(HTTP_P_URL)).build();
+        else if(!msg.isNull(HTTP_P_URL)){
+            RequestCall call = OkHttpUtils.get().url( msg.getStringParam(HTTP_P_URL,"")).build();
             call.cancel();
         }
     }
@@ -117,32 +117,34 @@ public class TLHttpClient extends TLBaseModule {
         GetBuilder getBuilder= (GetBuilder) getHttpBuilder(HTTP_GET,msg);
         if (getBuilder ==null)
             return createMsg().setParam(HTTP_ERROR, true).setParam("msg","url");
-        HashMap<String,String> params = (HashMap<String,String>)msg.getParam("params");
+        HashMap<String,String> params = (HashMap<String,String>)msg.getMapParam("params",null);
         if(params !=null){
             for (String key : params.keySet()) {
                 if(params.get(key)!=null)
                    getBuilder.addParams(key, params.get(key));
             }
         }
-       Map<String ,String> header= (Map<String, String>) msg.getParam(HTTP_P_REQUESTHEADER);
+       Map<String ,String> header= (Map<String, String>)msg.getMapParam(HTTP_P_REQUESTHEADER,null);
         if(header !=null)
             getBuilder.headers(header) ;
         RequestCall requestCall =getBuilder.build();
         return httpCallExecute( requestCall,fromWho, msg);
     }
     private void download(Object fromWho, TLMsg msg) {
-        String url=(String)msg.getParam(HTTP_P_URL);
-        String    resultAction = (String) msg.getSystemParam(RESULTACTION);
-        Object  resultFor =getResultObject(msg);
-        String    path = (String) msg.getParam(HTTP_P_DOWNLOAD_SAVEPATH);
-        String    filename = (String) msg.getParam(HTTP_P_DOWNLOAD_FILENAME);
+        String url = msg.getStringParam(HTTP_P_URL,"").trim();
+        if(url.isEmpty())
+            return;
+        String resultAction = (String) msg.getSystemParam(RESULTACTION);
+        Object resultFor =getResultObject(msg);
+        String path = msg.getStringParam(HTTP_P_DOWNLOAD_SAVEPATH,"");
+        String filename =  msg.getStringParam(HTTP_P_DOWNLOAD_FILENAME,null);
         if(filename==null)
             filename =StringUtils.substringAfterLast(url,"/");
         FileCallBack  fileCallBack =new  UFileCallback(resultFor,resultAction,path,filename,msg.getParam(HTTP_P_SESSIONDATA), (TLMsg) msg.getParam(HTTP_P_FILE_PROGRESSMSG));
         GetBuilder getBuilder=(GetBuilder) getHttpBuilder(HTTP_GET,msg);
         if (getBuilder ==null)
             return  ;
-        LinkedHashMap<String ,String> header= (LinkedHashMap<String, String>) msg.getParam("requestHeader");
+        LinkedHashMap<String ,String> header= (LinkedHashMap<String, String>) msg.getMapParam("requestHeader",null);
         if(header !=null)
             getBuilder.headers(header) ;
         getBuilder.build().execute(fileCallBack);
@@ -166,6 +168,8 @@ public class TLHttpClient extends TLBaseModule {
     }
     private TLMsg postFile(Object fromWho, TLMsg msg) {
         Object fileNames=  msg.getParam(HTTP_P_UPFILE);
+        if(fileNames ==null)
+            return createMsg().setParam(HTTP_ERROR, true).setParam("msg",HTTP_P_UPFILE);
         PostFormBuilder postFormBuilder=(PostFormBuilder) getHttpBuilder(HTTP_POST,msg);
         if (postFormBuilder ==null)
             return createMsg().setParam(HTTP_ERROR, true).setParam("msg","url");
@@ -195,8 +199,8 @@ public class TLHttpClient extends TLBaseModule {
             postFormBuilder.addFile("mFile", (String)fileNames, file);
         }
         else
-            return null ;
-        HashMap<String,String> params = (HashMap<String,String>)msg.getParam(HTTP_P_POSTPARAMS);
+            return createMsg().setParam(HTTP_ERROR, true).setParam("msg",HTTP_P_UPFILE);
+        HashMap<String,String> params = (HashMap<String,String>)msg.getMapParam(HTTP_P_POSTPARAMS,null);
         if(params !=null){
             for (String key : params.keySet()) {
                 if(params.get(key)!=null)
@@ -210,10 +214,12 @@ public class TLHttpClient extends TLBaseModule {
         PostStringBuilder postStringBuilder = (PostStringBuilder) getHttpBuilder(HTTP_POSTJSON,msg);
         if (postStringBuilder ==null)
             return createMsg().setParam(HTTP_ERROR, true).setParam("msg","url");
+        if(msg.isNull(HTTP_P_POSTCONTENT))
+            return createMsg().setParam(HTTP_ERROR, true).setParam("msg",HTTP_P_POSTCONTENT);
         String json = new Gson().toJson(msg.getParam(HTTP_P_POSTCONTENT));
         postStringBuilder.mediaType(MediaType.parse("context/json; charset=utf-8"))
              .content(json);
-        Map<String ,String> header= (Map<String, String>) msg.getParam(HTTP_P_REQUESTHEADER);
+        Map<String ,String> header= (Map<String, String>) msg.getMapParam(HTTP_P_REQUESTHEADER,null);
         if(header !=null)
             postStringBuilder.headers(header) ;
         RequestCall requestCall= postStringBuilder.build() ;
@@ -223,15 +229,19 @@ public class TLHttpClient extends TLBaseModule {
         PostStringBuilder postStringBuilder = (PostStringBuilder) getHttpBuilder(HTTP_POSSTRING,msg);
         if (postStringBuilder ==null)
             return createMsg().setParam(HTTP_ERROR, true).setParam("msg","url");
-        postStringBuilder.content((String)msg.getParam(HTTP_P_POSTCONTENT));
-        Map<String ,String> header= (Map<String, String>) msg.getParam(HTTP_P_REQUESTHEADER);
+        if(msg.isNull(HTTP_P_POSTCONTENT))
+            return createMsg().setParam(HTTP_ERROR, true).setParam("msg",HTTP_P_POSTCONTENT);
+        postStringBuilder.content(msg.getStringParam(HTTP_P_POSTCONTENT,""));
+        Map<String ,String> header= (Map<String, String>) msg.getMapParam(HTTP_P_REQUESTHEADER,null);
         if(header !=null)
             postStringBuilder.headers(header) ;
         RequestCall requestCall= postStringBuilder.build() ;
         return httpCallExecute( requestCall,fromWho, msg);
     }
     protected OkHttpRequestBuilder getHttpBuilder(String type,TLMsg msg ){
-        String url = ((String) msg.getParam(HTTP_P_URL)).trim();
+        String url = msg.getStringParam(HTTP_P_URL,"").trim();
+        if(url.isEmpty())
+            return null;
         String httpprotocol =url.substring(0,7) ;
         String httpsprotocol =url.substring(0,8) ;
         if(!httpprotocol.equals("http://") && !httpsprotocol.equals("https://"))
@@ -239,9 +249,9 @@ public class TLHttpClient extends TLBaseModule {
             putLog("url is wrong:"+url,LogLevel.WARN,"builder");
             return null ;
         }
-        if(msg.containsParam(HTTP_P_ISHTTPS) && (Boolean) msg.getParam(HTTP_P_ISHTTPS)==true)
+        if(msg.getBooleanParam(HTTP_P_ISHTTPS,false)==true)
         {
-            String cerFile =(String) msg.getParam(SSL_SCERFILE);
+            String cerFile = msg.getStringParam(SSL_SCERFILE,null);
             HttpsUtils.SSLParams sslParams ;
             if(cerFile !=null)
             {
@@ -291,16 +301,16 @@ public class TLHttpClient extends TLBaseModule {
     }
     private TLMsg httpCallExecute(RequestCall requestCall, Object fromWho, TLMsg msg){
 
-        if(msg.containsParam("connTimeOut"))
-            requestCall.connTimeOut((Long) msg.getParam("connTimeOut")*1000);
+        if(!msg.isNull("connTimeOut"))
+            requestCall.connTimeOut( msg.getLongParam("connTimeOut",30L)*1000);
         else if(connTimeOut >0L)
             requestCall.connTimeOut(connTimeOut);
-        if(msg.containsParam("readTimeOut"))
-            requestCall.readTimeOut((Long) msg.getParam("readTimeOut")*1000);
+        if(!msg.isNull("readTimeOut"))
+            requestCall.readTimeOut(msg.getLongParam("readTimeOut",30L)*1000);
         else if(readTimeOut >0L)
             requestCall.readTimeOut(readTimeOut);
-        if(msg.containsParam("writeTimeOut"))
-            requestCall.writeTimeOut((Long) msg.getParam("writeTimeOut")*1000);
+        if(!msg.isNull("writeTimeOut"))
+            requestCall.writeTimeOut(msg.getLongParam("writeTimeOut",30L)*1000);
         else if(writeTimeOut >0L)
             requestCall.writeTimeOut(writeTimeOut);
         String    resultAction = (String) msg.getSystemParam(RESULTACTION);
@@ -325,7 +335,7 @@ public class TLHttpClient extends TLBaseModule {
         try {
             response=requestCall.execute();
         } catch (IOException e) {
-            String url=(String)msg.getParam(HTTP_P_URL);
+            String url=msg.getStringParam(HTTP_P_URL,"");
             putLog("http error:"+url,LogLevel.ERROR,"httpCall");
            return createMsg().setParam(HTTP_ERROR, true).setParam("msg","io");
         }
@@ -337,7 +347,7 @@ public class TLHttpClient extends TLBaseModule {
             } catch (IOException e) {
           }
         }
-        String url=(String)msg.getParam(HTTP_P_URL);
+        String url=msg.getStringParam(HTTP_P_URL,"");
         putLog("response error:"+url,LogLevel.ERROR,"httpCall");
         return createMsg().setParam(HTTP_ERROR, true);
     }
