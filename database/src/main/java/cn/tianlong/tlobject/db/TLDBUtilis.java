@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.db;
 
+import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLDateUtils;
@@ -87,6 +88,7 @@ public class TLDBUtilis {
         Object result;
         switch (ftype){
             case "String":
+            case "varchar":
             case "S":
                 result=value;
                 break;
@@ -176,6 +178,47 @@ public class TLDBUtilis {
         else
             return result.length ;
     }
+    public static int  batchInsertList(TLBaseModule fromWho, String tableName, List<HashMap<String, Object>> datas, HashMap<String ,String> dbFields) {
+
+        String sql ;
+        String[] fieldsNames ;
+        if(dbFields ==null || dbFields.isEmpty())
+        {
+            HashMap<String, Object> dataMap0= datas.get(0);
+            Set keySets =dataMap0.keySet() ;
+            fieldsNames = (String[]) keySets.toArray(new String[0]);
+        }
+        else
+            fieldsNames =  dbFields.keySet().toArray(new String[0]);
+        sql =TLDBUtilis.createInsertSql(fieldsNames,tableName) ;
+        int rows =datas.size();
+        Object[][] bparams = new Object[rows][fieldsNames.length];
+        List<String> dbFildsList = Arrays.asList(fieldsNames);
+        for (int i = 0; i < rows; i++) {
+            HashMap<String, Object> map =datas.get(i);
+            for(int j =0 ;j < dbFildsList.size() ; j++){
+                String fieldName =dbFildsList.get(j) ;
+                if(dbFields ==null || dbFields.isEmpty())
+                    bparams[i][j] = map.get(fieldName);
+                else
+                {
+                    String ftype =dbFields.get(fieldName);
+                    bparams[i][j] =TLDBUtilis.stringToDBValue(ftype, (String) map.get(fieldName));
+                }
+            }
+        }
+        TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
+                .setParam(DB_P_SQL, sql)
+                .setParam(DB_P_TABLENAME,tableName)
+                .setParam(DB_P_PARAMS, bparams);
+        TLMsg returnMsg = fromWho.putMsg(DEFAULTDATABASE, insertmsg);
+        int[] result = (int[]) returnMsg.getParam(DB_R_RESULT);
+        if(result==null)
+            return  0;
+        else
+            return  result.length;
+    }
+
     public static  LinkedHashMap<String, TLDBSqlConditionExpression>  makeSqlCondition(LinkedHashMap<String,Object> params){
         LinkedHashMap<String, TLDBSqlConditionExpression> sqlCondition = new LinkedHashMap<>();
         int i =0;

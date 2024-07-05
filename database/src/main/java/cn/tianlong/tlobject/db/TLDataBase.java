@@ -122,7 +122,7 @@ public class TLDataBase extends TLBaseModule {
         boolean result =true;
         for(String tableName :tables.keySet()){
             HashMap<String, String> config =tables.get(tableName) ;
-            if(config.get("statup")!=null && Boolean.parseBoolean(config.get("statup"))==true)
+            if( TLDataUtils.parseBoolean(config.get("statup"),true))
             {
                 HashMap<String, String> tableparams = tables.get(tableName);
                 TLBaseModule tableModule =  makeTable(tableName,tableparams);
@@ -173,6 +173,7 @@ public class TLDataBase extends TLBaseModule {
             case DB_QUERY:
             case DB_DELETE:
             case DB_UPDATE:
+            case DB_BATCH:
                 returnMsg = execSql(fromWho, msg);
                 break;
             case DB_ISTABLEEXIST:
@@ -357,7 +358,7 @@ public class TLDataBase extends TLBaseModule {
         if (!msg.isNull(DB_P_TABLENAME))
         {
             String tablename = (String) msg.getParam(DB_P_TABLENAME);
-            tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
+            tableobj = getTable(tablename,msg);
         }
         else if (msg.isNull(DB_P_VIEWNAME)){
             String viewName = (String) msg.getParam(DB_P_VIEWNAME);
@@ -546,16 +547,21 @@ public class TLDataBase extends TLBaseModule {
 
     private TLMsg getTable(Object fromWho, TLMsg msg) {
         String tablename = (String) msg.getParam(DB_P_TABLENAME);
+        TLBaseModule tableobj = getTable(tablename, msg);
+        return createMsg().setParam(INSTANCE, tableobj);
+    }
+    private TLBaseModule getTable( String tablename, TLMsg msg){
         TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
         if (tableobj != null)
-            return createMsg().setParam(INSTANCE, tableobj);
+            return tableobj;
         HashMap<String, String> tableparams =  getTableParam(tablename,msg);
         tableobj = makeTable(tablename, tableparams);
-        return createMsg().setParam(INSTANCE, tableobj);
+        return tableobj;
     }
     private HashMap<String, String>  getTableParam(String tablename,TLMsg msg){
         HashMap<String, String> tableparams = tables.get(tablename);
-        if (tableparams == null) {
+        if (tableparams == null && msg !=null)
+        {
             if (msg.containsParam(DB_P_COPYTABLE)) {
                 tableparams = copyTable(tablename, (String) msg.getParam(DB_P_COPYTABLE), (String) msg.getParam(DB_DBSERVER));
             }

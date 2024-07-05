@@ -3,11 +3,14 @@ package cn.tianlong.java.demo.db;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.db.TLDBUtilis;
 import cn.tianlong.tlobject.db.TLDBView;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
+import cn.tianlong.tlobject.execl.TLExeclFileUtils;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
@@ -94,11 +97,52 @@ public class DbDemo extends TLBaseModule {
             case "testDatabaseSql1":
                 testDatabaseSql1(fromWho, msg);
                 break;
+            case "execToDb":
+                execToDb(fromWho, msg);
+                break;
+            case "dbToExecl":
+                dbToExecl(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
     }
+
+    private void dbToExecl(Object fromWho, TLMsg msg) {
+        String filePath=moduleFactory.getConfigDir();
+        String saveFile =filePath+"demo.xls";
+        BeanTable beanTable =new BeanTable("userTable1",moduleFactory);
+        ArrayList<Map<String,Object>> dbTjlist = beanTable.getAll();
+
+        if(dbTjlist !=null && !dbTjlist.isEmpty())
+        {
+
+            String sucessFile = TLExeclFileUtils.listToExeclFile(dbTjlist,saveFile,null);
+            if( sucessFile ==null)
+                System.out.println( "导出execl文件错误");
+            else
+                System.out.println( "导出execl文件:"+ sucessFile);
+        }
+
+    }
+
+    private void execToDb(Object fromWho, TLMsg msg) {
+        String tableName ="execltodb" ;
+        String filePath=moduleFactory.getConfigDir();
+        String execlFile =filePath+"demo.xls";
+        List<HashMap<String, Object>> listMap =TLExeclFileUtils.parseExeclFileToList(execlFile,true,null);
+        if(listMap ==null)
+        {
+            putLog("文件不存在或者格式错误："+execlFile,LogLevel.ERROR);
+         }
+         HashMap<String,String> dbFieles= new HashMap<>();
+        dbFieles.put("name","String");
+        dbFieles.put("number","String");
+        int number= TLDBUtilis.batchInsertList(this,tableName,listMap,dbFieles);
+        println("导入execl文件，导入数据 :"+number+"个");
+    }
+
     protected void testDatabaseSql(Object fromWho, TLMsg msg){
         String userName = msg.getStringParam("username",null);
         String sql = "select * from  user2  where  name = ? ";

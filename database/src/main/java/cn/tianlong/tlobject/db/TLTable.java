@@ -223,7 +223,7 @@ public class TLTable extends TLBaseDataUnit {
             connClose(wconn,msg);
             return createMsg().setParam(RESULT,false);
         }
-        return createMsg().setParam("result", result);
+        return createMsg().setParam(DB_R_RESULT, result);
     }
 
     protected TLMsg total(Object fromWho, TLMsg msg) {
