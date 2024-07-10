@@ -85,6 +85,9 @@
    dbserver ：表存在的具体数据库，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
    readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
    statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为初始化 true 。
+   ifCreate   ：是否在数据库中创建表  。根据 createSql  或 fields  项来创建
+   createSql  ： 创建表的sql语句
+   fields     ：表的字段，根据字段来创建表 。字段与类型用空格分开，   字段用 逗号 , 分开
    ifCache:是否开启sql查询缓存，默认false，不开启
    cacheModule: 指定缓存模块
    cacheExptime：默认缓存过期时间，单位分钟。默认1分钟,如query查询中没有设置则采用。
@@ -112,7 +115,16 @@
         <table name="execltodb" dbtable="execltodb" dbserver="dbserver2"  />
 
         <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
+        <table name="test1" dbtable="test1" dbserver="dbserver2"  ifCreate="true"
+          createSql ="CREATE TABLE `test1` (
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
+  `number` int DEFAULT NULL,
+  `time` datetime DEFAULT NULL,
+  PRIMARY KEY (`name`),
+  KEY `name` (`name`) USING BTREE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;"
 
+        />
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。

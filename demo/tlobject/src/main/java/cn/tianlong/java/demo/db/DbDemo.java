@@ -139,7 +139,8 @@ public class DbDemo extends TLBaseModule {
          HashMap<String,String> dbFieles= new HashMap<>();
         dbFieles.put("name","String");
         dbFieles.put("number","String");
-        int number= TLDBUtilis.batchInsertList(this,tableName,listMap,dbFieles);
+
+        int number= TLDBUtilis.batchInsertList(this,tableName,listMap,null);
         println("导入execl文件，导入数据 :"+number+"个");
     }
 

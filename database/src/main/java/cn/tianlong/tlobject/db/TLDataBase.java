@@ -120,18 +120,64 @@ public class TLDataBase extends TLBaseModule {
 
     protected Boolean initTable() {
         boolean result =true;
-        for(String tableName :tables.keySet()){
-            HashMap<String, String> config =tables.get(tableName) ;
-            if( TLDataUtils.parseBoolean(config.get("statup"),true))
+        for(String tableName :tables.keySet())
+        {
+            HashMap<String, String> tableparams =tables.get(tableName) ;  
+            if( TLDataUtils.parseBoolean(tableparams.get("statup"),true))
             {
-                HashMap<String, String> tableparams = tables.get(tableName);
                 TLBaseModule tableModule =  makeTable(tableName,tableparams);
                 if(tableModule ==null)
                     result =false ;
             }
+            if( TLDataUtils.parseBoolean(tableparams.get("ifCreate"),false))
+            {
+                String dbserver =tableparams.get("dbserver");
+                if(dbserver==null || dbserver.isEmpty())
+                    dbserver=params.get("defaultDBserver") ;
+                String createSql = tableparams.get("createSql");
+                if(createSql!=null && !createSql.isEmpty())
+                    createTable(dbserver,createSql);
+                else {
+                    String fields =tableparams.get("fields");
+                    if(fields!=null && !fields.isEmpty())
+                    {
+                        String dbtable =tableparams.get("dbtable");
+                        createSql ="CREATE TABLE "  +dbtable
+                                +" ( "
+                                +fields
+                                +" ) " ;
+                       boolean ifSucess= createTable(dbserver,createSql);
+                       if(ifSucess)
+                           putLog("表创建成功: "+tableName, LogLevel.DEBUG);
+                       else
+                           putLog("表创建失败: "+tableName, LogLevel.ERROR);
+                    }
+                }
+            }
         }
         return result ;
     }
+
+    private Boolean createTable(String dbserver, String createSql) {
+        Connection rconn = getConnection(dbserver);
+        if (rconn == null) {
+            putLog("数据库没有连接", LogLevel.ERROR);
+            return false;
+        }
+        Boolean result = false;
+        try {
+            CallableStatement proc = rconn.prepareCall(createSql);
+            proc.execute();
+            result = true;
+            rconn.close();
+            putLog(dbserver+" sql成功执行： "+createSql, LogLevel.DEBUG);
+        } catch (SQLException e) {
+            e.printStackTrace();
+            putLog(dbserver+" sql执行失败： "+createSql, LogLevel.ERROR);
+        }
+        return result;
+    }
+    
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
@@ -151,8 +197,8 @@ public class TLDataBase extends TLBaseModule {
             case "getViewParams":
                 returnMsg = getViewParams(fromWho, msg);
                 break;
-            case DB_CREATEDBTABLE:
-                returnMsg = createDBTable(fromWho, msg);
+            case DB_CREATETABLE:
+                returnMsg = createTable(fromWho, msg);
                 break;
             case DB_GETSERVER:
                 returnMsg = getServer(fromWho, msg);
@@ -323,34 +369,33 @@ public class TLDataBase extends TLBaseModule {
             dbserver = params.get("defaultDBserver");
         return dbserver ;
     }
-    private TLMsg createDBTable(Object fromWho, TLMsg msg) {
-        String copyTable = (String) msg.getParam(DB_P_COPYTABLE);
-        String dbserver = (String) msg.getParam(DB_DBSERVER);
-        if (dbserver == null) {
+    private TLMsg createTable(Object fromWho, TLMsg msg) {
+        String dbserver =msg.getStringParam(DB_DBSERVER,"");
+        String sql =msg.getStringParam(DB_P_SQL,"");
+        if(sql !=null && !sql.isEmpty())
+        {
+            if(dbserver==null || dbserver.isEmpty())
+                dbserver=params.get("defaultDBserver") ;
+            Boolean result = createTable(dbserver,sql)  ;
+            return createMsg().setParam(DB_R_RESULT, result);
+        }
+        String tablename =  msg.getStringParam(DB_P_TABLENAME,null) ;
+        if(tablename == null || tablename.isEmpty())
+            return createMsg().setParam(DB_R_RESULT, false);
+        String copyTable = msg.getStringParam(DB_P_COPYTABLE,null);
+        if(copyTable ==null || copyTable.isEmpty())
+            return createMsg().setParam(DB_R_RESULT, false);
+        if(dbserver==null || dbserver.isEmpty()) {
             HashMap<String, String> tableparams = tables.get(copyTable);
             dbserver = tableparams.get("dbserver");
         }
-        Boolean result = createDBtableFromCopy((String) msg.getParam(DB_P_TABLENAME), copyTable, dbserver);
+        Boolean result = createDBtableFromCopy(tablename, copyTable, dbserver);
         return createMsg().setParam(DB_R_RESULT, result);
     }
 
     private Boolean createDBtableFromCopy(String tablename, String copyTable, String dbserver) {
-        Connection rconn = getConnection(dbserver);
-        if (rconn == null) {
-            putLog("数据库没有连接", LogLevel.ERROR);
-            return false;
-        }
         String sql = "CREATE  TABLE IF NOT EXISTS " + tablename + " LIKE " + copyTable;
-        Boolean result = false;
-        try {
-            CallableStatement proc = rconn.prepareCall(sql);
-            proc.execute();
-            result = true;
-            rconn.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return result;
+          return  createTable(dbserver,sql)  ;
     }
 
     private TLMsg execSql(Object fromWho, TLMsg msg) {

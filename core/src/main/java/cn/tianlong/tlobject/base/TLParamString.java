@@ -361,7 +361,7 @@ public interface TLParamString {
     final String DB_GETCONNECTOR= "getConnector";
     final String DB_GETTABLE = "getTable";
     final String DB_GETBEANTABLE = "getBeanTable";
-    final String DB_CREATEDBTABLE = "createDBTable";
+    final String DB_CREATETABLE = "createTable";
     final String DB_GETVIEW = "getView";
     final String DB_EXECSQL = "execSql";
     final String DB_ISTABLEEXIST = "isTableExist";
