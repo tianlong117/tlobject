@@ -261,23 +261,16 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg isTableExist(Object fromWho, TLMsg msg) {
-        String tableName = (String) msg.getParam(DB_P_TABLENAME);
-        String dbserver = (String) msg.getParam(DB_DBSERVER);
-        if (dbserver == null)
+        String tableName = msg.getStringParam(DB_P_TABLENAME,"");
+        if(tableName.isEmpty())
+            return createMsg().setParam(RESULT,false);
+        String dbserver = msg.getStringParam(DB_DBSERVER,"");
+        if (dbserver == null || dbserver.isEmpty())
         {
-            if(tables.containsKey(tableName))
-            {
-                HashMap<String, String> tableparams = tables.get(tableName);
-                dbserver = tableparams.get("dbserver");
-                if(dbserver==null)
-                    dbserver = params.get("defaultDBserver");
-                else
-                    dbserver = params.get("defaultDBserver");
-            }
-            else
-                dbserver = params.get("defaultDBserver");
+            HashMap<String, String> tableparams = tables.get(tableName);
+            dbserver = tableparams.get("dbserver");
         }
-        else
+        if(dbserver==null || dbserver.isEmpty())
             dbserver = params.get("defaultDBserver");
         Connection conn = getConnection(dbserver);
         if (conn == null) {
@@ -299,8 +292,8 @@ public class TLDataBase extends TLBaseModule {
         }
         if(result ==true)
             return createMsg().setParam(RESULT,true);
-        String sql =msg.getStringParam(DB_P_SQL,null);
-        if(sql ==null)
+        String sql =msg.getStringParam(DB_P_SQL,"");
+        if(sql ==null || sql.isEmpty())
             return createMsg().setParam(RESULT,result);
         Statement stmt= null;
         try {
@@ -322,6 +315,8 @@ public class TLDataBase extends TLBaseModule {
 
     private TLMsg startTranscation(Object fromWho, TLMsg msg) throws SQLException {
         ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getListParam(DB_P_MSGLIST,null);
+        if(msgList ==null)
+            return createMsg().setParam(RESULT,false) ;
         ArrayList<Connection> connections= new ArrayList<>();
         for(int i = 0 ; i< msgList.size() ; i ++)
         {
@@ -385,7 +380,7 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private String selectDbServer(TLMsg msg){
-        String dbserver = (String) msg.getParam(DB_P_SERVERNAME);
+        String dbserver = msg.getStringParam(DB_P_SERVERNAME,"");
         if (dbserver == null || dbserver.isEmpty())
             dbserver = params.get("defaultDBserver");
         return dbserver ;
@@ -421,14 +416,13 @@ public class TLDataBase extends TLBaseModule {
 
     private TLMsg execQuery(Object fromWho, TLMsg msg) {
         TLBaseModule tableobj =null ;
-        if (!msg.isNull(DB_P_TABLENAME))
-        {
-            String tablename = (String) msg.getParam(DB_P_TABLENAME);
+        String tablename = msg.getStringParam(DB_P_TABLENAME,"");
+        if (!tablename.isEmpty())
             tableobj = getTable(tablename,msg);
-        }
-        else if (msg.isNull(DB_P_VIEWNAME)){
-            String viewName = (String) msg.getParam(DB_P_VIEWNAME);
-            tableobj = (TLBaseModule) dbObjs.get(prefixView+viewName);
+        else {
+            String viewName = msg.getStringParam(DB_P_VIEWNAME,"");
+            if(!viewName.isEmpty())
+               tableobj = (TLBaseModule) dbObjs.get(prefixView+viewName);
         }
         if (tableobj != null)
            return   putMsg(tableobj,msg) ;

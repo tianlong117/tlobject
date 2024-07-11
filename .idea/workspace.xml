@@ -9,7 +9,6 @@
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java" beforeDir="false" afterPath="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/target/" />
@@ -69,11 +68,11 @@
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="375">
-      <file leaf-file-name="TLDataBase.java" pinned="false" current-in-tab="false">
+      <file leaf-file-name="TLDataBase.java" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="146">
-              <caret line="521" column="49" lean-forward="true" selection-start-line="521" selection-start-column="49" selection-end-line="521" selection-end-column="49" />
+            <state relative-caret-position="-2957">
+              <caret line="432" column="42" selection-start-line="432" selection-start-column="42" selection-end-line="432" selection-end-column="42" />
               <folding>
                 <element signature="docComment;class#TLDataBase#0" />
                 <element signature="e#1698#2061#0" />
@@ -84,92 +83,175 @@
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLParamString.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java">
+      <file leaf-file-name="demoappstart.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/demoappstart.xml">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="200">
-              <caret line="366" column="17" lean-forward="true" selection-start-line="366" selection-start-column="17" selection-end-line="366" selection-end-column="29" />
+            <state relative-caret-position="50">
+              <caret line="2" selection-start-line="2" selection-end-line="4" selection-end-column="15" />
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLTable.java" pinned="false" current-in-tab="true">
-        <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLTable.java">
+      <file leaf-file-name="MyAppCenter.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/MyAppCenter.java">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="225">
-              <caret line="334" column="17" selection-start-line="334" selection-start-column="17" selection-end-line="334" selection-end-column="17" />
+            <state relative-caret-position="-177">
+              <caret line="30" selection-start-line="30" selection-end-line="30" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLMsg.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="218">
+              <caret line="388" column="35" selection-start-line="388" selection-start-column="35" selection-end-line="388" selection-end-column="35" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLDataUtils.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLDataUtils.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="57">
+              <caret line="110" column="25" selection-start-line="110" selection-start-column="25" selection-end-line="110" selection-end-column="25" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="moduleFactory_config.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/moduleFactory_config.xml">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="175">
+              <caret line="31" column="22" lean-forward="true" selection-start-line="31" selection-start-column="22" selection-end-line="31" selection-end-column="27" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="startup.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/startup.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="367">
+              <caret line="36" column="38" lean-forward="true" selection-start-line="36" selection-start-column="38" selection-end-line="36" selection-end-column="38" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="TLBaseModule.java" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="643">
+              <caret line="1017" column="56" lean-forward="true" selection-start-line="1017" selection-start-column="56" selection-end-line="1017" selection-end-column="56" />
               <folding>
-                <element signature="method#insertAndupdateAndDelete#0;class#TLTable#0" />
-                <element signature="method#insertData#0;class#TLTable#0" />
-                <element signature="method#connClose#0;class#TLTable#0" />
-                <element signature="method#readconnClose#0;class#TLTable#0" />
-                <element signature="method#makeSqlCondition#0;class#TLTable#0" />
-                <element signature="method#makeSqlField#0;class#TLTable#0" />
-                <element signature="method#makeQuestionMark#0;class#TLTable#0" />
-                <element signature="method#getTableStructure#0;class#TLTable#0" />
-                <element signature="method#getTableStructureFromDB#0;class#TLTable#0" />
-                <element signature="method#getFieldName#0;class#TLTable#0" />
+                <element signature="docComment;class#TLBaseModule#0" />
+                <element signature="e#2773#2919#0" />
+                <element signature="e#2924#3042#0" />
+                <element signature="e#3047#3221#0" />
+                <element signature="e#3226#3388#0" />
+                <element signature="e#3393#3588#0" />
+                <element signature="e#3593#3792#0" />
+                <element signature="e#3946#5236#0" />
+                <element signature="e#5242#5432#0" />
+                <element signature="e#5437#6179#0" />
+                <element signature="e#6185#7127#0" />
+                <element signature="e#7133#8141#0" />
+                <element signature="e#8147#9649#0" />
+                <element signature="e#9923#11568#0" />
+                <element signature="e#11574#12818#0" />
+                <element signature="e#12823#13181#0" />
+                <element signature="e#13187#15044#0" />
+                <element signature="e#15049#15589#0" />
+                <element signature="e#15595#15788#0" />
+                <element signature="e#15793#16154#0" />
+                <element signature="e#16159#16573#0" />
+                <element signature="e#16578#16619#0" />
+                <element signature="e#16668#16708#0" />
+                <element signature="e#16713#18402#0" />
+                <element signature="e#18408#18617#0" />
+                <element signature="e#18623#18834#0" />
+                <element signature="e#18955#19692#0" />
+                <element signature="e#19698#20427#0" />
+                <element signature="e#20433#20936#0" />
+                <element signature="e#20942#21588#0" />
+                <element signature="e#21594#24480#0" />
+                <element signature="e#24485#24882#0" />
+                <element signature="e#25789#25825#0" />
+                <element signature="e#27888#28966#0" />
+                <element signature="e#28972#29174#0" />
+                <element signature="e#29292#29556#0" />
+                <element signature="e#29561#30206#0" />
+                <element signature="e#30211#30754#0" />
+                <element signature="e#30759#31225#0" />
+                <element signature="e#31231#32125#0" />
+                <element signature="e#32131#32265#0" />
+                <element signature="e#32131#32923#0" />
+                <element signature="e#32760#32790#0" />
+                <element signature="e#32929#33123#0" />
+                <element signature="e#33128#33777#0" />
+                <element signature="class#33307:33585" />
+                <element signature="method#run#0;class#33307:33585" />
+                <element signature="e#33782#33963#0" />
+                <element signature="e#33968#34586#0" />
+                <element signature="class#34124:34394" />
+                <element signature="method#run#0;class#34124:34394" />
+                <element signature="e#38193#38422#0" />
+                <element signature="e#38428#38833#0" />
+                <element signature="e#39073#39709#0" />
+                <element signature="e#39715#40056#0" />
+                <element signature="e#40062#40098#0" />
+                <element signature="e#40104#40137#0" />
+                <element signature="e#40143#40378#0" />
+                <element signature="e#40775#41075#0" />
+                <element signature="e#42105#42412#0" />
+                <element signature="e#42491#42903#0" />
+                <element signature="e#42909#43440#0" />
+                <element signature="e#43551#44380#0" />
+                <element signature="e#44386#44954#0" />
+                <element signature="e#44960#45282#0" />
+                <element signature="e#45287#45732#0" />
+                <element signature="e#45738#46188#0" />
+                <element signature="e#47300#47440#0" />
+                <element signature="e#47300#47796#0" />
+                <element signature="e#47802#47997#0" />
+                <element signature="e#48002#48199#0" />
+                <element signature="e#48204#49993#0" />
+                <element signature="e#49998#50025#0" />
+                <element signature="e#49998#50415#0" />
+                <element signature="e#50420#51740#0" />
+                <element signature="e#51746#52080#0" />
+                <element signature="e#52218#52354#0" />
+                <element signature="e#52360#52602#0" />
+                <element signature="e#52720#53052#0" />
+                <element signature="e#53058#53278#0" />
+                <element signature="e#53284#53413#0" />
+                <element signature="e#53419#53686#0" />
+                <element signature="e#53692#54603#0" />
+                <element signature="e#54609#55097#0" />
+                <element signature="e#55265#55731#0" />
+                <element signature="e#55736#55897#0" />
+                <element signature="e#56050#56215#0" />
+                <element signature="e#56220#56370#0" />
+                <element signature="e#56529#56696#0" />
+                <element signature="e#56701#56874#0" />
+                <element signature="e#56880#57071#0" />
+                <element signature="e#57076#57255#0" />
+                <element signature="e#57261#57448#0" />
+                <element signature="e#57453#57625#0" />
+                <element signature="e#57631#59282#0" />
+                <element signature="e#59287#59657#0" />
+                <element signature="e#59662#59966#0" />
+                <element signature="e#59972#60186#0" />
+                <element signature="e#60192#60434#0" />
               </folding>
             </state>
           </provider>
         </entry>
       </file>
-      <file leaf-file-name="TLBaseDataUnit.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLBaseDataUnit.java">
+      <file leaf-file-name="appConfig.xml" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/appConfig.xml">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1100">
-              <caret line="57" column="55" selection-start-line="57" selection-start-column="55" selection-end-line="57" selection-end-column="55" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="DbDemo.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/DbDemo.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="3000">
-              <caret line="140" column="40" selection-start-line="140" selection-start-column="40" selection-end-line="140" selection-end-column="40" />
-              <folding>
-                <element signature="method#queryResultIsBean#0;class#DbDemo#0" />
-                <element signature="method#dbBean#0;class#DbDemo#0" />
-                <element signature="method#transactionByDB#0;class#DbDemo#0" />
-                <element signature="method#batch#0;class#DbDemo#0" />
-              </folding>
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLDataBase.java" pinned="false" current-in-tab="false">
-        <entry file="file://D:/androidstudy/qinqin/app/src/main/java/cn/tianlong/tlandroid/base/TLDataBase.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="3100">
-              <caret line="409" column="62" selection-start-line="409" selection-start-column="11" selection-end-line="409" selection-end-column="62" />
-              <folding>
-                <element signature="docComment;class#TLDataBase#0" />
-                <element signature="method#setConfig#0;class#TLDataBase#0" />
-                <element signature="method#checkTableFields#0;class#TLDataBase#0" />
-                <element signature="method#checkMsgAction#0;class#TLDataBase#0" />
-                <element signature="method#deleteTables#0;class#TLDataBase#0" />
-                <element signature="method#insert#0;class#TLDataBase#0" />
-                <element signature="method#writeDBFromFile#0;class#TLDataBase#0" />
-                <element signature="method#writeDBFromFile#1;class#TLDataBase#0" />
-                <element signature="method#execSql#0;class#TLDataBase#0" />
-                <element signature="method#query#0;class#TLDataBase#0" />
-                <element signature="method#cursorToMap#0;class#TLDataBase#0" />
-                <element signature="method#cursorToBean#0;class#TLDataBase#0" />
-                <element signature="docComment;method#getFiledsInfo#0;class#TLDataBase#0" />
-                <element signature="method#getFiledsInfo#0;class#TLDataBase#0" />
-                <element signature="docComment;method#setFieldValueByName#0;class#TLDataBase#0" />
-                <element signature="method#setFieldValueByName#0;class#TLDataBase#0" />
-                <element signature="method#getTable#0;class#TLDataBase#0" />
-                <element signature="method#DatabaseHelper#0;class#DatabaseHelper#0;class#TLDataBase#0" />
-                <element signature="method#onUpgrade#0;class#DatabaseHelper#0;class#TLDataBase#0" />
-                <element signature="class#myConfig#0;class#TLDataBase#0" />
-                <element signature="method#myConfig#0;class#myConfig#0;class#TLDataBase#0" />
-                <element signature="method#myConfig#1;class#myConfig#0;class#TLDataBase#0" />
-                <element signature="method#makeInsertSql#0;class#TLDataBase#0" />
-                <element signature="method#makeSqlArgs#0;class#TLDataBase#0" />
-                <element signature="method#makeInsertSqlAndArgs#0;class#TLDataBase#0" />
-              </folding>
+            <state relative-caret-position="367">
+              <caret line="19" column="32" lean-forward="true" selection-start-line="19" selection-start-column="32" selection-end-line="19" selection-end-column="32" />
             </state>
           </provider>
         </entry>
@@ -179,24 +261,6 @@
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="675">
               <caret line="27" column="56" selection-start-line="27" selection-start-column="56" selection-end-line="27" selection-end-column="56" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="database_config.xml" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="332">
-              <caret line="133" column="50" selection-start-line="133" selection-start-column="50" selection-end-line="133" selection-end-column="50" />
-            </state>
-          </provider>
-        </entry>
-      </file>
-      <file leaf-file-name="TLDBFieldExpression.java" pinned="false" current-in-tab="false">
-        <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBFieldExpression.java">
-          <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="175">
-              <caret line="7" column="13" selection-start-line="7" selection-start-column="13" selection-end-line="7" selection-end-column="13" />
             </state>
           </provider>
         </entry>
@@ -292,9 +356,6 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/server/serverModule.java" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/service/client/clientModule.java" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/server/serverModule_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/service/client/clientModule_config.xml" />
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseObject.java" />
@@ -313,7 +374,6 @@
         <option value="$PROJECT_DIR$/demo/tlobject/pom.xml" />
         <option value="$PROJECT_DIR$/network/common/src/main/java/cn/tianlong/tlobject/network/common/TLBaseWebSocketSendFile.java" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLDataUtils.java" />
-        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" />
         <option value="$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLMemoryCache.java" />
         <option value="$PROJECT_DIR$/cache/ehcache/src/main/java/cn/tianlong/tlobject/cache/TLEhcache.java" />
         <option value="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBServer.java" />
@@ -329,7 +389,6 @@
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/caffeine_config.xml" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/userTableModle.java" />
-        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" />
         <option value="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLBaseTriggerForSplitTable.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/UserTableSplitTrigger.java" />
         <option value="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/http/TLHttpClient.java" />
@@ -340,8 +399,13 @@
         <option value="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBUtilis.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/DbDemo.java" />
         <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml" />
-        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml" />
         <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" />
+        <option value="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/MyAppCenter.java" />
+        <option value="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/appConfig.xml" />
         <option value="$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java" />
       </list>
     </option>
@@ -418,6 +482,51 @@
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="core" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="base" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
@@ -527,6 +636,28 @@
               <item name="tlobject" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
               <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="base" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="java" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="db" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
               <item name="resources" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
@@ -549,6 +680,18 @@
               <item name="resources" type="462c0819:PsiDirectoryNode" />
               <item name="conf" type="462c0819:PsiDirectoryNode" />
               <item name="demo" type="462c0819:PsiDirectoryNode" />
+            </path>
+            <path>
+              <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="tlobject" type="462c0819:PsiDirectoryNode" />
+              <item name="src" type="462c0819:PsiDirectoryNode" />
+              <item name="main" type="462c0819:PsiDirectoryNode" />
+              <item name="resources" type="462c0819:PsiDirectoryNode" />
+              <item name="conf" type="462c0819:PsiDirectoryNode" />
+              <item name="demo" type="462c0819:PsiDirectoryNode" />
+              <item name="base" type="462c0819:PsiDirectoryNode" />
             </path>
             <path>
               <item name="tlobject" type="b2602c69:ProjectViewProjectNode" />
@@ -701,7 +844,7 @@
       </list>
     </option>
   </component>
-  <component name="RunManager" selected="Application.startup (1)">
+  <component name="RunManager" selected="Application.startup">
     <configuration default="true" type="Application" factoryName="Application">
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
     </configuration>
@@ -893,9 +1036,9 @@
     </list>
     <recent_temporary>
       <list>
+        <item itemvalue="Application.startup" />
         <item itemvalue="Application.startup (1)" />
         <item itemvalue="Application.startJetty" />
-        <item itemvalue="Application.startup" />
         <item itemvalue="Application.startup (2)" />
         <item itemvalue="Application.testMain (1)" />
       </list>
@@ -1141,21 +1284,7 @@
       <workItem from="1720145526372" duration="14370000" />
       <workItem from="1720403411936" duration="10856000" />
       <workItem from="1720577573815" duration="11037000" />
-      <workItem from="1720664142403" duration="1711000" />
-    </task>
-    <task id="LOCAL-00110" summary="修改demo模块volecity模板">
-      <created>1697097232771</created>
-      <option name="number" value="00110" />
-      <option name="presentableId" value="LOCAL-00110" />
-      <option name="project" value="LOCAL" />
-      <updated>1697097232773</updated>
-    </task>
-    <task id="LOCAL-00111" summary="修改demo模块volecity模板">
-      <created>1698653448826</created>
-      <option name="number" value="00111" />
-      <option name="presentableId" value="LOCAL-00111" />
-      <option name="project" value="LOCAL" />
-      <updated>1698653448827</updated>
+      <workItem from="1720664142403" duration="10959000" />
     </task>
     <task id="LOCAL-00112" summary="修改demo模块volecity模板">
       <created>1698914855552</created>
@@ -1486,11 +1615,25 @@
       <option name="project" value="LOCAL" />
       <updated>1720601349488</updated>
     </task>
-    <option name="localTasksCounter" value="159" />
+    <task id="LOCAL-00159" summary="修改demo模块volecity模板">
+      <created>1720665925384</created>
+      <option name="number" value="00159" />
+      <option name="presentableId" value="LOCAL-00159" />
+      <option name="project" value="LOCAL" />
+      <updated>1720665925386</updated>
+    </task>
+    <task id="LOCAL-00160" summary="修改demo模块volecity模板">
+      <created>1720685521566</created>
+      <option name="number" value="00160" />
+      <option name="presentableId" value="LOCAL-00160" />
+      <option name="project" value="LOCAL" />
+      <updated>1720685521566</updated>
+    </task>
+    <option name="localTasksCounter" value="161" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="1457621000" />
+    <option name="totallyTimeSpent" value="1466869000" />
   </component>
   <component name="TodoView" selected-index="1">
     <todo-panel id="selected-file">
@@ -1503,6 +1646,7 @@
   </component>
   <component name="ToolWindowManager">
     <frame x="-8" y="-8" width="1456" height="876" extended-state="6" />
+    <editor active="true" />
     <layout>
       <window_info anchor="right" id="Palette" order="3" />
       <window_info anchor="bottom" id="Event Log" order="10" sideWeight="0.21531792" side_tool="true" weight="0.25547445" />
@@ -1515,8 +1659,9 @@
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
       <window_info id="UI Designer" order="4" />
-      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49927744" weight="0.35328466" />
+      <window_info anchor="bottom" id="Debug" order="3" sideWeight="0.49927744" visible="true" weight="0.23211679" />
       <window_info anchor="bottom" id="TODO" order="6" weight="0.27445257" />
+      <window_info anchor="bottom" id="Messages" order="12" weight="0.22627737" />
       <window_info anchor="right" id="Palette&#9;" order="6" />
       <window_info id="Image Layers" order="3" />
       <window_info anchor="bottom" id="Java Enterprise" order="13" weight="0.329927" />
@@ -1524,12 +1669,11 @@
       <window_info anchor="bottom" id="Version Control" order="9" sideWeight="0.6806358" weight="0.17955801" />
       <window_info anchor="bottom" id="Run" order="2" sideWeight="0.7846821" weight="0.38540146" />
       <window_info anchor="bottom" id="Terminal" order="7" weight="0.270073" />
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.23049133" />
+      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.23988439" />
       <window_info id="Web" order="6" side_tool="true" />
-      <window_info anchor="bottom" id="Find" order="1" sideWeight="0.57947975" visible="true" weight="0.28029197" />
+      <window_info anchor="bottom" id="Find" order="1" sideWeight="0.57947975" weight="0.16642335" />
       <window_info anchor="right" id="Theme Preview" order="7" />
       <window_info id="Favorites" order="5" side_tool="true" />
-      <window_info anchor="bottom" id="Messages" order="12" weight="0.22627737" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
@@ -1606,7 +1750,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java</url>
-          <line>594</line>
+          <line>588</line>
           <properties />
           <option name="timeStamp" value="632" />
         </line-breakpoint>
@@ -1632,7 +1776,7 @@
       <breakpoints-dialog>
         <breakpoints-dialog />
       </breakpoints-dialog>
-      <option name="time" value="741" />
+      <option name="time" value="747" />
     </breakpoint-manager>
   </component>
   <component name="antWorkspaceConfiguration">
@@ -1640,79 +1784,6 @@
     <option name="FILTER_TARGETS" value="false" />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/IObject.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="300">
-          <caret line="12" column="10" selection-start-line="12" selection-start-column="10" selection-end-line="12" selection-end-column="10" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBView.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1600">
-          <caret line="85" column="31" selection-start-line="85" selection-start-column="31" selection-end-line="85" selection-end-column="31" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/userTableModle.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="2100">
-          <caret line="93" column="68" selection-start-line="93" selection-start-column="68" selection-end-line="93" selection-end-column="68" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLModuleConfig.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="10600">
-          <caret line="457" column="55" selection-start-line="457" selection-start-column="55" selection-end-line="457" selection-end-column="55" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/moduleFactory_config.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/UserTableSplitTrigger.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="950">
-          <caret line="48" selection-start-line="48" selection-end-line="48" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLBaseTriggerForSplitTable.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="130">
-          <caret line="57" selection-start-line="57" selection-end-line="57" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="700">
-          <caret line="40" column="26" selection-start-line="40" selection-start-column="26" selection-end-line="40" selection-end-column="26" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/xiaoming_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="550">
-          <caret line="22" column="38" selection-start-line="22" selection-start-column="38" selection-end-line="22" selection-end-column="38" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/CheckNameTrigger.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1000">
-          <caret line="40" column="38" selection-start-line="40" selection-start-column="38" selection-end-line="40" selection-end-column="38" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDBTrigger.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="775">
-          <caret line="31" column="18" selection-start-line="31" selection-start-column="18" selection-end-line="31" selection-end-column="18" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="4200">
@@ -1744,13 +1815,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-122">
           <caret line="34" column="9" selection-start-line="34" selection-start-column="9" selection-end-line="34" selection-end-column="9" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/startup.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="725">
-          <caret line="34" column="53" selection-start-line="34" selection-start-column="53" selection-end-line="34" selection-end-column="53" />
         </state>
       </provider>
     </entry>
@@ -1812,24 +1876,10 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-525">
-          <caret line="16" column="32" selection-start-line="16" selection-start-column="32" selection-end-line="16" selection-end-column="32" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/dbdata/BeanTable.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-315">
           <caret line="43" column="73" selection-start-line="43" selection-start-column="73" selection-end-line="43" selection-end-column="73" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="306">
-          <caret line="352" selection-start-line="352" selection-end-line="352" />
         </state>
       </provider>
     </entry>
@@ -1844,20 +1894,6 @@
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="25">
           <caret line="465" selection-start-line="465" selection-end-line="465" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="248">
-          <caret line="647" selection-start-line="647" selection-end-line="647" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLDataUtils.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="57">
-          <caret line="479" column="29" selection-start-line="479" selection-start-column="29" selection-end-line="479" selection-end-column="29" />
         </state>
       </provider>
     </entry>
@@ -1907,29 +1943,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/DbDemo.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="3000">
-          <caret line="140" column="40" selection-start-line="140" selection-start-column="40" selection-end-line="140" selection-end-column="40" />
-          <folding>
-            <element signature="method#queryResultIsBean#0;class#DbDemo#0" />
-            <element signature="method#dbBean#0;class#DbDemo#0" />
-            <element signature="method#transactionByDB#0;class#DbDemo#0" />
-            <element signature="method#batch#0;class#DbDemo#0" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="675">
-          <caret line="27" column="56" selection-start-line="27" selection-start-column="56" selection-end-line="27" selection-end-column="56" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/demoappstart.xml">
-      <provider selected="true" editor-type-id="text-editor" />
-    </entry>
     <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLBaseDataUnit.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="1100">
@@ -1978,30 +1991,10 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="332">
-          <caret line="133" column="50" selection-start-line="133" selection-start-column="50" selection-end-line="133" selection-end-column="50" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="200">
           <caret line="366" column="17" lean-forward="true" selection-start-line="366" selection-start-column="17" selection-end-line="366" selection-end-column="29" />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="146">
-          <caret line="521" column="49" lean-forward="true" selection-start-line="521" selection-start-column="49" selection-end-line="521" selection-end-column="49" />
-          <folding>
-            <element signature="docComment;class#TLDataBase#0" />
-            <element signature="e#1698#2061#0" />
-            <element signature="e#2066#2274#0" />
-            <element signature="e#3082#3983#0" />
-          </folding>
         </state>
       </provider>
     </entry>
@@ -2018,7 +2011,7 @@
     <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLTable.java">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="225">
-          <caret line="334" column="17" selection-start-line="334" selection-start-column="17" selection-end-line="334" selection-end-column="17" />
+          <caret line="322" column="45" selection-start-line="322" selection-start-column="45" selection-end-line="322" selection-end-column="45" />
           <folding>
             <element signature="method#insertAndupdateAndDelete#0;class#TLTable#0" />
             <element signature="method#insertData#0;class#TLTable#0" />
@@ -2030,6 +2023,305 @@
             <element signature="method#getTableStructure#0;class#TLTable#0" />
             <element signature="method#getTableStructureFromDB#0;class#TLTable#0" />
             <element signature="method#getFieldName#0;class#TLTable#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="jar://C:/Program Files (x86)/Java/jdk1.8.0_102/src.zip!/java/lang/Class.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="25">
+          <caret line="1821" column="26" selection-start-line="1821" selection-start-column="26" selection-end-line="1821" selection-end-column="26" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/database_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="382">
+          <caret line="132" column="82" selection-start-line="132" selection-start-column="82" selection-end-line="132" selection-end-column="82" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Light.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="425">
+          <caret line="34" column="5" lean-forward="true" selection-start-line="21" selection-start-column="4" selection-end-line="34" selection-end-column="5" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="125">
+          <caret line="53" column="31" lean-forward="true" selection-start-line="53" selection-start-column="7" selection-end-line="53" selection-end-column="31" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/DbDemo.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="203">
+          <caret line="55" column="31" lean-forward="true" selection-start-line="55" selection-start-column="6" selection-end-line="55" selection-end-column="31" />
+          <folding>
+            <element signature="method#queryResultIsBean#0;class#DbDemo#0" />
+            <element signature="method#dbBean#0;class#DbDemo#0" />
+            <element signature="method#transactionByDB#0;class#DbDemo#0" />
+            <element signature="method#batch#0;class#DbDemo#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/wife_config.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/xiaoming_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-150" />
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/startaddsonstart.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/demoappstart1.xml">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="547">
+          <caret line="686" column="19" selection-start-line="686" selection-start-column="19" selection-end-line="686" selection-end-column="19" />
+          <folding>
+            <element signature="docComment;class#TLObjectFactory#0" />
+            <element signature="e#1268#1431#0" />
+            <element signature="e#1436#1624#0" />
+            <element signature="e#1629#1897#0" />
+            <element signature="e#1902#2478#0" />
+            <element signature="e#2483#2729#0" />
+            <element signature="e#2847#3631#0" />
+            <element signature="e#3636#3962#0" />
+            <element signature="e#3968#4986#0" />
+            <element signature="e#4992#5164#0" />
+            <element signature="e#5170#5357#0" />
+            <element signature="e#5363#5508#0" />
+            <element signature="e#5513#5717#0" />
+            <element signature="e#6028#6235#0" />
+            <element signature="e#6240#6395#0" />
+            <element signature="e#6400#6580#0" />
+            <element signature="e#6585#7558#0" />
+            <element signature="e#7883#8002#0" />
+            <element signature="e#8097#8289#0" />
+            <element signature="e#8295#8804#0" />
+            <element signature="e#8810#9051#0" />
+            <element signature="e#9057#9203#0" />
+            <element signature="e#9209#10545#0" />
+            <element signature="e#10551#11428#0" />
+            <element signature="e#11433#12160#0" />
+            <element signature="e#12165#12420#0" />
+            <element signature="e#12426#12840#0" />
+            <element signature="e#12845#14074#0" />
+            <element signature="e#14080#14162#0" />
+            <element signature="e#14080#14421#0" />
+            <element signature="e#14427#14642#0" />
+            <element signature="e#14648#16041#0" />
+            <element signature="e#16047#16454#0" />
+            <element signature="e#16459#16671#0" />
+            <element signature="e#16676#17031#0" />
+            <element signature="e#16676#17485#0" />
+            <element signature="e#17490#17784#0" />
+            <element signature="e#17789#18026#0" />
+            <element signature="e#18031#18901#0" />
+            <element signature="e#18906#19429#0" />
+            <element signature="e#19434#20000#0" />
+            <element signature="e#20005#20422#0" />
+            <element signature="e#27242#28159#0" />
+            <element signature="e#28974#29247#0" />
+            <element signature="e#29253#29889#0" />
+            <element signature="e#29895#32299#0" />
+            <element signature="e#32305#32998#0" />
+            <element signature="e#33004#34272#0" />
+            <element signature="e#33479#34266#0" />
+            <element signature="e#34278#34667#0" />
+            <element signature="e#34673#35169#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-800">
+          <caret line="16" column="32" selection-start-line="16" selection-start-column="32" selection-end-line="16" selection-end-column="32" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="675">
+          <caret line="27" column="56" selection-start-line="27" selection-start-column="56" selection-end-line="27" selection-end-column="56" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/startup.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="367">
+          <caret line="36" column="38" lean-forward="true" selection-start-line="36" selection-start-column="38" selection-end-line="36" selection-end-column="38" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/demoappstart.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="50">
+          <caret line="2" selection-start-line="2" selection-end-line="4" selection-end-column="15" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/moduleFactory_config.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="175">
+          <caret line="31" column="22" lean-forward="true" selection-start-line="31" selection-start-column="22" selection-end-line="31" selection-end-column="27" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/base/appConfig.xml">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="367">
+          <caret line="19" column="32" lean-forward="true" selection-start-line="19" selection-start-column="32" selection-end-line="19" selection-end-column="32" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/MyAppCenter.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-177">
+          <caret line="30" selection-start-line="30" selection-end-line="30" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="643">
+          <caret line="1017" column="56" lean-forward="true" selection-start-line="1017" selection-start-column="56" selection-end-line="1017" selection-end-column="56" />
+          <folding>
+            <element signature="docComment;class#TLBaseModule#0" />
+            <element signature="e#2773#2919#0" />
+            <element signature="e#2924#3042#0" />
+            <element signature="e#3047#3221#0" />
+            <element signature="e#3226#3388#0" />
+            <element signature="e#3393#3588#0" />
+            <element signature="e#3593#3792#0" />
+            <element signature="e#3946#5236#0" />
+            <element signature="e#5242#5432#0" />
+            <element signature="e#5437#6179#0" />
+            <element signature="e#6185#7127#0" />
+            <element signature="e#7133#8141#0" />
+            <element signature="e#8147#9649#0" />
+            <element signature="e#9923#11568#0" />
+            <element signature="e#11574#12818#0" />
+            <element signature="e#12823#13181#0" />
+            <element signature="e#13187#15044#0" />
+            <element signature="e#15049#15589#0" />
+            <element signature="e#15595#15788#0" />
+            <element signature="e#15793#16154#0" />
+            <element signature="e#16159#16573#0" />
+            <element signature="e#16578#16619#0" />
+            <element signature="e#16668#16708#0" />
+            <element signature="e#16713#18402#0" />
+            <element signature="e#18408#18617#0" />
+            <element signature="e#18623#18834#0" />
+            <element signature="e#18955#19692#0" />
+            <element signature="e#19698#20427#0" />
+            <element signature="e#20433#20936#0" />
+            <element signature="e#20942#21588#0" />
+            <element signature="e#21594#24480#0" />
+            <element signature="e#24485#24882#0" />
+            <element signature="e#25789#25825#0" />
+            <element signature="e#27888#28966#0" />
+            <element signature="e#28972#29174#0" />
+            <element signature="e#29292#29556#0" />
+            <element signature="e#29561#30206#0" />
+            <element signature="e#30211#30754#0" />
+            <element signature="e#30759#31225#0" />
+            <element signature="e#31231#32125#0" />
+            <element signature="e#32131#32265#0" />
+            <element signature="e#32131#32923#0" />
+            <element signature="e#32760#32790#0" />
+            <element signature="e#32929#33123#0" />
+            <element signature="e#33128#33777#0" />
+            <element signature="class#33307:33585" />
+            <element signature="method#run#0;class#33307:33585" />
+            <element signature="e#33782#33963#0" />
+            <element signature="e#33968#34586#0" />
+            <element signature="class#34124:34394" />
+            <element signature="method#run#0;class#34124:34394" />
+            <element signature="e#38193#38422#0" />
+            <element signature="e#38428#38833#0" />
+            <element signature="e#39073#39709#0" />
+            <element signature="e#39715#40056#0" />
+            <element signature="e#40062#40098#0" />
+            <element signature="e#40104#40137#0" />
+            <element signature="e#40143#40378#0" />
+            <element signature="e#40775#41075#0" />
+            <element signature="e#42105#42412#0" />
+            <element signature="e#42491#42903#0" />
+            <element signature="e#42909#43440#0" />
+            <element signature="e#43551#44380#0" />
+            <element signature="e#44386#44954#0" />
+            <element signature="e#44960#45282#0" />
+            <element signature="e#45287#45732#0" />
+            <element signature="e#45738#46188#0" />
+            <element signature="e#47300#47440#0" />
+            <element signature="e#47300#47796#0" />
+            <element signature="e#47802#47997#0" />
+            <element signature="e#48002#48199#0" />
+            <element signature="e#48204#49993#0" />
+            <element signature="e#49998#50025#0" />
+            <element signature="e#49998#50415#0" />
+            <element signature="e#50420#51740#0" />
+            <element signature="e#51746#52080#0" />
+            <element signature="e#52218#52354#0" />
+            <element signature="e#52360#52602#0" />
+            <element signature="e#52720#53052#0" />
+            <element signature="e#53058#53278#0" />
+            <element signature="e#53284#53413#0" />
+            <element signature="e#53419#53686#0" />
+            <element signature="e#53692#54603#0" />
+            <element signature="e#54609#55097#0" />
+            <element signature="e#55265#55731#0" />
+            <element signature="e#55736#55897#0" />
+            <element signature="e#56050#56215#0" />
+            <element signature="e#56220#56370#0" />
+            <element signature="e#56529#56696#0" />
+            <element signature="e#56701#56874#0" />
+            <element signature="e#56880#57071#0" />
+            <element signature="e#57076#57255#0" />
+            <element signature="e#57261#57448#0" />
+            <element signature="e#57453#57625#0" />
+            <element signature="e#57631#59282#0" />
+            <element signature="e#59287#59657#0" />
+            <element signature="e#59662#59966#0" />
+            <element signature="e#59972#60186#0" />
+            <element signature="e#60192#60434#0" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="218">
+          <caret line="388" column="35" selection-start-line="388" selection-start-column="35" selection-end-line="388" selection-end-column="35" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLDataUtils.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="57">
+          <caret line="110" column="25" selection-start-line="110" selection-start-column="25" selection-end-line="110" selection-end-column="25" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/database/src/main/java/cn/tianlong/tlobject/db/TLDataBase.java">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-2957">
+          <caret line="432" column="42" selection-start-line="432" selection-start-column="42" selection-end-line="432" selection-end-column="42" />
+          <folding>
+            <element signature="docComment;class#TLDataBase#0" />
+            <element signature="e#1698#2061#0" />
+            <element signature="e#2066#2274#0" />
+            <element signature="e#3082#3983#0" />
           </folding>
         </state>
       </provider>
