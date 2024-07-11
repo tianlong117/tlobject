@@ -236,12 +236,12 @@ public class TLDataBase extends TLBaseModule {
             case DB_FIND:
             case DB_FINDALL:
             case DB_TOTAL:
-            case DB_EXECSQL:
             case DB_QUERY:
             case DB_DELETE:
             case DB_UPDATE:
             case DB_BATCH:
-                returnMsg = execSql(fromWho, msg);
+            case DB_EXECQUERY:
+                returnMsg = execQuery(fromWho, msg);
                 break;
             case DB_ISTABLEEXIST:
                 returnMsg = isTableExist(fromWho, msg);
@@ -419,7 +419,7 @@ public class TLDataBase extends TLBaseModule {
           return  prepareCall(dbserver,sql)  ;
     }
 
-    private TLMsg execSql(Object fromWho, TLMsg msg) {
+    private TLMsg execQuery(Object fromWho, TLMsg msg) {
         TLBaseModule tableobj =null ;
         if (!msg.isNull(DB_P_TABLENAME))
         {
