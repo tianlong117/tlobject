@@ -117,7 +117,7 @@
         <table name="execltodb" dbtable="execltodb" dbserver="dbserver2"  />
 
         <table name="user1_copy1" dbtable="user1_copy1" dbserver="dbserver1" sameAsTable="userTable1" />
-        <table name="test1" dbtable="test1" dbserver="dbserver2"  ifCreate="reCreate"
+        <table name="test1" dbtable="test1" dbserver="dbserver2"  ifCreate1="reCreate"
           createSql ="CREATE TABLE `test1` (
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `number` int DEFAULT NULL,
@@ -128,9 +128,9 @@
 
         />
 
-        <table name="testcopy" dbtable="testcopy" dbserver="dbserver2" ifCreate="copy" copyTable="test1"/>
-        <table name="testcopy1" dbtable="testcopy1" dbserver="dbserver2" ifCreate="copy" copyTable="test1"/>
-        <table name="testcopy2" dbtable="testcopy2" dbserver="dbserver1" ifCreate="reCreate"
+        <table name="testcopy" dbtable="testcopy" dbserver="dbserver2" ifCreate1="copy" copyTable="test1"/>
+        <table name="testcopy1" dbtable="testcopy1" dbserver="dbserver2" ifCreate1="copy" copyTable="test1"/>
+        <table name="testcopy2" dbtable="testcopy2" dbserver="dbserver1" ifCreate1="reCreate"
                createSql ="CREATE TABLE `testcopy2` (
   `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL,
   `number` int DEFAULT NULL,

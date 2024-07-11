@@ -36,8 +36,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
     protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
     protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
-    protected ArrayList<TLMsg> initMsgTable;          //初始化时的消息队列
-    protected ArrayList<TLMsg> startMsgTable;          //初始化时的消息队列
+    protected ArrayList<TLMsg> initMsgTable;          //对象初始化时，还没放入工厂，执行的消息队列
+    protected ArrayList<TLMsg> startMsgTable;          //对象初始化后，已经放入工厂，执行的消息队列
     protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //方法运行前执行的msg列表
     protected HashMap<String, ArrayList<TLMsg>> afterMsgTable;          //方法运行后执行的msg列表
     protected TLObjectFactory moduleFactory;
