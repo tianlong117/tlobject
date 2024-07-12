@@ -74,16 +74,18 @@ public class TLThreadPool extends TLBaseModule {
     }
 
     protected TLMsg execute(Object fromWho, TLMsg msg) {
-        TLMsg  dmsg = (TLMsg) msg.getParam(THREADPOOL_P_TASKMSG);
-        IObject toWho = (IObject) msg.getParam(THREADPOOL_P_TASKMODULE);
+        TLMsg  dmsg = (TLMsg) msg.getParam(THREADPOOL_P_TASKMSG,TLMsg.class);
+        IObject toWho = (IObject) msg.getParam(THREADPOOL_P_TASKMODULE,IObject.class);
         if(toWho ==null )
         {
            String destination =dmsg.getDestination();
-            if(destination !=null)
-                toWho= (IObject) getModule((String) destination);
+            if(destination !=null && !destination.isEmpty())
+                toWho= (IObject) getModule(destination);
             else
                 return null ;
         }
+        if(toWho ==null)
+            return null ;
         ThreadTask threadTask = new ThreadTask(toWho,dmsg, (IObject) fromWho);
         putLog("start thread task,source:"+((IObject) fromWho).getName()+" action:"+dmsg.getAction(),LogLevel.DEBUG);
         threadPool.execute(threadTask);
