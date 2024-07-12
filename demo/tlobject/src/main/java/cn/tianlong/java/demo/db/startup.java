@@ -81,7 +81,7 @@ public class startup extends TLAppStartUp {
     private void queryByUserName(Object fromWho, TLMsg msg) {
         System.out.println("查询 username="+msg.getParam("username"));
         Long  startTime =System.currentTimeMillis();
-        Map<String,Object> datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"),DB_R_RESULT);
+        Map<String,Object> datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"),DB_R_RESULT ,HashMap.class);
         Long  endTime =System.currentTimeMillis();
         if(datas ==null || datas.isEmpty())
         {

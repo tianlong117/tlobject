@@ -1,6 +1,7 @@
 package cn.tianlong.java.demo.base;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.base.TLBaseObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
@@ -44,6 +45,11 @@ public class MyAppCenter extends TLBaseModule {
              println(mylight1.getClass().toString());
          else
              println("mylight1 is null");
+         mylight1 = (Light) mymsg.getParam("light",TLBaseObject.class);
+        if(mylight1 !=null)
+            println(mylight1.getClass().toString());
+        else
+            println("mylight1 is null");
          Person person = (Person) mymsg.getParam("light",Person.class);
         if(person !=null)
             println(person.getClass().toString());
@@ -63,6 +69,7 @@ public class MyAppCenter extends TLBaseModule {
             println( map.getClass().toString());
         else
             println("mylight2 is null");
+
     }
 
 

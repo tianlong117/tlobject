@@ -381,9 +381,14 @@ public class TLObjectFactory extends TLBaseModule {
     }
 
     private TLMsg registInFactory(Object fromWho, TLMsg msg) {
-        String moduleName = (String) msg.getParam(FACTORY_P_MODULENAME);
+        String moduleName =  msg.getStringParam(FACTORY_P_MODULENAME,"");
+        if ( moduleName == null ||  moduleName.isEmpty())
+            return createMsg().setParam(RESULT, false);
+        TLBaseObject  object = (TLBaseObject) msg.getParam(INSTANCE,TLBaseObject.class);
+        if(object ==null)
+            return createMsg().setParam(RESULT, false);
         modules.put(moduleName, msg.getParam(INSTANCE));
-        return null;
+        return createMsg().setParam(RESULT, true);
     }
 
     private void reloadModule(Object fromWho, TLMsg msg) {
