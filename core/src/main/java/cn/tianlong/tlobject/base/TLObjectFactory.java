@@ -531,9 +531,11 @@ public class TLObjectFactory extends TLBaseModule {
            return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null);
     }
     protected TLMsg getModule(Object fromWho, TLMsg msg) {
-        String moduleName =  msg.getStringParam(FACTORY_P_MODULENAME,null);
-        String newModuleName = msg.getStringParam(FACTORY_P_NEWMODULENAME,null);
-        if (newModuleName == null)
+        String moduleName =  msg.getStringParam(FACTORY_P_MODULENAME,"");
+        if ( moduleName == null ||  moduleName.isEmpty())
+            return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null);
+        String newModuleName = msg.getStringParam(FACTORY_P_NEWMODULENAME,"");
+        if (newModuleName == null || newModuleName.isEmpty())
             newModuleName = moduleName;
         int position =moduleName.indexOf("@");
         if(position !=-1 )
