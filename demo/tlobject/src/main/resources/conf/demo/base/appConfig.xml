@@ -14,9 +14,9 @@
         </msgid>
     </msgTable>
     <initMsg>
-        <msg msgid="setup1" />
+        <msg msgid="setup" />
     </initMsg>
     <startMsg>
-        <msg action="testmsg" />
+        <msg1 action="testmsg" />
     </startMsg>
 </appConfig>
