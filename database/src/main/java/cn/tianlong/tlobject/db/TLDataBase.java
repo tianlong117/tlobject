@@ -585,7 +585,9 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg getBeanTable(Object fromWho, TLMsg msg) {
-        String tablename = (String) msg.getParam(DB_P_TABLENAME);
+        String tablename = msg.getStringParam(DB_P_TABLENAME,"");
+        if(tablename == null || tablename.isEmpty())
+            return createMsg().setParam(INSTANCE, null);
         TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
         if (tableobj != null)
             return createMsg().setParam(INSTANCE, tableobj);
@@ -817,9 +819,24 @@ public class TLDataBase extends TLBaseModule {
        cacheKey =cacheKey+ String.valueOf( strBuffer.toString().hashCode());
        return cacheKey ;
     }
-    static public String  getTableDbName(String tableName,TLBaseModule module){
+
+    static public TLTable  getTable(String tableName,TLBaseModule caller){
+        TLMsg tmsg = caller.createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME,tableName);
+        TLMsg returnmsg =caller.putMsg(DEFAULTDATABASE,tmsg);
+        return (TLTable) returnmsg.getParam(INSTANCE,TLTable.class);
+    }
+
+    static public BeanTable  getBeanTable(String tableName,String primaryKey,TLBaseModule caller){
+        TLMsg tmsg = caller.createMsg().setAction(DB_GETBEANTABLE).
+                setParam(DB_P_TABLENAME,tableName)
+                .setParam(DB_P_PRIMARYKEY,primaryKey) ;
+        TLMsg returnmsg =caller.putMsg(DEFAULTDATABASE,tmsg);
+        return (BeanTable) returnmsg.getParam(INSTANCE,BeanTable.class);
+    }
+
+    static public String  getTableDbName(String tableName,TLBaseModule caller){
         TLMsg msg = new TLMsg().setAction(DB_GETTABLEPARAMS).setParam(DB_P_TABLENAME,tableName);
-        TLMsg returnMsg= module.putMsg(DEFAULTDATABASE, msg);
+        TLMsg returnMsg= caller.putMsg(DEFAULTDATABASE, msg);
         if (returnMsg !=null)
             return (String) returnMsg.getParam("dbtable");
         else

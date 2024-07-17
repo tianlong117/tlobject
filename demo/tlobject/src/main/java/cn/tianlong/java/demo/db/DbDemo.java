@@ -422,10 +422,21 @@ public class DbDemo extends TLBaseModule {
         if(username ==null)
             return  ;
      //   BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
-        TLMsg tableMsg =putMsg(DEFAULTDATABASE,createMsg().setAction(DB_GETBEANTABLE).
-                        setParam(DB_P_TABLENAME,"userTable")
-                        .setParam(DB_P_PRIMARYKEY,"name"));
-        BeanTable beanTable = (BeanTable) tableMsg.getParam(INSTANCE);
+         BeanTable beanTable = TLDataBase.getBeanTable("userTable","name",this);
+
+        Map<String, Object> data =beanTable.get(username);
+        if(data !=null &&!data.isEmpty())
+        {
+            println("data is exist :" + username);
+            int result= beanTable.remove(username);
+            if(result >0)
+             println("data is deleted");
+            else
+            {
+                println("delete is error");
+                return;
+            }
+        }
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
         datas.put("name",username);
         datas.put("number",number);

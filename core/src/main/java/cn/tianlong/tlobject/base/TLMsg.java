@@ -247,6 +247,8 @@ public class TLMsg implements Serializable , Cloneable{
         if(args ==null)
             return null ;
         Object value = args.get(param) ;
+        if (value ==null)
+            return null ;
         if(classType.isInstance(value))
             return value ;
         else

@@ -20,7 +20,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         this.name=name ;
     }
 
-    protected TLMsg createMsg(){
+    public TLMsg createMsg(){
         TLMsg cmsg =new TLMsg() ;
         cmsg.setSource(name);
         return  cmsg ;
