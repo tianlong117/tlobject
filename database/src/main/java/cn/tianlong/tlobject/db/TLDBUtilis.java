@@ -219,18 +219,16 @@ public class TLDBUtilis {
             return  result.length;
     }
 
-    public static  LinkedHashMap<String, TLDBSqlConditionExpression>  makeSqlCondition(LinkedHashMap<String,Object> params){
-        LinkedHashMap<String, TLDBSqlConditionExpression> sqlCondition = new LinkedHashMap<>();
+    public static   TLDBSqlConditionExpression  makeSqlCondition(LinkedHashMap<String,Object> params){
+        TLDBSqlConditionExpression sqlCondition = new TLDBSqlConditionExpression();
         int i =0;
         int size =params.size();
         for(String key : params.keySet()){
-            TLDBSqlConditionExpression sqlConditionExpression ;
             if(i <  size-1)
-                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","and");
+                sqlCondition.add(key,params.get(key),"=","and");
             else
-                sqlConditionExpression =new TLDBSqlConditionExpression(key,params.get(key),"=","");
-            sqlCondition.put(key, sqlConditionExpression);
-            i++ ;
+                sqlCondition.add(key,params.get(key),"=","");
+           i++ ;
         }
         return sqlCondition ;
     }
@@ -238,19 +236,5 @@ public class TLDBUtilis {
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
         String sql =createInsertSql(data0,null);
         return insertList( sql,  datas , table);
-    }
-    public static  TLDBSqlConditionExpression  makeSqlCondition(String key ,Object value ,String relation ,String nextRelation){
-         if(relation ==null)
-             relation="=";
-         if(nextRelation == null )
-             nextRelation="";
-        return new TLDBSqlConditionExpression(key,value,relation,nextRelation);
-    }
-    protected  LinkedHashMap<String, TLDBSqlConditionExpression>  makeSqlConditionMap(LinkedHashMap<String, TLDBSqlConditionExpression> map,String key ,Object value ,String relation ,String nextRelation){
-        if(map ==null)
-            map = new LinkedHashMap<>();
-        TLDBSqlConditionExpression sqlConditionExpression = makeSqlCondition( key , value , relation , nextRelation) ;
-        map.put(key, sqlConditionExpression);
-        return map ;
     }
 }

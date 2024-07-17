@@ -251,11 +251,11 @@ public class TLTable extends TLBaseDataUnit {
         return getMsg(fromWho, querymsg);
     }
 
-    private  LinkedHashMap<String, TLDBSqlConditionExpression> makeSqlConditionByMsg(TLMsg msg){
-        LinkedHashMap<String, TLDBSqlConditionExpression> sqlconditon = (LinkedHashMap<String, TLDBSqlConditionExpression>) msg.getMapParam(DB_P_SQLCONDITION,null);
+    private TLDBSqlConditionExpression makeSqlConditionByMsg(TLMsg msg){
+       TLDBSqlConditionExpression sqlconditon = (TLDBSqlConditionExpression) msg.getParam(DB_P_SQLCONDITION, TLDBSqlConditionExpression.class);
         if (sqlconditon == null)
         {
-            LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getMapParam(DB_P_PARAMS,null);
+            LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
             if (sqlParams ==null || sqlParams.isEmpty())
                 return null;
             else
@@ -267,7 +267,7 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg query(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) != null)
             return query(msg);
-        LinkedHashMap<String, TLDBSqlConditionExpression> sqlconditon =makeSqlConditionByMsg( msg);
+        TLDBSqlConditionExpression sqlconditon =makeSqlConditionByMsg( msg);
         String condition = makeSqlCondition(sqlconditon);
         Object fields = msg.getParam(DB_P_FIELDS);
         String queryfields = makeSqlField(fields);
@@ -277,12 +277,15 @@ public class TLTable extends TLBaseDataUnit {
         sb.append(" from [table] ");
         sb.append(condition);
         String sql = sb.toString();
-        LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
+        LinkedHashMap<String, Object> csSqlParam = sqlconditon.getSqlParam();
         if (sqlParams == null)
-            sqlParams = new LinkedHashMap<>();
-        for (String key : sqlconditon.keySet()) {
-            TLDBSqlConditionExpression ce = sqlconditon.get(key);
-            sqlParams.putIfAbsent(ce.getVarName(), ce.getValue());
+        {
+            sqlParams =new LinkedHashMap<>();
+            sqlParams =csSqlParam;
+        }
+        else {
+            sqlParams.putAll(csSqlParam);
         }
         msg.setAction(DB_QUERY).setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, sqlParams);
         return query(msg);
@@ -390,7 +393,7 @@ public class TLTable extends TLBaseDataUnit {
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) == null) {
-            LinkedHashMap<String, TLDBSqlConditionExpression> sqlconditon =makeSqlConditionByMsg( msg);
+           TLDBSqlConditionExpression sqlconditon =makeSqlConditionByMsg( msg);
             if (sqlconditon == null)
                 return createMsg().setParam(DB_R_RESULT, 0);
             String condition = makeSqlCondition(sqlconditon);
@@ -439,7 +442,7 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg update(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) != null)
             return insertAndupdateAndDelete(fromWho, msg);
-        LinkedHashMap<String, TLDBSqlConditionExpression> sqlconditon = (LinkedHashMap<String, TLDBSqlConditionExpression>) msg.getParam(DB_P_SQLCONDITION);
+        TLDBSqlConditionExpression sqlconditon = (TLDBSqlConditionExpression) msg.getParam(DB_P_SQLCONDITION,TLDBSqlConditionExpression.class);
         if (sqlconditon == null)
             return createMsg().setParam(RESULT,false);
         String condition = makeSqlCondition(sqlconditon);
@@ -464,10 +467,9 @@ public class TLTable extends TLBaseDataUnit {
             dbfields[i] = key;
             i++;
         }
-        for (String key : sqlconditon.keySet()) {
-            TLDBSqlConditionExpression ce = sqlconditon.get(key);
-            sqlParams.put(ce.getVarName(), ce.getValue());
-        }
+        LinkedHashMap<String, Object> csSqlParam = sqlconditon.getSqlParam();
+        sqlParams.putAll(csSqlParam);
+
         sb.deleteCharAt(sb.lastIndexOf(","));
         String sqlfields = sb.toString();
         sql = sql + sqlfields + condition;
@@ -619,15 +621,12 @@ public class TLTable extends TLBaseDataUnit {
             return;
     }
 
-    protected String makeSqlCondition(LinkedHashMap<String, TLDBSqlConditionExpression> sqlconditon) {
-        if (sqlconditon ==null || sqlconditon.isEmpty())
+    protected String makeSqlCondition(TLDBSqlConditionExpression sqlconditon) {
+        if (sqlconditon ==null )
             return "" ;
         StringBuilder csb = new StringBuilder();
         csb.append(" where ");
-        for (String key : sqlconditon.keySet()) {
-            TLDBSqlConditionExpression conditionExpression = sqlconditon.get(key);
-            csb.append(conditionExpression.getSqlStr());
-        }
+        csb.append(sqlconditon.getSqlCondition());
         return csb.toString();
     }
 

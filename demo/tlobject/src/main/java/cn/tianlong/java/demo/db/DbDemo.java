@@ -3,10 +3,7 @@ package cn.tianlong.java.demo.db;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDBUtilis;
-import cn.tianlong.tlobject.db.TLDBView;
-import cn.tianlong.tlobject.db.TLDataBase;
-import cn.tianlong.tlobject.db.TLTable;
+import cn.tianlong.tlobject.db.*;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.execl.TLExeclFileUtils;
@@ -455,7 +452,10 @@ public class DbDemo extends TLBaseModule {
    //     TLMsgUtils.printList(result);
      //   Map<String,Object> alldatas =beanTable.getAllBeanMap(userBean.class);
    //     ArrayList<Object> alldatas =beanTable.getAllBeanList(userBean.class);
-
+        TLDBSqlConditionExpression ce = new TLDBSqlConditionExpression() ;
+        ce.add("name","同桌%","like",null) ;
+        ArrayList<Map<String,Object>> result1= beanTable.get(ce) ;
+        TLMsgUtils.printList(result1);
 
     }
     /**
