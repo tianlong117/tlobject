@@ -456,15 +456,16 @@ public class DbDemo extends TLBaseModule {
         TLDBSqlCondition ce = new TLDBSqlCondition() ;
         ce.add("name","大庆",DB_P_EXP_LIKELEFT,"and") ;
         ce.add("number",9999,"<",null) ;
-        ArrayList<Map<String,Object>> result1= beanTable.get(ce,fields) ;
-        TLMsgUtils.printList(result1);
+    //    ArrayList<Map<String,Object>> result1= beanTable.get(ce,fields) ;
+    //    TLMsgUtils.printList(result1);
         ce.clear();
         println("________");
         LinkedHashMap<String, Object> sqlparams1 = new LinkedHashMap<>();
         sqlparams1.put("name", "www");
         ce.add( "name like ?\"%\"",sqlparams1);
-        result1= beanTable.get(ce,fields) ;
-        TLMsgUtils.printList(result1);
+     //   result1= beanTable.get(ce,fields) ;
+     //   TLMsgUtils.printList(result1);
+
     }
     /**
      * 简单的分布式事务操作。虽然都是对userTable插入数据，但是因为分表，实际是对不同数据库不同表的操作。
