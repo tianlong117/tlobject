@@ -251,8 +251,8 @@ public class TLTable extends TLBaseDataUnit {
         return getMsg(fromWho, querymsg);
     }
 
-    private TLDBSqlConditionExpression makeSqlConditionByMsg(TLMsg msg){
-       TLDBSqlConditionExpression sqlconditon = (TLDBSqlConditionExpression) msg.getParam(DB_P_SQLCONDITION, TLDBSqlConditionExpression.class);
+    private TLDBSqlCondition makeSqlConditionByMsg(TLMsg msg){
+       TLDBSqlCondition sqlconditon = (TLDBSqlCondition) msg.getParam(DB_P_SQLCONDITION, TLDBSqlCondition.class);
         if (sqlconditon == null)
         {
             LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
@@ -267,7 +267,7 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg query(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) != null)
             return query(msg);
-        TLDBSqlConditionExpression sqlconditon =makeSqlConditionByMsg( msg);
+        TLDBSqlCondition sqlconditon =makeSqlConditionByMsg( msg);
         String condition = makeSqlCondition(sqlconditon);
         Object fields = msg.getParam(DB_P_FIELDS);
         String queryfields = makeSqlField(fields);
@@ -279,12 +279,12 @@ public class TLTable extends TLBaseDataUnit {
         String sql = sb.toString();
         LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
         LinkedHashMap<String, Object> csSqlParam = sqlconditon.getSqlParam();
-        if (sqlParams == null)
+        if (sqlParams == null && csSqlParam!=null)
         {
             sqlParams =new LinkedHashMap<>();
             sqlParams =csSqlParam;
         }
-        else {
+        else  if (sqlParams != null && csSqlParam!=null) {
             sqlParams.putAll(csSqlParam);
         }
         msg.setAction(DB_QUERY).setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, sqlParams);
@@ -306,7 +306,7 @@ public class TLTable extends TLBaseDataUnit {
             putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
             return createMsg().setParam(RESULT, false);
         }
-        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        LinkedHashMap<String, Object> sqlParamsList = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
         boolean ifQueryCache= ifCache && !msg.isNull(DB_P_CACHENAME) ;
         String cacheKey = null;
         String cacheName =null ;
@@ -393,7 +393,7 @@ public class TLTable extends TLBaseDataUnit {
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) == null) {
-           TLDBSqlConditionExpression sqlconditon =makeSqlConditionByMsg( msg);
+           TLDBSqlCondition sqlconditon =makeSqlConditionByMsg( msg);
             if (sqlconditon == null)
                 return createMsg().setParam(DB_R_RESULT, 0);
             String condition = makeSqlCondition(sqlconditon);
@@ -442,7 +442,7 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg update(Object fromWho, TLMsg msg) {
         if (msg.getParam(DB_P_SQL) != null)
             return insertAndupdateAndDelete(fromWho, msg);
-        TLDBSqlConditionExpression sqlconditon = (TLDBSqlConditionExpression) msg.getParam(DB_P_SQLCONDITION,TLDBSqlConditionExpression.class);
+        TLDBSqlCondition sqlconditon = (TLDBSqlCondition) msg.getParam(DB_P_SQLCONDITION,TLDBSqlCondition.class);
         if (sqlconditon == null)
             return createMsg().setParam(RESULT,false);
         String condition = makeSqlCondition(sqlconditon);
@@ -621,7 +621,7 @@ public class TLTable extends TLBaseDataUnit {
             return;
     }
 
-    protected String makeSqlCondition(TLDBSqlConditionExpression sqlconditon) {
+    protected String makeSqlCondition(TLDBSqlCondition sqlconditon) {
         if (sqlconditon ==null )
             return "" ;
         StringBuilder csb = new StringBuilder();

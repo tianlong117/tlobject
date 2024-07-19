@@ -125,14 +125,16 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
         ArrayList totaldatas = new ArrayList<>();
         if (returnMsg != null)
         {
-            List<TLMsg> dbResultList = returnMsg.getListParam(RESULT, null);
+            List<TLMsg> dbResultList = (List<TLMsg>) returnMsg.getParam(RESULT, List.class);
             if (dbResultList != null) {
                 for (TLMsg rmsg : dbResultList) {
                     Object dbresult = rmsg.getParam(DB_R_RESULT);
-                    if (dbresult instanceof List)
-                        totaldatas.addAll((List) dbresult);
-                    else
-                        totaldatas.add(dbresult);
+                    if(dbresult !=null){
+                        if (dbresult instanceof List)
+                            totaldatas.addAll((List) dbresult);
+                        else
+                            totaldatas.add(dbresult);
+                    }
                 }
             }
         }

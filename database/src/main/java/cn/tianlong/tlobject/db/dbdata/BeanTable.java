@@ -161,14 +161,14 @@ public class BeanTable extends TLBaseTableModle {
         TLMsg returnMsg= queryBy(this.primaryKey,primaryKeyValue, fields,TLDataBase.RESULT_TYPE.MAP ,null );
         return (Map<String, Object>) returnMsg.getParam(DB_R_RESULT,Map.class);
     }
-    public ArrayList<Map<String,Object>> get(TLDBSqlConditionExpression sqlCondition) {
+    public ArrayList<Map<String,Object>> get(TLDBSqlCondition sqlCondition) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_SQLCONDITION, sqlCondition);
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Map<String, Object>>) returMsg.getParam(DB_R_RESULT,ArrayList.class);
     }
-    public Map<String,Object> getBeanMap(TLDBSqlConditionExpression sqlCondition,Class beanClass) {
+    public Map<String,Object> getBeanMap(TLDBSqlCondition sqlCondition, Class beanClass) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
                 .setParam(DB_P_BEANCLASS,beanClass)
@@ -177,7 +177,7 @@ public class BeanTable extends TLBaseTableModle {
         TLMsg  returnMsg = putMsg(table, idmsg);
         return (Map<String, Object>) returnMsg.getParam(DB_R_RESULT,Map.class);
     }
-    public ArrayList<Object> getBeanList( TLDBSqlConditionExpression sqlCondition,Class beanClass) {
+    public ArrayList<Object> getBeanList(TLDBSqlCondition sqlCondition, Class beanClass) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANLIST)
                 .setParam(DB_P_BEANCLASS,beanClass)
@@ -185,7 +185,7 @@ public class BeanTable extends TLBaseTableModle {
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Object>) returMsg.getParam(DB_R_RESULT,ArrayList.class);
     }
-    public ArrayList<Map<String,Object>> get(TLDBSqlConditionExpression sqlCondition,String[] fields) {
+    public ArrayList<Map<String,Object>> get(TLDBSqlCondition sqlCondition, String[] fields) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_FIELDS,fields)
@@ -256,7 +256,7 @@ public class BeanTable extends TLBaseTableModle {
         return (ArrayList<Object> )  returnMsg.getParam(DB_R_RESULT,ArrayList.class);
     }
     public int update(Object primaryKeyValue, LinkedHashMap<String,Object> datas) {
-        TLDBSqlConditionExpression sqlConditionExpression =new TLDBSqlConditionExpression();
+        TLDBSqlCondition sqlConditionExpression =new TLDBSqlCondition();
         sqlConditionExpression.add(primaryKey,primaryKeyValue,null,null);
         TLMsg idmsg=createMsg().setAction(DB_UPDATE)
                 .setParam(DB_P_PARAMS, datas)

@@ -219,8 +219,8 @@ public class TLDBUtilis {
             return  result.length;
     }
 
-    public static   TLDBSqlConditionExpression  makeSqlCondition(LinkedHashMap<String,Object> params){
-        TLDBSqlConditionExpression sqlCondition = new TLDBSqlConditionExpression();
+    public static TLDBSqlCondition makeSqlCondition(LinkedHashMap<String,Object> params){
+        TLDBSqlCondition sqlCondition = new TLDBSqlCondition();
         int i =0;
         int size =params.size();
         for(String key : params.keySet()){

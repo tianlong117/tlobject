@@ -10,14 +10,19 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
  * 描述:
  * 作者:tianlong
  */
-public class TLDBSqlConditionExpression {
-    protected ArrayList<TLDBSqlCondition> ceList = new ArrayList<>();
+public class TLDBSqlCondition {
+    protected ArrayList<sqlCondition> ceList = new ArrayList<>();
 
-    public TLDBSqlConditionExpression() {
+    public TLDBSqlCondition() {
 
     }
-    public TLDBSqlConditionExpression add(String varName,Object value,String relation,String nextRelation) {
-        TLDBSqlCondition ce = new TLDBSqlCondition( varName, value, relation,nextRelation);
+    public TLDBSqlCondition add(String varName, Object value, String relation, String nextRelation) {
+        sqlCondition ce = new sqlCondition( varName, value, relation,nextRelation);
+        ceList.add(ce);
+        return this ;
+    }
+    public TLDBSqlCondition add(String sql, LinkedHashMap<String, Object> sqlParams) {
+        sqlCondition ce = new sqlCondition( sql,sqlParams);
         ceList.add(ce);
         return this ;
     }
@@ -26,30 +31,43 @@ public class TLDBSqlConditionExpression {
     }
     public String getSqlCondition(){
         StringBuilder csb = new StringBuilder();
-        for (TLDBSqlCondition ce : ceList) {
+        for (sqlCondition ce : ceList) {
             csb.append(ce.getSqlStr());
         }
         return csb.toString() ;
     }
     public  LinkedHashMap<String, Object> getSqlParam(){
         LinkedHashMap<String, Object> sqlParams = new LinkedHashMap<>();
-        for (TLDBSqlCondition ce : ceList) {
-           sqlParams.putIfAbsent(ce.getVarName(), ce.getValue());
+        for (sqlCondition ce : ceList) {
+            Object value =ce.getValue() ;
+            if(value !=null)
+            {
+                if(value instanceof LinkedHashMap)
+                    sqlParams.putAll((LinkedHashMap<String, Object>)value);
+                else {
+                    String varName =ce.getVarName() ;
+                    if(varName !=null && !varName.isEmpty())
+                        sqlParams.putIfAbsent(varName, ce.getValue());
+                }
+            }
         }
-        return sqlParams ;
+        if(!sqlParams.isEmpty())
+          return sqlParams ;
+        return null ;
     }
 
-   private class TLDBSqlCondition {
+   private class sqlCondition {
         private String varName ;
         private Object value ;
         private String relation=" = " ;
         private String nextRelation ;
         private String sql ;
 
-        public TLDBSqlCondition(String sql) {
+        public sqlCondition(String sql, LinkedHashMap<String, Object> sqlParams) {
            this.sql =sql ;
+           this.value =sqlParams;
         }
-        public TLDBSqlCondition(String varName,Object value,String relation,String nextRelation) {
+        public sqlCondition(String varName, Object value, String relation, String nextRelation) {
             this.varName = varName;
             this.value = value;
             if(relation !=null)
@@ -57,7 +75,7 @@ public class TLDBSqlConditionExpression {
             if(nextRelation!=null)
                 this.nextRelation = nextRelation;
         }
-        public TLDBSqlCondition(String varName,Object value) {
+        public sqlCondition(String varName, Object value) {
             this( varName,value,null,null);
         }
 

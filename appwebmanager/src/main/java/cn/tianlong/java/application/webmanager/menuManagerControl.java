@@ -3,7 +3,7 @@ package cn.tianlong.java.application.webmanager;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDBSqlConditionExpression;
+import cn.tianlong.tlobject.db.TLDBSqlCondition;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.ViewTable;
 import cn.tianlong.tlobject.servletutils.TLWUrlMap;
@@ -112,7 +112,7 @@ public class menuManagerControl extends adminCommon {
         String roleid = (String) msg.getParam("roleid");
         String[] roleidArray =TLDataUtils.splitStrToArray(roleid,";");
         ViewTable menusIndb =new ViewTable("rolemenus",moduleFactory);
-        TLDBSqlConditionExpression  inCondition =new TLDBSqlConditionExpression("rolemenus.roleid",roleidArray,"in",null);
+        TLDBSqlCondition inCondition =new TLDBSqlCondition("rolemenus.roleid",roleidArray,"in",null);
         LinkedHashMap<String,Object> sqlparams= (LinkedHashMap<String, Object>) inCondition.getValue();
         String inSql = inCondition.getSqlStr();
         menusIndb.replaceSql(inSql);
@@ -139,7 +139,7 @@ public class menuManagerControl extends adminCommon {
             ViewTable menusIndb =new ViewTable("adminmenus",moduleFactory);
             String[] roleidArray = new String[roleidList.size()];
             roleidList.toArray( roleidArray);
-            TLDBSqlConditionExpression  inCondition =new TLDBSqlConditionExpression("rolemenus.roleid",roleidArray,"in",null);
+            TLDBSqlCondition inCondition =new TLDBSqlCondition("rolemenus.roleid",roleidArray,"in",null);
             LinkedHashMap<String,Object> sqlparams= (LinkedHashMap<String, Object>) inCondition.getValue();
             sqlparams.put("userid",userid);
             String inSql = inCondition.getSqlStr();
