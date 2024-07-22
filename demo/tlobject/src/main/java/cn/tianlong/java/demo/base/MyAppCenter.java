@@ -1,8 +1,10 @@
 package cn.tianlong.java.demo.base;
 
 import cn.tianlong.tlobject.base.*;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.HashMap;
+import java.util.Map;
 
 public class MyAppCenter extends TLBaseModule {
     public MyAppCenter(String name ){
@@ -23,10 +25,21 @@ public class MyAppCenter extends TLBaseModule {
         switch (msg.getAction()){
             case "testmsg" :
                 testmsg( fromWho ,msg) ;
+                break;
+            case "testmsg1" :
+                testmsg1( fromWho ,msg) ;
+                break;
             default :
                 System.out.println("no action");
         }
         return returnMsg;
+    }
+
+    private void testmsg1(Object fromWho, TLMsg msg) {
+        String s ="#d=database : #a=getTable";
+        TLMsg msg1= TLMsgUtils.strToMsg(s);
+        TLMsgUtils.printMsg(msg1);
+        TLMsg returnMsg =putMsg(s, (Map<String, Object>) null);
     }
 
     private void testmsg(Object fromWho, TLMsg msg) {

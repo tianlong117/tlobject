@@ -109,7 +109,7 @@ public class TLMsgUtils {
                 break;
             case "#w":
             case MSG_P_WAITFLAG:
-                msg.setWaitFlag(Boolean.parseBoolean(value));
+                msg.setWaitFlag(TLDataUtils.parseBoolean(value,false));
                 break;
             case "#m":
             case MSG_P_MSGID:
