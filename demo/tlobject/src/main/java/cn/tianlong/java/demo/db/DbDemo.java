@@ -45,10 +45,9 @@ public class DbDemo extends TLBaseModule {
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
         TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
         tb = (TLTable) returnmsg.getParam(INSTANCE);
-        String s ="#d=database : #a=getTable";
-        HashMap<String,Object> param =new HashMap<>();
-        param.put(DB_P_TABLENAME, "userTable");
-        TLMsg returnMsg =putMsg(s,param);
+    //    HashMap<String,Object> param =new HashMap<>();
+     //   param.put(DB_P_TABLENAME, "userTable");
+    //    TLMsg returnMsg =putMsg(MSG_GETTABLE,param);
         return this ;
     }
 

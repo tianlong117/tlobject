@@ -478,4 +478,6 @@ public interface TLParamString {
     final String GEO_LAT = "geo_lat";
     final String GEO_DISTANCE = "distance";
 
+    final String MSG_GETTABLE = "#d="+DEFAULTDATABASE+" ; #a="+DB_GETTABLE;
+
 }

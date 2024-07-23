@@ -77,9 +77,9 @@ public class TLMsgUtils {
      */
     public static TLMsg strToMsg(String string) {
         TLMsg cmdMsg = new TLMsg();
-        if (!string.contains(":"))
+        if (!string.contains(";"))
             return cmdMsg.setAction(string);
-        String str[] = string.split(":");
+        String str[] = string.split(";");
         for (int i = 0; i < str.length; i++) {
             if (!str[i].isEmpty() && str[i].contains("=")) {
                 String cmd[] = str[i].split("=");
