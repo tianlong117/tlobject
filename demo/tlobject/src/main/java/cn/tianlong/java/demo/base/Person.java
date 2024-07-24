@@ -93,8 +93,10 @@ public class Person extends DemoCommon {
         //注册到广播接收者
         printState(" 在屋里。注册接受广播消息,消息类型：light");
         TLMsg receivermsg = createMsg().setDestination(name).setAction("onLight");
-        putMsg(M_MSGBROADCAST, createMsg().setAction(MSGBROADCAST_REGISTRECEIVER)
-                .setParam(MSGBROADCAST_P_MESSAGETYPE, "light").setParam(MSGBROADCAST_P_RECEIVEMSG, receivermsg));
+        HashMap<String,Object> param = new HashMap<>();
+        param.put(MSGBROADCAST_P_MESSAGETYPE, "light");
+        param.put(MSGBROADCAST_P_RECEIVEMSG, receivermsg);
+        putMsg(MSG_MSGBROADCASTREGIST,param);
     }
 
     private TLMsg sing(Object fromWho, TLMsg msg) {
@@ -174,15 +176,18 @@ public class Person extends DemoCommon {
     }
 
     private void webclient(String url) {
-        TLMsg msg =createMsg().setAction("get") .setParam("url", url);
-        TLMsg resultMsg =putMsg("httpClient", msg);
+      //  TLMsg msg =createMsg().setAction("get") .setParam("url", url);
+     //   TLMsg resultMsg =putMsg("httpClient", msg);
+        HashMap<String,Object> param = new HashMap<>() ;
+        param.put("url", url);
+        TLMsg resultMsg =putMsg(MSG_HTTPGET,param);
         if(resultMsg.parseBoolean(HTTP_ERROR,true)==true)
         {
             System.out.println( "网站打不开啊"+ url);
             return;
         }
         say( "看看百度!");
-        String response = (String) resultMsg.getParam(WEBRESPONSE);
+        String response = resultMsg.getStringParam(WEBRESPONSE,"");
         System.out.println(response);
     }
     protected void say(String message){

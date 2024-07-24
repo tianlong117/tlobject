@@ -1190,6 +1190,19 @@ public abstract class TLBaseModule extends TLBaseObject {
         return putMsg(msg);
     }
 
+    public TLMsg putMsg(String msgStr ,Map<String,Object>param,Map<String,Object>sysParam){
+        TLMsg msg =TLMsgUtils.strToMsg(msgStr);
+        if(msg ==null)
+        {
+            putLog("msgStr is error : "+msgStr,LogLevel.ERROR );
+            return null;
+        }
+        if(param !=null)
+            msg.addMap(param);
+        if(sysParam!=null)
+            msg.addSystemArgs(sysParam) ;
+        return putMsg(msg);
+    }
     /**
      *
      * @param moduleName

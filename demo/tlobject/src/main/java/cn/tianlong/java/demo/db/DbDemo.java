@@ -42,12 +42,16 @@ public class DbDemo extends TLBaseModule {
     }
     @Override
     protected TLBaseModule init() {
+        //常规方式活得表
         TLMsg tmsg = new TLMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "userTable");
         TLMsg returnmsg =putMsg(DEFAULTDATABASE, tmsg);
         tb = (TLTable) returnmsg.getParam(INSTANCE);
-    //    HashMap<String,Object> param =new HashMap<>();
-     //   param.put(DB_P_TABLENAME, "userTable");
-    //    TLMsg returnMsg =putMsg(MSG_GETTABLE,param);
+        // 使用消息标签获得表
+       HashMap<String,Object> param =new HashMap<>();
+       param.put(DB_P_TABLENAME, "userTable");
+       TLMsg returnMsg =putMsg(MSG_GETTABLE,param);
+       //使用简化工具获得表
+        TLTable tb1 =TLDataBase.getTable("userTable",this);
         return this ;
     }
 

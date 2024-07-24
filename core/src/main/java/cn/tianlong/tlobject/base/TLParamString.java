@@ -479,5 +479,7 @@ public interface TLParamString {
     final String GEO_DISTANCE = "distance";
 
     final String MSG_GETTABLE = "#d="+DEFAULTDATABASE+" ; #a="+DB_GETTABLE;
+    final String MSG_MSGBROADCASTREGIST = "#d="+M_MSGBROADCAST+" ; #a="+MSGBROADCAST_REGISTRECEIVER;
+    final String MSG_HTTPGET = "#d="+M_HTTPCLIENT+" ; #a="+HTTP_GET;
 
 }
