@@ -112,9 +112,10 @@ public class menuManagerControl extends adminCommon {
         String roleid = (String) msg.getParam("roleid");
         String[] roleidArray =TLDataUtils.splitStrToArray(roleid,";");
         ViewTable menusIndb =new ViewTable("rolemenus",moduleFactory);
-        TLDBSqlCondition inCondition =new TLDBSqlCondition("rolemenus.roleid",roleidArray,"in",null);
-        LinkedHashMap<String,Object> sqlparams= (LinkedHashMap<String, Object>) inCondition.getValue();
-        String inSql = inCondition.getSqlStr();
+        TLDBSqlCondition inCondition =new TLDBSqlCondition();
+        inCondition.add("rolemenus.roleid",roleidArray,"in",null);
+        LinkedHashMap<String,Object> sqlparams= inCondition.getSqlParam();
+        String inSql = inCondition.getSqlCondition();
         menusIndb.replaceSql(inSql);
         ArrayList<Map<String, Object>> menuList =  menusIndb.get(sqlparams);
         return createMsg().setParam(RESULT,menuList);
@@ -139,10 +140,11 @@ public class menuManagerControl extends adminCommon {
             ViewTable menusIndb =new ViewTable("adminmenus",moduleFactory);
             String[] roleidArray = new String[roleidList.size()];
             roleidList.toArray( roleidArray);
-            TLDBSqlCondition inCondition =new TLDBSqlCondition("rolemenus.roleid",roleidArray,"in",null);
-            LinkedHashMap<String,Object> sqlparams= (LinkedHashMap<String, Object>) inCondition.getValue();
+            TLDBSqlCondition inCondition =new TLDBSqlCondition();
+            inCondition.add("rolemenus.roleid",roleidArray,"in",null);
+            LinkedHashMap<String,Object> sqlparams=  inCondition.getSqlParam();
             sqlparams.put("userid",userid);
-            String inSql = inCondition.getSqlStr();
+            String inSql = inCondition.getSqlCondition();
             menusIndb.replaceSql(inSql);
             menuList =  menusIndb.get(sqlparams);
         }
