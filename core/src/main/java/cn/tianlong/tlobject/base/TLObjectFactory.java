@@ -384,10 +384,10 @@ public class TLObjectFactory extends TLBaseModule {
         String moduleName =  msg.getStringParam(FACTORY_P_MODULENAME,"");
         if ( moduleName == null ||  moduleName.isEmpty())
             return createMsg().setParam(RESULT, false);
-        TLBaseObject  object = (TLBaseObject) msg.getParam(INSTANCE,TLBaseObject.class);
+        Object  object =  msg.getParam(INSTANCE);
         if(object ==null)
             return createMsg().setParam(RESULT, false);
-        modules.put(moduleName, msg.getParam(INSTANCE));
+        modules.put(moduleName, object);
         return createMsg().setParam(RESULT, true);
     }
 
