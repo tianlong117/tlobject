@@ -89,7 +89,7 @@ public class managerModle extends TLBaseTableModle {
                 .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
         TLMsg resultMsg= putMsg(table, qmsg);
-        Map infos = (Map)resultMsg.getParam("result");
+        Map infos = (Map)resultMsg.getMapParam(DB_R_RESULT,null);
         if(infos ==null || infos.isEmpty())
             return null ;
         TLMsg returnMsg =  createMsg().addArgs(infos);
@@ -314,7 +314,7 @@ public class managerModle extends TLBaseTableModle {
                 .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
         TLMsg resultMsg= putMsg(table, qmsg);
-        Map infos = (Map)resultMsg.getParam("result");
+        Map infos = (Map)resultMsg.getParam(DB_R_RESULT);
         if(infos ==null || infos.isEmpty())
             return null ;
         return  createMsg().addArgs(infos);
