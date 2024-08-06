@@ -57,13 +57,13 @@ public class TLModuleFieldInDb extends TLBaseModule {
         Object value ;
         if(  fieldType.indexOf("Map") !=-1)
         {
-            Object dataIndb = TLDataInDbUtils.getHashMapFromDB(fieldName,moduleFactory,0L);
+            Object dataIndb = TLDataInDbUtils.getHashMapFromDB(fieldName,moduleFactory,0L,tableName);
             value =TLDataUtils.LinkMapToMap((LinkedHashMap) dataIndb,fieldType) ;
         }
         else if(fieldType.indexOf("List") !=-1)
-            value= TLDataInDbUtils.getListFromDB(fieldName,moduleFactory,0L);
+            value= TLDataInDbUtils.getListFromDB(fieldName,moduleFactory,0L,tableName);
         else
-            value= TLDataInDbUtils.getVariableFromDB(fieldName,moduleFactory,0L);
+            value= TLDataInDbUtils.getVariableFromDB(fieldName,moduleFactory,0L,tableName);
         return createMsg().setParam("value",value) ;
     }
 

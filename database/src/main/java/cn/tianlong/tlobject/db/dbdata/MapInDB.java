@@ -61,7 +61,7 @@ public class MapInDB extends TLBaseTableModle {
     }
 
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute){
-        this( name , moduleFactory,minute,"");
+        this( name , moduleFactory,minute,null);
     }
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute ,String tableName){
         super( name ,moduleFactory,tableName);

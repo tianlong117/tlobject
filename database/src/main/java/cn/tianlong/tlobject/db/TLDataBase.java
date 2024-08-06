@@ -608,7 +608,9 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLMsg getTable(Object fromWho, TLMsg msg) {
-        String tablename = (String) msg.getParam(DB_P_TABLENAME);
+        String tablename =  msg.getStringParam(DB_P_TABLENAME,"");
+        if(tablename.isEmpty())
+            return createMsg().setParam(RESULT,false);
         TLBaseModule tableobj = getTable(tablename, msg);
         return createMsg().setParam(INSTANCE, tableobj);
     }

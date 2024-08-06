@@ -32,6 +32,7 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     public TLBaseTableModle(String name ,TLObjectFactory moduleFactory ,String tableName){
         this.moduleFactory = moduleFactory;
         this.name  =name ;
+        if(tableName!=null && !tableName.isEmpty())
         this.tableName =tableName ;
         init();
     }
