@@ -88,15 +88,15 @@ public class startup extends TLAppStartUp {
             System.out.println("queryByUserName 没有数据");
             return;
         }
-        System.out.println("queryByUserName 查询结果:");
+        System.out.println("queryByUserName 查询结果: ");
         TLMsgUtils.printMap(datas);
         System.out.println("queryByUserName 查询时间："+ (endTime-startTime));
     }
     private void updateTable(Object fromWho, TLMsg msg) {
-        System.out.println(" --------- 修改前 ---------------");
+        System.out.println(" --------- 修改前 --------------- ");
         queryByUserName( fromWho, msg);
         putMsg("dbDemo",msg.setAction("updateTb"));
-        System.out.println(" --------- 修改后 ---------------");
+        System.out.println(" --------- 修改后 --------------- ");
         queryByUserName( fromWho, msg);
     }
 
