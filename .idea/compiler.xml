@@ -6,59 +6,93 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="app-webmanager" />
-        <module name="cache-common" />
-        <module name="cache-ehcache" />
-        <module name="cache-filecache" />
-        <module name="core" />
-        <module name="crontab" />
-        <module name="database" />
-        <module name="demo-tlobject" />
-        <module name="demo-web" />
-        <module name="demotlobject" />
-        <module name="execl" />
-        <module name="log-common" />
-        <module name="log-slf4j" />
-        <module name="network-client" />
-        <module name="network-common" />
-        <module name="network-proxy" />
-        <module name="network-server-jetty" />
-        <module name="network-server-websocket" />
-        <module name="redis" />
-        <module name="servletutils" />
-        <module name="slf4j" />
-        <module name="tlobjec-tcache-caffeine" />
-        <module name="tlobject-all" />
-        <module name="tlobject-app-webmanager" />
-        <module name="tlobject-cache-common" />
-        <module name="tlobject-cache-ehcache" />
-        <module name="tlobject-cache-filecache" />
-        <module name="tlobject-connectpoolofdb-c3p0" />
-        <module name="tlobject-connectpoolofdb-common" />
-        <module name="tlobject-connectpoolofdb-hikaricp" />
-        <module name="tlobject-core" />
-        <module name="tlobject-crontab" />
-        <module name="tlobject-database" />
-        <module name="tlobject-demo-tlobject" />
-        <module name="tlobject-demo-web" />
-        <module name="tlobject-execl" />
-        <module name="tlobject-log-common" />
-        <module name="tlobject-log-slf4j" />
-        <module name="tlobject-network-client" />
-        <module name="tlobject-network-common" />
-        <module name="tlobject-network-proxy" />
-        <module name="tlobject-network-server-distributedserver" />
-        <module name="tlobject-network-server-jetty" />
-        <module name="tlobject-network-server-tomcat" />
-        <module name="tlobject-network-server-websocket" />
-        <module name="tlobject-redis" />
-        <module name="tlobject-servletutils" />
         <module name="tlobject-utils" />
-        <module name="tlobjectnetworkserverdistributedserver" />
+        <module name="tlobject-log-common" />
         <module name="tomcat" />
+        <module name="tlobject-connectpoolofdb-c3p0" />
+        <module name="cache-common" />
+        <module name="network-client" />
+        <module name="tlobject-redis" />
+        <module name="redis" />
+        <module name="tlobject-network-server-jetty" />
+        <module name="tlobject-crontab" />
         <module name="utils" />
+        <module name="demo-web" />
+        <module name="network-common" />
+        <module name="tlobject-core" />
+        <module name="tlobject-database" />
+        <module name="tlobjectnetworkserverdistributedserver" />
+        <module name="demotlobject" />
+        <module name="slf4j" />
+        <module name="tlobject-servletutils" />
+        <module name="crontab" />
+        <module name="log-slf4j" />
+        <module name="tlobject-connectpoolofdb-common" />
+        <module name="cache-ehcache" />
+        <module name="core" />
+        <module name="servletutils" />
+        <module name="tlobject-network-proxy" />
+        <module name="tlobject-demo-tlobject" />
+        <module name="execl" />
+        <module name="tlobject-cache-common" />
+        <module name="network-server-websocket" />
+        <module name="tlobject-connectpoolofdb-hikaricp" />
+        <module name="tlobject-network-client" />
+        <module name="demo-tlobject" />
+        <module name="tlobject-network-server-distributedserver" />
+        <module name="tlobjec-tcache-caffeine" />
+        <module name="database" />
+        <module name="tlobject-app-webmanager" />
+        <module name="tlobject-network-common" />
         <module name="web" />
+        <module name="tlobject-cache-ehcache" />
+        <module name="tlobject-network-server-tomcat" />
+        <module name="tlobject-execl" />
+        <module name="tlobject-demo-web" />
+        <module name="app-webmanager" />
+        <module name="cache-filecache" />
+        <module name="tlobject-cache-filecache" />
+        <module name="network-server-jetty" />
+        <module name="tlobject-network-server-websocket" />
+        <module name="tlobject-cache-caffeine" />
+        <module name="log-common" />
+        <module name="network-proxy" />
+        <module name="tlobject-all" />
+        <module name="tlobject-log-slf4j" />
       </profile>
     </annotationProcessing>
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="tlobject-all" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-app-webmanager" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-caffeine" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-ehcache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-filecache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-c3p0" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-hikaricp" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-core" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-crontab" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-database" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-demo-tlobject" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-demo-web" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-execl" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-log-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-log-slf4j" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-client" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-proxy" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-distributedserver" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-jetty" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-tomcat" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-websocket" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-redis" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-servletutils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-utils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+    </option>
   </component>
 </project>

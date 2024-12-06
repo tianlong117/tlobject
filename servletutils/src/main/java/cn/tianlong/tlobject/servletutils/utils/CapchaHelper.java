@@ -24,9 +24,10 @@ import com.octo.captcha.engine.image.ListImageCaptchaEngine;
 import com.octo.captcha.image.gimpy.GimpyFactory;
 import com.octo.captcha.service.image.ImageCaptchaService;
 import com.octo.captcha.service.multitype.GenericManageableCaptchaService;
-import com.sun.image.codec.jpeg.JPEGCodec;
-import com.sun.image.codec.jpeg.JPEGImageEncoder;
+//import com.sun.image.codec.jpeg.JPEGCodec;
+//import com.sun.image.codec.jpeg.JPEGImageEncoder;
 
+import javax.imageio.ImageIO;
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -119,13 +120,19 @@ public class CapchaHelper {
 
         String captchaId = req.getSession().getId();
         BufferedImage challenge = captchaService.getImageChallengeForID(captchaId,req.getLocale());
-
+        /*
         JPEGImageEncoder jpegEncoder = JPEGCodec.createJPEGEncoder(jpegOutputStream);
         try {
             jpegEncoder.encode(challenge);
         } catch (IOException e) {
             e.printStackTrace();
             return;
+        }
+         */
+        try {
+            ImageIO.write(challenge,"JPEG",jpegOutputStream);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
         }
         captChallengeAsJpeg = jpegOutputStream.toByteArray();
         resp.setHeader("Cache-Control", "no-store");

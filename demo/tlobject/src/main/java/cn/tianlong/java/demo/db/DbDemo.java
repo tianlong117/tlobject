@@ -9,11 +9,11 @@ import cn.tianlong.tlobject.db.dbdata.MapInDB;
 import cn.tianlong.tlobject.execl.TLExeclFileUtils;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLDateUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
 
-import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 
 /***
  * 表user结构  CREATE TABLE `userm` (
@@ -256,7 +256,7 @@ public class DbDemo extends TLBaseModule {
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put("name",username);
         sqlparams.put("number", number);
-        sqlparams.put("time", date());
+        sqlparams.put("time", TLDateUtils.getNowDateStr(null));
         TLMsg insertmsg = createMsg().setAction(DB_INSERT)
                 .setParam(DB_P_PARAMS, sqlparams);
        TLMsg returnMsg = putMsg(tb, insertmsg);
@@ -274,7 +274,7 @@ public class DbDemo extends TLBaseModule {
            LinkedHashMap<String, Object> data = new LinkedHashMap<>();
            data.put("name",username+i);
            data.put("number", number);
-           data.put("time", date());
+           data.put("time", TLDateUtils.getNowDateStr(null));
            datas.add(data);
        }
        long starttime =System.currentTimeMillis();
@@ -364,7 +364,7 @@ public class DbDemo extends TLBaseModule {
                 System.out.println("insert :"+username+i);
                 sqlparams.put("name",username+i);
                 sqlparams.put("number", i);
-                sqlparams.put("time", date());
+                sqlparams.put("time", TLDateUtils.getNowDateStr(null));
                 TLMsg insertmsg = createMsg().setAction(DB_INSERT)
                         .setParam(DB_P_SQL, sql)
                         .setParam(DB_P_PARAMS, sqlparams);
@@ -444,7 +444,7 @@ public class DbDemo extends TLBaseModule {
         LinkedHashMap<String ,Object> datas = new LinkedHashMap<>();
         datas.put("name",username);
         datas.put("number",number);
-        datas.put("time",date());
+        datas.put("time",TLDateUtils.getNowDateStr(null));
         beanTable.add(datas) ;
         System.out.println("userTable 通过 beanTable 插入:");
         TLMsgUtils.printMap(datas);
@@ -502,7 +502,7 @@ public class DbDemo extends TLBaseModule {
             LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
             sqlparams.put("name", names[i]);
             sqlparams.put("number", 20);
-            sqlparams.put("time", date());
+            sqlparams.put("time", TLDateUtils.getNowDateStr(null));
             TLMsg tmsg = createMsg().setAction(DB_INSERT) .setParam(DB_P_SQL, sql1)
                     .setParam(DB_P_PARAMS, sqlparams).setParam(DB_P_TABLENAME,"userTable");
             msglist.add(tmsg);
@@ -542,7 +542,7 @@ public class DbDemo extends TLBaseModule {
         for (int i = 0; i < 500; i++) {
             bparams[i][0] = name;
             bparams[i][1] = number;
-            bparams[i][2] = date() + 1;
+            bparams[i][2] = TLDateUtils.getNowDateStr(null);
         }
         TLMsg insertmsg = new TLMsg().setAction(DB_BATCH)
                 .setParam(DB_P_SQL, sql)

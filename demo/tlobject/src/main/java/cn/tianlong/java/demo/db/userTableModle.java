@@ -6,10 +6,10 @@ import cn.tianlong.tlobject.db.TLBaseTableModle;
 import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLDateUtils;
 
 import java.util.*;
 
-import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
 
 /**
  * 创建日期：${Date}${time}
@@ -44,7 +44,7 @@ public class userTableModle extends TLBaseTableModle {
              LinkedHashMap<String, Object> data =new LinkedHashMap<>();
              data.put("name",name+i);
              data.put("number",i+3000);
-             data.put("time",date());
+             data.put("time", TLDateUtils.getNowDateStr(null));
              datas.add(data);
          }
          return datas ;
