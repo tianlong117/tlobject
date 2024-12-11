@@ -672,7 +672,7 @@ public class TLObjectFactory extends TLBaseModule {
         if(module ==null )
         {
             putLog("module create failure : "+newModuleName,LogLevel.ERROR);
-            String isNecessary ="yes" ;
+            String isNecessary ="no" ;
             if(moduleConfig != null && moduleConfig.containsKey(MODULE_ISNECESSARY))
                 isNecessary =moduleConfig.get(MODULE_ISNECESSARY);
             if(isNecessary !=null && isNecessary.equals("yes"))
