@@ -2,9 +2,11 @@ package cn.tianlong.java.demo.db;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.cache.TLBaseCache;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -50,6 +52,9 @@ public class startup extends TLAppStartUp {
             case "queryByUserName":
                 queryByUserName( fromWho,  msg);
                 break;
+            case "queryByUserNameInCache":
+                queryByUserNameInCache( fromWho,  msg);
+                break;
             case "queryByNumber":
                 queryByNumber( fromWho,  msg);
                 break;
@@ -63,6 +68,30 @@ public class startup extends TLAppStartUp {
                 returnMsg=super.checkMsgAction(fromWho,msg);
         }
         return returnMsg;
+    }
+
+    private void queryByUserNameInCache(Object fromWho, TLMsg msg) {
+        System.out.println("查询 username="+msg.getParam("username"));
+        String username =msg.getStringParam("username","");
+        TLBaseCache memoryCache = (TLBaseCache) getModule("EhCache");
+        Map<String,Object> datas ;
+        Object cacheValue = memoryCache.getCache("userinfo",username,C_VARTYPE_HASHMAP);
+        if(!memoryCache.isCacheValue(cacheValue))
+        {
+            datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"),DB_R_RESULT ,HashMap.class);
+            if(datas != null)
+              memoryCache.writeCache("userinfo",username, datas,5,C_VARTYPE_HASHMAP);
+        }
+        else
+            datas = (Map<String, Object>) cacheValue;
+
+        if(datas ==null || datas.isEmpty())
+        {
+            System.out.println("queryByUserName 没有数据");
+            return;
+        }
+        TLMsgUtils.printMap(datas);
+
     }
 
     private void queryByNumber(Object fromWho, TLMsg msg) {

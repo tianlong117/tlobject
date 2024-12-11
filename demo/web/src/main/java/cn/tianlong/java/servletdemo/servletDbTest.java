@@ -8,13 +8,13 @@ import cn.tianlong.tlobject.servletutils.TLWServModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLTable;
+import cn.tianlong.tlobject.utils.TLDateUtils;
 
 import java.util.*;
 
 import static cn.tianlong.tlobject.cache.TLParamString.*;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_R_OUTCONTENT;
-import static com.sun.org.apache.xalan.internal.lib.ExsltDatetime.date;
-import static java.lang.Thread.sleep;
+
 
 /**
  * 创建日期：${Date}${time}
@@ -63,7 +63,7 @@ public class servletDbTest extends TLWServModule {
         outData odata =  creatOutDataMsg("dbmodle");
       //  TLBaseCache memoryCache = (TLBaseCache) getModule(M_MEMORYCACHE);
         //开启了缓存
-        TLBaseCache memoryCache = (TLBaseCache) getModule(M_EHCACHE);
+        TLBaseCache memoryCache = (TLBaseCache) getModule("dbEhcache");
         List<Object> totalDatas;
         Object cacheValue = memoryCache.getCache("users",userName,C_VARTYPE_LIST);
         if(!memoryCache.isCacheValue(cacheValue))
@@ -122,9 +122,9 @@ public class servletDbTest extends TLWServModule {
         if(userName ==null)
             return msg;
         outData odata =  creatOutDataMsg("find");
-        odata.addData("time",date());
+        odata.addData("time", TLDateUtils.getNowDateStr(null));
         TLMsg returnMsg =putMsg("dbDemo",createMsg().setAction("queryTb").setParam("username",userName));
-        Map<String,Object> datas = returnMsg.getMapParam(RESULT,null);
+        Map<String,Object> datas = returnMsg.getMapParam(DB_R_RESULT,null);
         if(datas ==null || datas.isEmpty())
             odata.addData("msg","没有数据");
         else
