@@ -12,14 +12,9 @@
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cache/ehcache/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/cache/ehcache/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/tlobject/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/EhCache_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/EhCache_config.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/web/pom.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/web/pom.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/moduleFactory_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/democonf/moduleFactory_config.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLFileCache.java" beforeDir="false" afterPath="$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLFileCache.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -526,6 +521,7 @@
     "Maven.tlobject-cache-ehcache [compile].executor": "Run",
     "Maven.tlobject-cache-ehcache [install].executor": "Run",
     "Maven.tlobject-cache-ehcache [validate].executor": "Run",
+    "Maven.tlobject-cache-filecache [install].executor": "Run",
     "Maven.tlobject-connectpoolofdb [install].executor": "Run",
     "Maven.tlobject-core [clean].executor": "Run",
     "Maven.tlobject-core [compile].executor": "Run",
@@ -546,7 +542,7 @@
     "Maven.tlobject-network-server [install].executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Tomcat Server.tomcat.executor": "Run",
+    "Tomcat Server.tomcat.executor": "Debug",
     "git-widget-placeholder": "master",
     "kotlin-language-version-configured": "true",
     "node.js.detected.package.eslint": "true",
@@ -1059,7 +1055,7 @@
       <workItem from="1733710451993" duration="8569000" />
       <workItem from="1733731811719" duration="2198000" />
       <workItem from="1733793837923" duration="19111000" />
-      <workItem from="1733880976105" duration="10614000" />
+      <workItem from="1733880976105" duration="19453000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1404,7 +1400,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="176" />
+    <option name="localTasksCounter" value="177" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
@@ -1552,18 +1548,13 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java</url>
-          <line>65</line>
-          <option name="timeStamp" value="795" />
+          <line>105</line>
+          <option name="timeStamp" value="819" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java</url>
-          <line>101</line>
-          <option name="timeStamp" value="796" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java</url>
-          <line>97</line>
-          <option name="timeStamp" value="797" />
+          <url>file://$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLFileCache.java</url>
+          <line>47</line>
+          <option name="timeStamp" value="822" />
         </line-breakpoint>
       </breakpoints>
     </breakpoint-manager>

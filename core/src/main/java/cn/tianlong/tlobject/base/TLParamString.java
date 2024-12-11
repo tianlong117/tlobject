@@ -92,6 +92,7 @@ public interface TLParamString {
     final String MODULE_CLASSFILE = "classfile";
     final String MODULE_PARAMS = "params";
     final String MODULE_SINGLETON = "singleton";
+    final String MODULE_ISNECESSARY = "necessary";
     final String MODULE_ADDMSGTABLE = "addMsgTable";
     final String MODULE_DONEXTMSG = "donextMsg";
     final String MODULE_IFONLYCREATE = "ifOnlyCreate";

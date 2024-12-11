@@ -669,6 +669,18 @@ public class TLObjectFactory extends TLBaseModule {
                     modules.put(newModuleName, module);
             }
         }
+        if(module ==null )
+        {
+            putLog("module create failure : "+newModuleName,LogLevel.ERROR);
+            String isNecessary ="yes" ;
+            if(moduleConfig != null && moduleConfig.containsKey(MODULE_ISNECESSARY))
+                isNecessary =moduleConfig.get(MODULE_ISNECESSARY);
+            if(isNecessary !=null && isNecessary.equals("yes"))
+            {
+                shutdown();
+                return null ;
+            }
+        }
         if (module != null && module instanceof TLBaseModule)
             ((TLBaseModule) module).runStartMsg();
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);

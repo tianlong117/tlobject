@@ -1,12 +1,15 @@
 package cn.tianlong.tlobject.cache;
 
 
+import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.io.*;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -26,6 +29,7 @@ public class TLFileCache extends TLBaseCache {
     public TLFileCache(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
     }
+
     @Override
     protected void initProperty(){
         super.initProperty();
@@ -38,7 +42,22 @@ public class TLFileCache extends TLBaseCache {
         ifUseLock=true ;
     }
 
-
+    @Override
+    protected TLBaseModule init() {
+        super.init();
+        File path=new File(cachePath);
+        if(!path.exists())
+        {
+            boolean created = path.mkdirs();
+            if(!created)
+            {
+                putLog("cachePath create failure : "+cachePath,LogLevel.ERROR);
+                return null ;
+            }
+        }
+        putLog("cachePath create : "+cachePath,LogLevel.DEBUG);
+        return this;
+    }
     public Object getCache(String cacheName,  String cacheKey){
         return  getCache(cacheName,  cacheKey,null) ;
     }
@@ -126,8 +145,10 @@ public class TLFileCache extends TLBaseCache {
     {
         String filePath =getCacheFileName( cacheName, cacheKey) ;
         File file=new File(filePath);
-        if (!file.getParentFile().exists())
-            file.getParentFile().mkdir();
+        File fileParent = file.getParentFile();
+        if(!fileParent.exists()){
+            fileParent.mkdirs();
+        }
         ReentrantReadWriteLock lock= getLock(filePath);
         ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
         writeLock.lock();
