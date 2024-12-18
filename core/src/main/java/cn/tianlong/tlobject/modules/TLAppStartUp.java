@@ -13,6 +13,9 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 
+import static java.lang.System.exit;
+import org.apache.commons.cli.ParseException;
+import org.apache.commons.cli.*;
 /**
  * 程序启动模块类
  */
@@ -38,51 +41,62 @@ public class TLAppStartUp extends TLBaseModule {
         return config;
     }
     public static void  main (String[] args ) {
-        boolean checkArgsResult =checkArgs(args);
+
+        HashMap<String,String> argsMap =parseArgs(args) ;
+        boolean checkArgsResult =checkArgs(argsMap);
         if(checkArgsResult==false)
             return;
-        HashMap<String,String> argsMap =argsToMap(args) ;
-        if(!argsMap.containsKey("configPath"))
-        {
-            System.out.println("缺少配置文件路径");
-            return;
-        }
+        main0( argsMap);
+    }
+    public static void  main0 (HashMap<String,String> argsMap ) {
+
         TLAppStartUp instance = new TLAppStartUp("serverStartup");
         instance.startup( argsMap);
     }
-    public static  HashMap<String,String> argsToMap(String[] args ){
-        HashMap<String,String> argsMap =new HashMap<>() ;
-        if(args ==null)
-            return argsMap ;
-        for(int i =0 ;i < args.length; i++)
-        {
-            if(args[i].equals("-d") && args[i+1] !=null)
-                argsMap.put("configPath",args[i+1]);
-            else if(args[i].equals("-n") && args[i+1] !=null)
-                argsMap.put("appName",args[i+1]);
-            else if(args[i].equals("-m" )&& args[i+1] !=null)
-                argsMap.put("factoryConfigFile",args[i+1]);
-            else if(args[i].equals("-f") && args[i+1] !=null)
-                argsMap.put("configFile",args[i+1]);
+    public static HashMap<String,String>  parseArgs(String[] args){
+        // create Options object
+        Options options = new Options();
+        // Create a Parser
+        CommandLineParser parser = new BasicParser( );
+        options.addOption("d", "configPath", true, "配置文件目录");
+        options.addOption("n", "appname ", true, "应用名称" );
+        options.addOption("m", "factoryConfigFile", true, "模块工厂配置文件名称");
+        options.addOption("f", "app configFile ", true, "应用配置文件" );
+        options.addOption("h", "help", false, "帮助");
+        // Parse the program arguments
+
+        CommandLine commandLine ;
+        try {
+            commandLine = parser.parse( options, args );
+        } catch (ParseException e) {
+            throw new RuntimeException(e);
         }
+        if( commandLine.hasOption('h') ) {
+            System.out.println( "Help Message") ;
+            exit(0);
+        }
+        HashMap<String,String> argsMap =new HashMap<>() ;
+        if(commandLine.hasOption('d'))
+            argsMap.put("configPath",commandLine.getOptionValue('d'));
+        if(commandLine.hasOption('n'))
+            argsMap.put("appName",commandLine.getOptionValue('n'));
+        if(commandLine.hasOption('m'))
+            argsMap.put("factoryConfigFile",commandLine.getOptionValue('m'));
+        if(commandLine.hasOption('f'))
+            argsMap.put("configFile",commandLine.getOptionValue('f'));
         return argsMap ;
     }
-    public static boolean checkArgs(String[] args){
-        if(args ==null || args.length ==0)
+    public static boolean checkArgs(HashMap<String,String> argsMap)
+    {
+        if(argsMap.containsKey("help")){
+            printHelp();
+            return false ;
+        }
+        if(!argsMap.containsKey("configPath"))
         {
-            System.out.println("缺少参数");
-            printHelp();
+            System.out.println("缺少配置文件路径");
             return false ;
         }
-        if(args[0].equals("--help")){
-            printHelp();
-            return false ;
-        }
-        for(int i =0 ;i < args.length; i++){
-            if(args[i].equals("-d"))
-                return true ;
-        }
-        System.out.println("缺少配置文件路径");
         return true ;
     }
     public static void printHelp(){

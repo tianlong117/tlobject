@@ -10,9 +10,6 @@ import cn.tianlong.tlobject.utils.TLMsgUtils;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import org.apache.commons.cli.*;
-
-import static java.lang.System.exit;
 import static java.lang.Thread.sleep;
 
 /**
@@ -26,48 +23,14 @@ public class testMain extends TLAppStartUp {
         super( name);
     }
     public static void  main (String[] args ) {
-        HashMap<String,Object> argsMap = parseArgs( args);
-        TLMsgUtils.printMap(argsMap);
-        exit(0);
+
         if(args !=null && args.length >0){
             TLAppStartUp.main(args);
           return;
         }
         startModule (null );
     }
-    public static HashMap<String,Object>  parseArgs(String[] args){
-        // create Options object
-        Options options = new Options();
-        // Create a Parser
-        CommandLineParser parser = new BasicParser( );
-        options.addOption("d", "configPath", true, "配置文件目录");
-        options.addOption("n", "appname ", false, "应用名称" );
-        options.addOption("m", "factoryConfigFile", true, "模块工厂配置文件名称");
-        options.addOption("f", "app configFile ", false, "应用配置文件" );
-        options.addOption("h", "help", true, "帮助");
-        // Parse the program arguments
 
-        CommandLine commandLine ;
-        try {
-             commandLine = parser.parse( options, args );
-        } catch (ParseException e) {
-            throw new RuntimeException(e);
-        }
-        if( commandLine.hasOption('h') ) {
-            System.out.println( "Help Message") ;
-            exit(0);
-        }
-        HashMap<String,Object> argsMap =new HashMap<>() ;
-        if(commandLine.hasOption('d'))
-            argsMap.put("configPath",commandLine.getOptionValue('d'));
-        if(commandLine.hasOption('n'))
-            argsMap.put("appName",commandLine.getOptionValue('n'));
-        if(commandLine.hasOption('m'))
-            argsMap.put("factoryConfigFile",commandLine.getOptionValue('m'));
-        if(commandLine.hasOption('f'))
-            argsMap.put("configFile",commandLine.getOptionValue('f'));
-        return argsMap ;
-    }
     public static TLObjectFactory   startModule (HashMap<String,String> configMap  ) {
         HashMap<String,Object> argsMap =new HashMap<>() ;
         argsMap.put("appName","demo0");
