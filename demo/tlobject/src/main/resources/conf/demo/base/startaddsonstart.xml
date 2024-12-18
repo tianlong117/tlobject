@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <appConfig>
     <appModules>
-        <app name="module1"  waitFlag="true"  sessiondeamon="true"
+        <app name="sonmodule"  waitFlag="true"  sessiondeamon="true"
                    startUpclass="cn.tianlong.java.demo.base.sonstartup"  />
+        <!--app name="sonmodule"  waitFlag="true"  sessiondeamon="true"
+             startUpclass="cn.tianlong.java.demo.db.startup"  /-->
         <!--app name="module1"  waitFlag="true"  sessiondeamon="true"
              configPath="CLASSPATH/conf/demo/base/" factoryConfigFile="moduleFactory1_config.xml" configFile="demoappstart1.xml"   / -->
     </appModules>
