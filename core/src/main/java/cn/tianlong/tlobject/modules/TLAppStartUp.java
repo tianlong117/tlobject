@@ -111,20 +111,16 @@ public class TLAppStartUp extends TLBaseModule {
     public  TLObjectFactory startup(String[] args) {
         String appName = null;
         String configdir = "/";
-         String factoryConfigFile = null;
-        if (args != null && args.length == 2) {
-            configdir = args[0];
-            factoryConfigFile = args[1];
-        } else if (args != null && args.length == 3) {
-            configdir = args[0];
-            factoryConfigFile = args[1];
-            configFile = args[2];
-        } else if (args != null && args.length == 4) {
-            configdir = args[0];
-            factoryConfigFile = args[1];
-            configFile = args[2];
-            appName = args[3];
+        String factoryConfigFile = null;
+        if (args == null || args.length != 4)
+        {
+            println("参数不能为空,或者数量不匹配");
+            return null ;
         }
+        configdir = args[0];
+        factoryConfigFile = args[1];
+        configFile = args[2];
+        appName = args[3];
         HashMap<String,Object> argsMap =new HashMap<>() ;
         argsMap.put("appName",appName);
         argsMap.put("configPath",configdir);
