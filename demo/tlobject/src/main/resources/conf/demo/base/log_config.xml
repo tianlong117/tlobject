@@ -3,7 +3,7 @@
     <params>
         <ifLog value="true" />
         <logWait value="true" />
-        <level value="debug" />
+        <level value="info" />
         <logModules value=""/>
         <logWait value="false" />
         <noLogModules value=" "/>

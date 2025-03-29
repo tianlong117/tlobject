@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMapUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.ArrayList;
@@ -22,12 +23,12 @@ public class testMain extends TLAppStartUp {
         super( name);
     }
     public static void  main (String[] args ) {
-        HashMap<String,String> argsMap = null;
+
         if(args !=null && args.length >0){
             TLAppStartUp.main(args);
           return;
         }
-        startModule (argsMap );
+        startModule (null );
     }
 
     public static TLObjectFactory   startModule (HashMap<String,String> configMap  ) {

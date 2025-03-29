@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.db_config.xml" includeUnit="modules"/>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.redis_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.cache_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.servletutils_config.xml" includeUnit="modules"/>
     <params>
         <package value="cn.tianlong.java"/>
         <ifModuleMonitor value="false"/>
@@ -10,7 +14,7 @@
     <modulesParams>
         <module name="jettyServer"
                 port="8081"
-                contextType="webapp"
+                contextType="no webapp"
                 resourceBase="TLOBJECT_HOME\demo\web\src\main\webapp"
                 loglevel="debug"
                 connector="http;https"

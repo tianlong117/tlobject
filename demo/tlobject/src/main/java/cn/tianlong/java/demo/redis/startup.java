@@ -26,12 +26,15 @@ public class startup extends TLAppStartUp {
         super( name);
     }
     public static void  main (String[] args ) {
-        HashMap<String,String> argsMap = null;
-        if(args !=null && args.length >0){
-            TLAppStartUp.main(args);
-          return;
-        }
-        startModule (argsMap );
+        HashMap<String,Object> argsMap =new HashMap<>() ;
+        argsMap.put("appName","demo0");
+        argsMap.put("configPath",CLASSPATH+"/conf/demo/redis/");
+        argsMap.put("factoryConfigFile","moduleFactory_config.xml");
+        argsMap.put("configFile","demoappstart.xml");
+         startup instance = new startup("startup");
+        appFactory=  instance.startup(argsMap);
+        appFactory.shutdown();
+
     }
     @Override
     protected TLBaseModule init() {
@@ -40,19 +43,6 @@ public class startup extends TLAppStartUp {
       //  <table name="userByIdInRedis"  databaseIndex="1" dbserver="redisServer1" prefix="user:" proxyModule="redisMap"  />
       redisMap = (TLRedisMap) getTable("userByIdInRedis");
       return this ;
-    }
-    public static TLObjectFactory   startModule (HashMap<String,String> configMap  ) {
-        HashMap<String,Object> argsMap =new HashMap<>() ;
-        argsMap.put("appName","demo0");
-        argsMap.put("configPath",CLASSPATH+"/conf/demo/redis/");
-        argsMap.put("factoryConfigFile","moduleFactory_config.xml");
-        argsMap.put("configFile","demoappstart.xml");
-        if(configMap !=null)
-            argsMap.putAll(configMap);
-        startup instance = new startup("startup");
-        appFactory=  instance.startup(argsMap);
-        appFactory.shutdown();
-        return appFactory ;
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
