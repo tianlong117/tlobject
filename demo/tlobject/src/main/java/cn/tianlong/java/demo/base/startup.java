@@ -1,8 +1,5 @@
 package cn.tianlong.java.demo.base;
-
-import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
-
 import java.util.HashMap;
 
 /**
