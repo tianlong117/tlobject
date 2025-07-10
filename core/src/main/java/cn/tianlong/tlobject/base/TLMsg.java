@@ -247,6 +247,18 @@ public class TLMsg implements Serializable , Cloneable{
            return null ;
         return args.get(param) ;
     }
+
+    public Object getSingleParam(Object defaultValue)
+    {
+        if (args == null || args.size() != 1) {
+            return defaultValue; // 如果 Map 为 null 或 key 数量不为 1，返回 null
+        }
+        Object value= args.values().iterator().next(); // 直接获取唯一的值
+        if (value !=null)
+            return value ;
+        else
+            return defaultValue ;
+    }
     // 如果param1 没有赋值，则返回param2
     public Object getParam(String param1,String param2,Object defaultValue)
     {

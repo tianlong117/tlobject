@@ -79,7 +79,7 @@ public class testMain extends TLAppStartUp {
 
     private TLMsg chain3(Object fromWho, TLMsg msg) {
         println("this chain3 run ");
-        String input =msg.getStringParam(INPUT,"");
+        String input = (String) msg.getSingleParam("");
         String result = input +" :chain3  result" ;
         println(result);
         TLMsg returnMsg =createMsg().setParam(RESULT,result);
