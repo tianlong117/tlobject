@@ -69,10 +69,11 @@ public class testMain extends TLAppStartUp {
 
     private TLMsg chain2(Object fromWho, TLMsg msg) {
         println("this chain2 run ");
-        String input =msg.getStringParam(INPUT,"");
+        String input =(String)msg.getParam("param1",INPUT,"");
         String result = input +" :chain2  result" ;
         println(result);
         TLMsg returnMsg =createMsg().setParam(RESULT,result);
+       // returnMsg.setSystemParam(MODULE_DONEXTMSG,false);
         return returnMsg ;
     }
 
@@ -104,6 +105,7 @@ public class testMain extends TLAppStartUp {
       // testTask2();
           testMsgChain();
       //  testTask3();
+        moduleFactory.shutdown();
     }
 
     private void testMsgChain() {
