@@ -11,7 +11,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" afterDir="false" />
     </list>
@@ -1131,7 +1130,7 @@
       <workItem from="1749451864194" duration="2148000" />
       <workItem from="1751872599156" duration="1817000" />
       <workItem from="1752110694834" duration="9245000" />
-      <workItem from="1752130186088" duration="6291000" />
+      <workItem from="1752130186088" duration="6817000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1476,7 +1475,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="187" />
+    <option name="localTasksCounter" value="188" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
@@ -1591,7 +1590,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
-          <line>145</line>
+          <line>146</line>
           <option name="timeStamp" value="558" />
         </line-breakpoint>
         <line-breakpoint type="java-line">
@@ -1656,7 +1655,7 @@
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
-          <line>81</line>
+          <line>82</line>
           <option name="timeStamp" value="855" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-field">
