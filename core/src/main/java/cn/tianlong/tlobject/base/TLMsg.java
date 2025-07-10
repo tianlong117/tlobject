@@ -121,6 +121,11 @@ public class TLMsg implements Serializable , Cloneable{
         this.nextMsg=nextMsg ;
         return this;
     }
+    public TLMsg setNextMsgReturnNextMsg(TLMsg nextMsg)
+    {
+        this.nextMsg=nextMsg ;
+        return nextMsg;
+    }
     public String getAction()
     {
         return action;
@@ -241,6 +246,19 @@ public class TLMsg implements Serializable , Cloneable{
        if(args ==null)
            return null ;
         return args.get(param) ;
+    }
+    // 如果param1 没有赋值，则返回param2
+    public Object getParam(String param1,String param2,Object defaultValue)
+    {
+        if(args ==null)
+            return defaultValue ;
+        if(args.containsKey(param1))
+           return args.get(param1) ;
+        if (args.containsKey(param2))
+             return args.get(param2) ;
+        else
+             return defaultValue ;
+
     }
     public Object getParam(String param  ,Class classType)
     {

@@ -48,6 +48,7 @@ public interface TLParamString {
     final String MSG = "msg";
     final String MSG_CONTENT = "content";
     final String RESULT = "result";
+    final String INPUT = "input";
     final String RETURNMSG = "returnMsg";
     final String EXCEPTION = "exceptionHappen";
     final String WEBSERVERCLIENT = "webServerClient";

@@ -24,10 +24,6 @@ public class testMain extends TLAppStartUp {
     }
     public static void  main (String[] args ) {
 
-        if(args !=null && args.length >0){
-            TLAppStartUp.main(args);
-          return;
-        }
         startModule (null );
     }
 
@@ -49,10 +45,44 @@ public class testMain extends TLAppStartUp {
             case "testtask":
                 returnMsg=testtask( fromWho,  msg);
                 break;
+            case "chain1":
+                returnMsg=chain1( fromWho,  msg);
+                break;
+            case "chain2":
+                returnMsg=chain2( fromWho,  msg);
+                break;
+            case "chain3":
+                returnMsg=chain3( fromWho,  msg);
+                break;
             default:
                 returnMsg=super.checkMsgAction(fromWho,msg);
         }
         return returnMsg;
+    }
+
+    private TLMsg chain1(Object fromWho, TLMsg msg) {
+        println("this chain1 run ");
+        String result = " chain1  result" ;
+        TLMsg returnMsg =createMsg().setParam(RESULT,result);
+        return returnMsg ;
+    }
+
+    private TLMsg chain2(Object fromWho, TLMsg msg) {
+        println("this chain2 run ");
+        String input =msg.getStringParam(INPUT,"");
+        String result = input +" :chain2  result" ;
+        println(result);
+        TLMsg returnMsg =createMsg().setParam(RESULT,result);
+        return returnMsg ;
+    }
+
+    private TLMsg chain3(Object fromWho, TLMsg msg) {
+        println("this chain3 run ");
+        String input =msg.getStringParam(INPUT,"");
+        String result = input +" :chain3  result" ;
+        println(result);
+        TLMsg returnMsg =createMsg().setParam(RESULT,result);
+        return returnMsg ;
     }
 
     private TLMsg testtask(Object fromWho, TLMsg msg) {
@@ -71,8 +101,17 @@ public class testMain extends TLAppStartUp {
     protected void run() {
     //    testTask();
        // testTask1();
-       testTask2();
+      // testTask2();
+          testMsgChain();
       //  testTask3();
+    }
+
+    private void testMsgChain() {
+        TLMsg msgChain1 = createMsg().setAction("chain1");
+        TLMsg msgChain2 = createMsg().setAction("chain2");
+        TLMsg msgChain3 = createMsg().setAction("chain3");
+        msgChain1.setNextMsgReturnNextMsg(msgChain2).setNextMsgReturnNextMsg(msgChain3);
+        putMsg(name,msgChain1);
     }
 
     private void testTask2() {
@@ -140,5 +179,8 @@ public class testMain extends TLAppStartUp {
         int  p1 =msg.getIntParam("p1",  0);
        int  p2 =TLDataUtils.parseInt(msg.getParam("p1"),  0);
        println("helo");
+    }
+    private void testMsgchain(){
+
     }
 }

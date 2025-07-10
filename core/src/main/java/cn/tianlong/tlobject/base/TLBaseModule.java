@@ -565,14 +565,13 @@ public abstract class TLBaseModule extends TLBaseObject {
                                   }
                              }
                         }
-                     if (returnMsg != null && TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEPRERETURNMSG),false)==true)
-                        cmsg.copyParams(paramKeys,returnMsg);
+                     usePreReturnMsg(cmsg , returnMsg) ;
                      if (actionReturnMsg != null )
                      {
                         cmsg.setSystemParam(PRERESULT, actionReturnMsg);
                         if(TLDataUtils.parseBoolean(msgInMsgList.getSystemParam(USEACTIONRETURNMSG),false)==true)
                             cmsg.copyParams(paramKeys,actionReturnMsg );
-                      }
+                     }
                 }
             putLog(cmsg,LogLevel.DEBUG,"doMsgList");
             if(cmsg.getWaitFlag()==true)
@@ -653,8 +652,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                  TLMsg nextMsg = msg.getNextMsg(); //  执行nextmsg
                  if (nextMsg != null && ifDoNextMsg(returnMsg))
                  {
-                     if (returnMsg != null && TLDataUtils.parseBoolean(returnMsg.getSystemParam(USEPRERETURNMSG),false)==true)
-                         nextMsg.copyParams((String[]) nextMsg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
+                     usePreReturnMsg(nextMsg ,returnMsg) ;
                      returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
                  }
             } else
@@ -667,7 +665,17 @@ public abstract class TLBaseModule extends TLBaseObject {
             returnMsg = moduleFactory.moduleActionEnd(name, msg, returnMsg);
         return returnMsg;
     }
+   private  TLMsg  usePreReturnMsg(TLMsg msg ,TLMsg returnMsg){
+       if (returnMsg != null)
+       {
+           if(returnMsg.getParam(RESULT) !=null)
+               msg.setParam(INPUT,returnMsg.getParam(RESULT)) ;
+           else if (TLDataUtils.parseBoolean(returnMsg.getSystemParam(USEPRERETURNMSG),false)==true)
+               msg.copyParams((String[]) msg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
 
+       }
+       return  msg ;
+   }
    protected TLMsg defaultAction(Object fromWho, TLMsg msg) {
         return null ;
     }

@@ -12,9 +12,11 @@
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLFileCache.java" beforeDir="false" afterPath="$PROJECT_DIR$/cache/filecache/src/main/java/cn/tianlong/tlobject/cache/TLFileCache.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLParamString.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/startup.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/startup.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -435,7 +437,6 @@
     <option name="height" value="876" />
   </component>
   <component name="ProjectId" id="2ppKrbDEQJKRJj0iVmcNwaKpg3a" />
-  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
   <component name="ProjectView">
     <navigator proportions="" version="1">
       <foldersAlwaysOnTop value="true" />
@@ -508,10 +509,23 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Application.cn.tianlong.java.demo.db.startup.executor": "Run",
+    "Application.cn.tianlong.java.demo.redis.startup.executor": "Run",
+    "Application.serverstart.executor": "Run",
+    "Application.sonstartup.executor": "Run",
+    "Application.startJetty.executor": "Run",
+    "Application.startTomcat.executor": "Run",
     "Application.startup (1).executor": "Debug",
+    "Application.startup (2).executor": "Run",
     "Application.startup.executor": "Run",
+    "Application.startupaddsonstarup.executor": "Run",
+    "Application.test.executor": "Debug",
+    "Application.testMain.executor": "Run",
+    "Downloaded.Files.Path.Enabled": "false",
+    "JUnit.cn.tianlong.java.jettyserver in tlobject-demo-web.executor": "Run",
     "Maven.tlobject-all [clean].executor": "Run",
     "Maven.tlobject-all [install].executor": "Run",
+    "Maven.tlobject-all [validate].executor": "Run",
     "Maven.tlobject-cache [clean].executor": "Run",
     "Maven.tlobject-cache [compile].executor": "Run",
     "Maven.tlobject-cache [install].executor": "Run",
@@ -526,8 +540,11 @@
     "Maven.tlobject-core [clean].executor": "Run",
     "Maven.tlobject-core [compile].executor": "Run",
     "Maven.tlobject-core [install].executor": "Run",
+    "Maven.tlobject-core [validate].executor": "Run",
     "Maven.tlobject-database [install].executor": "Run",
     "Maven.tlobject-demo [clean].executor": "Run",
+    "Maven.tlobject-demo [compile].executor": "Run",
+    "Maven.tlobject-demo [install].executor": "Run",
     "Maven.tlobject-demo [validate].executor": "Run",
     "Maven.tlobject-demo-tlobject [clean].executor": "Run",
     "Maven.tlobject-demo-tlobject [compile].executor": "Run",
@@ -540,20 +557,24 @@
     "Maven.tlobject-network-client [install].executor": "Run",
     "Maven.tlobject-network-common [install].executor": "Run",
     "Maven.tlobject-network-server [install].executor": "Run",
+    "Repository.Attach.Annotations": "false",
+    "Repository.Attach.JavaDocs": "false",
+    "Repository.Attach.Sources": "false",
     "RunOnceActivity.ShowReadmeOnStart": "true",
-    "SHARE_PROJECT_CONFIGURATION_FILES": "true",
-    "Tomcat Server.tomcat.executor": "Debug",
+    "RunOnceActivity.git.unshallow": "true",
+    "Tomcat Server.tomcat.executor": "Run",
     "git-widget-placeholder": "master",
     "kotlin-language-version-configured": "true",
+    "last_opened_file_path": "D:/tlobjectapp/tlobject",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
     "node.js.selected.package.tslint": "(autodetect)",
     "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Modules",
+    "project.structure.last.edited": "Project",
     "project.structure.proportion": "0.15",
     "project.structure.side.proportion": "0.35402298",
-    "settings.editor.selected.configurable": "advanced.settings",
+    "settings.editor.selected.configurable": "MavenSettings",
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
@@ -580,15 +601,42 @@
       <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf" />
     </key>
   </component>
-  <component name="RunManager" selected="Tomcat Server.tomcat">
+  <component name="RunManager" selected="Application.startup">
     <configuration default="true" type="Application" factoryName="Application">
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <method v="2">
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="startJetty" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.server.startJetty" />
+    <configuration name="cn.tianlong.java.demo.db.startup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.db.startup" />
+      <module name="tlobject-demo-tlobject" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="cn.tianlong.java.demo.db.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="serverstart" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.jettyserver.serverstart" />
+      <module name="tlobject-demo-web" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="cn.tianlong.java.jettyserver.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="startTomcat" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.server.startTomcat" />
       <module name="tlobject-demo-tlobject" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <extension name="coverage">
@@ -601,37 +649,10 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="startup (1)" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.db.startup" />
-      <module name="tlobject-demo-tlobject" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <extension name="coverage">
-        <pattern>
-          <option name="PATTERN" value="cn.tianlong.java.demo.db.*" />
-          <option name="ENABLED" value="true" />
-        </pattern>
-      </extension>
-      <method v="2">
-        <option name="Make" enabled="true" />
-      </method>
-    </configuration>
-    <configuration name="startup (2)" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
-      <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.redis.startup" />
-      <module name="tlobject-demo-tlobject" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <extension name="coverage">
-        <pattern>
-          <option name="PATTERN" value="cn.tianlong.java.demo.redis.*" />
-          <option name="ENABLED" value="true" />
-        </pattern>
-      </extension>
-      <method v="2">
-        <option name="Make" enabled="true" />
-      </method>
-    </configuration>
     <configuration name="startup" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.base.startup" />
       <module name="tlobject-demo-tlobject" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="cn.tianlong.java.demo.base.*" />
@@ -642,10 +663,10 @@
         <option name="Make" enabled="true" />
       </method>
     </configuration>
-    <configuration name="testMain (1)" type="Application" factoryName="Application" temporary="true" nameIsGenerated="true">
+    <configuration name="testMain" type="Application" factoryName="Application" nameIsGenerated="true">
       <option name="MAIN_CLASS_NAME" value="cn.tianlong.java.demo.base.testMain" />
       <module name="tlobject-demo-tlobject" />
-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="PROGRAM_PARAMETERS" value="-d path -m moudoleconfig -n name -f config" />
       <extension name="coverage">
         <pattern>
           <option name="PATTERN" value="cn.tianlong.java.demo.base.*" />
@@ -658,6 +679,21 @@
     </configuration>
     <configuration default="true" type="JUnit" factoryName="JUnit">
       <option name="TEST_OBJECT" value="class" />
+      <option name="WORKING_DIRECTORY" value="%MODULE_WORKING_DIR%" />
+      <method v="2">
+        <option name="Make" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="cn.tianlong.java.jettyserver in tlobject-demo-web" type="JUnit" factoryName="JUnit" temporary="true" nameIsGenerated="true">
+      <module name="tlobject-demo-web" />
+      <extension name="coverage">
+        <pattern>
+          <option name="PATTERN" value="cn.tianlong.java.jettyserver.*" />
+          <option name="ENABLED" value="true" />
+        </pattern>
+      </extension>
+      <option name="PACKAGE_NAME" value="cn.tianlong.java.jettyserver" />
+      <option name="TEST_OBJECT" value="package" />
       <option name="WORKING_DIRECTORY" value="%MODULE_WORKING_DIR%" />
       <method v="2">
         <option name="Make" enabled="true" />
@@ -683,7 +719,7 @@
       <deployment>
         <artifact name="tlobject-demo-web:war">
           <settings>
-            <option name="CONTEXT_PATH" value="" />
+            <option name="CONTEXT_PATH" value="/" />
           </settings>
         </artifact>
       </deployment>
@@ -695,9 +731,27 @@
       <predefined_log_file id="Tomcat Manager" />
       <predefined_log_file id="Tomcat Host Manager" />
       <predefined_log_file id="Tomcat Localhost Access" />
+      <RunnerSettings RunnerId="AppServerDebuggerRunner">
+        <option name="DEBUG_PORT" value="55292" />
+      </RunnerSettings>
       <RunnerSettings RunnerId="Debug">
         <option name="DEBUG_PORT" value="47561" />
       </RunnerSettings>
+      <ConfigurationWrapper VM_VAR="JAVA_OPTS" RunnerId="AppServerDebuggerRunner">
+        <option name="USE_ENV_VARIABLES" value="true" />
+        <STARTUP>
+          <option name="USE_DEFAULT" value="true" />
+          <option name="SCRIPT" value="" />
+          <option name="VM_PARAMETERS" value="" />
+          <option name="PROGRAM_PARAMETERS" value="" />
+        </STARTUP>
+        <SHUTDOWN>
+          <option name="USE_DEFAULT" value="true" />
+          <option name="SCRIPT" value="" />
+          <option name="VM_PARAMETERS" value="" />
+          <option name="PROGRAM_PARAMETERS" value="" />
+        </SHUTDOWN>
+      </ConfigurationWrapper>
       <ConfigurationWrapper VM_VAR="JAVA_OPTS" RunnerId="Cover">
         <option name="USE_ENV_VARIABLES" value="true" />
         <STARTUP>
@@ -770,28 +824,29 @@
       </method>
     </configuration>
     <list>
-      <item itemvalue="Application.startup (1)" />
-      <item itemvalue="Application.startup (2)" />
-      <item itemvalue="Application.testMain (1)" />
+      <item itemvalue="Application.testMain" />
+      <item itemvalue="Application.cn.tianlong.java.demo.db.startup" />
+      <item itemvalue="Application.serverstart" />
+      <item itemvalue="Application.startTomcat" />
       <item itemvalue="Application.startup" />
-      <item itemvalue="Application.startJetty" />
+      <item itemvalue="JUnit.cn.tianlong.java.jettyserver in tlobject-demo-web" />
       <item itemvalue="Tomcat Server.tomcat" />
     </list>
     <recent_temporary>
       <list>
-        <item itemvalue="Application.startup (1)" />
         <item itemvalue="Application.startup" />
-        <item itemvalue="Application.startJetty" />
-        <item itemvalue="Application.startup (2)" />
-        <item itemvalue="Application.testMain (1)" />
+        <item itemvalue="Application.cn.tianlong.java.demo.db.startup" />
+        <item itemvalue="Application.serverstart" />
+        <item itemvalue="JUnit.cn.tianlong.java.jettyserver in tlobject-demo-web" />
+        <item itemvalue="Application.startTomcat" />
       </list>
     </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-jdk-9823dce3aa75-b114ca120d71-intellij.indexing.shared.core-IU-242.20224.419" />
-        <option value="bundled-js-predefined-d6986cc7102b-410509235cf1-JavaScript-IU-242.20224.419" />
+        <option value="bundled-jdk-9823dce3aa75-fbdcb00ec9e3-intellij.indexing.shared.core-IU-251.25410.129" />
+        <option value="bundled-js-predefined-d6986cc7102b-6a121458b545-JavaScript-IU-251.25410.129" />
       </set>
     </attachedChunks>
   </component>
@@ -1055,7 +1110,31 @@
       <workItem from="1733710451993" duration="8569000" />
       <workItem from="1733731811719" duration="2198000" />
       <workItem from="1733793837923" duration="19111000" />
-      <workItem from="1733880976105" duration="19453000" />
+      <workItem from="1733880976105" duration="21198000" />
+      <workItem from="1733965925865" duration="784000" />
+      <workItem from="1733989077084" duration="4266000" />
+      <workItem from="1734053292170" duration="9410000" />
+      <workItem from="1734312591756" duration="3603000" />
+      <workItem from="1734316430683" duration="11833000" />
+      <workItem from="1734414653863" duration="2489000" />
+      <workItem from="1734502797086" duration="2270000" />
+      <workItem from="1734505193660" duration="5265000" />
+      <workItem from="1734658994671" duration="5759000" />
+      <workItem from="1742805645206" duration="423000" />
+      <workItem from="1743562250874" duration="2638000" />
+      <workItem from="1743652392239" duration="2705000" />
+      <workItem from="1743668543380" duration="879000" />
+      <workItem from="1744594218904" duration="63000" />
+      <workItem from="1745830597188" duration="114000" />
+      <workItem from="1749435704228" duration="253000" />
+      <workItem from="1749436089404" duration="47000" />
+      <workItem from="1749438350726" duration="1015000" />
+      <workItem from="1749442272659" duration="124000" />
+      <workItem from="1749449230559" duration="1274000" />
+      <workItem from="1749451864194" duration="2148000" />
+      <workItem from="1751872599156" duration="1817000" />
+      <workItem from="1752110694834" duration="9245000" />
+      <workItem from="1752130186088" duration="4423000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1400,7 +1479,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="177" />
+    <option name="localTasksCounter" value="185" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
@@ -1455,6 +1534,23 @@
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="CUSTOM_BOOLEAN_PROPERTIES">
+                <map>
+                  <entry key="Show.Git.Branches" value="true" />
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="修改db演示" />
     <MESSAGE value="修改模块说明" />
@@ -1498,7 +1594,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
-          <line>103</line>
+          <line>143</line>
           <option name="timeStamp" value="558" />
         </line-breakpoint>
         <line-breakpoint type="java-line">
@@ -1508,7 +1604,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java</url>
-          <line>1276</line>
+          <line>1284</line>
           <option name="timeStamp" value="620" />
         </line-breakpoint>
         <line-breakpoint type="java-line">
@@ -1542,11 +1638,6 @@
           <option name="timeStamp" value="749" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/Person.java</url>
-          <line>183</line>
-          <option name="timeStamp" value="777" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/demo/web/src/main/java/cn/tianlong/java/servletdemo/servletDbTest.java</url>
           <line>105</line>
           <option name="timeStamp" value="819" />
@@ -1556,6 +1647,46 @@
           <line>47</line>
           <option name="timeStamp" value="822" />
         </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/test.java</url>
+          <line>9</line>
+          <option name="timeStamp" value="836" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java</url>
+          <line>561</line>
+          <option name="timeStamp" value="845" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/sonstartup.java</url>
+          <line>30</line>
+          <option name="timeStamp" value="846" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
+          <line>104</line>
+          <option name="timeStamp" value="847" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
+          <line>34</line>
+          <option name="timeStamp" value="848" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
+          <line>26</line>
+          <option name="timeStamp" value="849" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-field">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
+          <line>20</line>
+          <properties field="appFactory" class="cn.tianlong.java.demo.base.testMain" />
+          <option name="timeStamp" value="833" />
+        </line-breakpoint>
+        <breakpoint enabled="true" type="java-exception">
+          <properties class="java.lang.NoClassDefFoundError" package="java.lang" />
+          <option name="timeStamp" value="838" />
+        </breakpoint>
       </breakpoints>
     </breakpoint-manager>
   </component>
