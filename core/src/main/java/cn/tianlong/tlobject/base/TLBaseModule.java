@@ -668,10 +668,12 @@ public abstract class TLBaseModule extends TLBaseObject {
    private  TLMsg  usePreReturnMsg(TLMsg msg ,TLMsg returnMsg){
        if (returnMsg != null)
        {
+           if (TLDataUtils.parseBoolean(msg.getSystemParam(USEPRERETURNMSG),false)==true)
+               msg.copyParams((String[]) msg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
            if(returnMsg.getParam(RESULT) !=null)
                msg.setParam(INPUT,returnMsg.getParam(RESULT)) ;
-           else if (TLDataUtils.parseBoolean(returnMsg.getSystemParam(USEPRERETURNMSG),false)==true)
-               msg.copyParams((String[]) msg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
+           else
+               msg.setParam(INPUT,returnMsg.getSingleParam(null));
 
        }
        return  msg ;
