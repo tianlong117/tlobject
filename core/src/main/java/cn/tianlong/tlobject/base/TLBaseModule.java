@@ -1235,11 +1235,13 @@ public abstract class TLBaseModule extends TLBaseObject {
         IObject module = (IObject) getModule(moduleName);
          return  putMsgInThreadAndWaitReturn(module,msg) ;
     }
+
     public TLMsg putMsgInThreadAndWaitReturn(IObject module, TLMsg msg) {
            msg.setWaitFlag(false)
               .setSystemParam(TASKWAITTIME,0)   ;
            return putMsg(module,msg);
     }
+
     public   TLMsg putMsgGroupByThread(List<TLMsg> msgList, int waitTime){
         int msgNumber =msgList.size() ;
         ArrayList<ThreadTask> threadTaskList = new ArrayList<>(msgNumber) ;
@@ -1286,10 +1288,35 @@ public abstract class TLBaseModule extends TLBaseObject {
         }while (resultNumber < msgNumber && ifTimeOut ==false);
         return createMsg().setParam(RESULT,resultMsgList);
     }
+
+    public   ArrayList putMsgGroupByThread(List<TLMsg> msgList, int waitTime , String resultParam)
+    {
+        TLMsg returnMsg = putMsgGroupByThread(msgList, waitTime);   // 多表并行查询
+        ArrayList resultList = new ArrayList<>();
+        if (returnMsg != null)
+        {
+            List<TLMsg> dbResultList = (List<TLMsg>) returnMsg.getParam(RESULT, List.class);
+            if (dbResultList != null)
+            {
+                for (TLMsg rmsg : dbResultList)
+                {
+                    Object dbresult = rmsg.getParam(resultParam);
+                    if(dbresult !=null)
+                      resultList.add(dbresult);
+
+                }
+                return resultList ;
+            }
+            else
+                return null ;
+        }
+        else
+            return null ;
+    }
+
     /**
      * 异步put
      ****/
-
     protected void putMsgInThreadResultFor(IObject toWho, TLMsg msg ,Object sessionData) {
         msg.setSystemParam(TASKRESESSIONDATA,sessionData);
         msg.setSystemParam(TASKRESULTFOR,this);
