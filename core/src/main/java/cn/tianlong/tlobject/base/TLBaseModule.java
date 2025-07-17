@@ -1165,6 +1165,12 @@ public abstract class TLBaseModule extends TLBaseObject {
         return putMsg(this,msg);
     }
 
+    public TLMsg runMsgChain (TLMsg ... msgs )
+    {
+        TLMsg msg0 =TLMsgUtils.makeMsgChain( msgs);
+        return putMsg(msg0);
+    }
+
     public TLMsg putMsg(String moduleName, TLMsg msg) {
         IObject module ;
         if((boolean)(msg.getSystemParam(IFLOADMODULE,true)) ==true)

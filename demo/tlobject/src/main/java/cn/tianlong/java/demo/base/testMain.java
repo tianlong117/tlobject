@@ -117,8 +117,8 @@ public class testMain extends TLAppStartUp {
         println("-------------");
         putMsg(msgChain1);
         println("**********");
-        TLMsgUtils.makeMsgChain(msgChain1,msgChain2,msgChain3);
-        putMsg(name,msgChain1);
+        runMsgChain(msgChain1,msgChain2,msgChain3);
+
 
     }
 
