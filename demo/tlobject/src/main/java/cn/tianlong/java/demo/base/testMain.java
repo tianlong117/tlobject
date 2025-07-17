@@ -112,8 +112,14 @@ public class testMain extends TLAppStartUp {
         TLMsg msgChain1 = createMsg().setAction("chain1");
         TLMsg msgChain2 = createMsg().setAction("chain2");
         TLMsg msgChain3 = createMsg().setAction("chain3");
-        msgChain1.setNextMsgReturnNextMsg(msgChain2).setNextMsgReturnNextMsg(msgChain3);
+     //   msgChain1.setNextMsgReturnNextMsg(msgChain2).setNextMsgReturnNextMsg(msgChain3);
         putMsg(name,msgChain1);
+        println("-------------");
+        putMsg(msgChain1);
+        println("**********");
+        TLMsgUtils.makeMsgChain(msgChain1,msgChain2,msgChain3);
+        putMsg(name,msgChain1);
+
     }
 
     private void testTask2() {
