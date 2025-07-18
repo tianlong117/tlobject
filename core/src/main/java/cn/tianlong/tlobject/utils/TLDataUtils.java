@@ -12,6 +12,17 @@ import java.util.regex.Pattern;
 import static cn.tianlong.tlobject.base.TLParamString.FENHAO;
 
 public class TLDataUtils {
+
+    public static Object parseByType(Object value  ,Class classType,Object defaultValue)
+    {
+        if (value == null)
+            return defaultValue ;
+        if(classType.isInstance(value))
+            return value ;
+        else
+            return defaultValue ;
+    }
+
     public static boolean parseBoolean(Object value ,boolean defaultValue)
     {
         if(value ==null)
