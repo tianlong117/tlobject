@@ -100,10 +100,10 @@ public class testMain extends TLAppStartUp {
 
     @Override
     protected void run() {
-    //    testTask();
-       // testTask1();
+      // testTask();
+       testTask1();
       // testTask2();
-          testMsgChain();
+     //     testMsgChain();
       //  testTask3();
         moduleFactory.shutdown();
     }
@@ -118,7 +118,6 @@ public class testMain extends TLAppStartUp {
         putMsg(msgChain1);
         println("**********");
         runMsgChain(msgChain1,msgChain2,msgChain3);
-
 
     }
 
