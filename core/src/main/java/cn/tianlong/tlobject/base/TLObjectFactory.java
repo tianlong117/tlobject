@@ -85,9 +85,13 @@ public class TLObjectFactory extends TLBaseModule {
         HashMap<String, HashMap<String, String>>  addmodulesParams =config.getModulesParams();
         if(addmodulesParams !=null)
             modulesParams.putAll(addmodulesParams);
-        HashMap<String, String> addparams = mconfig.getParams();
+        HashMap<String, String> addparams = config.getParams();
         if(addparams !=null)
+        {
+            if(params ==null)
+                params = new HashMap<>();
             params.putAll(addparams);
+        }
       }
     @Override
     protected Object setConfig() {
