@@ -292,7 +292,7 @@ public  class TLModuleConfig extends TLBaseModule {
     protected  void   include(XmlPullParser xpp, String tag) throws IOException, XmlPullParserException {
         String[] sysunits ={"modules","params","initMsg","modulesParams","paramsModules","msgTable","beforeMsgTable","afterMsgTable"};
         TLModuleConfig includeConfig = null;
-        String[]units = new String[10];
+        String[] units = null;
         for (int i = 0; i < xpp.getAttributeCount(); i++) {
             String name =xpp.getAttributeName(i);
             if (name.equals("file")) {
@@ -306,12 +306,10 @@ public  class TLModuleConfig extends TLBaseModule {
             }
             else if(name.equals("includeUnit")){
                 String includeUnit = xpp.getAttributeValue(i);
-                units = includeUnit.split(";");
-                if(units.length>0)
-                {
-                    for(int j=0;i< units.length;j++) {
-                        units[i] =  units[j].trim();
-                    }
+                String[] rawUnits = includeUnit.split(";");
+                units = new String[rawUnits.length];
+                for(int j=0; j < rawUnits.length; j++) {
+                    units[j] = rawUnits[j].trim();
                 }
             }
         }

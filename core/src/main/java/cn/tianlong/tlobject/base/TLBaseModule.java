@@ -502,7 +502,10 @@ public abstract class TLBaseModule extends TLBaseObject {
         if (msgList != null && !msgList.isEmpty())
         {
             putLogForMsglist(action ,"before");
-            msgListReturnMsg = doMsgList(msgList, msg, null);
+            TLMsg actionReturnMsg = doMsgList(msgList, msg, null);
+            if (!ifDoNextMsg(actionReturnMsg))
+                return selectReturnMsg(msg, actionReturnMsg);
+            msgListReturnMsg = actionReturnMsg;
         }
         return selectReturnMsg( msg, msgListReturnMsg);
     }

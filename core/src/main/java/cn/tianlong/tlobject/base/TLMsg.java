@@ -523,7 +523,11 @@ public class TLMsg implements Serializable , Cloneable{
     public Object clone() {
         TLMsg copy = null;
         try{
-            copy = (TLMsg) super.clone();   //浅复制
+            copy = (TLMsg) super.clone();
+            if (args != null)
+                copy.args = (HashMap<String, Object>) args.clone();
+            if (systemArgs != null)
+                copy.systemArgs = (HashMap<String, Object>) systemArgs.clone();
         }catch(CloneNotSupportedException e) {
             e.printStackTrace();
         }

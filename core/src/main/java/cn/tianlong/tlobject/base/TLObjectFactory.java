@@ -656,17 +656,20 @@ public class TLObjectFactory extends TLBaseModule {
         if (singleton == false)
             module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
         else {
-            Class<?> clazz  = myClassforName(classFilename); // 取得Class对象
+            Class<?> clazz  = myClassforName(classFilename);
             if(clazz ==null)
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
-            synchronized (clazz)
-            {
-                module = modules.get(newModuleName);
-                if (module != null)
-                    return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
-                module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
-                if (module != null)
-                    modules.put(newModuleName, module);
+            module = modules.get(newModuleName);
+            if (module == null) {
+                synchronized (clazz)
+                {
+                    module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
+                    if (module != null) {
+                        Object oldModule = modules.putIfAbsent(newModuleName, module);
+                        if (oldModule != null)
+                            module = oldModule;
+                    }
+                }
             }
         }
         if(module ==null )

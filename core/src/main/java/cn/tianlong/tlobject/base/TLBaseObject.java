@@ -46,8 +46,12 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             try {
                 sleep(waitTime);
             } catch (InterruptedException e) {
-               return threadTask.getResult();
+                if (threadTask != null)
+                    return threadTask.getResult();
+                return createMsg().setParam(TASKRESULTTIMEOUT,true);
             }
+            if (threadTask != null && threadTask.isThreadOver())
+                return threadTask.getResult();
             return createMsg().setParam(TASKRESULTTIMEOUT,true);
         }
     }
