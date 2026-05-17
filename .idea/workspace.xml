@@ -12,9 +12,8 @@
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLMsg.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/demo/db/demoappstart.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/utils/TLMsgUtils.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -505,77 +504,77 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "Application.cn.tianlong.java.demo.db.startup.executor": "Debug",
-    "Application.cn.tianlong.java.demo.redis.startup.executor": "Run",
-    "Application.serverstart.executor": "Run",
-    "Application.sonstartup.executor": "Run",
-    "Application.startJetty.executor": "Run",
-    "Application.startTomcat.executor": "Run",
-    "Application.startup (1).executor": "Debug",
-    "Application.startup (2).executor": "Run",
-    "Application.startup.executor": "Run",
-    "Application.startupaddsonstarup.executor": "Run",
-    "Application.test.executor": "Debug",
-    "Application.testMain.executor": "Run",
-    "Downloaded.Files.Path.Enabled": "false",
-    "JUnit.cn.tianlong.java.jettyserver in tlobject-demo-web.executor": "Run",
-    "Maven.tlobject-all [clean].executor": "Run",
-    "Maven.tlobject-all [install].executor": "Run",
-    "Maven.tlobject-all [validate].executor": "Run",
-    "Maven.tlobject-cache [clean].executor": "Run",
-    "Maven.tlobject-cache [compile].executor": "Run",
-    "Maven.tlobject-cache [install].executor": "Run",
-    "Maven.tlobject-cache [validate].executor": "Run",
-    "Maven.tlobject-cache-common [install].executor": "Run",
-    "Maven.tlobject-cache-ehcache [clean].executor": "Run",
-    "Maven.tlobject-cache-ehcache [compile].executor": "Run",
-    "Maven.tlobject-cache-ehcache [install].executor": "Run",
-    "Maven.tlobject-cache-ehcache [validate].executor": "Run",
-    "Maven.tlobject-cache-filecache [install].executor": "Run",
-    "Maven.tlobject-connectpoolofdb [install].executor": "Run",
-    "Maven.tlobject-core [clean].executor": "Run",
-    "Maven.tlobject-core [compile].executor": "Run",
-    "Maven.tlobject-core [install].executor": "Run",
-    "Maven.tlobject-core [validate].executor": "Run",
-    "Maven.tlobject-database [install].executor": "Run",
-    "Maven.tlobject-demo [clean].executor": "Run",
-    "Maven.tlobject-demo [compile].executor": "Run",
-    "Maven.tlobject-demo [install].executor": "Run",
-    "Maven.tlobject-demo [validate].executor": "Run",
-    "Maven.tlobject-demo-tlobject [clean].executor": "Run",
-    "Maven.tlobject-demo-tlobject [compile].executor": "Run",
-    "Maven.tlobject-demo-tlobject [install].executor": "Run",
-    "Maven.tlobject-demo-tlobject [validate].executor": "Run",
-    "Maven.tlobject-demo-web [compile].executor": "Run",
-    "Maven.tlobject-demo-web [install].executor": "Run",
-    "Maven.tlobject-demo-web [validate].executor": "Run",
-    "Maven.tlobject-network [install].executor": "Run",
-    "Maven.tlobject-network-client [install].executor": "Run",
-    "Maven.tlobject-network-common [install].executor": "Run",
-    "Maven.tlobject-network-server [install].executor": "Run",
-    "Repository.Attach.Annotations": "false",
-    "Repository.Attach.JavaDocs": "false",
-    "Repository.Attach.Sources": "false",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "Tomcat Server.tomcat.executor": "Run",
-    "git-widget-placeholder": "master",
-    "kotlin-language-version-configured": "true",
-    "last_opened_file_path": "D:/tlobjectapp/tlobject",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "project.structure.last.edited": "Project",
-    "project.structure.proportion": "0.15",
-    "project.structure.side.proportion": "0.35402298",
-    "settings.editor.selected.configurable": "MavenSettings",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Application.cn.tianlong.java.demo.db.startup.executor&quot;: &quot;Debug&quot;,
+    &quot;Application.cn.tianlong.java.demo.redis.startup.executor&quot;: &quot;Run&quot;,
+    &quot;Application.serverstart.executor&quot;: &quot;Run&quot;,
+    &quot;Application.sonstartup.executor&quot;: &quot;Run&quot;,
+    &quot;Application.startJetty.executor&quot;: &quot;Run&quot;,
+    &quot;Application.startTomcat.executor&quot;: &quot;Run&quot;,
+    &quot;Application.startup (1).executor&quot;: &quot;Debug&quot;,
+    &quot;Application.startup (2).executor&quot;: &quot;Run&quot;,
+    &quot;Application.startup.executor&quot;: &quot;Run&quot;,
+    &quot;Application.startupaddsonstarup.executor&quot;: &quot;Run&quot;,
+    &quot;Application.test.executor&quot;: &quot;Debug&quot;,
+    &quot;Application.testMain.executor&quot;: &quot;Run&quot;,
+    &quot;Downloaded.Files.Path.Enabled&quot;: &quot;false&quot;,
+    &quot;JUnit.cn.tianlong.java.jettyserver in tlobject-demo-web.executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-all [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-all [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-all [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-common [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-ehcache [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-ehcache [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-ehcache [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-ehcache [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-cache-filecache [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-connectpoolofdb [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-core [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-core [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-core [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-core [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-database [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-tlobject [clean].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-tlobject [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-tlobject [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-tlobject [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-web [compile].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-web [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-demo-web [validate].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-network [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-network-client [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-network-common [install].executor&quot;: &quot;Run&quot;,
+    &quot;Maven.tlobject-network-server [install].executor&quot;: &quot;Run&quot;,
+    &quot;Repository.Attach.Annotations&quot;: &quot;false&quot;,
+    &quot;Repository.Attach.JavaDocs&quot;: &quot;false&quot;,
+    &quot;Repository.Attach.Sources&quot;: &quot;false&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;Tomcat Server.tomcat.executor&quot;: &quot;Run&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;kotlin-language-version-configured&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;D:/tlobjectapp/tlobject&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;project.structure.last.edited&quot;: &quot;Project&quot;,
+    &quot;project.structure.proportion&quot;: &quot;0.15&quot;,
+    &quot;project.structure.side.proportion&quot;: &quot;0.35402298&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;MavenSettings&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RecentsManager">
     <key name="MoveClassesOrPackagesDialog.RECENTS_KEY">
       <recent name="cn.tianlong.tlobject" />
@@ -599,7 +598,7 @@
       <recent name="TLOBJECT_HOME\demo\web\src\main\resources\conf" />
     </key>
   </component>
-  <component name="RunManager" selected="Application.cn.tianlong.java.demo.db.startup">
+  <component name="RunManager" selected="Application.testMain">
     <configuration default="true" type="Application" factoryName="Application">
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
       <method v="2">
@@ -1354,7 +1353,13 @@
       <workItem from="1751872599156" duration="1817000" />
       <workItem from="1752110694834" duration="9245000" />
       <workItem from="1752130186088" duration="7019000" />
-      <workItem from="1752211586705" duration="3973000" />
+      <workItem from="1752211586705" duration="4963000" />
+      <workItem from="1752217857352" duration="23000" />
+      <workItem from="1752218869091" duration="2992000" />
+      <workItem from="1752222055018" duration="603000" />
+      <workItem from="1752544505751" duration="12641000" />
+      <workItem from="1752628943343" duration="9121000" />
+      <workItem from="1752718454891" duration="5015000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1699,7 +1704,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="189" />
+    <option name="localTasksCounter" value="192" />
     <servers />
   </component>
   <component name="TimeTrackingManager">
@@ -1814,7 +1819,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>
-          <line>145</line>
+          <line>151</line>
           <option name="timeStamp" value="558" />
         </line-breakpoint>
         <line-breakpoint type="java-line">
@@ -1824,7 +1829,7 @@
         </line-breakpoint>
         <line-breakpoint type="java-line">
           <url>file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLBaseModule.java</url>
-          <line>1286</line>
+          <line>1288</line>
           <option name="timeStamp" value="620" />
         </line-breakpoint>
         <line-breakpoint type="java-line">
@@ -1883,19 +1888,19 @@
           <option name="timeStamp" value="855" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
-          <url>file://$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLAppStartUp.java</url>
-          <line>152</line>
-          <option name="timeStamp" value="857" />
-        </line-breakpoint>
-        <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/DbDemo.java</url>
           <line>388</line>
           <option name="timeStamp" value="858" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-line">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java</url>
-          <line>101</line>
+          <line>103</line>
           <option name="timeStamp" value="859" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" type="java-line">
+          <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/db/startup.java</url>
+          <line>101</line>
+          <option name="timeStamp" value="860" />
         </line-breakpoint>
         <line-breakpoint enabled="true" type="java-field">
           <url>file://$PROJECT_DIR$/demo/tlobject/src/main/java/cn/tianlong/java/demo/base/testMain.java</url>

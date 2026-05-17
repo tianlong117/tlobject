@@ -57,6 +57,19 @@ public class TLMsgUtils {
         msgSystemArgs.add(IFTASKRESULT);
         msgSystemArgs.add(MSG_P_TOWHO);
     }
+
+    public static TLMsg makeMsgChain (TLMsg ... msgs ){
+        int length = msgs.length ;
+        if ( length ==1)
+            return msgs[0];
+        int i = 0;
+        while (i < length-1) {
+            msgs[i].setNextMsgReturnNextMsg(msgs[i+1]);
+            i++;
+        }
+        return msgs[0];
+    }
+
     public static Gson getGson ()
     {
        if(gson==null)
