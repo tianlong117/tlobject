@@ -309,7 +309,7 @@ public class MapInDB extends TLBaseTableModle {
 
     public boolean isEmpty(){
         Long size =size();
-        return (size >0L)? true :false ;
+        return (size >0L)? false :true ;
     }
 
     public boolean containsKey(String key){
