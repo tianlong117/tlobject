@@ -8,14 +8,29 @@ import java.util.*;
 
 /**参考DFA算法demo:http://blog.csdn.net/chenssy/article/details/26961957*/
 public class BadWordUtil2 {
-    public static String filePath = "D:\\javaweb\\web\\WEB-INF\\qqconf\\dictionary.txt";//敏感词库文件路径
+    public static String filePath = "dictionary.txt";//敏感词库文件路径，默认当前目录，可通过 setFilePath 修改
     public static Set<String> words;
-    public static Map<String,String> wordMap;
+    public static Map wordMap;
     public static int minMatchTYpe = 1;      //最小匹配规则
     public static int maxMatchType = 2;      //最大匹配规则
     static{
+        reload();
+    }
+
+    /**
+     * 重新加载敏感词库
+     */
+    public static void reload() {
         BadWordUtil2.words = readTxtByLine(filePath);
-        addBadWordToHashMap(BadWordUtil2.words);
+        wordMap = buildBadWordMap(BadWordUtil2.words);
+    }
+
+    /**
+     * 设置敏感词库文件路径
+     */
+    public static void setFilePath(String path) {
+        filePath = path;
+        reload();
     }
     public static Set<String> readTxtByLine(String path){
         Set<String> keyWordSet = new HashSet<String>();
@@ -116,15 +131,10 @@ public class BadWordUtil2 {
     public static String replaceBadWord(String txt,int matchType,String replaceChar){
         String resultTxt = txt;
         Set<String> set = getBadWord(txt, matchType);     //获取所有的敏感词
-        Iterator<String> iterator = set.iterator();
-        String word = null;
-        String replaceString = null;
-        while (iterator.hasNext()) {
-            word = iterator.next();
-            replaceString = getReplaceChars(replaceChar, word.length());
-            resultTxt = resultTxt.replaceAll(word, replaceString);
+        for (String word : set) {
+            String replaceString = getReplaceChars(replaceChar, word.length());
+            resultTxt = resultTxt.replace(word, replaceString);
         }
-
         return resultTxt;
     }
     /**
@@ -156,12 +166,11 @@ public class BadWordUtil2 {
      * @version 1.0
      */
     private static String getReplaceChars(String replaceChar,int length){
-        String resultReplace = replaceChar;
-        for(int i = 1 ; i < length ; i++){
-            resultReplace += replaceChar;
+        StringBuilder sb = new StringBuilder(length);
+        for(int i = 0 ; i < length ; i++){
+            sb.append(replaceChar);
         }
-
-        return resultReplace;
+        return sb.toString();
     }
 
     /**
@@ -170,12 +179,12 @@ public class BadWordUtil2 {
      * @author yqwang0907
      * @date 2018年2月28日下午5:28:08
      */
-    @SuppressWarnings({ "unchecked", "rawtypes" })
-    private static void addBadWordToHashMap(Set<String> keyWordSet) {
-        wordMap = new HashMap(keyWordSet.size());     //初始化敏感词容器，减少扩容操作
+    @SuppressWarnings("unchecked")
+    private static Map buildBadWordMap(Set<String> keyWordSet) {
+        Map wordMap = new HashMap<>(keyWordSet.size());     //初始化敏感词容器，减少扩容操作
         String key = null;
         Map nowMap = null;
-        Map<String, String> newWorMap = null;
+        Map newWorMap = null;
         //迭代keyWordSet
         Iterator<String> iterator = keyWordSet.iterator();
         while(iterator.hasNext()){
@@ -183,13 +192,13 @@ public class BadWordUtil2 {
             nowMap = wordMap;
             for(int i = 0 ; i < key.length() ; i++){
                 char keyChar = key.charAt(i);       //转换成char型
-                Object wordMap = nowMap.get(keyChar);       //获取
+                Object subMap = nowMap.get(keyChar);       //获取
 
-                if(wordMap != null){        //如果存在该key，直接赋值
-                    nowMap = (Map) wordMap;
+                if(subMap != null){        //如果存在该key，直接赋值
+                    nowMap = (Map) subMap;
                 }
                 else{     //不存在则，则构建一个map，同时将isEnd设置为0，因为他不是最后一个
-                    newWorMap = new HashMap<String,String>();
+                    newWorMap = new HashMap<>();
                     newWorMap.put("isEnd", "0");     //不是最后一个
                     nowMap.put(keyChar, newWorMap);
                     nowMap = newWorMap;
@@ -200,12 +209,13 @@ public class BadWordUtil2 {
                 }
             }
         }
+        return wordMap;
     }
 
 
     public static void main(String[] args) {
         Set<String> s = BadWordUtil2.words;
-        Map<String,String> map = BadWordUtil2.wordMap;
+        Map map = BadWordUtil2.wordMap;
 
         System.out.println("敏感词的数量：" + BadWordUtil2.wordMap.size());
         String string = "太多的伤感情怀也许只局限于饲养基地 荧幕中的情节，主人公尝试着去用某种方式渐渐的很潇洒地释自杀指南怀那些自己经历的伤感。"

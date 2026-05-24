@@ -115,7 +115,7 @@ public class IPSeekerUtil {
                 cache.put(ip, ipLocation);
             }
         } catch (Exception e) {
-           ;
+            throw new RuntimeException("IP地址查询失败: " + ip, e);
         }
         if (ipLocation == null) {
             ipLocation = new IPLocation();
@@ -203,17 +203,23 @@ public class IPSeekerUtil {
      */
     private String readString(int offset) {
         try {
-            byte[] buf = new byte[100];
             buffer.position(offset);
-            int i;
-            for (i = 0, buf[i] = buffer.get(); buf[i] != 0; buf[++i] = buffer
-                    .get()) {
+            // 先探测字符串实际长度（上限255），避免缓冲区溢出
+            int maxLen = 255;
+            int len = 0;
+            for (int p = offset; len < maxLen; len++, p++) {
+                if (buffer.get(p) == 0) {
+                    break;
+                }
             }
-            if (i != 0) {
-                return getString(buf, 0, i, "GBK");
+            if (len > 0) {
+                byte[] buf = new byte[len];
+                buffer.position(offset);
+                buffer.get(buf);
+                return getString(buf, 0, len, "GBK");
             }
-        } catch (IllegalArgumentException e) {
-            ;
+        } catch (Exception e) {
+            // 忽略，返回空字符串
         }
         return "";
     }

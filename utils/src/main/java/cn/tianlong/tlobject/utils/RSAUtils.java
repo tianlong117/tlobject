@@ -1,7 +1,6 @@
 package cn.tianlong.tlobject.utils;
 
 import org.apache.commons.codec.binary.Base64;
-import org.apache.commons.io.IOUtils;
 
 import javax.crypto.Cipher;
 import java.io.ByteArrayOutputStream;
@@ -17,7 +16,7 @@ import java.util.Map;
 public class RSAUtils {
 
     public static final String CHARSET = "UTF-8";
-    public static final String RSA_ALGORITHM = "RSA";
+    public static final String RSA_ALGORITHM = "RSA/ECB/PKCS1Padding";
 
 
     public static Map<String, String> createKeys(int keySize){
@@ -101,9 +100,7 @@ public class RSAUtils {
             cipher.init(Cipher.DECRYPT_MODE, privateKey);
             return new String(rsaSplitCodec(cipher, Cipher.DECRYPT_MODE, Base64.decodeBase64(data), privateKey.getModulus().bitLength()), CHARSET);
         }catch(Exception e){
-           // throw new RuntimeException("解密字符串[" + data + "]时遇到异常", e);
-            return  null ;
-
+            throw new RuntimeException("解密字符串[" + data + "]时遇到异常", e);
         }
     }
 
@@ -148,11 +145,10 @@ public class RSAUtils {
         }else{
             maxBlock = keySize / 8 - 11;
         }
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        int offSet = 0;
-        byte[] buff;
-        int i = 0;
-        try{
+        try (ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+            int offSet = 0;
+            byte[] buff;
+            int i = 0;
             while(datas.length > offSet){
                 if(datas.length-offSet > maxBlock){
                     buff = cipher.doFinal(datas, offSet, maxBlock);
@@ -163,12 +159,10 @@ public class RSAUtils {
                 i++;
                 offSet = i * maxBlock;
             }
+            return out.toByteArray();
         }catch(Exception e){
             throw new RuntimeException("加解密阀值为["+maxBlock+"]的数据时发生异常", e);
         }
-        byte[] resultDatas = out.toByteArray();
-        IOUtils.closeQuietly(out);
-        return resultDatas;
     }
 
 }
