@@ -12,9 +12,12 @@
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" beforeDir="false" afterPath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLSocketClientAgentPool.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java" beforeDir="false" afterPath="$PROJECT_DIR$/network/client/src/main/java/cn/tianlong/tlobject/network/client/websocket/TLWebSocketClient.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/network/server/network-server-websocket/src/main/java/cn/tianlong/tlobject/network/server/websocket/TLClientMsgHandler.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLFilterWithSingleFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLServlet.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLServlet.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLServletFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLServletFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWUrlMap.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/TLWUrlMap.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/clientinterface/TLWDirectInInterface.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/clientinterface/TLWDirectInInterface.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/utils/CapchaHelper.java" beforeDir="false" afterPath="$PROJECT_DIR$/servletutils/src/main/java/cn/tianlong/tlobject/servletutils/utils/CapchaHelper.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -1362,7 +1365,7 @@
       <workItem from="1752628943343" duration="9121000" />
       <workItem from="1752718454891" duration="5015000" />
       <workItem from="1779530171489" duration="1738000" />
-      <workItem from="1779605437627" duration="3397000" />
+      <workItem from="1779605437627" duration="6297000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1707,7 +1710,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="195" />
+    <option name="localTasksCounter" value="196" />
     <servers />
   </component>
   <component name="TimeTrackingManager">

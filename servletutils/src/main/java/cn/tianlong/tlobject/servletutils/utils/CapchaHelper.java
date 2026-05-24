@@ -112,9 +112,14 @@ public class CapchaHelper {
         //返回一个Service对象，这里180是验证码存在的时间，单位是秒，200000是最大存储大小
         return new GenericManageableCaptchaService(gce,180,200000,75000);
     }
+    private static synchronized void initCaptchaService() {
+        if (captchaService == null)
+            captchaService = generatorCaptchaService();
+    }
+
     public static void  putCaptchaImg(HttpServletRequest req,HttpServletResponse resp) {
         if(captchaService ==null)
-            captchaService =generatorCaptchaService();
+            initCaptchaService();
         byte[] captChallengeAsJpeg = null;
         ByteArrayOutputStream jpegOutputStream = new ByteArrayOutputStream();
 

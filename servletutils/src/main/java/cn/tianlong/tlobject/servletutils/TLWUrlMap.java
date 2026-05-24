@@ -128,22 +128,30 @@ public class TLWUrlMap extends TLWServModule {
             if(url ==null || url.isEmpty())
              return putError("no url");
         }
-        if(prefixUrl!=null)
+        if(prefixUrl!=null && url.length() >= prefixUrl.length())
           url=url.substring(prefixUrl.length());
         ArrayList msgList = urlMapTable.get(url);
         if (msgList == null || msgList.isEmpty())
         {
-            String  mappath =url.substring(0,url.lastIndexOf("/")+1)+"*";
+            int lastSlashIdx = url.lastIndexOf("/");
+            if (lastSlashIdx < 0) {
+                return putError("no urlmap");
+            }
+            String  mappath =url.substring(0,lastSlashIdx+1)+"*";
             msgList = urlMapTable.get(mappath);
             if (msgList == null || msgList.isEmpty())
             {
-                mappath =url.substring(0,url.indexOf("/")+1)+"*";
+                int firstSlashIdx = url.indexOf("/");
+                if (firstSlashIdx < 0) {
+                    return putError("no urlmap");
+                }
+                mappath =url.substring(0,firstSlashIdx+1)+"*";
                 msgList = urlMapTable.get(mappath);
                 if (msgList == null || msgList.isEmpty()) {
                    return   putError("no urlmap");
                 }
             }
-            String  action =url.substring(url.lastIndexOf("/")+1);
+            String  action =url.substring(lastSlashIdx+1);
             if(action==null || action.isEmpty())
                 action="default";
             TLMsg smsg=(TLMsg) msgList.get(0);

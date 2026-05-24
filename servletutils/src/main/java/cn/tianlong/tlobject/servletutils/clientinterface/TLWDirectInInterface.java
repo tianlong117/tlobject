@@ -37,24 +37,17 @@ public class TLWDirectInInterface extends TLBaseClientDataInInterface {
     protected TLMsg getContentFromUser(Object fromWho, TLMsg msg) {
         TLMsg returnMsg=createMsg();
         HttpServletRequest request =getRequest();
-        BufferedReader br = null;
-        try {
-            br = new BufferedReader(new InputStreamReader(request.getInputStream(),charset));
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(request.getInputStream(),charset))) {
+            String line;
+            StringBuilder sb = new StringBuilder();
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+            return returnMsg.setParam(CLIENT_R_CONTENT, sb.toString());
         } catch (IOException e) {
             e.printStackTrace();
+            return returnMsg;
         }
-        String line =null;
-        StringBuilder sb = new StringBuilder();
-        do {
-            try {
-                line = br.readLine();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            if(line !=null)
-               sb.append(line);
-        }while (line  != null );
-        return  returnMsg.setParam(CLIENT_R_CONTENT,sb.toString());
     }
 
     @Override

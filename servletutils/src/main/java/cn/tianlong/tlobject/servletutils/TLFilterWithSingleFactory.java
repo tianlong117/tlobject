@@ -96,13 +96,16 @@ public class TLFilterWithSingleFactory implements Filter{
         requestMap.put(threadName, request);
         responseMap.put(threadName,  response);
         threadDatas.put(threadName,datas);
-        String uri= request.getRequestURI();
-        if (uri == null || uri.isEmpty())
-            return ;
-        appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
-        requestMap.remove(threadName);
-        responseMap.remove(threadName);
-        threadDatas.remove(threadName);
+        try {
+            String uri= request.getRequestURI();
+            if (uri == null || uri.isEmpty())
+                return ;
+            appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
+        } finally {
+            requestMap.remove(threadName);
+            responseMap.remove(threadName);
+            threadDatas.remove(threadName);
+        }
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         moduleFactory.putLog(filterName+ " 运行时间：" + runtime,LogLevel.DEBUG,"doFilter");
@@ -113,15 +116,22 @@ public class TLFilterWithSingleFactory implements Filter{
         }
         isStartup=false ;
         int sessionNumb =responseMap.size();
-        while (sessionNumb !=0)
+        int maxWaitSeconds = 30;
+        int waited = 0;
+        while (sessionNumb !=0 && waited < maxWaitSeconds)
         {
             try {
                 moduleFactory.putLog(filterName+ " destroying,session number:" + sessionNumb,LogLevel.INFO,"doFilter");
                 sleep(1000);
+                waited++;
                 sessionNumb =responseMap.size();
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                break;
             }
+        }
+        if (sessionNumb != 0) {
+            moduleFactory.putLog(filterName+ " destroy timeout, remaining sessions:" + sessionNumb, LogLevel.WARN, "destroy");
         }
         moduleFactory.destroyModule();
     }

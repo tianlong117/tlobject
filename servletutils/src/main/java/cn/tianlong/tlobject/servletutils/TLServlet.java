@@ -67,13 +67,16 @@ public class TLServlet extends GenericServlet {
         requestMap.put(threadName, request);
         responseMap.put(threadName,  response);
         threadDatas.put(threadName,datas);
-        String uri= request.getRequestURI();
-        if (uri == null || uri.isEmpty())
-            return ;
-        appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
-        requestMap.remove(threadName);
-        responseMap.remove(threadName);
-        threadDatas.remove(threadName);
+        try {
+            String uri = request.getRequestURI();
+            if (uri == null || uri.isEmpty())
+                return;
+            appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri", uri));
+        } finally {
+            requestMap.remove(threadName);
+            responseMap.remove(threadName);
+            threadDatas.remove(threadName);
+        }
         Long nowTime = System.currentTimeMillis();
         Long runtime = nowTime - startTime;
         moduleFactory.putLog(servletName + " 运行时间：" + runtime,LogLevel.INFO,"doFilter");
