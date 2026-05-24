@@ -153,19 +153,7 @@ public class TLFileCache extends TLBaseCache {
         ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
         writeLock.lock();
         try{
-            if (file.exists())
-            {
-                putLog("缓存文件已经存在,写缓存失败:"+filePath,LogLevel.DEBUG);
-                return  false ;
-            }
-            try {
-                file.createNewFile();
-            } catch (IOException e) {
-                putLog("缓存文件创建失败:"+filePath,LogLevel.ERROR);
-                e.printStackTrace();
-                return  false ;
-            }
-            FileOutputStream out;
+	        FileOutputStream out;
             try {
                 out = new FileOutputStream(file);
             } catch (FileNotFoundException e) {

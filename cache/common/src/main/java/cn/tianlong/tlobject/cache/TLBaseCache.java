@@ -181,7 +181,7 @@ public abstract class TLBaseCache extends TLBaseModule {
             case C_VARTYPE_DOUBLE:
                 return Double.class;
             case C_VARTYPE_CHAR:
-                return CharSequence.class;
+                return Character.class;
             default:
                 return ArrayList.class;
         }
