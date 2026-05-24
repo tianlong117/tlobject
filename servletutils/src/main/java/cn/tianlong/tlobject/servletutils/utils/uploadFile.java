@@ -143,7 +143,7 @@ public class uploadFile extends TLWServModule {
         for (FileItem fileItem : items) {
             if (!fileItem.isFormField()) {
                 String fieldName = fileItem.getFieldName();
-                String fileName = fileItem.getName();// 获取文件名
+                String fileName = sanitizeFileName(fileItem.getName());// 获取文件名并净化防止路径遍历
                 String fileType = fileItem.getContentType();// 获取文件类型
                 if(changeName){
                     String type = StringUtils.substringAfterLast(fileName,  ".");
@@ -221,6 +221,23 @@ public class uploadFile extends TLWServModule {
                 return true;
         }
         return false;
+    }
+
+    /**
+     * 净化文件名，移除路径分隔符等危险字符防止路径遍历攻击
+     */
+    private String sanitizeFileName(String name) {
+        if (name == null || name.isEmpty())
+            return name;
+        // 移除路径分隔符
+        String cleanName = name.replace('/', '_').replace('\\', '_');
+        // 移除 parent 路径引用
+        cleanName = cleanName.replace("..", "_");
+        // 只保留文件名部分（如果有冒号分隔的 windows 盘符路径）
+        int colonIdx = cleanName.lastIndexOf(':');
+        if (colonIdx >= 0)
+            cleanName = cleanName.substring(colonIdx + 1);
+        return cleanName;
     }
 
 }

@@ -130,8 +130,8 @@ public class TLWWebSite extends TLWServModule{
                     return true ;
             }
             else{
-                String subiptable =iptables[i].substring(0,index-1);
-                String subip =ip.substring(0,index-1);
+                String subiptable = index > 0 ? iptables[i].substring(0, index) : "";
+                String subip = index > 0 && ip.length() >= index ? ip.substring(0, index) : "";
                 if(subiptable.equals(subip))
                     return true ;
             }
