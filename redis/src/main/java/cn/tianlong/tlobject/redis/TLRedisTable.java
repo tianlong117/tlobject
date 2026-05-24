@@ -35,8 +35,6 @@ public abstract class TLRedisTable extends TLBaseDataUnit {
             prefix = name+"_" ;
         if(params!=null && params.get("databaseIndex")!=null)
             databaseIndex= Integer.parseInt(params.get("databaseIndex"));
-        if(params!=null && params.get("databaseIndex")!=null)
-            databaseIndex= Integer.parseInt(params.get("databaseIndex"));
         if(params!=null && params.get("expire")!=null)
         {
             String expireStr = params.get("expire");
@@ -106,9 +104,9 @@ public abstract class TLRedisTable extends TLBaseDataUnit {
     public Long expireAt(String key, long unixTime) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection(null);
-        Long result =jedis.expireAt(key,unixTime);
         if(jedis ==null)
             return null ;
+        Long result =jedis.expireAt(key,unixTime);
         jedis.close();
         return result ;
     }

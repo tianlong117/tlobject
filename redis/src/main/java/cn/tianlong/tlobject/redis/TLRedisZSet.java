@@ -77,6 +77,8 @@ public class TLRedisZSet extends TLRedisTable {
     public Long zadd(String key, double score, String member) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection(null);
+        if(jedis ==null)
+            return null ;
         Long result = jedis.zadd(key, score, member);
         if(expire > 0)
             jedis.expire(key,expire);
@@ -104,6 +106,8 @@ public class TLRedisZSet extends TLRedisTable {
     public Long zrem(String key, String... members) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection(null);
+        if(jedis ==null)
+            return null ;
         Long result = jedis.zrem(key, members);
         jedis.close();
         return result ;
@@ -119,6 +123,8 @@ public class TLRedisZSet extends TLRedisTable {
     public Double zincrby(String key, double score, String member) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection(null);
+        if(jedis ==null)
+            return null ;
         Double result = jedis.zincrby(key, score, member);
         jedis.close();
         return result ;
@@ -169,6 +175,8 @@ public class TLRedisZSet extends TLRedisTable {
     public Set<String> zrevrange(String key, long start, long end) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
+        if(jedis ==null)
+            return null ;
         Set result = jedis.zrevrange(key, start, end);
         jedis.close();
         return result ;
@@ -184,6 +192,8 @@ public class TLRedisZSet extends TLRedisTable {
     public Set<String> zrange(String key, Long start, Long stop ) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
+        if(jedis ==null)
+            return null ;
         Set result = jedis.zrange(key, start, stop);
         jedis.close();
         return result ;

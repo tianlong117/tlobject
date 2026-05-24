@@ -13,10 +13,11 @@
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
       <change beforePath="$PROJECT_DIR$/.idea/jarRepositories.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/jarRepositories.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/BadWordUtil2.java" beforeDir="false" afterPath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/BadWordUtil2.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/CharacterCodingUtil.java" beforeDir="false" afterPath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/CharacterCodingUtil.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/IPSeekerUtil.java" beforeDir="false" afterPath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/IPSeekerUtil.java" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/RSAUtils.java" beforeDir="false" afterPath="$PROJECT_DIR$/utils/src/main/java/cn/tianlong/tlobject/utils/RSAUtils.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisSet.java" beforeDir="false" afterPath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisSet.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisString.java" beforeDir="false" afterPath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisString.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisTable.java" beforeDir="false" afterPath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisTable.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisZSet.java" beforeDir="false" afterPath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisZSet.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisconnect.java" beforeDir="false" afterPath="$PROJECT_DIR$/redis/src/main/java/cn/tianlong/tlobject/redis/TLRedisconnect.java" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -1366,7 +1367,7 @@
       <workItem from="1752628943343" duration="9121000" />
       <workItem from="1752718454891" duration="5015000" />
       <workItem from="1779530171489" duration="1738000" />
-      <workItem from="1779605437627" duration="14518000" />
+      <workItem from="1779605437627" duration="16130000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1711,7 +1712,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="200" />
+    <option name="localTasksCounter" value="201" />
     <servers />
   </component>
   <component name="TimeTrackingManager">

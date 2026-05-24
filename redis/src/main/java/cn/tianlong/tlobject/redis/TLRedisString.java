@@ -176,6 +176,10 @@ public class TLRedisString extends TLRedisTable {
      * @return
      */
     public String mset(String... keysValues) {
+        for(int i=0; i<keysValues.length; i+=2) {
+            if(i+1 < keysValues.length)
+                keysValues[i]=prefix+keysValues[i];
+        }
         Jedis jedis = (Jedis) getConnection("read");
         if(jedis ==null)
             return null ;
@@ -191,6 +195,10 @@ public class TLRedisString extends TLRedisTable {
      * @return
      */
     public Long msetnx(String... keysValues) {
+        for(int i=0; i<keysValues.length; i+=2) {
+            if(i+1 < keysValues.length)
+                keysValues[i]=prefix+keysValues[i];
+        }
         Jedis jedis = (Jedis) getConnection("read");
         if(jedis ==null)
             return null ;

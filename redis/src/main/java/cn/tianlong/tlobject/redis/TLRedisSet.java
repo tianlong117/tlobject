@@ -282,6 +282,8 @@ public class TLRedisSet extends TLRedisTable {
     public String srandmember(String key) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
+        if(jedis ==null)
+            return null ;
         String result = jedis.srandmember(key);
         jedis.close();
         return result ;
@@ -296,6 +298,8 @@ public class TLRedisSet extends TLRedisTable {
     public List<String> srandmember(String key, int count) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
+        if(jedis ==null)
+            return null ;
         List<String>  result = jedis.srandmember( key,  count);
         jedis.close();
         return result ;

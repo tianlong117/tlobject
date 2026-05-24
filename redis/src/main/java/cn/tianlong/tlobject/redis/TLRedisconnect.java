@@ -118,7 +118,7 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
             try {
                 jedis = jedisPool.getResource();
             }catch (Exception e) {
-               return null ;
+                throw new RuntimeException("获取Redis连接失败", e);
             }
         return jedis;
     }
