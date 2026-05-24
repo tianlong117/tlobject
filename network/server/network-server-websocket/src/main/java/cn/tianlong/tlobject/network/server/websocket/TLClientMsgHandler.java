@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.modules.TLReUsedModulePool;
 import cn.tianlong.tlobject.network.common.TLBaseWebSocketSendFile;
 import cn.tianlong.tlobject.network.common.TLNetSession;
@@ -149,9 +150,17 @@ public class TLClientMsgHandler extends TLBaseModule {
     private void despatchMsgBySessionPool(TLMsg clientMsg) {
         HashMap<String,Object> clientSystemArgs = (HashMap<String, Object>) clientMsg.getSystemArgs();
         String channel = (String) clientSystemArgs.get(USERMANAGER_P_USERCHANNEL);
+        if(channel ==null)
+        {
+            putLog("despatchMsgBySessionPool: channel is null, msg discarded", LogLevel.WARN, "despatchMsgBySessionPool");
+            return;
+        }
         TLBaseModule threadPool = (TLBaseModule) sessionPool.getModuleByIndex(channel);
         if(threadPool ==null)
-            return  ;
+        {
+            putLog("despatchMsgBySessionPool: no threadPool for channel:"+channel+", msg discarded", LogLevel.WARN, "despatchMsgBySessionPool");
+            return;
+        }
         clientMsg.setSystemParam(TASKRESESSIONDATA,clientSystemArgs);
         clientMsg.setSystemParam(TASKRESULTFOR,this);
         clientMsg.setSystemParam(TASKRESULTACTION,"threadReturn");

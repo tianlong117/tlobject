@@ -28,7 +28,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     protected String onServerStatusAction ;
     protected String onMessageMsgid ;
     protected HashMap<String, HashMap<String, String>> servers;
-    protected HashMap<String, TLBaseModule> serversModule =new HashMap<>();
+    protected ConcurrentHashMap<String, TLBaseModule> serversModule =new ConcurrentHashMap<>();
     protected ConcurrentHashMap<String, TLBaseModule> sucessServers =new ConcurrentHashMap<>() ;
     protected TLNetSession netSession ;
 
