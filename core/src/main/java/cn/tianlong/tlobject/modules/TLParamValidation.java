@@ -416,7 +416,7 @@ public class TLParamValidation extends TLBaseModule {
      * @param value 要验证的字符串
      * @return 如果是符合格式的字符串,返回 <b>true </b>,否则为 <b>false </b>
      */
-    public static boolean NegatineNumber(String value){
+    public static boolean validate_NegativeNumber(String value){
         return match(V_NEGATINE_NUMBER,value);
     }
 
@@ -511,7 +511,7 @@ public class TLParamValidation extends TLBaseModule {
      * @param value 要验证的字符串
      * @return 如果是符合格式的字符串,返回 <b>true </b>,否则为 <b>false </b>
      */
-    public static boolean Letter(String value){
+    public static boolean validate_Letter(String value){
         return match(V_LETTER,value);
     }
 
@@ -648,7 +648,7 @@ public class TLParamValidation extends TLBaseModule {
      * @param value 要验证的字符串
      * @return 如果是符合格式的字符串,返回 <b>true </b>,否则为 <b>false </b>
      */
-    public static boolean Unpositive_float(String value){
+    public static boolean validate_Unpositive_float(String value){
         return match(V_UNPOSITIVE_FLOAT,value);
     }
 

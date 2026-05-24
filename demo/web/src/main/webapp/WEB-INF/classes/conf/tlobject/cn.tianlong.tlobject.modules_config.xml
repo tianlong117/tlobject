@@ -19,10 +19,14 @@
         <module name="moduleMonitor" classfile="cn.tianlong.tlobject.modules.TLModuleMonitor" />
         <module name="msgRouter" classfile="cn.tianlong.tlobject.modules.TLMsgRouter" />
         <module name="modulePool" classfile="cn.tianlong.tlobject.modules.TLModulePool" />
-        <module name="exceptionHandler" classfile="cn.tianlong.tlobject.modules.TLExecptionHandler" />
+        <module name="exceptionHandler" classfile="cn.tianlong.tlobject.modules.TLExceptionHandler" />
         <module name="msgBlockingQueue" classfile="cn.tianlong.tlobject.modules.TLMsgBlockingQueue" />
         <module name="paramValidation" classfile="cn.tianlong.tlobject.modules.TLParamValidation" />
         <module name="reUsedModulePool" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" />
-       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedSingleThreadPoolGroup" />
+       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool">
+            <params>
+                <param name="modueInPool">singleThreadPool</param>
+            </params>
+        </module>
     </modules>
 </moduleConfig>

@@ -22,6 +22,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     protected int  maxNumbs=100;
     protected int  taskNumbs=10;
     protected LinkedBlockingQueue<TLMsg> msgQueue ;
+    protected volatile boolean running = true;
     public TLMsgBlockingQueue(){
         super();
     }
@@ -53,6 +54,12 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
             putMsg(this,msg) ;
         }
         return this ;
+    }
+
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        running = false;
+        return super.destroy(fromWho, msg);
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -92,14 +99,15 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     }
 
     private void autoTask(Object fromWho, TLMsg msg) {
-        while (true){
+        while (running){
             try {
                 TLMsg qmsg =msgQueue.take();
                 putLog("take a queue",LogLevel.DEBUG,"task");
                 putMsg(qmsg.getDestination(),qmsg.setParam(IGNOREBEFORE,true)) ;
             } catch (InterruptedException e) {
-                e.printStackTrace();
-                putLog("take a queue error",LogLevel.WARN,"task");
+                Thread.currentThread().interrupt();
+                putLog("autoTask interrupted",LogLevel.WARN,"task");
+                break;
             }
         }
     }

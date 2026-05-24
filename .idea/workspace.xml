@@ -11,10 +11,14 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b867c597-43da-4b85-8cff-7747af95c53a" name="Default" comment="修改demo模块volecity模板">
-      <change beforePath="$PROJECT_DIR$/.idea/compiler.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/compiler.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/jarRepositories.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/jarRepositories.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/base/TLObjectFactory.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLExecptionHandler.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLMsgBlockingQueue.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLMsgBlockingQueue.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLParamValidation.java" beforeDir="false" afterPath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLParamValidation.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/src/main/java/cn/tianlong/tlobject/modules/TLReUsedSingleThreadPoolGroup.java" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/tlobject/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/web/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/web/src/main/resources/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/classes/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" beforeDir="false" afterPath="$PROJECT_DIR$/demo/web/src/main/webapp/WEB-INF/classes/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -1361,6 +1365,8 @@
       <workItem from="1752544505751" duration="12641000" />
       <workItem from="1752628943343" duration="9121000" />
       <workItem from="1752718454891" duration="5015000" />
+      <workItem from="1779530171489" duration="1738000" />
+      <workItem from="1779605437627" duration="1392000" />
     </task>
     <task id="LOCAL-00126" summary="修改demo模块volecity模板">
       <created>1706085127721</created>
@@ -1705,7 +1711,7 @@
       <option name="project" value="LOCAL" />
       <updated>1721975705701</updated>
     </task>
-    <option name="localTasksCounter" value="192" />
+    <option name="localTasksCounter" value="194" />
     <servers />
   </component>
   <component name="TimeTrackingManager">

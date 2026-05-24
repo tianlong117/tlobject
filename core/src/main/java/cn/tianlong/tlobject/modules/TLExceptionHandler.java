@@ -10,11 +10,11 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
  * 作者:tianlong
  */
 
-public class TLExecptionHandler extends TLBaseModule {
-    public TLExecptionHandler(String name ){
+public class TLExceptionHandler extends TLBaseModule {
+    public TLExceptionHandler(String name ){
         super(name);
     }
-    public TLExecptionHandler(String name , TLObjectFactory modulefactory){
+    public TLExceptionHandler(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
     }
     @Override
