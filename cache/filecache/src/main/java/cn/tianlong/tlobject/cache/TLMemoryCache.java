@@ -128,8 +128,13 @@ public class TLMemoryCache extends TLBaseCache {
             cacheMap.put(cacheKey, cacheData);
             cacheDatas.put(cacheName,cacheMap);
         }
-        else
+        else {
             cacheData = cacheMap.get(cacheKey);
+            if (cacheData == null) {
+                cacheData = new ConcurrentHashMap<>();
+                cacheMap.put(cacheKey, cacheData);
+            }
+        }
         cacheData.put(CACHE_P_EXPTTIME, cacheExptime);
         cacheData.put(CACHE_P_VALUE, cacheValue);
         return true;

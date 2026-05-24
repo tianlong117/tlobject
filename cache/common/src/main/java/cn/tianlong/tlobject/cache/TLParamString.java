@@ -15,7 +15,7 @@ public interface TLParamString {
     /**    模块名 *      */
     final String CACHE_GETCACHE = "getCache";
     final String CACHE_WRITECACHE = "writeCache";
-    final String CACHE_DELETECACHE = "eleteCache";
+    final String CACHE_DELETECACHE = "deleteCache";
 
     final String CACHE_P_CACHENAME = "cacheName";
     final String CACHE_P_KEY = "cacheKey";

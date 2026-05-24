@@ -50,7 +50,7 @@ public class TLCaffeine extends TLBaseCache {
                 caffeine.expireAfterWrite(expireAfterWrite,TimeUnit.SECONDS);
             else {
                 int refreshAfterWrite =TLDataUtils.parseInt(config.get("refreshAfterWrite"),0) ;
-                if(expireAfterWrite >0)
+                if(refreshAfterWrite >0)
                     caffeine.refreshAfterWrite(refreshAfterWrite,TimeUnit.SECONDS);
             }
         }
