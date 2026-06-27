@@ -59,7 +59,7 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
             charset =this.charset ;
         PrintWriter out;
         HttpServletResponse response =getResponse();
-        response.setContentType("text/html;charset=" + charset);
+        response.setContentType("text/html;charset=" + (charset != null ? charset : "UTF-8"));
         try {
             out = response.getWriter();
         } catch (IOException e) {

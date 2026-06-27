@@ -3,7 +3,7 @@
     <params>
         <name    value="demo"/>
         <verison value="1"/>
-        <charset value="text/html;charset=utf-8"/>
+        <charset value="UTF-8"/>
         <!-- 框架url路径  与过滤器中配置一致-->
         <tlobjectPath value="/demo"/>
         <!-- 默认用户类 -->

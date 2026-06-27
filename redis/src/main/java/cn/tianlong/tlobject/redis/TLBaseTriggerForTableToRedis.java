@@ -107,7 +107,8 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
             return  sqlParams.get(param);
     }
     protected String getRedisKey(Map<String,Object> dbparams){
-        StringBuffer sb=new StringBuffer();
+        String sep = keySeparator != null ? keySeparator : ":";
+        StringBuilder sb=new StringBuilder();
         if(redisKeyName ==null || redisKeyName.length==0)
             return "" ;
         for(String keyName : redisKeyName){
@@ -118,9 +119,9 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
                 sb.append(value);
             else
                 sb.append(value.toString());
-            sb.append(keySeparator);
+            sb.append(sep);
         }
-        sb.deleteCharAt(sb.lastIndexOf(keySeparator));
+        sb.deleteCharAt(sb.lastIndexOf(sep));
         return sb.toString();
     }
 

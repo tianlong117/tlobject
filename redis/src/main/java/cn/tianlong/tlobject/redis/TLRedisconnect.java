@@ -40,6 +40,15 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
     }
 
     @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        if (jedisPool != null) {
+            jedisPool.close();
+            jedisPool = null;
+        }
+        return super.destroy(fromWho, msg);
+    }
+
+    @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = null;
         switch (msg.getAction()) {

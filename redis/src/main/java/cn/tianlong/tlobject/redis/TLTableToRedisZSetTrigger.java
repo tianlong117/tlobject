@@ -136,7 +136,8 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
         int i = 0;
         String value=null ;
         while(it.hasNext()){
-            if(i ==0)
+            i++;
+            if(i == 1)
              value = it.next();
             else
                 break;

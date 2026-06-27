@@ -218,15 +218,17 @@ public class TLRedisMap extends TLRedisTable {
         if(jedis ==null)
             return null ;
         Pipeline pipelined = jedis.pipelined();
-        for(String key : keys){
-            key =(preFix ==null)?key :preFix+key;
-            key =prefix +key ;
-            pipelined.hgetAll(key);
+        try {
+            for(String key : keys){
+                key =(preFix ==null)?key :preFix+key;
+                key =prefix +key ;
+                pipelined.hgetAll(key);
+            }
+            return pipelined.syncAndReturnAll();
+        } finally {
+            pipelined.close();
+            jedis.close();
         }
-        List result = pipelined.syncAndReturnAll();
-        pipelined.close();
-        jedis.close();
-        return result ;
     }
     public   List hmgetToMapOrderByKeys( List<String> keys,String preFix )
     {
@@ -234,27 +236,30 @@ public class TLRedisMap extends TLRedisTable {
         Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
-        Map<String,Response<Map<String,String>>> responses = new HashMap<String,Response<Map<String,String>>>(keys.size());
         Pipeline pipelined = jedis.pipelined();
-        for(String key : keys){
-            key =(preFix ==null)?key :preFix+key;
-            key =prefix +key ;
-            responses.put(key, pipelined.hgetAll(key));
+        try {
+            Map<String,Response<Map<String,String>>> responses = new HashMap<String,Response<Map<String,String>>>(keys.size());
+            for(String key : keys){
+                key =(preFix ==null)?key :preFix+key;
+                key =prefix +key ;
+                responses.put(key, pipelined.hgetAll(key));
+            }
+            pipelined.sync();
+            List<Map> result =new ArrayList<>();
+            for(String key : keys)
+            {
+                key =(preFix ==null)?key :preFix+key;
+                key =prefix +key;
+                Response<Map<String,String>>response =responses.get(key);
+                if(response ==null)
+                    continue;
+                result.add(response.get());
+            }
+            return result ;
+        } finally {
+            pipelined.close();
+            jedis.close();
         }
-        pipelined.sync();
-        pipelined.close();
-        jedis.close();
-        List<Map> result =new ArrayList<>();
-        for(String key : keys)
-        {
-            key =(preFix ==null)?key :preFix+key;
-            key =prefix +key;
-            Response<Map<String,String>>response =responses.get(key);
-            if(response ==null)
-                continue;
-            result.add(response.get());
-        }
-        return result ;
     }
     /**
      * 通过key给指定的field的value加上给定的值

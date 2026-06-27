@@ -1527,11 +1527,14 @@ public abstract class TLBaseModule extends TLBaseObject {
             }
             HashMap<String, String> moduleParam =null;
             if (modulesParams != null) {
-                moduleParam = modulesParams.get(newModuleName);
+                HashMap<String, String> stored = modulesParams.get(newModuleName);
+                if (stored != null) {
+                    moduleParam = new HashMap<>(stored);
+                }
             }
             if(paramsInMsg !=null){
                 if(moduleParam ==null)
-                    moduleParam =paramsInMsg ;
+                    moduleParam =new HashMap<>(paramsInMsg) ;
                 else
                     moduleParam.putAll(paramsInMsg);
             }

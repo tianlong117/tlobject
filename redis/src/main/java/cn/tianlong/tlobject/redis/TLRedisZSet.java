@@ -206,10 +206,10 @@ public class TLRedisZSet extends TLRedisTable {
      * @param min
      * @return
      */
-    public Set<String> zrangebyscore(String key, String max, String min) {
+    public Set<String> zrangebyscore(String key, String min, String max) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
-        Set result = jedis.zrevrangeByScore(key, max, min);
+        Set result = jedis.zrangeByScore(key, min, max);
         jedis.close();
         return result ;
     }
@@ -222,12 +222,12 @@ public class TLRedisZSet extends TLRedisTable {
      * @param min
      * @return
      */
-    public Set<String> zrangeByScore(String key, double max, double min) {
+    public Set<String> zrangeByScore(String key, double min, double max) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection("read");
         if (jedis ==null)
             return null ;
-        Set result = jedis.zrevrangeByScore(key, max, min);
+        Set result = jedis.zrangeByScore(key, min, max);
         jedis.close();
         return result ;
     }

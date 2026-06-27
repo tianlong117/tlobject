@@ -19,6 +19,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
     protected  boolean ifQueryDb=false;  /* 如果redis查询不到是否继续在数据库表中查询  */
     protected  boolean ifAutoSaveOnQuery=false;   /* 数据库查询是否自动存储到redis里 */
     protected  String tbMainKey;
+    protected  final Gson gson = new Gson();
 
     public TLTableToRedisListTrigger(String name ) {
         super(name);
@@ -64,7 +65,6 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
         int i=0;
         long result=0L;
         Type type = new TypeToken<Map<String, Object>>() {}.getType();
-        Gson gson =new Gson() ;
         Long size =((TLRedisList)redisTable).llen(rediskey);
         while (i < size) {
              String value= ((TLRedisList)redisTable).lindex(rediskey,i);
@@ -190,8 +190,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
             {
                 List<Map> dbresult =new ArrayList();
                 Type type = new TypeToken<Map<String, Object>>() {}.getType();
-                Gson gson =new Gson() ;
-                for (String value :result)
+                        for (String value :result)
                 {
                     Map<String ,Object> data = gson.fromJson(value,type);
                     dbresult.add( data);
