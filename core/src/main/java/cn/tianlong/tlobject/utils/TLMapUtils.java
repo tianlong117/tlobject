@@ -58,7 +58,7 @@ public class TLMapUtils {
             return (Boolean) value;
         return defaultValue ;
     }
-    public static byte getByeParam(Map map,String param ,byte defaultValue)
+    public static byte getByteParam(Map map,String param ,byte defaultValue)
     {
         Object value  =getValue( map, param ,defaultValue);
         if (value instanceof Byte )

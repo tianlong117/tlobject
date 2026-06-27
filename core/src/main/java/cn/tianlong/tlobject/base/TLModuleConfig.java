@@ -350,7 +350,7 @@ public  class TLModuleConfig extends TLBaseModule {
                 case "startMsg":
                     if(startMsgTable ==null)
                         startMsgTable=new ArrayList<>();
-                    startMsgTable.addAll(config.getInitMsg());
+                    startMsgTable.addAll(config.getStartMsgTable());
                     break;
                 case "msgTable":
                     if(msgTable ==null)

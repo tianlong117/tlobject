@@ -35,6 +35,7 @@ public class TLObjectFactory extends TLBaseModule {
     protected long startTime = System.nanoTime();
     protected TLBaseModule  parentFactory ;
     protected  String  classPath ;
+    protected final ConcurrentHashMap<String, Object> moduleLocks = new ConcurrentHashMap<>();
     public TLObjectFactory(String name, String factoryConfigFile) {
         super(name, factoryConfigFile);
     }
@@ -223,29 +224,54 @@ public class TLObjectFactory extends TLBaseModule {
 
     public void destroyModule() {
         Object module;
-        TLMsg msg = createMsg().setAction(MODULE_DESTROY);
+        TLMsg msg = createMsg().setAction(MODULE_DESTROY).setWaitFlag(true);
+        // 先销毁普通模块，跳过日志相关模块（留到最后）
         for (String key : modules.keySet()) {
             if (key.equals(DEFAULTLOGTTHREADPOOL) || key.equals(DEFAULTLOG))
                 continue;
             module = modules.get(key);
             if (module instanceof IObject) {
                 putMsg((IObject) module, msg);
-                putLog(((IObject) module).getName() + " is destoryed", LogLevel.DEBUG);
+                putLog(((IObject) module).getName() + " is destroyed", LogLevel.DEBUG);
+            }
+        }
+        // 最后销毁日志模块
+        for (String key : modules.keySet()) {
+            if (!key.equals(DEFAULTLOGTTHREADPOOL) && !key.equals(DEFAULTLOG))
+                continue;
+            module = modules.get(key);
+            if (module instanceof IObject) {
+                putMsg((IObject) module, msg);
             }
         }
     }
 
     public void shutdown() {
         System.out.println("start shutdown...");
-        putLog("start shutdown...",LogLevel.DEBUG,"shutdown");
+        putLog("start shutdown...", LogLevel.DEBUG, "shutdown");
+        // 销毁子工厂
+        for (TLBaseModule factory : factorys.values()) {
+            if (factory instanceof TLObjectFactory && factory != this) {
+                ((TLObjectFactory) factory).destroyModule();
+            }
+        }
+        // 销毁当前工厂模块
         destroyModule();
+        // 短暂等待日志刷新等收尾工作
+        try { Thread.sleep(200); } catch (InterruptedException e) {}
         System.out.println("game is over,bye !");
         System.exit(0);
     }
 
     public void shutdown(int status) {
-        putLog("app shutdown... " , LogLevel.INFO);
+        putLog("app shutdown... ", LogLevel.INFO);
+        for (TLBaseModule factory : factorys.values()) {
+            if (factory instanceof TLObjectFactory && factory != this) {
+                ((TLObjectFactory) factory).destroyModule();
+            }
+        }
         destroyModule();
+        try { Thread.sleep(200); } catch (InterruptedException e) {}
         System.exit(status);
     }
 
@@ -660,18 +686,19 @@ public class TLObjectFactory extends TLBaseModule {
         if (singleton == false)
             module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
         else {
-            Class<?> clazz  = myClassforName(classFilename);
-            if(clazz ==null)
+            if (myClassforName(classFilename) == null)
                 return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
             module = modules.get(newModuleName);
             if (module == null) {
-                synchronized (clazz)
+                Object lock = moduleLocks.computeIfAbsent(newModuleName, k -> new Object());
+                synchronized (lock)
                 {
-                    module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
-                    if (module != null) {
-                        Object oldModule = modules.putIfAbsent(newModuleName, module);
-                        if (oldModule != null)
-                            module = oldModule;
+                    module = modules.get(newModuleName);
+                    if (module == null) {
+                        module = createModule(newModuleName, classFilename, moduleConfigFile, cparams);
+                        if (module != null) {
+                            modules.put(newModuleName, module);
+                        }
                     }
                 }
             }

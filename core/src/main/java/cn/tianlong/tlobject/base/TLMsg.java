@@ -65,9 +65,9 @@ public class TLMsg implements Serializable , Cloneable{
     {
         return nowObject ;
     }
-    public TLMsg setNowObjcect(String nowObjcect)
+    public TLMsg setNowObject(String nowObject)
     {
-        this.nowObject=nowObjcect ;
+        this.nowObject=nowObject ;
         return this;
     }
     public Boolean getWaitFlag()
@@ -487,12 +487,14 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg clear()
     {
-        this.action ="";
-        this.args.clear();
-        this.msgId=null;
-        this.nextMsg=null;
-        this.destination=null;
-        this.waitFlag=true;
+        action ="";
+        if(args != null)
+           args.clear();
+        if(systemArgs !=null)
+            systemArgs.clear();
+        nextMsg=null;
+        destination=null;
+        waitFlag=true;
         return this ;
     }
     public TLMsg copyFrom(TLMsg msg){

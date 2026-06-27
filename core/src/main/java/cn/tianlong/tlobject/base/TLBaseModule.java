@@ -10,6 +10,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -953,12 +954,15 @@ public abstract class TLBaseModule extends TLBaseObject {
         Object  time =msg.getParam(MODULE_P_SLEEPTIME);
         if(time ==null)
             return;
+        int ms;
         if(time instanceof  String)
-            time =Integer.parseInt((String) time);
+            ms =Integer.parseInt((String) time);
+        else if(time instanceof Number)
+            ms =((Number) time).intValue();
         else
             return ;
         try {
-            sleep((int)time);
+            sleep(ms);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
@@ -1185,7 +1189,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
         if (module != null)
         {
-            msg.setNowObjcect(moduleName);
+            msg.setNowObject(moduleName);
             return putMsg(module, msg);
         }
         else {
@@ -1255,6 +1259,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         int msgNumber =msgList.size() ;
         ArrayList<ThreadTask> threadTaskList = new ArrayList<>(msgNumber) ;
         ArrayList<TLMsg> resultMsgList =new ArrayList<>(msgNumber) ;
+        CountDownLatch latch = new CountDownLatch(msgNumber);
         for(int j=0 ; j < msgList.size() ; j++)
         {
             TLMsg msg = msgList.get(j);
@@ -1263,38 +1268,27 @@ public abstract class TLBaseModule extends TLBaseObject {
             if(returnMsg !=null && !returnMsg.isNull(THREADPOOL_TASK))
             {
                 ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
+                threadTask.setDoneSignal(latch);
                 threadTaskList.add(j,threadTask);
             }
-            else
+            else {
                 threadTaskList.add(j,null);
+                latch.countDown();  // 无法获取 ThreadTask 的任务直接视为完成
+            }
             resultMsgList.add(j,null);
         }
-        int resultNumber =0 ;
-        Long runTime =System.currentTimeMillis();
-        Long endTime  =runTime+waitTime ;
-        boolean ifTimeOut =false ;
-        do {
-            for(int i =0 ; i<msgNumber  ; i++)
-            {
-                Long nowTime =System.currentTimeMillis();
-                if( nowTime > endTime)
-                {
-                    ifTimeOut =true ;
-                    break;
-                }
-                ThreadTask task = threadTaskList.get(i);
-                if(task ==null)
-                    continue;
-                Boolean taskIsOver =task.isThreadOver() ;
-                if(taskIsOver)
-                {
-                    TLMsg resultMsg =task.getResult();
-                    resultMsgList.set(i,resultMsg);
-                    threadTaskList.set(i,null);
-                    resultNumber ++ ;
-                }
+        try {
+            boolean completed = latch.await(waitTime, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        // 收集所有已完成任务的结果
+        for (int i = 0; i < msgNumber; i++) {
+            ThreadTask task = threadTaskList.get(i);
+            if (task != null && task.isThreadOver()) {
+                resultMsgList.set(i, task.getResult());
             }
-        }while (resultNumber < msgNumber && ifTimeOut ==false);
+        }
         return createMsg().setParam(RESULT,resultMsgList);
     }
 

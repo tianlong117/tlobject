@@ -2,6 +2,8 @@ package cn.tianlong.tlobject.base;
 
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
+import java.util.concurrent.CountDownLatch;
+
 import static java.lang.Thread.sleep;
 
 /**
@@ -93,6 +95,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         private Thread mainThread ;
         protected Boolean isThreadOver =false ;
         protected Boolean ifTaskResult =false ;
+        private CountDownLatch doneSignal;
         public ThreadTask(IObject toWho ,TLMsg msg,IObject fromWho){
             this.toWho=toWho;
             this.msg =msg ;
@@ -145,6 +148,9 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
            } catch (Exception e) {
                if(exceptionMsg!=null )
                    fromWho.getMsg(this,exceptionMsg.setParam("exception",e));
+           } finally {
+               if (doneSignal != null)
+                   doneSignal.countDown();
            }
        }
         public TLMsg getResult(){
@@ -152,6 +158,9 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         }
        public boolean isThreadOver(){
            return isThreadOver ;
+       }
+       public void setDoneSignal(CountDownLatch latch) {
+           this.doneSignal = latch;
        }
     }
 }
