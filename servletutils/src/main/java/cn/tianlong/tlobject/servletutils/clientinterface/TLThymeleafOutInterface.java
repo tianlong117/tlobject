@@ -102,7 +102,7 @@ public class TLThymeleafOutInterface extends TLBaseClientDataOutInterface {
             hastemp = false;
         String outContent;
         if (hastemp == false) {
-            StringBuffer buffer = new StringBuffer();
+            StringBuilder buffer = new StringBuilder();
             for (String key : datas.keySet()) {
                 String data = "";
                 if (datas.get(key) != null)
@@ -159,7 +159,7 @@ public class TLThymeleafOutInterface extends TLBaseClientDataOutInterface {
                 }
 
             } catch (Throwable t) {
-
+                putLog("TLThymeleaf config parse error:" + t.toString(), LogLevel.WARN);
             }
         }
 

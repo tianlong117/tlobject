@@ -80,9 +80,18 @@ public class TLCaffeine extends TLBaseCache {
     @Override
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
         Cache<Object, Object>  caffeine =caches.get(cacheName) ;
-        if ( caffeine ==null )
-            return false ;
-         caffeine.put(cacheKey,cacheValue);
-         return true ;
+        if ( caffeine ==null ) {
+            // 如果调用方指定了逐条目过期时间，但此 cacheName 尚未创建，则动态创建
+            if (exptime > 0) {
+                caffeine = Caffeine.newBuilder()
+                        .expireAfterWrite(exptime * 60L, TimeUnit.SECONDS)
+                        .build();
+                caches.put(cacheName, caffeine);
+            } else {
+                return false;
+            }
+        }
+        caffeine.put(cacheKey,cacheValue);
+        return true ;
     }
 }

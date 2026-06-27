@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
     protected final AcceptorIdleStateTrigger idleStateTrigger = new AcceptorIdleStateTrigger();
     protected  EventLoopGroup bossGroup;
     protected  EventLoopGroup workerGroup;
-    protected  boolean runFlag=false;
+    protected volatile boolean runFlag=false;
     protected  IObject clientMsgHandler;
 
     public TLBaseServer(){

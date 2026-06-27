@@ -10,6 +10,8 @@ import org.xmlpull.v1.XmlPullParser;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
 
@@ -31,6 +33,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     protected ConcurrentHashMap<String, TLBaseModule> serversModule =new ConcurrentHashMap<>();
     protected ConcurrentHashMap<String, TLBaseModule> sucessServers =new ConcurrentHashMap<>() ;
     protected TLNetSession netSession ;
+    private final ConcurrentHashMap<String, CountDownLatch> connectLatches = new ConcurrentHashMap<>();
 
     public TLSocketClientAgentPool() {
         super();
@@ -188,19 +191,17 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         HashMap<String,String>    serverParams =servers.get(serverName) ;
         if(serverParams ==null || serverName.isEmpty())
             return createMsg().setParam(RESULT,false);
+        CountDownLatch latch = new CountDownLatch(1);
+        connectLatches.put(serverName, latch);
         connectToServer(serverName) ;
-        int i =0;
-        do {
-            try {
-                sleep(20);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-            }
-            i++;
-            if(sucessServers.get(serverName) !=null)
-                return createMsg().setParam(RESULT,true);
-        }while (i <200);
-        return createMsg().setParam(RESULT,false);
+        boolean success = false;
+        try {
+            success = latch.await(4000, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        connectLatches.remove(serverName);
+        return createMsg().setParam(RESULT, success);
     }
 
     protected TLMsg receiveBinary(Object fromWho, TLMsg msg) {
@@ -290,8 +291,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         TLMsg serverMsg =createMsg().setAction(WEBSOCKET_PUT)
                 .setParam(WEBSOCKET_P_CONTENT,content);
         TLMsg resultMsg=putMsg(server,serverMsg);
-        Boolean result = (Boolean) resultMsg.getParam(RESULT);
-        if(result ==false)
+        if(!resultMsg.parseBoolean(RESULT, true))
             return resultMsg ;
         TLMsg serverReturnMsg = netSession.waitServerReturnUntilTimeOut(sessionId,server,serverMsg,waitTime,retryTimes) ;
         if(serverReturnMsg.getMsgId() !=null)
@@ -411,10 +411,15 @@ public class TLSocketClientAgentPool extends TLBaseModule {
     protected TLMsg fromAgent(Object fromWho, TLMsg msg) {
         String serverName = (String) msg.getParam(WEBSOCKET_R_CLIENTAGENT);
         String status = (String) msg.getParam(WEBSOCKET_P_STATUS);
-        if (status.equals(WEBSOCKET_R_OPEN))
-            sucessServers.put(serverName,serversModule.get(serverName));
-        else if(status.equals(WEBSOCKET_R_FAILURE))
-             sucessServers.remove(serverName) ;
+        if (status.equals(WEBSOCKET_R_OPEN)) {
+            sucessServers.put(serverName, serversModule.get(serverName));
+            CountDownLatch latch = connectLatches.get(serverName);
+            if (latch != null) latch.countDown();
+        } else if(status.equals(WEBSOCKET_R_FAILURE)) {
+             sucessServers.remove(serverName);
+             CountDownLatch latch = connectLatches.get(serverName);
+             if (latch != null) latch.countDown();
+        }
         if(onServerStatusModule !=null )
             putMsg(onServerStatusModule, createMsg().setAction(onServerStatusAction)
                     .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,serverName).setParam(WEBSOCKET_P_STATUS,status));

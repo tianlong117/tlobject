@@ -9,8 +9,7 @@ import cn.tianlong.tlobject.network.client.http.TLHttpClient;
 import cn.tianlong.tlobject.network.common.TLBaseWebSocketSendFile;
 import cn.tianlong.tlobject.network.common.TLNetSession;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
-import com.zhy.http.okhttp.OkHttpUtils;
-import com.zhy.http.okhttp.https.HttpsUtils;
+import cn.tianlong.tlobject.network.common.TLSslUtils;
 
 import okhttp3.*;
 import okio.ByteString;
@@ -34,9 +33,9 @@ public class TLWebSocketClient extends TLHttpClient {
     protected int reConnectTime = 2000;
     protected int pingInterval = 6;
     protected MyWebSocketListener webSocketListener;
-    protected WebSocket mWebSocket;
+    protected volatile WebSocket mWebSocket;
     protected IObject socketClient;
-    protected Boolean connected = false;
+    protected volatile Boolean connected = false;
     private Request request;
     private OkHttpClient client;
     protected TLNetSession netSession;
@@ -131,13 +130,13 @@ public class TLWebSocketClient extends TLHttpClient {
     protected TLMsg connect(Object fromWho, TLMsg msg) {
         if (msg.parseBoolean(HTTP_P_ISHTTPS, false) == true) {
             String cerFile = (String) msg.getParam(SSL_SCERFILE);
-            HttpsUtils.SSLParams sslParams;
+            TLSslUtils.SSLParams sslParams;
             if (cerFile != null) {
                 InputStream httpsCerFileStream = null;
                 httpsCerFileStream = TLWebSocketClient.class.getResourceAsStream(cerFile);
                 InputStream[] certificates = new InputStream[1];
                 certificates[0] = httpsCerFileStream;
-                sslParams = HttpsUtils.getSslSocketFactory(certificates, null, null);
+                sslParams = TLSslUtils.getSslSocketFactory(certificates);
             } else if (moduleSslParams != null)
                 sslParams = moduleSslParams;
             else
@@ -153,9 +152,7 @@ public class TLWebSocketClient extends TLHttpClient {
                         }
                     })
                     .sslSocketFactory(sslParams.sSLSocketFactory, sslParams.trustManager)
-                    //其他配置
                     .build();
-            OkHttpUtils.initClient(client);
         } else
             client = new OkHttpClient.Builder()
                     //     .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
@@ -263,7 +260,7 @@ public class TLWebSocketClient extends TLHttpClient {
     }
 
     private boolean IfQueueCanWrite(int contentsize) {
-        int timeOutTimes =3000;
+        int timeOutTimes = 300;
         long queueSize ;
         int i=0;
         do{
@@ -271,10 +268,11 @@ public class TLWebSocketClient extends TLHttpClient {
             if(queueSize < 16777000L)
                 return true ;
             try {
-                sleep(1);
+                sleep(10);
                 i++;
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
+                return false;
             }
             if(i >= timeOutTimes)
                 return false ;

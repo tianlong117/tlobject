@@ -43,7 +43,7 @@ public class TLWDirectOutInterface extends TLBaseClientDataOutInterface {
         LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam(CLIENT_P_OUDDATA);
         if(datas==null)
             return null;
-        StringBuffer buffer = new StringBuffer();
+        StringBuilder buffer = new StringBuilder();
         for (String key : datas.keySet()) {
             buffer.append((String)datas.get(key).toString());
         }

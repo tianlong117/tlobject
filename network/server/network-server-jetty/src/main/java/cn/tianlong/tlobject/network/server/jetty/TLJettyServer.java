@@ -252,6 +252,7 @@ public class TLJettyServer extends TLBaseModule {
                 break;
             case "stop" :
                 returnMsg=stop( fromWho,  msg);
+                break;
             default:              ;
         }
         return returnMsg;

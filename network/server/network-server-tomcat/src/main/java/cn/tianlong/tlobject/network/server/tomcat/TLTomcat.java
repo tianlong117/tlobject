@@ -269,15 +269,18 @@ public class TLTomcat extends TLBaseModule {
             requestMap.put(threadName, request);
             responseMap.put(threadName,  response);
             threadDatas.put(threadName,datas);
-            String uri= request.getRequestURI();
-            if (uri == null || uri.isEmpty())
-                return ;
+            try {
+                String uri= request.getRequestURI();
+                if (uri == null || uri.isEmpty())
+                    return ;
 
-            TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri);
-            appCenter.getMsg(moduleFactory, msg);
-            requestMap.remove(threadName);
-            responseMap.remove(threadName);
-            threadDatas.remove(threadName);
+                TLMsg msg = new TLMsg().setAction("start").setParam("uri",uri);
+                appCenter.getMsg(moduleFactory, msg);
+            } finally {
+                requestMap.remove(threadName);
+                responseMap.remove(threadName);
+                threadDatas.remove(threadName);
+            }
             Long nowTime = System.currentTimeMillis();
             Long runtime = nowTime - startTime;
             moduleFactory.putLog(name+ " 运行时间：" + runtime,LogLevel.INFO,"doFilter");

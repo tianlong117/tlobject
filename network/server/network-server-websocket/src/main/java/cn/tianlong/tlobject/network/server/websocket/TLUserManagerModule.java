@@ -202,6 +202,7 @@ public class TLUserManagerModule extends TLBaseModule {
                 byteBuf.writeBytes(msgbuf, 0, msgbuf.length);
                 BinaryWebSocketFrame tws = new BinaryWebSocketFrame(byteBuf);
                 Boolean isWrite ;
+                int retries = 0;
                 do{
                     if(!channel.isActive())
                     {
@@ -209,8 +210,13 @@ public class TLUserManagerModule extends TLBaseModule {
                         break;
                     }
                    isWrite =channel.isWritable();
-                    if(isWrite ==true)
+                    if(isWrite ==true) {
                         channel.writeAndFlush(tws);
+                    } else if (++retries >= 100) {
+                        break;
+                    } else {
+                        try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+                    }
                 }while (isWrite==false);
             }
             else

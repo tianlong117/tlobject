@@ -190,6 +190,9 @@ public class uploadFile extends TLWServModule {
                     if (fileTypes != null && fileTypes.length > 0 && !ifFileTypePermit(fileTypes, fileType))
                         return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_R_FILETYPE, fileType);
                 }
+                // 基于文件名后缀二次校验，防止客户端伪造 Content-Type
+                if (fileName != null && isDangerousExtension(fileName))
+                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_R_FILETYPE, "forbidden");
                 String saveFilename = realPath + File.separator + fileName;
                 File file = new File(saveFilename);// 创建文件实例
                 try {
@@ -219,6 +222,20 @@ public class uploadFile extends TLWServModule {
         for (int i = 0; i < fileTypes.length; i++) {
             if (fileTypes[i].equals(filetyp))
                 return true;
+        }
+        return false;
+    }
+
+    private static final String[] DANGEROUS_EXTENSIONS = {
+        "exe", "sh", "bat", "cmd", "com", "dll", "so", "js", "jsp", "php", "asp", "aspx", "war", "jar"
+    };
+
+    private boolean isDangerousExtension(String fileName) {
+        String ext = "";
+        int dot = fileName.lastIndexOf('.');
+        if (dot >= 0) ext = fileName.substring(dot + 1).toLowerCase();
+        for (String dangerous : DANGEROUS_EXTENSIONS) {
+            if (ext.equals(dangerous)) return true;
         }
         return false;
     }

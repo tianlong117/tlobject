@@ -241,7 +241,7 @@ public class TLWAuth extends TLBaseModule {
         }
         if(policy==null )
         {
-            StringBuffer logBuffer = new StringBuffer().append("没有对应认证策略:") .append(AUTH_P_POLICYNAME).append((String) msg.getParam(AUTH_P_POLICYNAME))
+            StringBuilder logBuffer = new StringBuilder().append("没有对应认证策略:") .append(AUTH_P_POLICYNAME).append((String) msg.getParam(AUTH_P_POLICYNAME))
                     .append(AUTH_P_TAG).append((String) msg.getParam(AUTH_P_TAG));
             putLog(logBuffer.toString(),LogLevel.ERROR,"auth");
             return createMsg().setSystemParam(MODULE_DONEXTMSG,false);
@@ -252,7 +252,7 @@ public class TLWAuth extends TLBaseModule {
         if(policyResult !=null)
         {
             String checkModule = ((IObject)fromWho).getName();
-            StringBuffer logBuffer = new StringBuffer().append("模块: ").append(checkModule) .append(AUTH_P_POLICYNAME).append((String) msg.getParam(AUTH_P_POLICYNAME))
+            StringBuilder logBuffer = new StringBuilder().append("模块: ").append(checkModule) .append(AUTH_P_POLICYNAME).append((String) msg.getParam(AUTH_P_POLICYNAME))
                     .append(AUTH_P_TAG).append((String) msg.getParam(AUTH_P_TAG));
             logBuffer.append("访问拒绝");
             putLog(logBuffer.toString(),LogLevel.DEBUG,"auth");
@@ -299,7 +299,7 @@ public class TLWAuth extends TLBaseModule {
         HashMap<String ,Object> policy =getPolicies(policyName);
         if(policy==null)
         {
-            StringBuffer logBuffer = new StringBuffer();
+            StringBuilder logBuffer = new StringBuilder();
             logBuffer.append("没有对应认证策略:模块: ").append(checkModule).append("动作:").append(checkAction)
                     .append("认证策略:").append(policyName);
             putLog(logBuffer.toString(),LogLevel.ERROR,"auth");
@@ -310,7 +310,7 @@ public class TLWAuth extends TLBaseModule {
         String[] policyResult =checkPolicy(policy);
         if(policyResult !=null)
         {
-            StringBuffer logBuffer = new StringBuffer().append("模块: ").append(checkModule).append("动作:")
+            StringBuilder logBuffer = new StringBuilder().append("模块: ").append(checkModule).append("动作:")
                     .append(checkAction).append("访问拒绝");
             putLog(logBuffer.toString(),LogLevel.WARN,"auth");
             String denyMsgId =getDenyMsg(checkModule,checkMsgid,null,policy);
@@ -631,7 +631,7 @@ public class TLWAuth extends TLBaseModule {
                     policies= getHashMap(xpp,"policies","policy");
                 }
             } catch (Throwable t) {
-
+                putLog("TLWAuth config parse error:" + t.toString(), LogLevel.WARN);
             }
         }
 

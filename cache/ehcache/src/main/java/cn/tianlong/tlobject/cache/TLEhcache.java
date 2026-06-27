@@ -55,6 +55,15 @@ public class TLEhcache extends TLBaseCache {
         return this;
     }
     @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        if (macacheManagerager != null) {
+            macacheManagerager.close();
+            macacheManagerager = null;
+        }
+        return super.destroy(fromWho, msg);
+    }
+
+    @Override
     public Object getCache(String cacheName, String cacheKey,String valueType) {
         Class<?>  valueTypeClass =getValueType(valueType);
         Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);

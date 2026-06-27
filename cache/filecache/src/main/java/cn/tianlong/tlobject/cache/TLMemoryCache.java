@@ -6,7 +6,9 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
 
 import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_EXPTTIME;
 import static cn.tianlong.tlobject.cache.TLParamString.CACHE_P_VALUE;
@@ -15,6 +17,8 @@ import static java.lang.Thread.sleep;
 public class TLMemoryCache extends TLBaseCache {
 
     protected ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>> cacheDatas = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, ConcurrentLinkedDeque<String>> cacheKeysOrder = new ConcurrentHashMap<>();
+    protected int maxSize = 0;  // 每个 cacheName 最大条目数，0=不限制
 
     public TLMemoryCache() {
         super();
@@ -31,11 +35,14 @@ public class TLMemoryCache extends TLBaseCache {
     @Override
     protected TLBaseModule init() {
         super.init();
+        if (params != null && params.get("maxSize") != null)
+            maxSize = Integer.parseInt(params.get("maxSize"));
         if(cacheTables !=null)
         {
             for (String cacheName : cacheTables.keySet()) {
                 ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
                 cacheDatas.put(cacheName, cacheMap);
+                cacheKeysOrder.put(cacheName, new ConcurrentLinkedDeque<>());
             }
         }
         Thread thread = new Thread(()->{
@@ -44,15 +51,19 @@ public class TLMemoryCache extends TLBaseCache {
                     sleep(2000);
                     if(!cacheDatas.isEmpty())
                     {
-                        for(ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> caches :cacheDatas.values()){
-
+                        for(Map.Entry<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>> entry : cacheDatas.entrySet()){
+                            String cacheName = entry.getKey();
+                            ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> caches = entry.getValue();
+                            ConcurrentLinkedDeque<String> keyDeque = cacheKeysOrder.get(cacheName);
                             for(String key : caches.keySet()){
-                                ConcurrentHashMap<String, Object> cacheData= caches.get(key);
+                                ConcurrentHashMap<String, Object> cacheData = caches.get(key);
                                 Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
                                 if (time == 0L || System.currentTimeMillis() < time)
                                     continue;
-                                else
+                                else {
                                     caches.remove(key);
+                                    if (keyDeque != null) keyDeque.remove(key);
+                                }
                             }
                         }
                     }
@@ -76,6 +87,7 @@ public class TLMemoryCache extends TLBaseCache {
         cacheTables.put(cacheName,cacheParam) ;
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
         cacheDatas.put(cacheName, cacheMap);
+        cacheKeysOrder.putIfAbsent(cacheName, new ConcurrentLinkedDeque<>());
         return true ;
     }
     @Override
@@ -90,7 +102,7 @@ public class TLMemoryCache extends TLBaseCache {
             return this;
         Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
         if (time == 0L)
-            return cacheMap.get(CACHE_P_VALUE);
+            return cacheData.get(CACHE_P_VALUE);
         if (System.currentTimeMillis() < time)
             return cacheData.get(CACHE_P_VALUE);
         else {
@@ -106,8 +118,11 @@ public class TLMemoryCache extends TLBaseCache {
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
         if (cacheMap == null)
             return false;
-        if (cacheMap.containsKey(cacheKey))
+        if (cacheMap.containsKey(cacheKey)) {
             cacheMap.remove(cacheKey);
+            ConcurrentLinkedDeque<String> keyDeque = cacheKeysOrder.get(cacheName);
+            if (keyDeque != null) keyDeque.remove(cacheKey);
+        }
         return true;
     }
 
@@ -120,19 +135,34 @@ public class TLMemoryCache extends TLBaseCache {
         if (cacheExptime < 0L)
             return false;
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = cacheDatas.get(cacheName);
-        ConcurrentHashMap<String, Object> cacheData ;
+        ConcurrentLinkedDeque<String> keyDeque = cacheKeysOrder.get(cacheName);
         if(cacheMap ==null)
         {
             cacheMap = new ConcurrentHashMap<>();
+            cacheDatas.put(cacheName,cacheMap);
+            if (keyDeque == null) {
+                keyDeque = new ConcurrentLinkedDeque<>();
+                cacheKeysOrder.put(cacheName, keyDeque);
+            }
+        }
+        ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
+        if (cacheData == null) {
             cacheData = new ConcurrentHashMap<>();
             cacheMap.put(cacheKey, cacheData);
-            cacheDatas.put(cacheName,cacheMap);
-        }
-        else {
-            cacheData = cacheMap.get(cacheKey);
-            if (cacheData == null) {
-                cacheData = new ConcurrentHashMap<>();
-                cacheMap.put(cacheKey, cacheData);
+            // 新 key，维护 LRU 队列
+            if (keyDeque != null) {
+                keyDeque.addLast(cacheKey);
+                // 超过上限时淘汰最旧的
+                if (maxSize > 0 && cacheMap.size() > maxSize) {
+                    String oldestKey = keyDeque.pollFirst();
+                    if (oldestKey != null) cacheMap.remove(oldestKey);
+                }
+            }
+        } else {
+            // 已存在的 key，提到队列末尾（最近使用）
+            if (keyDeque != null) {
+                keyDeque.remove(cacheKey);
+                keyDeque.addLast(cacheKey);
             }
         }
         cacheData.put(CACHE_P_EXPTTIME, cacheExptime);

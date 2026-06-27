@@ -116,7 +116,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
         String outContent ;
         if(hastemp==false)
         {
-            StringBuffer buffer = new StringBuffer();
+            StringBuilder buffer = new StringBuilder();
             for (String key : datas.keySet()) {
                 String data ="";
                 if(datas.get(key)!=null)
@@ -128,7 +128,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
         else{
             if(prefixPath !=null)
             {
-                if(template.subSequence(0, 1) != "/")
+                if(!template.startsWith("/"))
                     template =prefixPath + template ;
             }
             Template tpl;
@@ -169,7 +169,7 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
                 }
 
             } catch (Throwable t) {
-
+                putLog("TLVelocity config parse error:" + t.toString(), LogLevel.WARN);
             }
         }
 

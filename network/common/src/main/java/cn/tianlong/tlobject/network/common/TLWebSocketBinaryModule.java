@@ -364,7 +364,7 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         do {
             HashMap<String, Object> channelFile = null ;
             try {
-                Thread.sleep(10000);
+                Thread.sleep(1000);
                 channelFile = files.get(sessionId);
                 if (channelFile == null)
                     return createMsg().setParam(RESULT, false);

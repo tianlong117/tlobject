@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.cache;
 
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLModuleConfig;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLReUsedModulePool;
@@ -11,8 +12,7 @@ import org.xmlpull.v1.XmlPullParser;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static cn.tianlong.tlobject.cache.TLParamString.*;
@@ -20,7 +20,7 @@ import static cn.tianlong.tlobject.cache.TLParamString.*;
 
 
 public abstract class TLBaseCache extends TLBaseModule {
-    protected HashMap<String, HashMap<String, String>> cacheTables ;
+    protected ConcurrentHashMap<String, HashMap<String, String>> cacheTables ;
     /**
      * 缓存过期时间。0为永久不过期
      */
@@ -52,7 +52,7 @@ public abstract class TLBaseCache extends TLBaseModule {
         myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());
         mconfig=config;
         super.setConfig();
-        cacheTables=config.getCacheTables();
+        cacheTables= new ConcurrentHashMap<>(config.getCacheTables());
         return config;
     }
     @Override
@@ -61,7 +61,7 @@ public abstract class TLBaseCache extends TLBaseModule {
         if( params!=null && params.get("ifUseLock")!=null)
             ifUseLock=Boolean.parseBoolean(params.get("ifUseLock")) ;
         if(cacheTables==null)
-            cacheTables=new HashMap<>() ;
+            cacheTables=new ConcurrentHashMap<>() ;
     }
     @Override
     protected TLBaseModule init(){
@@ -98,9 +98,14 @@ public abstract class TLBaseCache extends TLBaseModule {
             return true ;
     }
     protected ReentrantReadWriteLock getLock(String lockIndex){
-        return (ReentrantReadWriteLock) locksPool.getModuleByIndex(lockIndex);
+        ReentrantReadWriteLock lock = (ReentrantReadWriteLock) locksPool.getModuleByIndex(lockIndex);
+        if (lock == null) {
+            throw new IllegalStateException("Failed to get lock for index: " + lockIndex);
+        }
+        return lock;
     }
     protected void  reBackLock(){
+
         locksPool.useModuleOver() ;
     }
 
@@ -152,7 +157,12 @@ public abstract class TLBaseCache extends TLBaseModule {
             String  exptimeStr =cacheParam.get(CACHE_P_EXPTTIME);
             if(exptimeStr == null || exptimeStr.isEmpty())
                 exptimeStr = defaultExptime;
-            exptime =Integer.parseInt(exptimeStr);
+            try {
+                exptime =Integer.parseInt(exptimeStr);
+            } catch (NumberFormatException e) {
+                putLog("cache exptime parse error:" + exptimeStr, LogLevel.WARN);
+                return -1L;
+            }
         }
         Long cacheExptime ;
         if(exptime ==0)
@@ -164,7 +174,7 @@ public abstract class TLBaseCache extends TLBaseModule {
 
     protected Class<?> getValueType (String valueType){
         if (valueType==null)
-            return ArrayList.class;
+            return Object.class;
         switch (valueType) {
             case C_VARTYPE_STRING:
                 return String.class;
@@ -183,7 +193,7 @@ public abstract class TLBaseCache extends TLBaseModule {
             case C_VARTYPE_CHAR:
                 return Character.class;
             default:
-                return ArrayList.class;
+                return Object.class;
         }
     }
 
@@ -195,7 +205,7 @@ public abstract class TLBaseCache extends TLBaseModule {
         public myConfig() {
 
         }
-        public HashMap getCacheTables() {
+        public HashMap<String, HashMap<String, String>> getCacheTables() {
             return cacheTables;
         }
 
@@ -207,7 +217,7 @@ public abstract class TLBaseCache extends TLBaseModule {
                 }
 
             } catch (Throwable t) {
-
+                putLog("TLBaseCache config parse error:" + t.toString(), LogLevel.WARN);
             }
         }
 
