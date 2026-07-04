@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- 引入框架核心模块定义 -->
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+
+    <params>
+        <!-- 应用标识 -->
+        <applicationId value="aiagentDemo"/>
+
+        <!-- 日志配置 -->
+        <ifLog value="true"/>
+        <loglevel value="DEBUG"/>
+        <logWait value="true"/>
+
+        <!-- 模块监控（关闭以提高性能） -->
+        <ifModuleMonitor value="false"/>
+
+        <!-- Demo Java包前缀 -->
+        <package value="cn.tianlong.java.demo.aiagent"/>
+    </params>
+
+    <modules>
+        <!-- ===== TLObject 核心框架模块 ===== -->
+        <module name="threadPool"
+                classfile="cn.tianlong.tlobject.modules.TLThreadPool"
+                configfile="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml"/>
+
+        <module name="logThreadPool"
+                classfile="cn.tianlong.tlobject.modules.TLThreadPool"/>
+
+        <module name="log"
+                classfile="cn.tianlong.tlobject.modules.TLMsgLog"
+                configfile="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml"/>
+
+        <!-- ===== AI Agent 框架模块 ===== -->
+
+        <!-- Agent主控模块 -->
+        <module name="aiagent"
+                classfile="cn.tianlong.tlobject.aiagent.TLAiAgent"
+                configfile="CLASSPATH/conf/demo/aiagent/aiagent_config.xml"
+                singleton="true"/>
+
+        <!-- 上下文管理模块 -->
+        <module name="aiContext"
+                classfile="cn.tianlong.tlobject.aiagent.TLAiContext"
+                singleton="true"/>
+
+        <!-- LLM Providers -->
+        <module name="openAiProvider"
+                classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                singleton="true"/>
+
+        <module name="claudeProvider"
+                classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
+                singleton="true"/>
+
+        <!-- 内置Skills -->
+        <module name="httpRequestSkill"
+                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
+                singleton="true"/>
+
+        <module name="fileOperationSkill"
+                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+                singleton="true"/>
+
+        <module name="codeExecutionSkill"
+                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
+                singleton="true"/>
+
+        <!-- Memory Stores -->
+        <module name="shortTermMemory"
+                classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
+                singleton="true"/>
+
+        <module name="longTermMemory"
+                classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                singleton="true"/>
+
+        <!-- ===== Demo测试模块 ===== -->
+
+        <!-- 主测试模块 -->
+        <module name="aiAgentDemo"
+                classfile=".AiAgentDemoModule"
+                configfile="CLASSPATH/conf/demo/aiagent/aiagent_demo_config.xml"
+                singleton="true"/>
+
+        <!-- 流式回调模块（框架通用） -->
+        <module name="streamCallback"
+                classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback"
+                singleton="true"/>
+    </modules>
+
+    <!-- ===== 工厂启动序列 ===== -->
+    <factoryBoot>
+        <!-- 先获取日志模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="log"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
+
+        <!-- 获取AI Agent核心模块（触发初始化） -->
+        <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
+
+        <!-- 获取内置模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="httpRequestSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="fileOperationSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
+
+        <!-- 获取Demo测试模块和回调模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
+    </factoryBoot>
+</moduleConfig>

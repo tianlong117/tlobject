@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+        <package value="cn.tianlong.java.demo.chatroom.client"/>
+    </params>
+    <commonParams>
+        <ifLog value="true"/>
+        <loglevel value="info"/>
+    </commonParams>
+
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+
+    <modules>
+        <module name="serverProxy" proxyModule="socketClientAgentPool"
+                configfile="socketClientAgentPool_config.xml" />
+        <module name="chatClient" classfile="cn.tianlong.java.demo.chatroom.client.ChatClientModule"
+                configfile="chatClient_config.xml" />
+    </modules>
+
+    <factoryBoot>
+        <msg action="getModule" moduleName="logThreadPool" usePreReturnMsg="false" />
+        <msg action="getModule" moduleName="serverProxy" usePreReturnMsg="false" />
+        <msg action="getModule" moduleName="chatClient" usePreReturnMsg="false" />
+    </factoryBoot>
+</moduleConfig>

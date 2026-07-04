@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+    </params>
+    <!-- 启动模块无需 startMsg，测试由 aiAgentDemo 模块的 startMsg 触发 -->
+</moduleConfig>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <version value="1"/>
+        <package value="cn.tianlong.java.demo.chatroom.client"/>
+    </params>
+    <msgTable>
+        <msgid value="receive">
+            <msg action="receiveMsg" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid value="receiveUserlist">
+            <msg action="receiveUserlist" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid value="receiveSystem">
+            <msg action="receiveSystem" msgTableUseType="useMsg" />
+        </msgid>
+    </msgTable>
+</moduleConfig>

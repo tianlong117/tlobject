@@ -101,6 +101,31 @@
             <artifactId>tlobject-connectpoolofdb-hikaricp</artifactId>
             <version>1.0</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-common</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-provider-openai</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-provider-claude</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-skill-builtin</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-memory-store</artifactId>
+            <version>1.0</version>
+        </dependency>
 
     </dependencies>
 

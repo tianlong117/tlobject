@@ -1,0 +1,463 @@
+package cn.tianlong.tlobject.aiagent.provider.claude;
+
+import cn.tianlong.tlobject.aiagent.*;
+import cn.tianlong.tlobject.base.TLMsg;
+import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import okhttp3.Call;
+import okhttp3.Callback;
+import okhttp3.Request;
+import okhttp3.Response;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Anthropic Claude API Provider。
+ * 实现Anthropic Messages API格式的请求构建和响应解析。
+ * 支持Claude 3/4系列模型的tool_use功能。
+ *
+ * 创建日期：2026/7/4
+ * 作者:tianlong
+ */
+public class TLClaudeProvider extends TLLlmProvider {
+
+    /** Anthropic API版本头 */
+    private static final String ANTHROPIC_VERSION = "2023-06-01";
+
+    public TLClaudeProvider() {
+        super();
+    }
+
+    public TLClaudeProvider(String name) {
+        super(name);
+    }
+
+    public TLClaudeProvider(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
+    }
+
+    @Override
+    protected String getCompletionsPath() {
+        return "/v1/messages";
+    }
+
+    // ======================== HTTP头覆写 ========================
+
+    @Override
+    protected Map<String, String> buildHeaders() {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        if (apiKey != null && !apiKey.isEmpty()) {
+            headers.put("x-api-key", apiKey);
+        }
+        headers.put("anthropic-version", ANTHROPIC_VERSION);
+        return headers;
+    }
+
+    // ======================== 请求体构建 ========================
+
+    @Override
+    public String buildRequestBody(TLMsg msg, List<TLConversationHistory> messages,
+                                    List<TLFunctionDefinition> tools, boolean stream) {
+        JsonObject body = new JsonObject();
+
+        // model
+        body.addProperty("model", getEffectiveModel(msg));
+
+        // max_tokens (required by Anthropic)
+        body.addProperty("max_tokens", getEffectiveMaxTokens(msg));
+
+        // stream
+        body.addProperty("stream", stream);
+
+        // temperature
+        body.addProperty("temperature", getEffectiveTemperature(msg));
+
+        // 提取system消息并分开设置
+        String systemMsg = null;
+        JsonArray msgsArray = new JsonArray();
+        for (TLConversationHistory h : messages) {
+            if (h.getRole() == TLConversationHistory.Role.system) {
+                systemMsg = h.getContent();
+                continue;
+            }
+
+            JsonObject m = new JsonObject();
+            m.addProperty("role", h.getRole().name());
+
+            // 构建content数组（Anthropic格式）
+            JsonArray content = new JsonArray();
+
+            if (h.getContent() != null && !h.getContent().isEmpty()) {
+                JsonObject textBlock = new JsonObject();
+                textBlock.addProperty("type", "text");
+                textBlock.addProperty("text", h.getContent());
+                content.add(textBlock);
+            }
+
+            // tool_use块（assistant消息中的tool calls）
+            if (h.getToolCalls() != null && !h.getToolCalls().isEmpty()) {
+                for (TLToolCall tc : h.getToolCalls()) {
+                    JsonObject toolUse = new JsonObject();
+                    toolUse.addProperty("type", "tool_use");
+                    toolUse.addProperty("id", tc.getId());
+                    toolUse.addProperty("name", tc.getFunctionName());
+                    toolUse.add("input", gson.toJsonTree(tc.getArguments() != null
+                            ? tc.getArguments() : new LinkedHashMap<>()));
+                    content.add(toolUse);
+                }
+            }
+
+            // tool_result块（tool角色消息）
+            if (h.getRole() == TLConversationHistory.Role.tool) {
+                // Anthropic要求tool_result使用不同的content格式
+                m.addProperty("role", "user"); // Claude中没有单独的tool role
+                content = new JsonArray();
+                JsonObject toolResult = new JsonObject();
+                toolResult.addProperty("type", "tool_result");
+                toolResult.addProperty("tool_use_id", h.getToolCallId());
+                if (h.getContent() != null) {
+                    toolResult.addProperty("content", h.getContent());
+                }
+                content.add(toolResult);
+            }
+
+            m.add("content", content);
+            msgsArray.add(m);
+        }
+        body.add("messages", msgsArray);
+
+        // system (Anthropic分离的system prompt)
+        if (systemMsg != null && !systemMsg.isEmpty()) {
+            body.addProperty("system", systemMsg);
+        }
+
+        // tools
+        if (tools != null && !tools.isEmpty()) {
+            JsonArray ts = new JsonArray();
+            for (TLFunctionDefinition fd : tools) {
+                JsonObject t = new JsonObject();
+                t.addProperty("name", fd.getName());
+                t.addProperty("description", fd.getDescription());
+                if (fd.getParameters() != null) {
+                    t.add("input_schema", gson.toJsonTree(fd.getParameters()));
+                }
+                ts.add(t);
+            }
+            body.add("tools", ts);
+        }
+
+        // top_p
+        if (msg.containsParam(AI_P_TOPP)) {
+            body.addProperty("top_p", msg.getDoubleParam(AI_P_TOPP, 1.0));
+        }
+
+        // stop_sequences
+        if (msg.containsParam(AI_P_STOP)) {
+            JsonArray stops = new JsonArray();
+            String stopStr = msg.getStringParam(AI_P_STOP, "");
+            if (!stopStr.isEmpty()) {
+                for (String s : stopStr.split(",")) {
+                    stops.add(s.trim());
+                }
+                body.add("stop_sequences", stops);
+            }
+        }
+
+        return body.toString();
+    }
+
+    // ======================== 响应解析 ========================
+
+    @Override
+    public TLMsg parseResponse(String responseBody, TLMsg originalMsg) {
+        TLMsg result = createMsg();
+        try {
+            JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+
+            // 检查错误
+            if (json.has("error")) {
+                JsonObject error = json.getAsJsonObject("error");
+                String errMsg = error.has("message") ? error.get("message").getAsString() : "Unknown error";
+                return result.setParam(RESULT, false).setParam("error", errMsg);
+            }
+
+            // 解析停止原因
+            String stopReason = json.has("stop_reason") ? json.get("stop_reason").getAsString() : null;
+            result.setParam("finishReason", stopReason);
+            result.setParam("hasToolCalls", "tool_use".equals(stopReason));
+
+            // 解析content blocks
+            JsonArray content = json.getAsJsonArray("content");
+            StringBuilder textContent = new StringBuilder();
+            List<TLToolCall> toolCalls = new ArrayList<>();
+
+            if (content != null) {
+                for (JsonElement block : content) {
+                    JsonObject blockObj = block.getAsJsonObject();
+                    String type = blockObj.get("type").getAsString();
+
+                    if ("text".equals(type)) {
+                        textContent.append(blockObj.get("text").getAsString());
+                    } else if ("tool_use".equals(type)) {
+                        TLToolCall tc = new TLToolCall();
+                        tc.setId(blockObj.get("id").getAsString());
+                        tc.setFunctionName(blockObj.get("name").getAsString());
+
+                        JsonObject input = blockObj.getAsJsonObject("input");
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> args = gson.fromJson(input, Map.class);
+                        tc.setArguments(args);
+                        toolCalls.add(tc);
+                    }
+                }
+            }
+
+            result.setParam(AI_P_RESPONSE, textContent.toString());
+            result.setParam(AI_P_TOOLCALLS, toolCalls);
+
+            // 解析usage
+            if (json.has("usage")) {
+                JsonObject usage = json.getAsJsonObject("usage");
+                result.setParam("promptTokens", usage.has("input_tokens")
+                        ? usage.get("input_tokens").getAsInt() : 0);
+                result.setParam("completionTokens", usage.has("output_tokens")
+                        ? usage.get("output_tokens").getAsInt() : 0);
+            }
+
+            // 解析model和id
+            if (json.has("model")) result.setParam("responseModel", json.get("model").getAsString());
+            if (json.has("id")) result.setParam("responseId", json.get("id").getAsString());
+
+            result.setParam(RESULT, true);
+            return result;
+        } catch (Exception e) {
+            putLog("Parse Claude response error: " + e.toString(), LogLevel.ERROR);
+            return result.setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
+        }
+    }
+
+    // ======================== 核心动作实现 ========================
+
+    @Override
+    @SuppressWarnings("unchecked")
+    protected TLMsg completion(Object fromWho, TLMsg msg) {
+        List<TLConversationHistory> messages =
+                (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
+        List<TLFunctionDefinition> tools =
+                (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
+
+        String jsonBody = buildRequestBody(msg, messages, tools, false);
+        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
+        putLog("Claude request to: " + request.url(), LogLevel.DEBUG);
+
+        TLMsg httpResult = executeHttpRequest(request, fromWho, msg);
+        if (!httpResult.parseBoolean(RESULT, false)) {
+            return httpResult;
+        }
+
+        String responseBody = httpResult.getStringParam(AI_P_RESPONSEBODY, "");
+        return parseResponse(responseBody, msg);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    protected TLMsg completionStream(Object fromWho, TLMsg msg) {
+        List<TLConversationHistory> messages =
+                (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
+        List<TLFunctionDefinition> tools =
+                (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
+
+        String jsonBody = buildRequestBody(msg, messages, tools, true);
+        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
+
+        String resultFor = msg.getStringParam(RESULTFOR, fromWho.toString());
+        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+
+        ClaudeStreamCallback callback = new ClaudeStreamCallback(resultFor, resultAction, sessionId, msg);
+        executeHttpRequestAsync(request, callback);
+
+        return null;
+    }
+
+    @Override
+    protected TLMsg listModels(Object fromWho, TLMsg msg) {
+        // Anthropic没有公开的list models API，返回已知模型列表
+        List<String> models = new ArrayList<>();
+        models.add("claude-opus-4-8-20250805");
+        models.add("claude-sonnet-4-6");
+        models.add("claude-haiku-4-5-20251001");
+        models.add("claude-fable-5-20250619");
+        return createMsg().setParam(RESULT, true).setParam("models", models);
+    }
+
+    @Override
+    protected TLMsg cancel(Object fromWho, TLMsg msg) {
+        for (Call call : okHttpClient.dispatcher().queuedCalls()) {
+            call.cancel();
+        }
+        for (Call call : okHttpClient.dispatcher().runningCalls()) {
+            call.cancel();
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    // ======================== Claude SSE流式回调 ========================
+
+    protected class ClaudeStreamCallback implements Callback {
+        private final String resultFor;
+        private final String resultAction;
+        private final String sessionId;
+        private final TLMsg originalMsg;
+        private final StringBuilder contentBuilder = new StringBuilder();
+        private final List<TLToolCall> accumulatedToolCalls = new ArrayList<>();
+        private final Map<Integer, StringBuilder> toolUseInputBuilders = new LinkedHashMap<>();
+
+        public ClaudeStreamCallback(String resultFor, String resultAction, String sessionId, TLMsg originalMsg) {
+            this.resultFor = resultFor;
+            this.resultAction = resultAction;
+            this.sessionId = sessionId;
+            this.originalMsg = originalMsg;
+        }
+
+        @Override
+        public void onFailure(Call call, IOException e) {
+            TLMsg errMsg = createMsg()
+                    .setAction(resultAction)
+                    .setParam(AI_P_STREAMERROR, e.getMessage())
+                    .setParam(AI_P_SESSIONID, sessionId);
+            putMsg(resultFor, errMsg);
+        }
+
+        @Override
+        public void onResponse(Call call, Response response) throws IOException {
+            if (!response.isSuccessful()) {
+                TLMsg errMsg = createMsg()
+                        .setAction(resultAction)
+                        .setParam(AI_P_STREAMERROR, "HTTP " + response.code())
+                        .setParam(AI_P_SESSIONID, sessionId);
+                putMsg(resultFor, errMsg);
+                response.close();
+                return;
+            }
+
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.body().byteStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.isEmpty()) continue;
+                    // Claude SSE格式: data: {...} 或 event: ...
+                    if (line.startsWith("data: ")) {
+                        String data = line.substring(6);
+                        try {
+                            JsonObject chunk = JsonParser.parseString(data).getAsJsonObject();
+                            String eventType = chunk.has("type") ? chunk.get("type").getAsString() : "";
+
+                            switch (eventType) {
+                                case "content_block_start":
+                                    JsonObject contentBlock = chunk.getAsJsonObject("content_block");
+                                    String blockType = contentBlock.get("type").getAsString();
+                                    if ("tool_use".equals(blockType)) {
+                                        int index = chunk.has("index") ? chunk.get("index").getAsInt() : accumulatedToolCalls.size();
+                                        TLToolCall tc = new TLToolCall();
+                                        tc.setId(contentBlock.get("id").getAsString());
+                                        tc.setFunctionName(contentBlock.get("name").getAsString());
+                                        while (accumulatedToolCalls.size() <= index) {
+                                            accumulatedToolCalls.add(null);
+                                        }
+                                        accumulatedToolCalls.set(index, tc);
+                                        toolUseInputBuilders.put(index, new StringBuilder());
+                                    }
+                                    break;
+
+                                case "content_block_delta":
+                                    JsonObject delta = chunk.getAsJsonObject("delta");
+                                    String deltaType = delta.get("type").getAsString();
+                                    if ("text_delta".equals(deltaType)) {
+                                        String text = delta.get("text").getAsString();
+                                        contentBuilder.append(text);
+                                        TLMsg chunkMsg = createMsg()
+                                                .setAction(resultAction)
+                                                .setParam(AI_P_CHUNK, text)
+                                                .setParam(AI_P_SESSIONID, sessionId);
+                                        putMsg(resultFor, chunkMsg);
+                                    } else if ("input_json_delta".equals(deltaType)) {
+                                        int index = chunk.has("index") ? chunk.get("index").getAsInt() : 0;
+                                        String partialJson = delta.get("partial_json").getAsString();
+                                        toolUseInputBuilders.computeIfAbsent(index, k -> new StringBuilder())
+                                                .append(partialJson);
+                                    }
+                                    break;
+
+                                case "content_block_stop":
+                                    // 检查tool use块完成
+                                    int stopIndex = chunk.has("index") ? chunk.get("index").getAsInt() : -1;
+                                    if (stopIndex >= 0 && toolUseInputBuilders.containsKey(stopIndex)) {
+                                        String fullInput = toolUseInputBuilders.get(stopIndex).toString();
+                                        TLToolCall tc = accumulatedToolCalls.get(stopIndex);
+                                        if (tc != null && !fullInput.isEmpty()) {
+                                            try {
+                                                @SuppressWarnings("unchecked")
+                                                Map<String, Object> args = gson.fromJson(fullInput, Map.class);
+                                                tc.setArguments(args);
+                                            } catch (Exception e) {
+                                                tc.setArguments(new LinkedHashMap<>());
+                                            }
+                                        }
+                                    }
+                                    break;
+
+                                case "message_stop":
+                                    // 消息完成
+                                    TLMsg doneMsg = createMsg()
+                                            .setAction(resultAction)
+                                            .setParam(AI_P_STREAMDONE, true)
+                                            .setParam(AI_P_RESPONSE, contentBuilder.toString())
+                                            .setParam(AI_P_SESSIONID, sessionId);
+
+                                    // 过滤掉null的tool call
+                                    List<TLToolCall> validToolCalls = new ArrayList<>();
+                                    for (TLToolCall tc : accumulatedToolCalls) {
+                                        if (tc != null) validToolCalls.add(tc);
+                                    }
+                                    if (!validToolCalls.isEmpty()) {
+                                        doneMsg.setParam(AI_P_TOOLCALLS, validToolCalls);
+                                        doneMsg.setParam("hasToolCalls", true);
+                                    }
+                                    putMsg(resultFor, doneMsg);
+                                    break;
+
+                                case "error":
+                                    String errMsg = chunk.has("error")
+                                            ? chunk.getAsJsonObject("error").get("message").getAsString()
+                                            : "Unknown error";
+                                    TLMsg errorMsg = createMsg()
+                                            .setAction(resultAction)
+                                            .setParam(AI_P_STREAMERROR, errMsg)
+                                            .setParam(AI_P_SESSIONID, sessionId);
+                                    putMsg(resultFor, errorMsg);
+                                    break;
+
+                                default:
+                                    break;
+                            }
+                        } catch (Exception parseErr) {
+                            // 跳过无法解析的chunk
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

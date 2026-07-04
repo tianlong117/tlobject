@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+        <skillName value="demo_echo"/>
+        <skillDescription value="Echo back the input message. Used for testing skill registration."/>
+        <enabled value="true"/>
+    </params>
+</moduleConfig>

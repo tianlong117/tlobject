@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== AI Agent框架核心参数 ===== -->
+    <params>
+        <!-- LLM Provider配置 -->
+        <defaultLlmProvider value="openAiProvider"/>
+
+        <!-- tool-call最大迭代次数 -->
+        <maxToolCallIterations value="10"/>
+
+        <!-- 上下文最大历史轮次 -->
+        <maxHistoryTurns value="50"/>
+
+        <!-- 默认模型参数 -->
+        <defaultModel value="gpt-4o"/>
+        <defaultTemperature value="0.7"/>
+        <defaultMaxTokens value="4096"/>
+
+        <!-- 包名前缀（用于简写classfile） -->
+        <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+    </params>
+
+    <!-- ===== LLM Providers ===== -->
+    <providers>
+        <!--
+            OpenAI / 兼容Provider
+            支持: OpenAI, DeepSeek, Qwen, GLM 等兼容 /v1/chat/completions 的服务
+            使用前请将 apiKey 替换为真实的API密钥
+        -->
+        <provider name="openAiProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"
+                  connTimeOut="30"
+                  readTimeOut="120"/>
+
+        <!--
+            Claude Provider (可选)
+            如需使用Claude，将statup改为true并填入真实apiKey
+        -->
+        <provider name="claudeProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
+                  statup="false"
+                  apiKey="sk-ant-your-api-key-here"
+                  apiBaseUrl="https://api.anthropic.com"
+                  defaultModel="claude-sonnet-4-6"
+                  connTimeOut="30"
+                  readTimeOut="120"/>
+    </providers>
+
+    <!-- ===== Skills ===== -->
+    <skills>
+        <skill name="httpRequestSkill"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
+               statup="true"
+               skillName="http_request"
+               skillDescription="Send HTTP requests to fetch web content or call APIs. Supports GET and POST methods with custom headers and body."/>
+
+        <skill name="fileOperationSkill"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+               statup="true"
+               skillName="file_operation"
+               skillDescription="Read and write files on the local filesystem. Supports reading text files and writing content to files. Operations: read, write, list, exists, delete."/>
+
+        <skill name="codeExecutionSkill"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
+               statup="true"
+               skillName="code_execution"
+               skillDescription="Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine)."/>
+    </skills>
+
+    <!-- ===== Memory Stores ===== -->
+    <memoryStores>
+        <memoryStore name="shortTermMemory"
+                     classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
+                     statup="true"
+                     memoryType="shortTerm"
+                     defaultExptime="60"
+                     maxEntries="1000"
+                     cleanupInterval="60"/>
+
+        <memoryStore name="longTermMemory"
+                     classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                     statup="true"
+                     memoryType="longTerm"
+                     defaultExptime="0"
+                     storagePath="./data/aiagent_longterm_memory"
+                     maxCacheEntries="10000"/>
+    </memoryStores>
+
+    <!-- ===== AOP拦截: 记忆自动注入 ===== -->
+    <!-- beforeMsgTable: chat前自动从短期记忆召回相关上下文 -->
+    <beforeMsgTable>
+        <action name="chat">
+            <msg action="recallAgentMemory" destination="aiagent"
+                 paramsFromMsg="sessionId"/>
+        </action>
+        <action name="chatStreamSync">
+            <msg action="recallAgentMemory" destination="aiagent"
+                 paramsFromMsg="sessionId"/>
+        </action>
+    </beforeMsgTable>
+    <!-- afterMsgTable 会覆盖chat()的返回值，记忆保存改在chat()内部直接调用 -->
+</moduleConfig>

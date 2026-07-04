@@ -1,0 +1,150 @@
+package cn.tianlong.tlobject.aiagent;
+
+import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.base.TLMsg;
+import cn.tianlong.tlobject.base.TLObjectFactory;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
+
+/**
+ * 抽象Skill基类。所有skill模块继承此类。
+ * 每个skill是一个可被LLM调用的功能单元，拥有名称、描述和参数schema。
+ * 遵循TLBaseCache模式：抽象基类 + 具体实现注册到XML配置。
+ *
+ * 创建日期：2026/7/4
+ * 作者:tianlong
+ */
+public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParamString {
+
+    /** LLM可见的skill名称（对应function name） */
+    protected String skillName;
+
+    /** skill的NL描述，LLM据此决定何时调用 */
+    protected String skillDescription;
+
+    /** JSON Schema格式的参数定义 */
+    protected Map<String, Object> parameterSchema;
+
+    /** 是否启用 */
+    protected boolean enabled = true;
+
+    public TLBaseSkill() {
+        super();
+    }
+
+    public TLBaseSkill(String name) {
+        super(name);
+    }
+
+    public TLBaseSkill(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
+    }
+
+    @Override
+    protected void setModuleParams() {
+        if (params != null) {
+            if (params.get("skillName") != null)
+                skillName = params.get("skillName");
+            if (params.get("skillDescription") != null)
+                skillDescription = params.get("skillDescription");
+            if (params.get("enabled") != null)
+                enabled = Boolean.parseBoolean(params.get("enabled"));
+        }
+        // 默认用模块名作为skillName
+        if (skillName == null || skillName.isEmpty())
+            skillName = name;
+        if (skillDescription == null)
+            skillDescription = name + " skill";
+        if (parameterSchema == null)
+            parameterSchema = new LinkedHashMap<>();
+    }
+
+    @Override
+    protected TLBaseModule init() {
+        return this;
+    }
+
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        TLMsg returnMsg = null;
+        switch (msg.getAction()) {
+            case SKILL_GETINFO:
+                returnMsg = getSkillInfo(fromWho, msg);
+                break;
+            case SKILL_EXECUTE:
+                returnMsg = execute(fromWho, msg);
+                break;
+            case SKILL_VALIDATE:
+                returnMsg = validate(fromWho, msg);
+                break;
+            default:
+                returnMsg = null;
+        }
+        return returnMsg;
+    }
+
+    // ======================== 公共方法 ========================
+
+    /**
+     * 返回skill的元信息（名称、描述、参数schema）
+     */
+    protected TLMsg getSkillInfo(Object fromWho, TLMsg msg) {
+        return createMsg()
+                .setParam(AI_P_SKILLNAME, skillName)
+                .setParam(AI_P_SKILLDESCRIPTION, skillDescription)
+                .setParam(AI_P_SKILLPARAMS, parameterSchema);
+    }
+
+    /**
+     * 执行skill。子类必须实现。
+     * 通过 putMsg(skillModule, msg) 消息传递方式调用，
+     * TLBaseSkill.checkMsgAction 中 switch(SKILL_EXECUTE) 路由到此方法。
+     */
+    protected abstract TLMsg execute(Object fromWho, TLMsg msg);
+
+    /**
+     * 校验输入参数是否匹配parameterSchema。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg validate(Object fromWho, TLMsg msg) {
+        Map<String, Object> input = (Map<String, Object>) msg.getMapParam(AI_P_SKILLINPUT, new LinkedHashMap<>());
+        // 简易校验：检查required参数是否存在
+        for (Map.Entry<String, Object> entry : parameterSchema.entrySet()) {
+            String paramName = entry.getKey();
+            Object schemaDef = entry.getValue();
+            if (schemaDef instanceof Map) {
+                Map<String, Object> defMap = (Map<String, Object>) schemaDef;
+                if (Boolean.TRUE.equals(defMap.get("required"))) {
+                    if (!input.containsKey(paramName)) {
+                        return createMsg()
+                                .setParam(RESULT, false)
+                                .setParam("error", "Missing required parameter: " + paramName);
+                    }
+                }
+            }
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 将skill转换为LLM function definition。
+     */
+    public TLFunctionDefinition buildFunctionDefinition() {
+        return TLFunctionDefinition.fromSkill(skillName, skillDescription, parameterSchema);
+    }
+
+    // ======================== getters/setters ========================
+
+    public String getSkillName() { return skillName; }
+    public void setSkillName(String skillName) { this.skillName = skillName; }
+
+    public String getSkillDescription() { return skillDescription; }
+    public void setSkillDescription(String skillDescription) { this.skillDescription = skillDescription; }
+
+    public Map<String, Object> getParameterSchema() { return parameterSchema; }
+    public void setParameterSchema(Map<String, Object> parameterSchema) { this.parameterSchema = parameterSchema; }
+
+    public boolean isEnabled() { return enabled; }
+    public void setEnabled(boolean enabled) { this.enabled = enabled; }
+}

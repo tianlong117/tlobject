@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <version value="1"/>
+        <package value="cn.tianlong.java.demo.chatroom.server"/>
+    </params>
+    <beforeMsgTable>
+        <action value="send">
+            <msg destination="chatLog" action="logMessage" msgTableUseType="useMsg" />
+        </action>
+    </beforeMsgTable>
+    <msgTable>
+        <msgid value="login">
+            <msg action="login" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid value="send">
+            <msg action="send" msgTableUseType="useMsg" />
+        </msgid>
+        <msgid value="listUsers">
+            <msg action="listUsers" msgTableUseType="useMsg" />
+        </msgid>
+    </msgTable>
+</moduleConfig>

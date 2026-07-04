@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <defaultServer value="chatRoomServer0" />
+        <ifAutoConnect value="true" />
+        <onMessageModule value="chatClient" />
+        <version value="1"/>
+    </params>
+    <servers>
+        <server name="chatRoomServer0"
+                url="ws://127.0.0.1:9082/ws"
+                autoConnect="true" />
+    </servers>
+</moduleConfig>

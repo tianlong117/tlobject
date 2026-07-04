@@ -26,18 +26,22 @@
         <module name="slf4j" />
         <module name="tlobject-servletutils" />
         <module name="crontab" />
+        <module name="tlobject-aiagent-skill-builtin" />
         <module name="log-slf4j" />
         <module name="tlobject-connectpoolofdb-common" />
         <module name="cache-ehcache" />
         <module name="core" />
+        <module name="tlobject-aiagent-memory-store" />
         <module name="servletutils" />
         <module name="tlobject-network-proxy" />
+        <module name="tlobject-aiagent-provider-openai" />
         <module name="tlobject-demo-tlobject" />
         <module name="execl" />
         <module name="tlobject-cache-common" />
         <module name="network-server-websocket" />
         <module name="tlobject-connectpoolofdb-hikaricp" />
         <module name="tlobject-network-client" />
+        <module name="tlobject-aiagent-provider-claude" />
         <module name="demo-tlobject" />
         <module name="tlobject-network-server-distributedserver" />
         <module name="tlobjec-tcache-caffeine" />
@@ -56,6 +60,7 @@
         <module name="tlobject-network-server-websocket" />
         <module name="tlobject-cache-caffeine" />
         <module name="log-common" />
+        <module name="tlobject-aiagent-common" />
         <module name="network-proxy" />
         <module name="tlobject-all" />
         <module name="tlobject-log-slf4j" />
@@ -64,6 +69,11 @@
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="tlobject-aiagent-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-memory-store" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-provider-claude" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-provider-openai" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-skill-builtin" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-all" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-app-webmanager" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-cache-caffeine" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />

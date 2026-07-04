@@ -101,9 +101,9 @@ public class testMain extends TLAppStartUp {
     @Override
     protected void run() {
       // testTask();
-       testTask1();
-      // testTask2();
-     //     testMsgChain();
+     //  testTask1();
+    //  testTask2();
+        testMsgChain();
       //  testTask3();
         moduleFactory.shutdown();
     }
@@ -129,7 +129,7 @@ public class testMain extends TLAppStartUp {
             msg.setSystemParam(INTHREADPOOL ,true);
             msgGroup.add(msg) ;
         }
-        TLMsg returnMsg = putMsgGroupByThread(msgGroup,7*1000);
+        TLMsg returnMsg = putMsgGroupByThread(msgGroup,20*1000);
         ArrayList<TLMsg> resultMsg = (ArrayList<TLMsg>) returnMsg.getParam(RESULT);
         for (TLMsg msg: resultMsg ) {
             TLMsgUtils.printMsg(msg);
