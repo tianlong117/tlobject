@@ -118,7 +118,8 @@ Modules are configured via XML files (parsed by `TLModuleConfig`). The config fi
 
 - `<params>` — Module parameters
 - `<modules>` — Sub-module definitions with `classfile`, `singleton`, `onfactory`, etc.
-- `<modulesParams>` — Per-module parameter overrides
+- `<modulesParams>` — Per-module parameter overrides（一个模块多个参数，如 `<module name="aiContext" defaultSystemMessage="..."/>`）
+- `<paramsModules>` — Per-parameter multi-module assignment（一个参数多个模块，如 `<param name="loglevel" value="debug" modules="aiagent;openAiProvider"/>`）
 - `<initMsg>` / `<startMsg>` — Message sequences run at init/start
 - `<msgTable>` — Message routing table keyed by `msgid`
 - `<beforeMsgTable>` / `<afterMsgTable>` — Pre/post action hooks keyed by action name

@@ -14,6 +14,9 @@
         <ifLog value="true"/>
         <loglevel value="trace"/>
     </commonParams>
+    <modulesParams>
+        <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
+    </modulesParams>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>

@@ -20,6 +20,10 @@
         <package value="cn.tianlong.java.demo.aiagent"/>
     </params>
 
+    <modulesParams>
+        <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题。"/>
+    </modulesParams>
+
     <modules>
         <!-- ===== TLObject 核心框架模块 ===== -->
         <module name="threadPool"
