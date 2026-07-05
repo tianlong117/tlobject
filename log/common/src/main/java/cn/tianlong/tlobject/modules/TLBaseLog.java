@@ -16,6 +16,7 @@ public abstract class TLBaseLog extends TLBaseModule {
     protected  List<String> noLogModules ;
     protected  List<String> logModules ;
     protected  LogLevel syslogLevel =LogLevel.INFO;
+    protected  Boolean ifStartLog =true ;
     public TLBaseLog(){
         super();
     }
@@ -24,14 +25,17 @@ public abstract class TLBaseLog extends TLBaseModule {
     }
     public TLBaseLog(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
-        ifMonitor =false ;
+
     }
 
     @Override
     protected void initProperty(){
         super.initProperty();
+        ifLog=false ;
         if(params!=null )
         {
+            if (params.get("ifStartLog") != null)
+                ifStartLog = Boolean.parseBoolean(params.get("ifStartLog"));
             noLogModules= TLDataUtils.splitStrToList(params.get("noLogModules"),FENHAO) ;
             logModules= TLDataUtils.splitStrToList(params.get("logModules"),FENHAO) ;
             if(params.get("level")!=null)
@@ -90,7 +94,7 @@ public abstract class TLBaseLog extends TLBaseModule {
     }
 
     private void putLog(Object fromWho, TLMsg msg) {
-        if(ifLog ==false)
+        if(ifStartLog ==false)
             return  ;
         if(logWait==true)
             setLog(fromWho,msg);
@@ -111,7 +115,7 @@ public abstract class TLBaseLog extends TLBaseModule {
 
     }
     protected void setLog(Object fromWho, TLMsg msg) {
-        if(ifLog ==false)
+        if(ifStartLog ==false)
               return;
         String thread = (String) msg.getParam("thread");
         String moduleName=(String)msg.getParam(LOG_P_LOGMODULE);

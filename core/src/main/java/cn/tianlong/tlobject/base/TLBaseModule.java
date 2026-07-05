@@ -127,11 +127,12 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     protected void configure() {
         setConfig();
+        setSystemParams();
         initProperty();
         setfieldFromModule();
         reMakeProperty() ;
         setModuleParams();
-        setSystemParams();
+
     }
     protected Object setConfig() {
         String parseFile ;
@@ -1440,7 +1441,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     private boolean checkIfLog( LogLevel logLevel,String tag){
-        if (ifLog == false || name.equals(DEFAULTLOG))
+        if (ifLog == false)
             return false;
         if (logLevel.compareTo(defaultLoglevel) < 0)
             return false;

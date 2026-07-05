@@ -29,6 +29,7 @@ public class TLObjectFactory extends TLBaseModule {
     protected Boolean ifModuleMonitor = false;
     protected IObject moduleMonitor;
     protected boolean defaultUseParentFactory =true ;
+    protected String defaultLogModule ="log4j";
     protected HashMap<String, String> commonParams;         // 用于所有模块的公共参数
     protected ArrayList<TLMsg> factoryBoot;          //工厂启动msg 序列
     protected Map<String, TLBaseModule> factorys = new ConcurrentHashMap<>();
@@ -113,6 +114,8 @@ public class TLObjectFactory extends TLBaseModule {
         if (params != null) {
             if (params.get("package") != null)
                 packageName = params.get("package");
+            if (params.get("package") != null)
+                defaultLogModule = params.get("defaultLogModule");
             if (params.get("ifModuleMonitor") !=null)
                 ifModuleMonitor = Boolean.parseBoolean(params.get("ifModuleMonitor"));
             if (params.get("defaultUseParentFactory") !=null)
@@ -135,6 +138,8 @@ public class TLObjectFactory extends TLBaseModule {
     protected TLBaseModule init() {
         if (ifModuleMonitor)
             moduleMonitor = (IObject) getModule(DEFAULTMODULEMONITOR);
+         Object log =getModule(defaultLogModule);
+         modules.put(DEFAULTLOG,log);
         return this;
     }
 
@@ -738,7 +743,7 @@ public class TLObjectFactory extends TLBaseModule {
          return cparams ;
     }
     private Object createModule(String newModuleName, String classFilename, String configFile, HashMap<String, String> cparams) {
-        if (!newModuleName.equals(DEFAULTLOG))
+        if (!newModuleName.equals(DEFAULTLOG) || !newModuleName.equals(defaultLogModule))
             putLog(" 创建模块:" + newModuleName, LogLevel.DEBUG, "createModule");
         Object module = createObject(newModuleName, classFilename);
         if (module == null) {

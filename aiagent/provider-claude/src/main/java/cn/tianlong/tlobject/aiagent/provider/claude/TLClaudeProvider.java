@@ -271,24 +271,14 @@ public class TLClaudeProvider extends TLLlmProvider {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     protected TLMsg completionStream(Object fromWho, TLMsg msg) {
-        List<TLConversationHistory> messages =
-                (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
-        List<TLFunctionDefinition> tools =
-                (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
+        return doCompletionStream(fromWho, msg);
+    }
 
-        String jsonBody = buildRequestBody(msg, messages, tools, true);
-        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
-
-        String resultFor = msg.getStringParam(RESULTFOR, fromWho.toString());
-        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-
-        ClaudeStreamCallback callback = new ClaudeStreamCallback(resultFor, resultAction, sessionId, msg);
-        executeHttpRequestAsync(request, callback);
-
-        return null;
+    @Override
+    protected Callback createStreamCallback(String resultFor, String resultAction,
+                                             String sessionId, TLMsg msg) {
+        return new ClaudeStreamCallback(resultFor, resultAction, sessionId, msg);
     }
 
     @Override
@@ -300,17 +290,6 @@ public class TLClaudeProvider extends TLLlmProvider {
         models.add("claude-haiku-4-5-20251001");
         models.add("claude-fable-5-20250619");
         return createMsg().setParam(RESULT, true).setParam("models", models);
-    }
-
-    @Override
-    protected TLMsg cancel(Object fromWho, TLMsg msg) {
-        for (Call call : okHttpClient.dispatcher().queuedCalls()) {
-            call.cancel();
-        }
-        for (Call call : okHttpClient.dispatcher().runningCalls()) {
-            call.cancel();
-        }
-        return createMsg().setParam(RESULT, true);
     }
 
     // ======================== Claude SSE流式回调 ========================
@@ -352,7 +331,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                 return;
             }
 
-            try (BufferedReader reader = new BufferedReader(
+            try (Response resp = response;
+                 BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body().byteStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -367,6 +347,10 @@ public class TLClaudeProvider extends TLLlmProvider {
                             switch (eventType) {
                                 case "content_block_start":
                                     JsonObject contentBlock = chunk.getAsJsonObject("content_block");
+                                    if (contentBlock == null || !contentBlock.has("type")) {
+                                        putLog("SSE content_block_start missing content_block/type, skipping", LogLevel.WARN);
+                                        break;
+                                    }
                                     String blockType = contentBlock.get("type").getAsString();
                                     if ("tool_use".equals(blockType)) {
                                         int index = chunk.has("index") ? chunk.get("index").getAsInt() : accumulatedToolCalls.size();
@@ -383,6 +367,10 @@ public class TLClaudeProvider extends TLLlmProvider {
 
                                 case "content_block_delta":
                                     JsonObject delta = chunk.getAsJsonObject("delta");
+                                    if (delta == null || !delta.has("type")) {
+                                        putLog("SSE content_block_delta missing delta/type, skipping", LogLevel.WARN);
+                                        break;
+                                    }
                                     String deltaType = delta.get("type").getAsString();
                                     if ("text_delta".equals(deltaType)) {
                                         String text = delta.get("text").getAsString();
@@ -453,7 +441,7 @@ public class TLClaudeProvider extends TLLlmProvider {
                                     break;
                             }
                         } catch (Exception parseErr) {
-                            // 跳过无法解析的chunk
+                            putLog("SSE parse error: " + parseErr.toString(), LogLevel.WARN);
                         }
                     }
                 }

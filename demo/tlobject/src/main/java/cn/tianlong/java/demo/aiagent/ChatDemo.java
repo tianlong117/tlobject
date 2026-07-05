@@ -1,5 +1,6 @@
 package cn.tianlong.java.demo.aiagent;
 
+import cn.tianlong.java.demo.task.Main;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -34,11 +35,18 @@ public class ChatDemo implements TLAiAgentParamString {
         System.out.println("║   AI Agent 交互式 Chat Demo     ║");
         System.out.println("║   输入消息开始对话，/exit 退出   ║");
         System.out.println("╚══════════════════════════════════╝\n");
+        String configPath = "/conf/demo/aiagent/" ;
+        // 指定log4j2配置文件
+        String factoryConfigPath = Main.class.getResource(configPath).getPath();
+        System.setProperty("log4j.configurationFile", factoryConfigPath+"log4j2.xml");
+
+
 
         // 启动框架
+        String configPathStr = CLASSPATH+ configPath;
         HashMap<String, String> argsMap = new HashMap<>();
         argsMap.put("appName", "chatDemo");
-        argsMap.put("configPath", TLAppStartUp.CLASSPATH + "/conf/demo/aiagent/");
+        argsMap.put("configPath", configPathStr);
         argsMap.put("factoryConfigFile", "moduleFactory_chat_config.xml");
         argsMap.put("configFile", "startup_config.xml");
 

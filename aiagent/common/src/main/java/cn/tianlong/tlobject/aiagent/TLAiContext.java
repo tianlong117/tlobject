@@ -71,6 +71,9 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             case CONTEXT_CLEAR:
                 returnMsg = clear(fromWho, msg);
                 break;
+            case CONTEXT_REPLACE:
+                returnMsg = replace(fromWho, msg);
+                break;
             case CONTEXT_GETTURNCOUNT:
                 returnMsg = getTurnCount(fromWho, msg);
                 break;
@@ -137,6 +140,23 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         sessions.remove(sessionId);
         putLog("Context cleared for session: " + sessionId, LogLevel.DEBUG);
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 批量替换session历史（替代先CLEAR再逐条ADD的O(n²)模式）
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg replace(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        List<TLConversationHistory> newHistory = (List<TLConversationHistory>)
+                msg.getListParam(AI_P_MESSAGEHISTORY, null);
+        if (newHistory != null) {
+            sessions.put(sessionId, new ArrayList<>(newHistory));
+            trimHistory(sessions.get(sessionId));
+        } else {
+            sessions.remove(sessionId);
+        }
         return createMsg().setParam(RESULT, true);
     }
 

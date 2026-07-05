@@ -12,6 +12,7 @@ import javax.net.ssl.*;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     protected Long connTimeOut = 30L;    // 秒
     protected Long readTimeOut = 120L;   // 秒（LLM响应可能很慢）
     protected Long writeTimeOut = 30L;   // 秒
+    protected boolean verifySsl = true;  // 是否验证SSL证书，默认true（安全）
+    protected int maxRetries = 3;        // 最大重试次数
+    protected long retryDelayMs = 1000;  // 重试间隔（毫秒）
     protected Map<String, String> defaultHeaders;
     protected OkHttpClient okHttpClient;
     protected Gson gson;
@@ -68,6 +72,17 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             }
             if (params.get("writeTimeOut") != null) {
                 try { writeTimeOut = Long.parseLong(params.get("writeTimeOut")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("verifySsl") != null) {
+                verifySsl = Boolean.parseBoolean(params.get("verifySsl"));
+            }
+            if (params.get("maxRetries") != null) {
+                try { maxRetries = Integer.parseInt(params.get("maxRetries")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("retryDelayMs") != null) {
+                try { retryDelayMs = Long.parseLong(params.get("retryDelayMs")); }
                 catch (NumberFormatException ignored) {}
             }
         }
@@ -120,9 +135,10 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     protected abstract TLMsg listModels(Object fromWho, TLMsg msg);
 
     /**
-     * 取消进行中的请求
+     * 创建流式回调（子类实现，返回OkHttp Callback）
      */
-    protected abstract TLMsg cancel(Object fromWho, TLMsg msg);
+    protected abstract Callback createStreamCallback(String resultFor, String resultAction,
+                                                      String sessionId, TLMsg msg);
 
     /**
      * 构建provider特定的请求体JSON
@@ -143,6 +159,43 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     // ======================== 模板方法（共享实现） ========================
 
     /**
+     * 流式completion请求模板方法。
+     * 子类只需实现 createStreamCallback() 提供各自的SSE回调。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg doCompletionStream(Object fromWho, TLMsg msg) {
+        List<TLConversationHistory> messages =
+                (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
+        List<TLFunctionDefinition> tools =
+                (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
+
+        String jsonBody = buildRequestBody(msg, messages, tools, true);
+        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
+
+        String resultFor = msg.getStringParam(RESULTFOR, fromWho.toString());
+        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+
+        Callback callback = createStreamCallback(resultFor, resultAction, sessionId, msg);
+        executeHttpRequestAsync(request, callback);
+
+        return null; // 异步，无返回值
+    }
+
+    /**
+     * 取消所有进行中的HTTP请求
+     */
+    protected TLMsg cancel(Object fromWho, TLMsg msg) {
+        for (Call call : okHttpClient.dispatcher().queuedCalls()) {
+            call.cancel();
+        }
+        for (Call call : okHttpClient.dispatcher().runningCalls()) {
+            call.cancel();
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
      * 构建默认的OkHttpClient
      */
     protected OkHttpClient buildDefaultHttpClient() {
@@ -151,21 +204,24 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 .readTimeout(readTimeOut, TimeUnit.SECONDS)
                 .writeTimeout(writeTimeOut, TimeUnit.SECONDS);
 
-        // 信任所有证书（生产环境应配置正确证书）
-        try {
-            TrustManager[] trustAllCerts = new TrustManager[]{
-                new X509TrustManager() {
-                    @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
-                    @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
-                    @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                }
-            };
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAllCerts, new SecureRandom());
-            builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0]);
-            builder.hostnameVerifier((hostname, session) -> true);
-        } catch (Exception e) {
-            putLog("SSL init error: " + e.toString(), LogLevel.WARN);
+        if (!verifySsl) {
+            // 信任所有证书（仅开发环境使用，生产环境应配置正确证书）
+            try {
+                TrustManager[] trustAllCerts = new TrustManager[]{
+                    new X509TrustManager() {
+                        @Override public void checkClientTrusted(X509Certificate[] chain, String authType) {}
+                        @Override public void checkServerTrusted(X509Certificate[] chain, String authType) {}
+                        @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                    }
+                };
+                SSLContext sslContext = SSLContext.getInstance("TLS");
+                sslContext.init(null, trustAllCerts, new SecureRandom());
+                builder.sslSocketFactory(sslContext.getSocketFactory(), (X509TrustManager) trustAllCerts[0]);
+                builder.hostnameVerifier((hostname, session) -> true);
+                putLog("SSL verification disabled (verifySsl=false) - NOT for production!", LogLevel.WARN);
+            } catch (Exception e) {
+                putLog("SSL init error: " + e.toString(), LogLevel.WARN);
+            }
         }
 
         return builder.build();
@@ -216,32 +272,87 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     }
 
     /**
-     * 同步执行HTTP请求
+     * 同步执行HTTP请求（带重试机制）
+     * 可重试的错误: 网络异常、429(Rate Limit)、502/503/504(服务端临时错误)
      */
     protected TLMsg executeHttpRequest(Request request, Object fromWho, TLMsg msg) {
-        try {
-            Response response = okHttpClient.newCall(request).execute();
-            String responseBody = response.body() != null ? response.body().string() : "";
-            int statusCode = response.code();
-            response.close();
+        int attempt = 0;
+        Exception lastException = null;
+        int lastStatusCode = 0;
+        String lastBody = "";
 
-            TLMsg returnMsg = createMsg()
-                    .setParam(AI_P_HTTPSTATUS, statusCode)
-                    .setParam(AI_P_RESPONSEBODY, responseBody);
+        while (attempt <= maxRetries) {
+            attempt++;
+            try {
+                Response response = okHttpClient.newCall(request).execute();
+                String responseBody = response.body() != null ? response.body().string() : "";
+                int statusCode = response.code();
+                response.close();
 
-            if (statusCode >= 200 && statusCode < 300) {
-                returnMsg.setParam(RESULT, true);
-            } else {
-                returnMsg.setParam(RESULT, false);
+                if (statusCode >= 200 && statusCode < 300) {
+                    return createMsg()
+                            .setParam(AI_P_HTTPSTATUS, statusCode)
+                            .setParam(AI_P_RESPONSEBODY, responseBody)
+                            .setParam(RESULT, true);
+                }
+
+                // 可重试的状态码
+                if (isRetryableStatus(statusCode) && attempt <= maxRetries) {
+                    lastStatusCode = statusCode;
+                    lastBody = responseBody;
+                    long delay = getRetryDelay(response, attempt);
+                    putLog("LLM retry " + attempt + "/" + maxRetries + " after HTTP " + statusCode
+                            + " (delay " + delay + "ms)", LogLevel.WARN);
+                    try { Thread.sleep(delay); } catch (InterruptedException ignored) {}
+                    continue;
+                }
+
+                // 不可重试的错误
                 putLog("LLM HTTP error: " + statusCode + " body="
                         + (responseBody.length() > 500 ? responseBody.substring(0, 500) : responseBody),
                         LogLevel.ERROR);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_HTTPSTATUS, statusCode)
+                        .setParam(AI_P_RESPONSEBODY, responseBody);
+
+            } catch (IOException e) {
+                lastException = e;
+                if (attempt <= maxRetries) {
+                    putLog("LLM retry " + attempt + "/" + maxRetries + " after IO error: "
+                            + e.toString(), LogLevel.WARN);
+                    try { Thread.sleep(retryDelayMs); } catch (InterruptedException ignored) {}
+                }
             }
-            return returnMsg;
-        } catch (IOException e) {
-            putLog("LLM HTTP exception: " + e.toString(), LogLevel.ERROR);
-            return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
+
+        // 所有重试已用尽
+        putLog("LLM HTTP all retries exhausted (status=" + lastStatusCode + ")", LogLevel.ERROR);
+        TLMsg failed = createMsg().setParam(RESULT, false)
+                .setParam(AI_P_HTTPSTATUS, lastStatusCode)
+                .setParam(AI_P_RESPONSEBODY, lastBody);
+        if (lastException != null) {
+            failed.setParam(EXCEPTION, lastException.getMessage());
+        }
+        return failed;
+    }
+
+    /**
+     * 判断HTTP状态码是否可重试
+     */
+    private boolean isRetryableStatus(int statusCode) {
+        return statusCode == 429 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    }
+
+    /**
+     * 计算重试延迟，优先使用Retry-After头
+     */
+    private long getRetryDelay(Response response, int attempt) {
+        String retryAfter = response.header("Retry-After");
+        if (retryAfter != null) {
+            try { return Long.parseLong(retryAfter) * 1000; }
+            catch (NumberFormatException ignored) {}
+        }
+        return retryDelayMs * attempt; // 线性退避
     }
 
     /**

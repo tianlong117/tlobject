@@ -8,13 +8,12 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.reflect.TypeToken;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 /**
@@ -39,11 +38,20 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     /** JSON序列化 */
     private Gson gson;
 
-    /** 脏标记：需要持久化的key集合 */
-    private Set<String> dirtyKeys;
+    /** 新增条目队列（用于增量追加写入） */
+    private ConcurrentLinkedQueue<TLMemoryEntry> pendingWrites;
 
-    /** 存储文件名 */
-    private static final String STORE_FILE = "memory_store.json";
+    /** 异步写入线程 */
+    private ExecutorService writeExecutor;
+
+    /** 存储文件名——JSONL格式（每行一个JSON entry） */
+    private static final String STORE_FILE = "memory_store.jsonl";
+
+    /** compact阈值：dirty/deleted条目数超过此值时触发compact */
+    private static final int COMPACT_THRESHOLD = 100;
+
+    /** 已删除条目的key集合（用于compact时过滤） */
+    private Set<String> deletedKeys;
 
     /** 是否已加载 */
     private boolean loaded = false;
@@ -78,9 +86,15 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
 
     @Override
     protected TLBaseModule init() {
-        gson = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").setPrettyPrinting().create();
+        gson = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").create();
         cache = new ConcurrentHashMap<>();
-        dirtyKeys = ConcurrentHashMap.newKeySet();
+        pendingWrites = new ConcurrentLinkedQueue<>();
+        deletedKeys = ConcurrentHashMap.newKeySet();
+        writeExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "longterm-memory-writer");
+            t.setDaemon(true);
+            return t;
+        });
         loadFromDisk();
         return this;
     }
@@ -113,8 +127,11 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         }
 
         cache.put(entry.getKey(), entry);
-        dirtyKeys.add(entry.getKey());
-        persistToDisk();
+        // 强制maxCacheEntries限制
+        ensureCapacity();
+        // 增量异步写入：只追加新条目到JSONL文件
+        pendingWrites.add(entry);
+        schedulePersist();
 
         putLog("Long-term memory stored: " + entry.getKey(), LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true).setParam("key", entry.getKey());
@@ -136,8 +153,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         }
         if (entry.isExpired()) {
             cache.remove(scopedKey);
-            dirtyKeys.add(scopedKey);
-            persistToDisk();
+            deletedKeys.add(scopedKey);
+            schedulePersist();
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_MEMORYRESULT, null);
         }
@@ -190,8 +207,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + key;
         TLMemoryEntry removed = cache.remove(scopedKey);
         if (removed != null) {
-            dirtyKeys.add(scopedKey);
-            persistToDisk();
+            deletedKeys.add(scopedKey);
+            schedulePersist();
         }
 
         return createMsg().setParam(RESULT, removed != null).setParam("removed", removed != null);
@@ -203,16 +220,17 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         if (sessionId.isEmpty()) {
             int size = cache.size();
             cache.clear();
-            dirtyKeys.clear();
-            persistToDisk();
+            deletedKeys.clear();
+            // 全量清除：compact时重写空文件
+            scheduleCompact();
             putLog("All long-term memory cleared: " + size + " entries", LogLevel.DEBUG);
             return createMsg().setParam(RESULT, true).setParam("cleared", size);
         } else {
             List<String> toRemove = cache.keySet().stream()
                     .filter(k -> k.startsWith(sessionId + ":"))
                     .collect(Collectors.toList());
-            toRemove.forEach(k -> { cache.remove(k); dirtyKeys.add(k); });
-            persistToDisk();
+            toRemove.forEach(k -> { cache.remove(k); deletedKeys.add(k); });
+            scheduleCompact();
             putLog("Long-term memory cleared for session: " + sessionId + " (" + toRemove.size() + " entries)", LogLevel.DEBUG);
             return createMsg().setParam(RESULT, true).setParam("cleared", toRemove.size());
         }
@@ -221,7 +239,7 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     // ======================== 持久化方法 ========================
 
     /**
-     * 从磁盘加载记忆
+     * 从磁盘加载记忆（JSONL格式，每行一条记录）
      */
     protected synchronized void loadFromDisk() {
         Path filePath = Paths.get(storagePath, STORE_FILE);
@@ -231,24 +249,22 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             return;
         }
 
-        try {
-            String json = new String(Files.readAllBytes(filePath), StandardCharsets.UTF_8);
-            if (json.trim().isEmpty()) {
-                loaded = true;
-                return;
-            }
-
-            java.lang.reflect.Type type = new TypeToken<List<TLMemoryEntry>>(){}.getType();
-            List<TLMemoryEntry> entries = gson.fromJson(json, type);
-
-            if (entries != null) {
-                for (TLMemoryEntry entry : entries) {
-                    if (!entry.isExpired() && entry.getKey() != null) {
+        try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
+            String line;
+            int loadedCount = 0;
+            while ((line = reader.readLine()) != null) {
+                if (line.trim().isEmpty()) continue;
+                try {
+                    TLMemoryEntry entry = gson.fromJson(line, TLMemoryEntry.class);
+                    if (entry != null && !entry.isExpired() && entry.getKey() != null) {
                         cache.put(entry.getKey(), entry);
+                        loadedCount++;
                     }
+                } catch (Exception e) {
+                    putLog("Skip corrupted line in memory store: " + e.toString(), LogLevel.WARN);
                 }
-                putLog("Loaded " + cache.size() + " memory entries from disk.", LogLevel.DEBUG);
             }
+            putLog("Loaded " + loadedCount + " memory entries from disk (JSONL).", LogLevel.DEBUG);
         } catch (IOException e) {
             putLog("Failed to load memory from disk: " + e.getMessage(), LogLevel.ERROR);
         }
@@ -256,31 +272,112 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     }
 
     /**
-     * 持久化到磁盘
+     * 调度增量持久化（异步追加写入pending entries）
      */
-    protected synchronized void persistToDisk() {
-        if (!loaded) return; // 初始化阶段不持久化
+    private void schedulePersist() {
+        if (!loaded) return;
+        writeExecutor.submit(() -> {
+            try {
+                persistPending();
+            } catch (Exception e) {
+                putLog("Async persist error: " + e.getMessage(), LogLevel.ERROR);
+            }
+        });
+    }
+
+    /**
+     * 调度compact（异步重写全文件，去除deleted/expired条目）
+     */
+    private void scheduleCompact() {
+        if (!loaded) return;
+        writeExecutor.submit(() -> {
+            try {
+                compact();
+            } catch (Exception e) {
+                putLog("Async compact error: " + e.getMessage(), LogLevel.ERROR);
+            }
+        });
+    }
+
+    /**
+     * 增量追加pending entries到JSONL文件
+     */
+    protected synchronized void persistPending() {
+        if (!loaded) return;
+        if (pendingWrites.isEmpty()) return;
 
         try {
             Path dirPath = Paths.get(storagePath);
             if (!Files.exists(dirPath)) {
                 Files.createDirectories(dirPath);
             }
+            Path filePath = dirPath.resolve(STORE_FILE);
+
+            List<String> lines = new ArrayList<>();
+            TLMemoryEntry entry;
+            while ((entry = pendingWrites.poll()) != null) {
+                lines.add(gson.toJson(entry));
+            }
+
+            if (!lines.isEmpty()) {
+                Files.write(filePath, lines, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            }
+
+            // 如果删除条目过多，触发compact
+            if (deletedKeys.size() >= COMPACT_THRESHOLD) {
+                compact();
+            }
+        } catch (IOException e) {
+            putLog("Failed to persist pending entries: " + e.getMessage(), LogLevel.ERROR);
+        }
+    }
+
+    /**
+     * Compact：重写全文件，去除已删除和已过期的条目
+     */
+    protected synchronized void compact() {
+        if (!loaded) return;
+        try {
+            Path dirPath = Paths.get(storagePath);
+            if (!Files.exists(dirPath)) {
+                Files.createDirectories(dirPath);
+            }
+            Path filePath = dirPath.resolve(STORE_FILE);
 
             // 清理过期条目
             cache.values().removeIf(TLMemoryEntry::isExpired);
 
-            Path filePath = dirPath.resolve(STORE_FILE);
-            // 按时间排序后持久化
+            // 重写整个文件（只保留未删除的有效条目）
             List<TLMemoryEntry> sorted = new ArrayList<>(cache.values());
             sorted.sort((a, b) -> Long.compare(a.getCreatedAt(), b.getCreatedAt()));
-            String json = gson.toJson(sorted);
-            Files.write(filePath, json.getBytes(StandardCharsets.UTF_8),
+
+            List<String> lines = new ArrayList<>();
+            for (TLMemoryEntry e : sorted) {
+                lines.add(gson.toJson(e));
+            }
+
+            Files.write(filePath, lines, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
 
-            dirtyKeys.clear();
+            deletedKeys.clear();
+            putLog("Memory store compacted: " + sorted.size() + " entries", LogLevel.DEBUG);
         } catch (IOException e) {
-            putLog("Failed to persist memory: " + e.getMessage(), LogLevel.ERROR);
+            putLog("Failed to compact memory: " + e.getMessage(), LogLevel.ERROR);
         }
+    }
+
+    /**
+     * 确保缓存不超过maxCacheEntries，超出时驱逐最旧条目
+     */
+    private void ensureCapacity() {
+        if (cache.size() <= maxCacheEntries) return;
+        // 找到最旧的条目并移除
+        cache.values().stream()
+                .min(Comparator.comparingLong(TLMemoryEntry::getCreatedAt))
+                .ifPresent(oldest -> {
+                    cache.remove(oldest.getKey());
+                    deletedKeys.add(oldest.getKey());
+                });
     }
 }

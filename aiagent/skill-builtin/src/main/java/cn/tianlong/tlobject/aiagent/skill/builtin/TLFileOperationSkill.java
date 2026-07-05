@@ -159,14 +159,15 @@ public class TLFileOperationSkill extends TLBaseSkill {
             if (parent != null) {
                 Files.createDirectories(parent);
             }
-            Files.write(path, content.getBytes(StandardCharsets.UTF_8));
-            putLog("File written: " + path + " (" + content.length() + " chars)", LogLevel.DEBUG);
+            byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+            Files.write(path, contentBytes);
+            putLog("File written: " + path + " (" + contentBytes.length + " bytes)", LogLevel.DEBUG);
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("written", true);
             result.put("path", path.toString());
-            result.put("bytes", content.getBytes(StandardCharsets.UTF_8).length);
+            result.put("bytes", contentBytes.length);
             return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT,
-                    "File written successfully: " + path + " (" + content.length() + " chars)");
+                    "File written successfully: " + path + " (" + contentBytes.length + " bytes)");
         } catch (IOException e) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Write error: " + e.getMessage());

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
-        <ifLog value="true"/>
+        <ifStartLog value="true"/>
         <logWait value="false"/>
         <level value="debug"/>
         <logModules value=""/>

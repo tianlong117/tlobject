@@ -112,6 +112,22 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
     }
 
     /**
+     * 查找可用的Python命令（优先python3，不可用时回退python）
+     */
+    private String findPythonCommand() {
+        // 先尝试python3
+        try {
+            ProcessBuilder pb = new ProcessBuilder("python3", "--version");
+            Process p = pb.start();
+            if (p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0) {
+                return "python3";
+            }
+        } catch (Exception ignored) {}
+        // 回退到python（Windows通常用python）
+        return "python";
+    }
+
+    /**
      * 通过子进程执行Python代码
      */
     private TLMsg executePython(String code) {
@@ -122,7 +138,9 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
                 writer.write(code);
             }
 
-            ProcessBuilder pb = new ProcessBuilder("python3", tempFile.getAbsolutePath());
+            // 兼容Windows (python) 和 Linux/Mac (python3)
+            String pythonCmd = findPythonCommand();
+            ProcessBuilder pb = new ProcessBuilder(pythonCmd, tempFile.getAbsolutePath());
             pb.redirectErrorStream(true);
 
             Process process = pb.start();
@@ -161,7 +179,7 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
         } catch (IOException e) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Python execution failed: " + e.getMessage()
-                            + "\nMake sure python3 is installed.");
+                            + "\nMake sure python or python3 is installed and available in PATH.");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return createMsg().setParam(RESULT, false)

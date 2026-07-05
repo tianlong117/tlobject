@@ -17,6 +17,13 @@
             <artifactId>tlobject-aiagent-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- GraalVM JavaScript engine (JDK 17+ 替代已移除的Nashorn) -->
+        <dependency>
+            <groupId>org.graalvm.js</groupId>
+            <artifactId>js</artifactId>
+            <version>23.0.0</version>
+            <optional>true</optional>
+        </dependency>
     </dependencies>
     <build>
         <plugins>

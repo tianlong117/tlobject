@@ -23,10 +23,11 @@ import java.util.concurrent.TimeUnit;
  */
 public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamString {
 
+    private final Object bufferLock = new Object();
     private StringBuilder streamBuffer = new StringBuilder();
     private CountDownLatch streamLatch;
     private volatile boolean streamDone = false;
-    private String streamError = null;
+    private volatile String streamError = null;
 
     public TLStreamCallback() {
         super();
@@ -49,13 +50,13 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         switch (msg.getAction()) {
-            case "onStreamChunk":  return onStreamChunk(fromWho, msg);
-            case "onStreamDone":   return onStreamDone(fromWho, msg);
-            case "onStreamError":  return onStreamError(fromWho, msg);
-            case "getStreamBuffer": return getStreamBuffer(fromWho, msg);
-            case "clearStreamBuffer": return clearStreamBuffer(fromWho, msg);
-            case "resetStream":    return resetStream(fromWho, msg);
-            case "waitForStream":  return waitForStream(fromWho, msg);
+            case STREAM_ONCHUNK:  return onStreamChunk(fromWho, msg);
+            case STREAM_ONDONE:   return onStreamDone(fromWho, msg);
+            case STREAM_ONERROR:  return onStreamError(fromWho, msg);
+            case STREAM_GETBUFFER: return getStreamBuffer(fromWho, msg);
+            case STREAM_CLEARBUFFER: return clearStreamBuffer(fromWho, msg);
+            case STREAM_RESET:    return resetStream(fromWho, msg);
+            case STREAM_WAITFORSTREAM:  return waitForStream(fromWho, msg);
             default: return null;
         }
     }
@@ -63,22 +64,26 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     // ======================== 流式回调处理 ========================
 
     protected TLMsg onStreamChunk(Object fromWho, TLMsg msg) {
-        if (msg.containsParam(AI_P_CHUNK)) {
-            streamBuffer.append(msg.getStringParam(AI_P_CHUNK, ""));
-        }
-        if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
-            onStreamDone(fromWho, msg);
-        }
-        if (msg.containsParam(AI_P_STREAMERROR)) {
-            onStreamError(fromWho, msg);
+        synchronized (bufferLock) {
+            if (msg.containsParam(AI_P_CHUNK)) {
+                streamBuffer.append(msg.getStringParam(AI_P_CHUNK, ""));
+            }
+            if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
+                onStreamDone(fromWho, msg);
+            }
+            if (msg.containsParam(AI_P_STREAMERROR)) {
+                onStreamError(fromWho, msg);
+            }
         }
         return null;
     }
 
     protected TLMsg onStreamDone(Object fromWho, TLMsg msg) {
-        streamDone = true;
-        if (msg.containsParam(AI_P_RESPONSE) && streamBuffer.length() == 0) {
-            streamBuffer.append(msg.getStringParam(AI_P_RESPONSE, ""));
+        synchronized (bufferLock) {
+            streamDone = true;
+            if (msg.containsParam(AI_P_RESPONSE) && streamBuffer.length() == 0) {
+                streamBuffer.append(msg.getStringParam(AI_P_RESPONSE, ""));
+            }
         }
         if (streamLatch != null) streamLatch.countDown();
         putLog("Stream completed: " + streamBuffer.length() + " chars", LogLevel.DEBUG);
@@ -87,7 +92,9 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
 
     protected TLMsg onStreamError(Object fromWho, TLMsg msg) {
         streamError = msg.getStringParam(AI_P_STREAMERROR, "Unknown stream error");
-        streamDone = true;
+        synchronized (bufferLock) {
+            streamDone = true;
+        }
         if (streamLatch != null) streamLatch.countDown();
         putLog("Stream error: " + streamError, LogLevel.ERROR);
         return null;
@@ -96,15 +103,19 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     // ======================== 工具方法 ========================
 
     protected TLMsg getStreamBuffer(Object fromWho, TLMsg msg) {
-        return createMsg().setParam(RESULT, true)
-                .setParam("content", streamBuffer.toString())
-                .setParam("length", streamBuffer.length())
-                .setParam("streamDone", streamDone)
-                .setParam(AI_P_STREAMERROR, streamError);
+        synchronized (bufferLock) {
+            return createMsg().setParam(RESULT, true)
+                    .setParam("content", streamBuffer.toString())
+                    .setParam("length", streamBuffer.length())
+                    .setParam("streamDone", streamDone)
+                    .setParam(AI_P_STREAMERROR, streamError);
+        }
     }
 
     protected TLMsg clearStreamBuffer(Object fromWho, TLMsg msg) {
-        streamBuffer = new StringBuilder();
+        synchronized (bufferLock) {
+            streamBuffer = new StringBuilder();
+        }
         return createMsg().setParam(RESULT, true);
     }
 
@@ -117,11 +128,13 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
         int timeoutSeconds = msg.getIntParam("timeout", 60);
         try {
             boolean completed = streamLatch.await(timeoutSeconds, TimeUnit.SECONDS);
-            return createMsg().setParam(RESULT, completed)
-                    .setParam("content", streamBuffer.toString())
-                    .setParam("streamDone", streamDone)
-                    .setParam(AI_P_STREAMERROR, streamError)
-                    .setParam("timedOut", !completed);
+            synchronized (bufferLock) {
+                return createMsg().setParam(RESULT, completed)
+                        .setParam("content", streamBuffer.toString())
+                        .setParam("streamDone", streamDone)
+                        .setParam(AI_P_STREAMERROR, streamError)
+                        .setParam("timedOut", !completed);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return createMsg().setParam(RESULT, false)
@@ -132,13 +145,19 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     // ======================== 内部方法 ========================
 
     private void resetStreamState() {
-        streamBuffer = new StringBuilder();
-        streamDone = false;
-        streamError = null;
+        synchronized (bufferLock) {
+            streamBuffer = new StringBuilder();
+            streamDone = false;
+            streamError = null;
+        }
         streamLatch = new CountDownLatch(1);
     }
 
-    public String getContent() { return streamBuffer.toString(); }
+    public String getContent() {
+        synchronized (bufferLock) {
+            return streamBuffer.toString();
+        }
+    }
     public boolean isStreamDone() { return streamDone; }
     public String getStreamError() { return streamError; }
 }

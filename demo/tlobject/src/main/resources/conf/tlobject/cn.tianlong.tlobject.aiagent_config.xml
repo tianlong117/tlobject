@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+        <!-- 系统模块 -->
+        <!-- aiagent-->
+        <module name="aiagent" classfile="cn.tianlong.tlobject.aiagent.TLAiAgent" singleton="true"/>
+        <module name="aiContext" classfile="cn.tianlong.tlobject.aiagent.TLAiContext" singleton="true"/>
+        <module name="openAiProvider" classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                singleton="true"/>
+        <module name="claudeProvider" classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
+                singleton="true"/>
+        <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
+                singleton="true"/>
+        <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+                singleton="true"/>
+        <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
+                singleton="true"/>
+        <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
+                singleton="true"/>
+        <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                singleton="true"/>
+        <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
+    </modules>
+</moduleConfig>

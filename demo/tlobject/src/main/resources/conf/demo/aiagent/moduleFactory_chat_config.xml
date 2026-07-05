@@ -2,34 +2,20 @@
 <moduleConfig>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
-
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.aiagent_config.xml" includeUnit="modules"/>
     <params>
         <applicationId value="chatDemo"/>
         <ifLog value="true"/>
-        <loglevel value="INFO"/>
+        <loglevel value="debug"/>
+        <defaultLogModule value="log4j"/>
         <package value="cn.tianlong.java.demo.aiagent"/>
     </params>
-
-    <modules>
-        <module name="threadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool"/>
-        <module name="logThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool"/>
-        <module name="log" classfile="cn.tianlong.tlobject.modules.TLMsgLog"/>
-
-        <module name="aiagent" classfile="cn.tianlong.tlobject.aiagent.TLAiAgent" configfile="CLASSPATH/conf/demo/aiagent/aiagent_config.xml" singleton="true"/>
-        <module name="aiContext" classfile="cn.tianlong.tlobject.aiagent.TLAiContext" singleton="true"/>
-        <module name="openAiProvider" classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider" singleton="true"/>
-        <module name="claudeProvider" classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider" singleton="true"/>
-        <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill" singleton="true"/>
-        <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill" singleton="true"/>
-        <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill" singleton="true"/>
-        <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule" singleton="true"/>
-        <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule" singleton="true"/>
-        <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
-    </modules>
-
+    <commonParams>
+        <ifLog value="true"/>
+        <loglevel value="trace"/>
+    </commonParams>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="log"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>

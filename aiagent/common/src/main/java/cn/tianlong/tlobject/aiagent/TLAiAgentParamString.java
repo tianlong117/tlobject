@@ -63,6 +63,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String CONTEXT_GETMESSAGES = "getMessages";
     /** 清除会话历史 */
     String CONTEXT_CLEAR = "clearContext";
+    /** 批量替换会话历史 */
+    String CONTEXT_REPLACE = "replaceContext";
     /** 获取对话轮次计数 */
     String CONTEXT_GETTURNCOUNT = "getTurnCount";
     /** 设置系统消息 */
@@ -149,4 +151,20 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_MAXHISTORYTURNS = "maxHistoryTurns";
     String AI_P_DEFAULTSKILLPACKAGENAME = "defaultSkillPackageName";
     String AI_P_DEFAULTMEMORYPACKAGENAME = "defaultMemoryPackageName";
+
+    // ======================== Stream Callback 动作 ========================
+    /** 流式块到达 */
+    String STREAM_ONCHUNK = "onStreamChunk";
+    /** 流式完成 */
+    String STREAM_ONDONE = "onStreamDone";
+    /** 流式错误 */
+    String STREAM_ONERROR = "onStreamError";
+    /** 获取流缓冲 */
+    String STREAM_GETBUFFER = "getStreamBuffer";
+    /** 清空流缓冲 */
+    String STREAM_CLEARBUFFER = "clearStreamBuffer";
+    /** 重置流状态 */
+    String STREAM_RESET = "resetStream";
+    /** 等待流完成 */
+    String STREAM_WAITFORSTREAM = "waitForStream";
 }

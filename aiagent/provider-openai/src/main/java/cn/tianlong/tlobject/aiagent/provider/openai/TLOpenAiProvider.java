@@ -213,9 +213,13 @@ public class TLOpenAiProvider extends TLLlmProvider {
             tc.setType(tcObj.has("type") ? tcObj.get("type").getAsString() : "function");
 
             JsonObject func = tcObj.getAsJsonObject("function");
+            if (func == null || !func.has("name")) {
+                putLog("Tool call missing function name, skipping", LogLevel.WARN);
+                continue;
+            }
             tc.setFunctionName(func.get("name").getAsString());
 
-            String argsStr = func.get("arguments").getAsString();
+            String argsStr = func.has("arguments") ? func.get("arguments").getAsString() : null;
             if (argsStr != null && !argsStr.isEmpty()) {
                 try {
                     Map<String, Object> args = gson.fromJson(argsStr, Map.class);
@@ -262,24 +266,14 @@ public class TLOpenAiProvider extends TLLlmProvider {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     protected TLMsg completionStream(Object fromWho, TLMsg msg) {
-        List<TLConversationHistory> messages =
-                (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
-        List<TLFunctionDefinition> tools =
-                (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
+        return doCompletionStream(fromWho, msg);
+    }
 
-        String jsonBody = buildRequestBody(msg, messages, tools, true);
-        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
-
-        String resultFor = msg.getStringParam(RESULTFOR, fromWho.toString());
-        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-
-        StreamCallback callback = new StreamCallback(resultFor, resultAction, sessionId, msg);
-        executeHttpRequestAsync(request, callback);
-
-        return null; // 异步，无返回值
+    @Override
+    protected Callback createStreamCallback(String resultFor, String resultAction,
+                                             String sessionId, TLMsg msg) {
+        return new StreamCallback(resultFor, resultAction, sessionId, msg);
     }
 
     @Override
@@ -313,17 +307,6 @@ public class TLOpenAiProvider extends TLLlmProvider {
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
-    }
-
-    @Override
-    protected TLMsg cancel(Object fromWho, TLMsg msg) {
-        for (Call call : okHttpClient.dispatcher().queuedCalls()) {
-            call.cancel();
-        }
-        for (Call call : okHttpClient.dispatcher().runningCalls()) {
-            call.cancel();
-        }
-        return createMsg().setParam(RESULT, true);
     }
 
     // ======================== SSE流式回调内部类 ========================
@@ -364,7 +347,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 return;
             }
 
-            try (BufferedReader reader = new BufferedReader(
+            try (Response resp = response;
+                 BufferedReader reader = new BufferedReader(
                     new InputStreamReader(response.body().byteStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
@@ -372,6 +356,20 @@ public class TLOpenAiProvider extends TLLlmProvider {
                     if (line.startsWith("data: ")) {
                         String data = line.substring(6);
                         if ("[DONE]".equals(data.trim())) {
+                            // 解析流式累积的tool call arguments
+                            for (TLToolCall tc : accumulatedToolCalls) {
+                                if (tc.getArguments() != null && tc.getArguments().containsKey("_rawArgs")) {
+                                    String rawArgs = (String) tc.getArguments().remove("_rawArgs");
+                                    if (rawArgs != null && !rawArgs.isEmpty()) {
+                                        try {
+                                            Map<String, Object> parsed = gson.fromJson(rawArgs, Map.class);
+                                            tc.setArguments(parsed);
+                                        } catch (Exception e) {
+                                            putLog("Failed to parse streamed tool call args: " + e.toString(), LogLevel.WARN);
+                                        }
+                                    }
+                                }
+                            }
                             // 发送完成信号
                             TLMsg doneMsg = createMsg()
                                     .setAction(resultAction)
@@ -444,7 +442,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                 }
                             }
                         } catch (Exception parseErr) {
-                            // 跳过无法解析的chunk
+                            putLog("SSE parse error: " + parseErr.toString(), LogLevel.WARN);
                         }
                     }
                 }

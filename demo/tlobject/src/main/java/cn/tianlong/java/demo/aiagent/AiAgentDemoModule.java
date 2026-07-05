@@ -147,6 +147,12 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
         log("===== AI Agent Framework Demo Tests End =====");
         log(String.format("[TEST] 汇总: 通过=%d, 失败=%d, 跳过=%d", passed, failed, skipped));
 
+        // 清理线程池
+        if (testExecutor != null && !testExecutor.isShutdown()) {
+            testExecutor.shutdown();
+            log("[TEST] Thread pool shutdown.");
+        }
+
         return createMsg().setParam(RESULT, failed == 0)
                 .setParam("passed", passed).setParam("failed", failed).setParam("skipped", skipped);
     }

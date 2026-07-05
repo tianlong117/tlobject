@@ -410,17 +410,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     private String doStreamCall(List<TLConversationHistory> history,
                                  List<TLFunctionDefinition> toolDefs,
                                  String sessionId, String model) {
-        TLBaseModule cb = (TLBaseModule) getModule("streamCallback");
+        TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
+                ? (TLBaseModule) getModule("streamCallback") : null;
         if (cb == null) return null;
 
-        putMsg(cb, createMsg().setAction("resetStream"));
+        putMsg(cb, createMsg().setAction(STREAM_RESET));
         TLMsg sm = createMsg().setAction(LLM_COMPLETIONSTREAM)
                 .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_FUNCTIONDEFS, toolDefs)
                 .setParam(AI_P_MODEL, model).setParam(AI_P_SESSIONID, sessionId)
-                .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, "onStreamChunk");
+                .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, STREAM_ONCHUNK);
         putMsg(llmProvider, sm);
 
-        TLMsg wr = putMsg(cb, createMsg().setAction("waitForStream").setParam("timeout", 120));
+        TLMsg wr = putMsg(cb, createMsg().setAction(STREAM_WAITFORSTREAM).setParam("timeout", 120));
         return wr.getStringParam("content", null);
     }
 
@@ -467,8 +468,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 处理流式LLM响应结果（回调）
+     * 处理流式LLM响应结果（回调）。
+     * 当流式响应包含tool_calls时，自动执行skills并继续chat循环，
+     * 最终将完整的文本响应转发给原始调用者。
      */
+    @SuppressWarnings("unchecked")
     protected TLMsg onStreamResult(Object fromWho, TLMsg msg) {
         String resultFor = msg.getStringParam("_streamResultFor", "caller");
         String resultAction = msg.getStringParam("_streamResultAction", "onStreamChunk");
@@ -476,19 +480,108 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
         // 转发chunk或完成信号给原始调用者
         if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
-            // 流完成
-            TLMsg doneMsg = createMsg()
-                    .setAction(resultAction)
-                    .setParam(AI_P_STREAMDONE, true)
-                    .setParam(AI_P_RESPONSE, msg.getStringParam(AI_P_RESPONSE, ""))
-                    .setParam(AI_P_SESSIONID, sessionId);
+            String streamedText = msg.getStringParam(AI_P_RESPONSE, "");
+            boolean hasToolCalls = msg.parseBoolean("hasToolCalls", false);
+            List<TLToolCall> toolCalls = (List<TLToolCall>) msg.getListParam(AI_P_TOOLCALLS, null);
 
-            if (msg.parseBoolean("hasToolCalls", false)) {
-                // TODO: 处理流式tool calls后继续chat循环
-                doneMsg.setParam(AI_P_TOOLCALLS, msg.getParam(AI_P_TOOLCALLS));
+            if (hasToolCalls && toolCalls != null && !toolCalls.isEmpty()) {
+                // 流式响应包含tool calls: 执行skills并继续chat循环
+                try {
+                    List<TLConversationHistory> history = getContextHistory(sessionId);
+
+                    // 添加assistant消息（流式文本 + tool calls）
+                    TLConversationHistory aMsg = new TLConversationHistory(
+                            TLConversationHistory.Role.assistant, new ArrayList<>(toolCalls));
+                    if (streamedText != null && !streamedText.isEmpty()) {
+                        aMsg.setContent(streamedText);
+                    }
+                    history.add(aMsg);
+
+                    // 执行tool calls
+                    for (TLToolCall tc : toolCalls) {
+                        TLMsg tr = executeToolCall(tc, fromWho);
+                        history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
+                                tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
+                    }
+
+                    // 非流式继续LLM循环（支持后续tool calls）
+                    String finalResponse = null;
+                    int iteration = 1;
+                    while (iteration < maxToolCallIterations) {
+                        iteration++;
+                        List<TLFunctionDefinition> toolDefs = buildFunctionDefinitions();
+                        TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
+                                .setParam(AI_P_MESSAGEHISTORY, history)
+                                .setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
+                                .setParam(AI_P_TEMPERATURE, defaultTemperature)
+                                .setParam(AI_P_MAXTOKENS, defaultMaxTokens);
+                        if (toolDefs != null && !toolDefs.isEmpty()) {
+                            llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
+                        }
+
+                        TLMsg llmResponse = putMsg(llmProvider, llmMsg);
+                        if (!llmResponse.parseBoolean(RESULT, false)) break;
+
+                        boolean moreToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
+                        List<TLToolCall> moreTCs = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
+
+                        if (!moreToolCalls || moreTCs == null || moreTCs.isEmpty()) {
+                            finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
+                            history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                            break;
+                        }
+
+                        TLConversationHistory aMsg2 = new TLConversationHistory(
+                                TLConversationHistory.Role.assistant, new ArrayList<>(moreTCs));
+                        if (llmResponse.containsParam(AI_P_RESPONSE))
+                            aMsg2.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
+                        history.add(aMsg2);
+
+                        for (TLToolCall tc : moreTCs) {
+                            TLMsg tr = executeToolCall(tc, fromWho);
+                            history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
+                                    tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
+                        }
+                    }
+                    if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
+
+                    // 保存上下文和长期记忆
+                    saveContextHistory(sessionId, history);
+                    try {
+                        TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
+                                .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", M_LONGTERMMEMORY)
+                                .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
+                                .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
+                                .setParam(AI_P_MEMORYTAG, "chat_history");
+                        saveAgentMemory(fromWho, saveMsg);
+                    } catch (Exception e) {
+                        putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
+                    }
+
+                    // 转发最终完成信号
+                    TLMsg doneMsg = createMsg()
+                            .setAction(resultAction)
+                            .setParam(AI_P_STREAMDONE, true)
+                            .setParam(AI_P_RESPONSE, streamedText + finalResponse)
+                            .setParam(AI_P_SESSIONID, sessionId);
+                    putMsg(resultFor, doneMsg);
+
+                } catch (Exception e) {
+                    putLog("Stream tool call continuation error: " + e.toString(), LogLevel.ERROR);
+                    TLMsg errMsg = createMsg()
+                            .setAction(resultAction)
+                            .setParam(AI_P_STREAMERROR, "Tool call processing error: " + e.getMessage());
+                    putMsg(resultFor, errMsg);
+                }
+            } else {
+                // 无tool calls: 直接转发完成信号
+                TLMsg doneMsg = createMsg()
+                        .setAction(resultAction)
+                        .setParam(AI_P_STREAMDONE, true)
+                        .setParam(AI_P_RESPONSE, streamedText)
+                        .setParam(AI_P_SESSIONID, sessionId);
+                putMsg(resultFor, doneMsg);
             }
-
-            putMsg(resultFor, doneMsg);
         } else if (msg.containsParam(AI_P_STREAMERROR)) {
             TLMsg errMsg = createMsg()
                     .setAction(resultAction)
@@ -508,7 +601,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     // ======================== Skill管理 ========================
 
-    protected TLMsg registerSkill(Object fromWho, TLMsg msg) {
+    protected synchronized TLMsg registerSkill(Object fromWho, TLMsg msg) {
         // 支持通过instance直接注册
         TLBaseSkill instance = (TLBaseSkill) msg.getParam(INSTANCE, TLBaseSkill.class);
         if (instance != null) {
@@ -536,7 +629,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return createMsg().setParam(RESULT, false).setParam("error", "Invalid skill registration");
     }
 
-    protected TLMsg unregisterSkill(Object fromWho, TLMsg msg) {
+    protected synchronized TLMsg unregisterSkill(Object fromWho, TLMsg msg) {
         String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
         if (!skillName.isEmpty()) {
             TLBaseSkill removed = skills.remove(skillName);
@@ -643,7 +736,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     protected TLMsg setLlmProvider(Object fromWho, TLMsg msg) {
         String providerName = msg.getStringParam(AI_P_PROVIDER, "");
-        TLBaseModule module = (TLBaseModule) getModule(providerName);
+        if (providerName.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "provider name required");
+        }
+        TLBaseModule module = getModule(providerName) instanceof TLLlmProvider
+                ? (TLBaseModule) getModule(providerName) : null;
         if (module instanceof TLLlmProvider) {
             llmProvider = (TLLlmProvider) module;
             defaultLlmProvider = providerName;
@@ -686,22 +783,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 保存上下文历史
+     * 保存上下文历史（批量替换，O(1)次消息传递）
      */
     protected void saveContextHistory(String sessionId, List<TLConversationHistory> history) {
-        // 清除旧历史再逐条添加
-        TLMsg clearMsg = createMsg()
-                .setAction(CONTEXT_CLEAR)
-                .setParam(AI_P_SESSIONID, sessionId);
-        putMsg(contextModuleName, clearMsg);
-
-        for (TLConversationHistory h : history) {
-            TLMsg addMsg = createMsg()
-                    .setAction(CONTEXT_ADDMESSAGE)
-                    .setParam(AI_P_SESSIONID, sessionId)
-                    .setParam("entry", h);
-            putMsg(contextModuleName, addMsg);
-        }
+        TLMsg replaceMsg = createMsg()
+                .setAction(CONTEXT_REPLACE)
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam(AI_P_MESSAGEHISTORY, history);
+        putMsg(contextModuleName, replaceMsg);
     }
 
     /**
