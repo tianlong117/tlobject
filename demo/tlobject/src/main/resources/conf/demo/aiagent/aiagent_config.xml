@@ -19,6 +19,8 @@
         <!-- 包名前缀（用于简写classfile） -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <!-- 默认长期记忆模块 -->
+        <defaultMemoryStore value="dbMemory"/>
     </params>
 
     <!-- ===== LLM Providers ===== -->
@@ -82,12 +84,18 @@
                      maxEntries="1000"
                      cleanupInterval="60"/>
 
-        <memoryStore name="longTermMemory"
+        <!--memoryStore name="longTermMemory"
                      classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
                      statup="true"
                      memoryType="longTerm"
                      defaultExptime="0"
                      storagePath="./data/aiagent_longterm_memory"
+                     maxCacheEntries="10000"/-->
+
+        <memoryStore name="dbMemory"
+                     classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
+                     statup="true"
+                     memoryType="longTerm"
                      maxCacheEntries="10000"/>
     </memoryStores>
 

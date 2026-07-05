@@ -6,6 +6,7 @@
     <params>
         <ifLog value="true"/>
         <loglevel value="debug"/>
+        <defaultLogModule value="log4j"/>
         <package value="cn.tianlong.java.demo"/>
         <ifModuleMonitor value="false"/>
         <applicationId value="dbdemo"/>
@@ -20,7 +21,7 @@
         <module name="userModle" classfile=".db.userModle" />
     </modules>
         <factoryBoot>
-            <msg action="getModule"  moduleName="log" usePreReturnMsg="false" />
+
             <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
 
         </factoryBoot>

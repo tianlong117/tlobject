@@ -2,6 +2,7 @@
 <moduleConfig>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.modules_config.xml" includeUnit="modules"/>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.db_config.xml" includeUnit="modules"/>
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.aiagent_config.xml" includeUnit="modules"/>
     <params>
         <applicationId value="chatDemo"/>
@@ -19,6 +20,7 @@
     </modulesParams>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
+        <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>

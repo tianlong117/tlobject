@@ -19,6 +19,8 @@
                 singleton="true"/>
         <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
                 singleton="true"/>
+        <module name="dbMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
+                singleton="true"/>
         <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
     </modules>
 </moduleConfig>

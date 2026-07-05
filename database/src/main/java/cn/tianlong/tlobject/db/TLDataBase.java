@@ -238,6 +238,7 @@ public class TLDataBase extends TLBaseModule {
             case DB_TOTAL:
             case DB_QUERY:
             case DB_DELETE:
+            case DB_INSERT:
             case DB_UPDATE:
             case DB_BATCH:
             case DB_EXECQUERY:
@@ -418,7 +419,10 @@ public class TLDataBase extends TLBaseModule {
         TLBaseModule tableobj =null ;
         String tablename = msg.getStringParam(DB_P_TABLENAME,"");
         if (!tablename.isEmpty())
-            tableobj = getTable(tablename,msg);
+           {
+               tableobj = getTable(tablename,msg);
+               msg.removeParam(DB_P_TABLENAME);
+           }
         else {
             String viewName = msg.getStringParam(DB_P_VIEWNAME,"");
             if(!viewName.isEmpty())

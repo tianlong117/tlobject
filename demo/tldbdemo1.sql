@@ -41,3 +41,28 @@ CREATE TABLE `user1`  (
 ) ENGINE = InnoDB CHARACTER SET = latin1 COLLATE = latin1_swedish_ci ROW_FORMAT = Dynamic;
 
 SET FOREIGN_KEY_CHECKS = 1;
+ -- 会话表
+CREATE TABLE `ai_sessions` (
+                               `session_id` varchar(255) NOT NULL,
+                               `user_id` varchar(255) DEFAULT NULL,
+                               `system_message` text,
+                               `created_at` bigint DEFAULT NULL,
+                               `last_active` bigint DEFAULT NULL,
+                               `metadata` varchar(2048) DEFAULT NULL,
+                               PRIMARY KEY (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
+
+-- 记忆条目表
+CREATE TABLE `ai_memory` (
+                             `id` int NOT NULL AUTO_INCREMENT,
+                             `session_id` varchar(255) DEFAULT NULL,
+                             `mem_key` varchar(512) DEFAULT NULL,
+                             `mem_value` text,
+                             `mem_type` varchar(50) DEFAULT NULL,
+                             `tag` varchar(255) DEFAULT NULL,
+                             `created_at` bigint DEFAULT NULL,
+                             `expires_at` bigint DEFAULT NULL,
+                             `metadata` varchar(2048) DEFAULT NULL,
+                             PRIMARY KEY (`id`),
+                             KEY `idx_session_tag_time` (`session_id`, `tag`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;

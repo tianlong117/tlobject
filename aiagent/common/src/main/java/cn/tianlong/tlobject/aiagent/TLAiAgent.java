@@ -28,6 +28,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 默认LLM Provider模块名 */
     protected String defaultLlmProvider;
 
+    /** 默认长期记忆存储模块名 */
+    protected String defaultMemoryStore = M_LONGTERMMEMORY;
+
     /** 当前活跃的Provider实例引用 */
     protected TLLlmProvider llmProvider;
 
@@ -93,6 +96,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         if (params != null) {
             if (params.get("defaultLlmProvider") != null)
                 defaultLlmProvider = params.get("defaultLlmProvider");
+            if (params.get("defaultMemoryStore") != null)
+                defaultMemoryStore = params.get("defaultMemoryStore");
             if (params.get("contextModuleName") != null)
                 contextModuleName = params.get("contextModuleName");
             if (params.get("maxToolCallIterations") != null) {
@@ -386,7 +391,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             saveContextHistory(sessionId, history);
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                        .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", M_LONGTERMMEMORY)
+                        .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
                         .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                         .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
                         .setParam(AI_P_MEMORYTAG, "chat_history");
@@ -549,7 +554,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     saveContextHistory(sessionId, history);
                     try {
                         TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                                .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", M_LONGTERMMEMORY)
+                                .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
                                 .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                                 .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
                                 .setParam(AI_P_MEMORYTAG, "chat_history");
@@ -683,7 +688,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     // ======================== Memory操作 ========================
 
     protected TLMsg saveAgentMemory(Object fromWho, TLMsg msg) {
-        String storeName = msg.getStringParam("storeName", M_LONGTERMMEMORY);
+        String storeName = msg.getStringParam("storeName", defaultMemoryStore);
         TLBaseMemory memory = memoryStores.get(storeName);
         if (memory == null) {
             // 尝试从context module获取
@@ -708,7 +713,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         List<TLMemoryEntry> allEntries = new ArrayList<>();
 
         // 同时搜索短期和长期记忆，合并结果
-        for (String storeName : new String[]{M_SHORTTERMMEMORY, M_LONGTERMMEMORY}) {
+        for (String storeName : memoryStores.keySet()) {
             TLBaseMemory memory = memoryStores.get(storeName);
             if (memory == null) {
                 memory = (TLBaseMemory) getModule(storeName);
