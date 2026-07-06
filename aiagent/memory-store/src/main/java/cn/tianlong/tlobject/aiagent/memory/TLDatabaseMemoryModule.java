@@ -68,7 +68,7 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
-            String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + key;
+            String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
             entry = new TLMemoryEntry(scopedKey, value, memoryType);
             entry.setTag(tag);
             entry.setExpiresAt(calculateExpiresAt(exptimeMinutes));
@@ -101,7 +101,7 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     protected TLMsg retrieve(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
-        String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, "");
+        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
 
         TLMemoryEntry cached = cache.get(scopedKey);
         if (cached != null && !cached.isExpired()) {
@@ -167,7 +167,7 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
-        String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, "");
+        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
         delete(scopedKey);
         return createMsg().setParam(RESULT, true);
     }

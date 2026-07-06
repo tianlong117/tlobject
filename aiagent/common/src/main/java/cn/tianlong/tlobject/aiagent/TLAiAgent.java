@@ -66,6 +66,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 默认maxTokens */
     protected int defaultMaxTokens = 4096;
 
+    // ======================== Agent管理（主控模式） ========================
+
+    /** 从XML <agents> 解析出的子Agent配置 */
+    protected HashMap<String, HashMap<String, String>> agentsConfig;
+
+    /** 已初始化的子Agent实例：agentName → agentModule */
+    protected Map<String, TLBaseModule> subAgents;
+
+    /** 是否主控模式（配置了<agents>即为true） */
+    protected boolean isMaster = false;
+
     // ======================== 构造函数 ========================
 
     public TLAiAgent() {
@@ -163,13 +174,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     @Override
     public void runStartMsg() {
+        System.out.println("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===");
         initSkills();
         initMemoryStores();
+        initAgents();
         super.runStartMsg();
     }
 
     /**
-     * 初始化Skills（从config或运行时注册）
+     * 初始化Skills（从config或运行时注册）。
+     * 框架自动根据classfile解析类名，无需手动addPackage。
      */
     protected void initSkills() {
         myConfig config = (myConfig) mconfig;
@@ -182,9 +196,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             boolean startup = TLDataUtils.parseBoolean(skillParams.get("statup"), true);
 
             if (startup && classfile != null) {
-                String resolvedClass = addPackage(classfile, defaultSkillPackageName);
                 try {
-                    TLBaseModule module = (TLBaseModule) getNewModule(skillName, resolvedClass, skillParams);
+                    // 工厂根据classfile自动解析类，skillParams传入额外参数
+                    TLBaseModule module = (TLBaseModule) getNewModule(skillName, classfile, skillParams);
                     if (module instanceof TLBaseSkill) {
                         skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
                         modules.put(skillName, module);
@@ -198,11 +212,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 初始化Memory Stores
+     * 初始化Memory Stores。
+     * 框架自动根据classfile解析类名，自动注入agentNamespace用于多Agent记忆隔离。
      */
     protected void initMemoryStores() {
         myConfig config = (myConfig) mconfig;
         if (config == null || config.getMemoryStores() == null) return;
+
+        String namespace = params != null ? params.get("agentNamespace") : null;
 
         HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
         for (String storeName : memoryConfigs.keySet()) {
@@ -211,9 +228,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             boolean startup = TLDataUtils.parseBoolean(storeParams.get("statup"), true);
 
             if (startup && classfile != null) {
-                String resolvedClass = addPackage(classfile, defaultMemoryPackageName);
+                if (namespace != null && !namespace.isEmpty()) {
+                    storeParams.putIfAbsent("agentNamespace", namespace);
+                }
                 try {
-                    TLBaseModule module = (TLBaseModule) getNewModule(storeName, resolvedClass, storeParams);
+                    // 工厂根据classfile自动解析类，storeParams传入额外参数
+                    TLBaseModule module = (TLBaseModule) getNewModule(storeName, classfile, storeParams);
                     if (module instanceof TLBaseMemory) {
                         memoryStores.put(storeName, (TLBaseMemory) module);
                         modules.put(storeName, module);
@@ -223,6 +243,48 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     putLog("Failed to init memory store: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
                 }
             }
+        }
+    }
+
+    /**
+     * 初始化子Agent（仅主控模式）。
+     * 读取<agents>配置，为每个子Agent创建独立的TLAiAgent实例。
+     * 框架自动加载 {agentName}_config.xml 作为子Agent的配置文件。
+     */
+    protected void initAgents() {
+        myConfig config = (myConfig) mconfig;
+        agentsConfig = config.getAgents();
+        System.out.println("=== [initAgents] configFile=" + configFile
+                + " agentsConfig=" + (agentsConfig != null ? agentsConfig.size() + " entries" : "null") + " ===");
+        if (agentsConfig == null || agentsConfig.isEmpty()) return;
+
+        isMaster = true;
+        subAgents = new ConcurrentHashMap<>();
+
+        for (String agentName : agentsConfig.keySet()) {
+            HashMap<String, String> agentCfg = agentsConfig.get(agentName);
+            boolean startup = TLDataUtils.parseBoolean(agentCfg.get("statup"), true);
+            if (!startup) continue;
+
+            try {
+                // 基于aiagent模板创建，configFile自动推导为 {agentName}_config.xml
+                agentCfg.putIfAbsent("configFile", agentName + "_config.xml");
+                TLBaseModule module = (TLBaseModule) getNewModule(agentName, "aiagent", agentCfg);
+                if (module instanceof TLAiAgent) {
+                    subAgents.put(agentName, module);
+                    modules.put(agentName, module);
+                    putLog("Sub-agent initialized: " + agentName, LogLevel.DEBUG);
+                } else {
+                    putLog("Sub-agent class is not TLAiAgent: " + agentName, LogLevel.ERROR);
+                }
+            } catch (Exception e) {
+                putLog("Failed to init sub-agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
+            }
+        }
+
+        System.out.println("★★★ 主控Agent模式已激活, 子Agent数量: " + subAgents.size() + " ★★★");
+        for (String name : subAgents.keySet()) {
+            System.out.println("  ▸ 子Agent: delegate_to_" + name);
         }
     }
 
@@ -267,6 +329,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 break;
             case AGENT_SETPROVIDER:
                 returnMsg = setLlmProvider(fromWho, msg);
+                break;
+            case AGENT_REGISTERAGENT:
+                returnMsg = registerAgent(fromWho, msg);
+                break;
+            case AGENT_UNREGISTERAGENT:
+                returnMsg = unregisterAgent(fromWho, msg);
+                break;
+            case AGENT_LISTAGENTS:
+                returnMsg = listAgents(fromWho, msg);
                 break;
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
@@ -657,6 +728,68 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return createMsg().setParam(RESULT, true).setParam("skills", skillInfos);
     }
 
+    // ======================== Agent管理 ========================
+
+    protected synchronized TLMsg registerAgent(Object fromWho, TLMsg msg) {
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        String description = msg.getStringParam(AI_P_AGENTDESCRIPTION, agentName);
+
+        if (agentName.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+        }
+
+        try {
+            // 基于aiagent模板创建，configFile自动推导为 {agentName}_config.xml
+            HashMap<String, String> params = new HashMap<>();
+            params.put("configFile", agentName + "_config.xml");
+            TLBaseModule module = (TLBaseModule) getNewModule(agentName, "aiagent", params);
+            if (module instanceof TLAiAgent) {
+                if (subAgents == null) {
+                    subAgents = new ConcurrentHashMap<>();
+                    isMaster = true;
+                }
+                subAgents.put(agentName, module);
+                modules.put(agentName, module);
+                // 记录描述信息，供buildFunctionDefinitions()使用
+                if (agentsConfig == null) agentsConfig = new HashMap<>();
+                HashMap<String, String> cfg = new HashMap<>();
+                cfg.put("description", description);
+                agentsConfig.put(agentName, cfg);
+                putLog("Agent registered: " + agentName, LogLevel.DEBUG);
+                return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
+            }
+        } catch (Exception e) {
+            putLog("Failed to register agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
+        }
+        return createMsg().setParam(RESULT, false).setParam("error", "Invalid agent registration");
+    }
+
+    protected synchronized TLMsg unregisterAgent(Object fromWho, TLMsg msg) {
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (!agentName.isEmpty() && subAgents != null) {
+            TLBaseModule removed = subAgents.remove(agentName);
+            modules.remove(agentName);
+            if (subAgents.isEmpty()) isMaster = false;
+            return createMsg().setParam(RESULT, removed != null);
+        }
+        return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+    }
+
+    protected TLMsg listAgents(Object fromWho, TLMsg msg) {
+        List<Map<String, Object>> agentInfos = new ArrayList<>();
+        if (subAgents != null) {
+            for (String agentName : subAgents.keySet()) {
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("name", agentName);
+                HashMap<String, String> agentCfg = agentsConfig != null ? agentsConfig.get(agentName) : null;
+                info.put("description", agentCfg != null ? agentCfg.getOrDefault("description", "") : "");
+                info.put("moduleName", agentName);
+                agentInfos.add(info);
+            }
+        }
+        return createMsg().setParam(RESULT, true).setParam(AI_P_SUBAGENTS, agentInfos);
+    }
+
     // ======================== Context操作 ========================
 
     protected TLMsg getAgentContext(Object fromWho, TLMsg msg) {
@@ -799,10 +932,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 从已注册skills构建function definitions列表
+     * 从已注册skills构建function definitions列表。
+     * 主控模式下，每个子Agent作为一个委托tool。
      */
     protected List<TLFunctionDefinition> buildFunctionDefinitions() {
         List<TLFunctionDefinition> defs = new ArrayList<>();
+
+        // 始终包含自身的skills（主控也可以有自己的skill）
         for (TLBaseSkill skill : skills.values()) {
             if (skill.isEnabled()) {
                 try {
@@ -812,14 +948,80 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
             }
         }
+
+        // 主控模式额外添加子Agent委托tools
+        if (isMaster && subAgents != null) {
+            for (String agentName : subAgents.keySet()) {
+                HashMap<String, String> agentCfg = agentsConfig.get(agentName);
+                String desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
+                TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
+                        "delegate_to_" + agentName, desc, buildDelegateParamSchema());
+                defs.add(def);
+            }
+        }
         return defs;
     }
 
     /**
-     * 执行单个tool call，找到对应skill并执行
+     * 构建委托子Agent的参数schema（task描述）
+     */
+    protected Map<String, Object> buildDelegateParamSchema() {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("task", Map.of("type", "string", "description", "要交给专业Agent处理的任务描述"));
+        return schema;
+    }
+
+    /**
+     * 执行单个tool call。
+     * 主控模式：路由到子Agent（delegate_to_xxx）；
+     * 独立模式：路由到对应skill。
      */
     protected TLMsg executeToolCall(TLToolCall tc, Object fromWho) {
         String functionName = tc.getFunctionName();
+
+        // 主控模式：路由到子Agent
+        if (isMaster && functionName.startsWith("delegate_to_")) {
+            String agentName = functionName.substring("delegate_to_".length());
+            TLBaseModule subAgent = subAgents.get(agentName);
+            if (subAgent == null) {
+                putLog("Sub-agent not found: " + agentName, LogLevel.WARN);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error: Agent not found: " + agentName)
+                        .setParam(AI_P_AGENTERROR, AGENT_ERR_NOTFOUND);
+            }
+
+            try {
+                String task = parseDelegateArgs(tc.getArguments());
+                String childSessionId = agentName + ":"
+                        + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
+
+                TLMsg chatMsg = createMsg()
+                        .setAction(AGENT_CHAT)
+                        .setParam(AI_P_USERMESSAGE, task)
+                        .setParam(AI_P_SESSIONID, childSessionId);
+
+                System.out.println(">>> [主控] 委托任务给子Agent [" + agentName + "]");
+                System.out.println("    任务: " + task);
+
+                TLMsg result = putMsg(subAgent, chatMsg);
+                String agentOutput = result != null
+                        ? result.getStringParam(AI_P_RESPONSE, result.toString())
+                        : "No response from agent " + agentName;
+
+                System.out.println("<<< [主控] 子Agent [" + agentName + "] 返回结果 (前200字): "
+                        + (agentOutput != null ? agentOutput.substring(0, Math.min(200, agentOutput.length())) : "null"));
+
+                return createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_SKILLOUTPUT, agentOutput);
+            } catch (Exception e) {
+                putLog("!!! [主控] 子Agent [" + agentName + "] 执行异常: " + e.toString(), LogLevel.ERROR);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error in agent " + agentName + ": " + e.getMessage())
+                        .setParam(AI_P_AGENTERROR, e.getMessage());
+            }
+        }
+
+        // 独立模式：原有skill路由
         TLBaseSkill skill = skills.get(functionName);
 
         if (skill == null) {
@@ -848,6 +1050,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
+     * 解析委托参数，提取task描述字符串
+     */
+    @SuppressWarnings("unchecked")
+    protected String parseDelegateArgs(Object args) {
+        if (args instanceof Map) {
+            Map<String, Object> map = (Map<String, Object>) args;
+            Object task = map.get("task");
+            if (task != null) return task.toString();
+        }
+        if (args instanceof String) return (String) args;
+        return args != null ? args.toString() : "";
+    }
+
+    /**
      * 添加包名前缀（与TLDataBase.addPackage相同的模式）
      */
     protected String addPackage(String name, String packageName) {
@@ -872,6 +1088,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         protected HashMap<String, HashMap<String, String>> providers;
         protected HashMap<String, HashMap<String, String>> skills;
         protected HashMap<String, HashMap<String, String>> memoryStores;
+        protected HashMap<String, HashMap<String, String>> agents;
 
         public myConfig() {}
 
@@ -882,6 +1099,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         public HashMap<String, HashMap<String, String>> getProviders() { return providers; }
         public HashMap<String, HashMap<String, String>> getSkills() { return skills; }
         public HashMap<String, HashMap<String, String>> getMemoryStores() { return memoryStores; }
+        public HashMap<String, HashMap<String, String>> getAgents() { return agents; }
 
         @Override
         protected void myConfig(XmlPullParser xpp) {
@@ -895,6 +1113,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
                 if (xpp.getName().equals("memoryStores")) {
                     memoryStores = getHashMap(xpp, "memoryStores", "memoryStore");
+                }
+                if (xpp.getName().equals("agents")) {
+                    agents = getHashMap(xpp, "agents", "agent");
                 }
             } catch (Throwable t) {
                 putLog("TLAiAgent config parse error: " + t.toString(), LogLevel.WARN);

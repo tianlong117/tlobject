@@ -29,6 +29,7 @@ public class ChatDemo implements TLAiAgentParamString {
     private static String sessionId = "console_user";
     private static boolean streamMode = false;
     private static int streamDelayMs = 30;  // 流式每字延迟(毫秒)，0=最快
+    private static final String AGENT_MODULE = "aiagent_master";
 
     public static void main(String[] args) {
         System.out.println("╔══════════════════════════════════╗");
@@ -56,7 +57,7 @@ public class ChatDemo implements TLAiAgentParamString {
 
         // 打印已注册的Skill
         TLMsg listMsg = factory.createMsg().setAction(AGENT_LISTSKILLS);
-        TLMsg listResult = factory.putMsg(M_AIAGENT, listMsg);
+        TLMsg listResult = factory.putMsg(AGENT_MODULE, listMsg);
         java.util.List<?> skills = (java.util.List<?>) listResult.getListParam("skills", java.util.List.of());
         if (skills.isEmpty()) {
             System.out.println("⚠ 警告: 没有注册任何Skill！Tool Call功能不可用。");
@@ -97,7 +98,7 @@ public class ChatDemo implements TLAiAgentParamString {
                             .setParam(RESULTACTION, "onStreamChunk");
                     factory.putMsg("streamCallback",
                             factory.createMsg().setAction("resetStream"));
-                    factory.putMsg(M_AIAGENT, streamMsg);
+                    factory.putMsg(AGENT_MODULE, streamMsg);
 
                     System.out.print("AI > ");
                     int printed = 0;
@@ -119,7 +120,7 @@ public class ChatDemo implements TLAiAgentParamString {
                     }
                     System.out.println("\n    (" + (System.currentTimeMillis() - start) + "ms)");
                 } else {
-                    TLMsg response = factory.putMsg(M_AIAGENT,
+                    TLMsg response = factory.putMsg(AGENT_MODULE,
                             factory.createMsg().setAction(AGENT_CHAT)
                                     .setParam(AI_P_SESSIONID, sessionId)
                                     .setParam(AI_P_USERMESSAGE, input));
@@ -150,7 +151,7 @@ public class ChatDemo implements TLAiAgentParamString {
                 TLMsg clearMsg = factory.createMsg()
                         .setAction(AGENT_CLEARCONTEXT)
                         .setParam(AI_P_SESSIONID, sessionId);
-                factory.putMsg(M_AIAGENT, clearMsg);
+                factory.putMsg(AGENT_MODULE, clearMsg);
                 System.out.println("✓ 上下文已清除\n");
                 break;
 
@@ -169,7 +170,7 @@ public class ChatDemo implements TLAiAgentParamString {
                     TLMsg modelMsg = factory.createMsg()
                             .setAction(AGENT_SETPROVIDER)
                             .setParam(AI_P_PROVIDER, M_LLMPROVIDER_OPENAI);
-                    factory.putMsg(M_AIAGENT, modelMsg);
+                    factory.putMsg(AGENT_MODULE, modelMsg);
                     System.out.println("✓ 模型切换请求已发送\n");
                 } else if (cmd.startsWith("/session ")) {
                     sessionId = cmd.substring(9).trim();

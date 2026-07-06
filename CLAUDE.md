@@ -112,6 +112,33 @@ Built-in modules extending `TLBaseModule`:
 - Tool call 的 `arguments` 必須是 JSON 字符串（`gson.toJson()`），不能用 JSON 對象（`gson.toJsonTree()`）
 - DeepSeek: tools 和 temperature 不能同時傳，model 名在 Provider 配置中指定
 
+**记忆体系（三层）:**
+- `TLAiContext` — 会话对话记录（短期连续性），`getContextHistory()` 直接加载全部 messages
+- `LongTermMemory` — 跨会话知识碎片（JSONL文件 / 数据库），通过 `recallAgentMemory()` + 文本匹配召回
+- `ShortTermMemory` — 进程内 TTL 缓存，正常聊天流不使用，留给外部 skill 模块
+- 记忆召回走 AOP：`beforeMsgTable` 拦截 chat action → `recallAgentMemory` → 结果注入 `msg.systemArgs["beforeResult"]` → `doChat` 读取后拼成 system 消息
+
+**数据库记忆模块 (`TLDatabaseMemoryModule`):**
+- 继承 `TLBaseMemory`，实现 5 个抽象方法：`store/retrieve/search/delete/clearAll`
+- **关键模式**: 必须通过 `DB_GETTABLE` 获取 table 引用，再直接发消息给 table 模块。`TLDataBase` 不代理表操作！
+  ```java
+  // 正确: 先拿引用再发消息
+  TLMsg getMsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "aiMemory");
+  TLMsg result = putMsg(DEFAULTDATABASE, getMsg);
+  TLBaseModule table = (TLBaseModule) result.getParam(INSTANCE);
+  putMsg(table, insertMsg);  // 直接发给table
+  ```
+- 表需设 `CHARSET=utf8mb4`，否则 emoji 等 4 字节 UTF-8 字符插入失败
+
+**AI Agent 配置参数:**
+- `defaultMemoryStore` — 指定长期记忆模块名（默认 `"longTermMemory"`），切换数据库版设为 `"dbMemory"`
+- `defaultSystemMessage` — aiContext 的 system prompt，通过 `<modulesParams>` 传入
+  ```xml
+  <modulesParams>
+      <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手..."/>
+  </modulesParams>
+  ```
+
 ### Configuration
 
 Modules are configured via XML files (parsed by `TLModuleConfig`). The config file pattern is `{moduleName}_config.xml`. Key XML elements:
@@ -139,3 +166,12 @@ Applications start via `TLAppStartUp.main()` with CLI args:
 - `-n` app name
 
 Or via `TLObjectFactory.getInstance()` + `startFactory()` + `boot()` in code.
+
+### log4j2 配置要点
+
+- 配置文件在 `conf/` 目录下，需在 `main()` 启动前设置系统属性：
+  ```java
+  System.setProperty("log4j.configurationFile", configPath + "log4j2.xml");
+  ```
+- `<configuration status="...">` — `status` 控制 log4j2 **自身**的启动日志级别（StatusConsoleListener），设 `"error"` 可消掉控制台噪音
+- Console/File appender 的 `ThresholdFilter` 放在 `<Filters>` 内时做独占式分级（每文件只收恰好一个级别），直接放 appender 下做累计式阈值

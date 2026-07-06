@@ -33,7 +33,7 @@
         <provider name="openAiProvider"
                   classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
                   statup="true"
-                  apiKey="sk-ant-your-api-key-here"
+                  apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"
                   connTimeOut="30"

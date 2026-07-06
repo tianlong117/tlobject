@@ -33,6 +33,14 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_UNREGISTERSKILL = "unregisterSkill";
     /** 列出所有已注册skill */
     String AGENT_LISTSKILLS = "listSkills";
+    /** 注册子Agent */
+    String AGENT_REGISTERAGENT = "registerAgent";
+    /** 注销子Agent */
+    String AGENT_UNREGISTERAGENT = "unregisterAgent";
+    /** 列出所有已注册子Agent */
+    String AGENT_LISTAGENTS = "listAgents";
+    /** 委托任务给子Agent */
+    String AGENT_DELEGATE = "delegateToAgent";
     /** 获取当前会话上下文 */
     String AGENT_GETCONTEXT = "getAgentContext";
     /** 清除会话上下文 */
@@ -151,6 +159,19 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_MAXHISTORYTURNS = "maxHistoryTurns";
     String AI_P_DEFAULTSKILLPACKAGENAME = "defaultSkillPackageName";
     String AI_P_DEFAULTMEMORYPACKAGENAME = "defaultMemoryPackageName";
+
+    // Agent管理
+    String AI_P_AGENTNAME = "agentName";
+    String AI_P_AGENTDESCRIPTION = "agentDescription";
+    String AI_P_AGENTCONFIG = "agentConfig";
+    String AI_P_AGENTINPUT = "agentInput";
+    String AI_P_AGENTOUTPUT = "agentOutput";
+    String AI_P_AGENTERROR = "agentError";
+    String AI_P_SUBAGENTS = "subAgents";
+
+    // Agent错误码
+    String AGENT_ERR_OUTOFSCOPE = "out_of_scope";
+    String AGENT_ERR_NOTFOUND = "agent_not_found";
 
     // ======================== Stream Callback 动作 ========================
     /** 流式块到达 */

@@ -18,9 +18,15 @@
     <modulesParams>
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
     </modulesParams>
+    <modules>
+        <!-- 主控Agent（独立模块名，避免递归） -->
+        <module name="aiagent_master" classfile="cn.tianlong.tlobject.aiagent.TLAiAgent"
+                singleton="true" configfile="aiagent_master_config.xml"/>
+    </modules>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>

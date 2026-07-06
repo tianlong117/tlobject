@@ -98,9 +98,9 @@ public class TLShortTermMemoryModule extends TLBaseMemory {
             }
         }
 
-        // 构建session-scoped key
+        // 构建session-scoped key（含Agent命名空间）
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
-        String scopedKey = sessionId + ":" + entry.getKey();
+        String scopedKey = buildScopedKey(sessionId + ":" + entry.getKey());
         entry.setKey(scopedKey);
 
         store.put(scopedKey, entry);
@@ -114,7 +114,7 @@ public class TLShortTermMemoryModule extends TLBaseMemory {
 
         String key = msg.getStringParam(AI_P_MEMORYKEY, "");
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
-        String scopedKey = sessionId + ":" + key;
+        String scopedKey = buildScopedKey(sessionId + ":" + key);
 
         TLMemoryEntry entry = store.get(scopedKey);
         if (entry == null || entry.isExpired()) {
@@ -171,7 +171,7 @@ public class TLShortTermMemoryModule extends TLBaseMemory {
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         String key = msg.getStringParam(AI_P_MEMORYKEY, "");
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
-        String scopedKey = sessionId + ":" + key;
+        String scopedKey = buildScopedKey(sessionId + ":" + key);
 
         TLMemoryEntry removed = store.remove(scopedKey);
         return createMsg().setParam(RESULT, removed != null)

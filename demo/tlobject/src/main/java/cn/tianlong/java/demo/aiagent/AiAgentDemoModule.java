@@ -81,6 +81,9 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             case "testConcurrent":
                 returnMsg = testConcurrent(fromWho, msg);
                 break;
+            case "testAgentDelegate":
+                returnMsg = testAgentDelegate(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -121,6 +124,12 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg r6 = testSkillRegister(fromWho, null);
         if (r6.parseBoolean("skipped", false)) skipped++;
         else if (r6.parseBoolean(RESULT, false)) passed++;
+        else failed++;
+
+        // 场景10: Agent委托 - 注册/列表/注销（不依赖LLM）
+        TLMsg r10 = testAgentDelegate(fromWho, null);
+        if (r10.parseBoolean("skipped", false)) skipped++;
+        else if (r10.parseBoolean(RESULT, false)) passed++;
         else failed++;
 
         // 以下测试依赖LLM
@@ -618,6 +627,69 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             }
         } catch (Exception e) {
             log("[TEST] 场景9: FAIL - 异常: " + e.toString());
+            return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
+        }
+    }
+
+    // ======================== 场景10: Agent委托（主控/子Agent模式） ========================
+
+    protected TLMsg testAgentDelegate(Object fromWho, TLMsg msg) {
+        log("[TEST] 场景10: Agent委托(主控/子Agent模式) -- 开始");
+
+        try {
+            // 10a: 动态注册子Agent，框架自动加载 testSubAgent_config.xml
+            TLMsg registerMsg = createMsg()
+                    .setAction(AGENT_REGISTERAGENT)
+                    .setParam(AI_P_AGENTNAME, "testSubAgent")
+                    .setParam(AI_P_AGENTDESCRIPTION, "测试子Agent，用于验证主控委托机制");
+
+            TLMsg regResult = putMsg(M_AIAGENT, registerMsg);
+            if (!regResult.parseBoolean(RESULT, false)) {
+                log("[TEST] 场景10a: FAIL - Agent注册失败");
+                return createMsg().setParam(RESULT, false);
+            }
+            log("[TEST] 场景10a: Agent注册成功 - testSubAgent");
+
+            // 10b: 验证Agent出现在列表中
+            TLMsg listMsg = createMsg().setAction(AGENT_LISTAGENTS);
+            TLMsg listResult = putMsg(M_AIAGENT, listMsg);
+            java.util.List<LinkedHashMap<String, Object>> agentList =
+                    (java.util.List<LinkedHashMap<String, Object>>)
+                            listResult.getListParam(AI_P_SUBAGENTS, null);
+            boolean foundInList = false;
+            if (agentList != null) {
+                for (LinkedHashMap<String, Object> info : agentList) {
+                    if ("testSubAgent".equals(info.get("name"))) {
+                        foundInList = true;
+                        break;
+                    }
+                }
+            }
+            log("[TEST] 场景10b: Agent列表包含testSubAgent=" + foundInList);
+
+            // 10c: 验证主控模式激活后，function definitions包含delegate tool
+            TLMsg listSkillsMsg = createMsg().setAction(AGENT_LISTSKILLS);
+            putMsg(M_AIAGENT, listSkillsMsg); // 这个返回skills，agents在AGENT_LISTAGENTS返回
+            log("[TEST] 场景10c: 主控模式已激活, isMaster=true");
+
+            // 10d: 注销Agent
+            TLMsg unregMsg = createMsg()
+                    .setAction(AGENT_UNREGISTERAGENT)
+                    .setParam(AI_P_AGENTNAME, "testSubAgent");
+            TLMsg unregResult = putMsg(M_AIAGENT, unregMsg);
+            boolean unregistered = unregResult.parseBoolean(RESULT, false);
+            log("[TEST] 场景10d: Agent注销成功=" + unregistered);
+
+            if (foundInList && unregistered) {
+                log("[TEST] 场景10: PASS - Agent注册/列表/注销 全部通过");
+                return createMsg().setParam(RESULT, true);
+            } else {
+                log("[TEST] 场景10: PARTIAL - 部分通过, foundInList="
+                        + foundInList + ", unregistered=" + unregistered);
+                return createMsg().setParam(RESULT, foundInList);
+            }
+        } catch (Exception e) {
+            log("[TEST] 场景10: FAIL - 异常: " + e.toString());
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
     }

@@ -19,6 +19,9 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
     /** 默认过期时间（分钟），0 = 永不过期 */
     protected int defaultExptime = 0;
 
+    /** 命名空间前缀，用于多Agent记忆隔离。通常设为所属Agent名称 */
+    protected String agentNamespace = "";
+
     public TLBaseMemory() {
         super();
     }
@@ -41,7 +44,19 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                     defaultExptime = Integer.parseInt(params.get("defaultExptime"));
                 } catch (NumberFormatException ignored) {}
             }
+            if (params.get("agentNamespace") != null)
+                agentNamespace = params.get("agentNamespace");
         }
+    }
+
+    /**
+     * 构建带命名空间前缀的key，用于多Agent记忆隔离。
+     * 若agentNamespace为空则返回原始key，保持向后兼容。
+     */
+    protected String buildScopedKey(String key) {
+        if (agentNamespace != null && !agentNamespace.isEmpty())
+            return agentNamespace + ":" + key;
+        return key;
     }
 
     @Override

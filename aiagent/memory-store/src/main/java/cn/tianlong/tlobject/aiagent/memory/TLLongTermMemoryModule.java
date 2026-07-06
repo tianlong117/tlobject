@@ -115,8 +115,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
-            // 构建scoped key
-            String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + key;
+            // 构建scoped key（含Agent命名空间前缀，用于多Agent隔离）
+            String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
             entry = new TLMemoryEntry(scopedKey, value, memoryType);
             entry.setTag(tag);
             entry.setExpiresAt(calculateExpiresAt(exptimeMinutes));
@@ -143,8 +143,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
 
-        // 构建完整key
-        String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + key;
+        // 构建完整key（含Agent命名空间）
+        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
 
         TLMemoryEntry entry = cache.get(scopedKey);
         if (entry == null) {
@@ -204,7 +204,7 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
 
-        String scopedKey = sessionId + ":" + (tag != null ? tag + ":" : "") + key;
+        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
         TLMemoryEntry removed = cache.remove(scopedKey);
         if (removed != null) {
             deletedKeys.add(scopedKey);
