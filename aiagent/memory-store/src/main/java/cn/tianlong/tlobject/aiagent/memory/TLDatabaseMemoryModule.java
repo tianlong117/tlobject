@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.aiagent.TLMemoryEntry;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.db.TLDataBase;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -48,8 +49,8 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     protected TLBaseModule init() {
         cache = new ConcurrentHashMap<>();
         gson = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").create();
-        memTable = getDbTable("aiMemory");
-        sessTable = getDbTable("aiSessions");
+        memTable = TLDataBase.getTable("aiMemory", this);
+        sessTable = TLDataBase.getTable("aiSessions", this);
         return this;
     }
 
@@ -241,16 +242,6 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     }
 
     // ======================== 内部辅助 ========================
-
-    private TLBaseModule getDbTable(String tableName) {
-        TLMsg getMsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, tableName);
-        TLMsg result = putMsg(DEFAULTDATABASE, getMsg);
-        if (result != null && result.containsParam(INSTANCE)) {
-            return (TLBaseModule) result.getParam(INSTANCE, TLBaseModule.class);
-        }
-        putLog("Failed to get DB table: " + tableName, LogLevel.ERROR);
-        return null;
-    }
 
     private TLMsg sendToTable(TLBaseModule table, TLMsg msg) {
         if (table == null) return createMsg().setParam(RESULT, false);
