@@ -157,14 +157,20 @@ public class TLDataBase extends TLBaseModule {
         }
         else {
             String createSql = tableparams.get("createSql");
-            if(createSql!=null && !createSql.isEmpty())
-                result=prepareCall(dbserver,createSql);
+            if(createSql!=null && !createSql.isEmpty()) {
+                if (!isTableExistInDb(dbserver, tableName)) {
+                    result = prepareCall(dbserver, createSql);
+                } else {
+                    putLog("表已存在，跳过创建: " + tableName, LogLevel.DEBUG);
+                    result = true;
+                }
+            }
             else {
                 String fields =tableparams.get("fields");
                 if(fields!=null && !fields.isEmpty())
                 {
                     String dbtable =tableparams.get("dbtable");
-                    createSql ="CREATE TABLE "  +dbtable
+                    createSql ="CREATE TABLE IF NOT EXISTS "  +dbtable
                             +" ( "
                             +fields
                             +" ) " ;
@@ -177,6 +183,21 @@ public class TLDataBase extends TLBaseModule {
         else
             putLog("表创建失败: "+tableName, LogLevel.ERROR);
         return result ;
+    }
+
+    private boolean isTableExistInDb(String dbserver, String tableName) {
+        Connection conn = getConnection(dbserver);
+        if (conn == null)
+            return false;
+        try {
+            DatabaseMetaData meta = conn.getMetaData();
+            java.sql.ResultSet tables = meta.getTables(null, null, tableName, null);
+            boolean exists = tables.next();
+            conn.close();
+            return exists;
+        } catch (SQLException e) {
+            return false;
+        }
     }
 
     private Boolean prepareCall(String dbserver, String sql) {
@@ -273,29 +294,17 @@ public class TLDataBase extends TLBaseModule {
         }
         if(dbserver==null || dbserver.isEmpty())
             dbserver = params.get("defaultDBserver");
-        Connection conn = getConnection(dbserver);
-        if (conn == null) {
-            putLog("数据库没有连接", LogLevel.ERROR);
-            return createMsg().setParam(RESULT,false);
-        }
-        DatabaseMetaData meta = null;
-        boolean result =false ;
-        try {
-            meta = conn.getMetaData();
-            java.sql.ResultSet tables = meta.getTables (null, null, tableName, null);
-            if (tables.next())
-            {
-                result = true;
-                conn.close();
-            }
-        } catch (SQLException e) {
-            return createMsg().setParam(RESULT,false);
-        }
+        boolean result =isTableExistInDb( dbserver, tableName);
         if(result ==true)
             return createMsg().setParam(RESULT,true);
         String sql =msg.getStringParam(DB_P_SQL,"");
         if(sql ==null || sql.isEmpty())
             return createMsg().setParam(RESULT,result);
+        Connection conn = getConnection(dbserver);
+        if (conn == null) {
+            putLog("数据库没有连接", LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false);
+        }
         Statement stmt= null;
         try {
             stmt = conn.createStatement();
