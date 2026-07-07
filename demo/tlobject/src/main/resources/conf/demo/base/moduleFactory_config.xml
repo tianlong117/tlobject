@@ -31,8 +31,9 @@
         <module name="appCenter" classfile=".base.MyAppCenter" configfile="appConfig.xml"/>
         <module name="house" classfile=".base.House"  singleton="true" />
         <module name="light" classfile="cn.tianlong.java.demo.base.Light" singleton="ture"/>
-        <module name="xiaoming" classfile="cn.tianlong.java.demo.base.Person" />
-        <module name="wife" classfile="cn.tianlong.java.demo.base.Person" />
+        <module name="person" classfile="cn.tianlong.java.demo.base.Person" />
+        <module name="xiaoming" proxyModule="person" />
+        <module name="wife" proxyModule="person"/>
     </modules>
     <factoryBoot>
         <msg action="getModule"  moduleName="logThreadPool" usePreReturnMsg="false" TLSYS_test1="true"/>
