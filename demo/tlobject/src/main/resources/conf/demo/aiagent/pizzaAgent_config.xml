@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 披萨售卖Agent ===== -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <defaultModel value="deepseek-v4-pro"/>
+        <maxToolCallIterations value="3"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+
+    <skills>
+        <skill name="priceCalc"
+               classfile="cn.tianlong.java.demo.aiagent.skills.TLPriceCalculatorSkill"
+               statup="true"
+               skillName="calculate_price"
+               itemName="披萨"
+               unitPrice="3"/>
+    </skills>
+
+    <agents>
+        <agent name="filesystemMcp"
+               statup="true"
+               type="mcp"
+               tools="read_file,write_file,list_directory"
+               classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent"
+               transport="stdio"
+               command="C:/Program Files/nodejs/npx.cmd"
+               args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"
+               description="MCP文件系统工具集"/>
+    </agents>
+
+    <modulesParams>
+        <module name="aiContext" defaultSystemMessage="你是一名披萨店店员。请热情接待顾客，当顾客要买披萨时，使用 calculate_price 工具计算价格。你也可以使用文件系统工具帮顾客记录订单。用简洁活泼的语气回答。"/>
+    </modulesParams>
+</moduleConfig>

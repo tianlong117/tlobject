@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- 测试用的最简子Agent配置 -->
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <defaultModel value="gpt-4o-mini"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+</moduleConfig>

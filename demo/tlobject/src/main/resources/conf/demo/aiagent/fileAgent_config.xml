@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 文件处理子Agent配置 ===== -->
+    <!-- 只有文件相关skill，无<agents> → 独立/叶子Agent模式 -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <defaultModel value="deepseek-v4-pro"/>
+        <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+
+    <skills>
+        <skill name="fileOperationSkill"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+               statup="true"
+               skillName="file_operation"
+               skillDescription="Read and write files on the local filesystem. Operations: read, write, list, exists, delete."/>
+    </skills>
+
+    <memoryStores>
+        <memoryStore name="longTermMemory"
+                     classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                     statup="true"
+                     memoryType="longTerm"
+                     storagePath="./data/fileAgent_memory"
+                     maxCacheEntries="10000"/>
+    </memoryStores>
+</moduleConfig>

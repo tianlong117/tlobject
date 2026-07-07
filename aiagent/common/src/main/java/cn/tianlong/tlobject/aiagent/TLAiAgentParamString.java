@@ -173,6 +173,20 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_ERR_OUTOFSCOPE = "out_of_scope";
     String AGENT_ERR_NOTFOUND = "agent_not_found";
 
+    // ======================== MCP Agent 常量 ========================
+    /** Agent type 参数：标记为 MCP 桥接 Agent */
+    String AGENT_TYPE_MCP = "mcp";
+    /** Agent type 参数：普通 LLM Agent（默认） */
+    String AGENT_TYPE_AGENT = "agent";
+    /** Agent type 参数的配置键 */
+    String AI_P_AGENTTYPE = "type";
+    /** MCP Agent: 调用指定 tool */
+    String MCP_CALLTOOL = "callTool";
+    /** MCP Agent: 列出所有 tool */
+    String MCP_LISTTOOLS = "listTools";
+    /** MCP Agent: 重新发现 tool */
+    String MCP_REFRESHTOOLS = "refreshTools";
+
     // ======================== Stream Callback 动作 ========================
     /** 流式块到达 */
     String STREAM_ONCHUNK = "onStreamChunk";

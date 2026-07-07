@@ -77,6 +77,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 是否主控模式（配置了<agents>即为true） */
     protected boolean isMaster = false;
 
+    /** MCP tool 路由表：functionName → (agentName, toolName) */
+    protected Map<String, String[]> mcpToolRoutes;
+
     // ======================== 构造函数 ========================
 
     public TLAiAgent() {
@@ -248,8 +251,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 初始化子Agent（仅主控模式）。
-     * 读取<agents>配置，为每个子Agent创建独立的TLAiAgent实例。
-     * 框架自动加载 {agentName}_config.xml 作为子Agent的配置文件。
+     * 读取<agents>配置，根据 type 参数创建不同类型的 Agent：
+     * - type="mcp" → TLMcpAgent（无 LLM，纯协议转发）
+     * - type 缺省/"agent" → TLAiAgent（有 LLM，标准子Agent）
+     * 框架自动加载 {agentName}_config.xml 作为配置文件。
      */
     protected void initAgents() {
         myConfig config = (myConfig) mconfig;
@@ -260,22 +265,38 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
         isMaster = true;
         subAgents = new ConcurrentHashMap<>();
+        mcpToolRoutes = new ConcurrentHashMap<>();
 
         for (String agentName : agentsConfig.keySet()) {
             HashMap<String, String> agentCfg = agentsConfig.get(agentName);
             boolean startup = TLDataUtils.parseBoolean(agentCfg.get("statup"), true);
             if (!startup) continue;
 
+            String type = agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
+
             try {
-                // 基于aiagent模板创建，configFile自动推导为 {agentName}_config.xml
-                agentCfg.putIfAbsent("configFile", agentName + "_config.xml");
-                TLBaseModule module = (TLBaseModule) getNewModule(agentName, "aiagent", agentCfg);
-                if (module instanceof TLAiAgent) {
+                if (AGENT_TYPE_MCP.equals(type)) {
+                    // MCP Agent：使用 classfile 作为模板创建
+                    String classfile = agentCfg.get(MODULE_CLASSFILE);
+                    if (classfile == null || classfile.isEmpty()) {
+                        putLog("MCP Agent missing classfile: " + agentName, LogLevel.ERROR);
+                        continue;
+                    }
+                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, classfile, agentCfg);
                     subAgents.put(agentName, module);
                     modules.put(agentName, module);
-                    putLog("Sub-agent initialized: " + agentName, LogLevel.DEBUG);
+                    putLog("MCP Agent initialized: " + agentName, LogLevel.DEBUG);
                 } else {
-                    putLog("Sub-agent class is not TLAiAgent: " + agentName, LogLevel.ERROR);
+                    // 普通 Agent：基于 aiagent 模板创建
+                    agentCfg.putIfAbsent("configFile", agentName + "_config.xml");
+                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, "aiagent", agentCfg);
+                    if (module instanceof TLAiAgent) {
+                        subAgents.put(agentName, module);
+                        modules.put(agentName, module);
+                        putLog("Sub-agent initialized: " + agentName, LogLevel.DEBUG);
+                    } else {
+                        putLog("Sub-agent class is not TLAiAgent: " + agentName, LogLevel.ERROR);
+                    }
                 }
             } catch (Exception e) {
                 putLog("Failed to init sub-agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
@@ -284,7 +305,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
         System.out.println("★★★ 主控Agent模式已激活, 子Agent数量: " + subAgents.size() + " ★★★");
         for (String name : subAgents.keySet()) {
-            System.out.println("  ▸ 子Agent: delegate_to_" + name);
+            TLBaseModule agent = subAgents.get(name);
+            String agentType = agentsConfig.get(name) != null
+                    ? agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT)
+                    : AGENT_TYPE_AGENT;
+            if (AGENT_TYPE_MCP.equals(agentType)) {
+                System.out.println("  ▸ MCP Agent: " + name);
+            } else {
+                System.out.println("  ▸ 子Agent: delegate_to_" + name);
+            }
         }
     }
 
@@ -953,10 +982,35 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         if (isMaster && subAgents != null) {
             for (String agentName : subAgents.keySet()) {
                 HashMap<String, String> agentCfg = agentsConfig.get(agentName);
-                String desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
-                TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
-                        "delegate_to_" + agentName, desc, buildDelegateParamSchema());
-                defs.add(def);
+                String agentType = agentCfg != null
+                        ? agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT)
+                        : AGENT_TYPE_AGENT;
+
+                if (AGENT_TYPE_MCP.equals(agentType)) {
+                    // MCP Agent：展开为 N 个 tool def，注册路由
+                    TLBaseModule mcpModule = subAgents.get(agentName);
+                    if (mcpModule instanceof cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) {
+                        cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent mcpAgent =
+                                (cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) mcpModule;
+                        for (TLFunctionDefinition toolDef : mcpAgent.getToolDefinitions()) {
+                            defs.add(toolDef);
+                            if (mcpToolRoutes == null) mcpToolRoutes = new ConcurrentHashMap<>();
+                            String toolName = mcpAgent.getToolNameByFunctionName(toolDef.getName());
+                            if (toolName != null) {
+                                mcpToolRoutes.put(toolDef.getName(),
+                                        new String[]{agentName, toolName});
+                            }
+                        }
+                        putLog("MCP Agent [" + agentName + "] contributed "
+                                + mcpAgent.getToolDefinitions().size() + " tools", LogLevel.DEBUG);
+                    }
+                } else {
+                    // 普通 Agent：单个 delegate_to_xxx def
+                    String desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
+                    TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
+                            "delegate_to_" + agentName, desc, buildDelegateParamSchema());
+                    defs.add(def);
+                }
             }
         }
         return defs;
@@ -978,6 +1032,43 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      */
     protected TLMsg executeToolCall(TLToolCall tc, Object fromWho) {
         String functionName = tc.getFunctionName();
+
+        // 主控模式：MCP tool 路由（查 mcpToolRoutes 表）
+        if (isMaster && mcpToolRoutes != null && mcpToolRoutes.containsKey(functionName)) {
+            String[] route = mcpToolRoutes.get(functionName);
+            String mcpAgentName = route[0];
+            String mcpToolName = route[1];
+            cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent mcpAgent =
+                    (cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) subAgents.get(mcpAgentName);
+            if (mcpAgent == null) {
+                putLog("MCP Agent not found: " + mcpAgentName, LogLevel.WARN);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error: MCP Agent not found: " + mcpAgentName);
+            }
+
+            try {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> toolArgs = tc.getArguments() instanceof java.util.Map
+                        ? (java.util.Map<String, Object>) tc.getArguments()
+                        : new java.util.LinkedHashMap<>();
+
+                System.out.println(">>> [主控-MCP] 调用 MCP tool [" + mcpAgentName + "." + mcpToolName + "]");
+                System.out.println("    参数: " + toolArgs);
+
+                TLMsg result = mcpAgent.callTool(mcpToolName, toolArgs);
+                String output = result.getStringParam(AI_P_SKILLOUTPUT,
+                        result.parseBoolean(RESULT, false) ? "OK" : "Failed");
+
+                System.out.println("<<< [主控-MCP] MCP tool [" + mcpAgentName + "." + mcpToolName
+                        + "] 返回 (前200字): " + (output != null ? output.substring(0, Math.min(200, output.length())) : "null"));
+
+                return result;
+            } catch (Exception e) {
+                putLog("!!! [主控-MCP] MCP tool [" + mcpAgentName + "." + mcpToolName + "] 异常: " + e.toString(), LogLevel.ERROR);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error executing MCP tool: " + e.getMessage());
+            }
+        }
 
         // 主控模式：路由到子Agent
         if (isMaster && functionName.startsWith("delegate_to_")) {

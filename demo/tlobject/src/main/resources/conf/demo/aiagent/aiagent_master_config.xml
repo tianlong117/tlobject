@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 主控Agent配置示例 ===== -->
+    <!-- 有<agents>段 → 自动切换为主控模式 -->
+    <!-- 子Agent的"tools" = delegate_to_fileAgent, delegate_to_dbAgent -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <maxToolCallIterations value="10"/>
+        <defaultModel value="gpt-4o"/>
+        <defaultTemperature value="0.7"/>
+        <defaultMaxTokens value="4096"/>
+        <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+
+    <!-- ===== 子Agent定义（有此项即为主控模式） ===== -->
+    <!-- type="mcp" → MCP 桥接Agent，无 LLM，自动发现 tools 并展开为 function defs -->
+    <!-- type 缺省/"agent" → 普通子Agent，生成 delegate_to_xxx -->
+    <agents>
+        <agent name="fileAgent"
+               statup="false"
+               description="文件处理专家，负责文件的读写、目录操作等。当用户请求涉及文件操作时使用此Agent。"/>
+
+        <agent name="hamburgerAgent"
+               statup="true"
+               description="汉堡店店员，专门处理汉堡相关的咨询和下单。汉堡2块钱一个。当用户想买汉堡、问汉堡价格时使用此Agent。"/>
+
+        <agent name="pizzaAgent"
+               statup="true"
+               description="披萨店店员，专门处理披萨相关的咨询和下单。披萨3块钱一个。当用户想买披萨、问披萨价格时使用此Agent。"/>
+
+        <agent name="dbAgent"
+               statup="false"
+               description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
+
+        <!-- MCP Agent 示例：本地文件系统工具集 -->
+        <agent name="filesystemMcp"
+               statup="true"
+               type="mcp"
+               tools="read_file,write_file,list_directory"
+               description="MCP文件系统工具集（仅暴露3个常用操作）"
+               classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent"
+               transport="stdio"
+               command="C:/Program Files/nodejs/npx.cmd"
+               args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"/>
+
+    </agents>
+
+    <beforeMsgTable>
+        <action name="chat">
+            <msg action="recallAgentMemory" destination="aiagent"
+                 paramsFromMsg="sessionId"/>
+        </action>
+    </beforeMsgTable>
+</moduleConfig>
