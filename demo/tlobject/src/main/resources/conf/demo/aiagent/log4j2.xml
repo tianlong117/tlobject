@@ -21,10 +21,10 @@
 
     <!-- 定义输出器 -->
     <appenders>
-        <!-- 控制台输出（仅info及以上） -->
+        <!-- 控制台输出（debug及以上） -->
         <Console name="console" target="SYSTEM_OUT">
             <PatternLayout pattern="${pattern}"/>
-            <ThresholdFilter level="info"/>
+            <ThresholdFilter level="debug"/>
         </Console>
 
         <!-- debug级别日志文件输出 -->

@@ -18,7 +18,20 @@
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
     </providers>
+    <agents>
+        <!-- MCP Agent 示例：本地文件系统工具集 -->
+        <agent name="filesystemMcp"
+               statup="true"
+               type="mcp"
+               tools="read_file,write_file,list_directory"
+               description="MCP文件系统工具集（仅暴露3个常用操作）"
+               classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent"
+               transport="stdio"
+               command="C:/Program Files/nodejs/npx.cmd"
+               args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"/>
 
+
+    </agents>
     <skills>
         <skill name="fileOperationSkill"
                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
