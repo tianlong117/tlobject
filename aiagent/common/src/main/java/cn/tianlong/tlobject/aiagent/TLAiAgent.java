@@ -196,9 +196,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         for (String skillName : skillConfigs.keySet()) {
             HashMap<String, String> skillParams = skillConfigs.get(skillName);
             String classfile = skillParams.get(MODULE_CLASSFILE);
+            String sameClassAs = skillParams.get(MODULE_SameClassAs);
             boolean startup = TLDataUtils.parseBoolean(skillParams.get("statup"), true);
 
-            if (startup && classfile != null) {
+            // sameClassAs：Agent局部引用，从同段config中查找classfile
+            if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
+                HashMap<String, String> refParams = skillConfigs.get(sameClassAs);
+                if (refParams != null) {
+                    classfile = refParams.get(MODULE_CLASSFILE);
+                }
+            }
+
+            if (startup && classfile != null && !classfile.isEmpty()) {
                 try {
                     // 工厂根据classfile自动解析类，skillParams传入额外参数
                     TLBaseModule module = (TLBaseModule) getNewModule(skillName, classfile, skillParams);
@@ -228,9 +237,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         for (String storeName : memoryConfigs.keySet()) {
             HashMap<String, String> storeParams = memoryConfigs.get(storeName);
             String classfile = storeParams.get(MODULE_CLASSFILE);
+            String sameClassAs = storeParams.get(MODULE_SameClassAs);
             boolean startup = TLDataUtils.parseBoolean(storeParams.get("statup"), true);
 
-            if (startup && classfile != null) {
+            // sameClassAs：Agent局部引用，从同段config中查找classfile
+            if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
+                HashMap<String, String> refParams = memoryConfigs.get(sameClassAs);
+                if (refParams != null) {
+                    classfile = refParams.get(MODULE_CLASSFILE);
+                }
+            }
+
+            if (startup && classfile != null && !classfile.isEmpty()) {
                 if (namespace != null && !namespace.isEmpty()) {
                     storeParams.putIfAbsent("agentNamespace", namespace);
                 }
@@ -275,11 +293,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             String type = agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
 
             try {
+                // sameClassAs：Agent局部引用，从同段config中查找classfile
+                String classfile = agentCfg.get(MODULE_CLASSFILE);
+                String sameClassAs = agentCfg.get(MODULE_SameClassAs);
+                if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
+                    HashMap<String, String> refParams = agentsConfig.get(sameClassAs);
+                    if (refParams != null) {
+                        classfile = refParams.get(MODULE_CLASSFILE);
+                    }
+                }
+
                 if (AGENT_TYPE_MCP.equals(type)) {
-                    // MCP Agent：使用 classfile 作为模板创建
-                    String classfile = agentCfg.get(MODULE_CLASSFILE);
                     if (classfile == null || classfile.isEmpty()) {
-                        putLog("MCP Agent missing classfile: " + agentName, LogLevel.ERROR);
+                        putLog("MCP Agent missing classfile/sameClassAs: " + agentName, LogLevel.ERROR);
                         continue;
                     }
                     TLBaseModule module = (TLBaseModule) getNewModule(agentName, classfile, agentCfg);
@@ -287,9 +313,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     modules.put(agentName, module);
                     putLog("MCP Agent initialized: " + agentName, LogLevel.DEBUG);
                 } else {
-                    // 普通 Agent：基于 aiagent 模板创建
                     agentCfg.putIfAbsent("configFile", agentName + "_config.xml");
-                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, "aiagent", agentCfg);
+                    // classfile/sameClassAs 优先，否则用 defaultAgentTemplate（默认 "aiagent"）
+                    String template = (classfile != null && !classfile.isEmpty()) ? classfile
+                            : (params != null ? params.getOrDefault("defaultAgentTemplate", "aiagent") : "aiagent");
+                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, template, agentCfg);
                     if (module instanceof TLAiAgent) {
                         subAgents.put(agentName, module);
                         modules.put(agentName, module);
@@ -853,11 +881,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         String storeName = msg.getStringParam("storeName", defaultMemoryStore);
         TLBaseMemory memory = memoryStores.get(storeName);
         if (memory == null) {
-            // 尝试从context module获取
-            memory = (TLBaseMemory) getModule(storeName);
-            if (memory == null) {
-                return createMsg().setParam(RESULT, false).setParam("error", "Memory store not found: " + storeName);
-            }
+            return createMsg().setParam(RESULT, false).setParam("error", "Memory store not found: " + storeName);
         }
         TLMsg memMsg = createMsg()
                 .setAction(MEMORY_STORE)
@@ -877,9 +901,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // 同时搜索短期和长期记忆，合并结果
         for (String storeName : memoryStores.keySet()) {
             TLBaseMemory memory = memoryStores.get(storeName);
-            if (memory == null) {
-                memory = (TLBaseMemory) getModule(storeName);
-            }
             if (memory != null) {
                 TLMsg memMsg = createMsg()
                         .setAction(MEMORY_SEARCH)

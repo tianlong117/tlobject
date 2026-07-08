@@ -23,12 +23,21 @@
                   defaultModel="deepseek-v4-pro"/>
     </providers>
 
+    <memoryStores>
+        <memoryStore name="longTermMemory"
+                     classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                     statup="true"
+                     memoryType="longTerm"
+                     storagePath="./data/master_memory"
+                     maxCacheEntries="10000"/>
+    </memoryStores>
+
     <!-- ===== 子Agent定义（有此项即为主控模式） ===== -->
     <!-- type="mcp" → MCP 桥接Agent，无 LLM，自动发现 tools 并展开为 function defs -->
     <!-- type 缺省/"agent" → 普通子Agent，生成 delegate_to_xxx -->
     <agents>
         <agent name="fileAgent"
-               statup="false"
+               statup="true"
                description="文件处理专家，负责文件的读写、目录操作等。当用户请求涉及文件操作时使用此Agent。"/>
 
         <agent name="hamburgerAgent"
@@ -47,12 +56,11 @@
                statup="false"
                description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
 
-
     </agents>
 
     <beforeMsgTable>
         <action name="chat">
-            <msg action="recallAgentMemory" destination="aiagent"
+            <msg action="recallAgentMemory" destination="aiagent_master"
                  paramsFromMsg="sessionId"/>
         </action>
     </beforeMsgTable>

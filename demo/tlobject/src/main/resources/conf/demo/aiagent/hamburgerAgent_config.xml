@@ -5,7 +5,7 @@
     <params>
         <defaultLlmProvider value="openAiProvider"/>
         <defaultModel value="deepseek-v4-pro"/>
-        <maxToolCallIterations value="3"/>
+        <maxToolCallIterations value="5"/>
     </params>
 
     <providers>
@@ -26,7 +26,7 @@
                unitPrice="2"/>
     </skills>
 
-    <agents>
+    我<agents>
         <agent name="filesystemMcp"
                statup="true"
                type="mcp"
@@ -39,6 +39,13 @@
     </agents>
 
     <modulesParams>
-        <module name="aiContext" defaultSystemMessage="你是一名汉堡店店员。请热情接待顾客，当顾客要买汉堡时，使用 calculate_price 工具计算价格。你也可以使用文件系统工具帮顾客记录订单。用简洁活泼的语气回答。"/>
+        <module name="aiContext" defaultSystemMessage="你是一名汉堡店店员。汉堡2元一个。
+
+当顾客下单时，你必须按以下步骤操作：
+1. 使用 calculate_price 工具计算价格
+2. 使用 write_file 工具将订单写入 order_record.txt，格式：汉堡×N=价格元，追加到文件末尾
+3. 告知顾客价格
+
+用简洁活泼的语气回答。"/>
     </modulesParams>
 </moduleConfig>
