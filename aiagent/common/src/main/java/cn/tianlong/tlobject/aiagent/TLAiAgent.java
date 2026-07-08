@@ -276,6 +276,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      */
     protected void initAgents() {
         myConfig config = (myConfig) mconfig;
+        if (config == null) return;
         agentsConfig = config.getAgents();
         System.out.println("=== [initAgents] configFile=" + configFile
                 + " agentsConfig=" + (agentsConfig != null ? agentsConfig.size() + " entries" : "null") + " ===");
@@ -318,13 +319,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     String template = (classfile != null && !classfile.isEmpty()) ? classfile
                             : (params != null ? params.getOrDefault("defaultAgentTemplate", "aiagent") : "aiagent");
                     TLBaseModule module = (TLBaseModule) getNewModule(agentName, template, agentCfg);
-                    if (module instanceof TLAiAgent) {
-                        subAgents.put(agentName, module);
-                        modules.put(agentName, module);
-                        putLog("Sub-agent initialized: " + agentName, LogLevel.DEBUG);
-                    } else {
-                        putLog("Sub-agent class is not TLAiAgent: " + agentName, LogLevel.ERROR);
-                    }
+                    // 接受 TLAiAgent、TLAgentGroup 等任何 TLBaseModule
+                    subAgents.put(agentName, module);
+                    modules.put(agentName, module);
+                    putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
                 }
             } catch (Exception e) {
                 putLog("Failed to init sub-agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);

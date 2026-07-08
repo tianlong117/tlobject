@@ -52,6 +52,12 @@
                statup="true"
                description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/>
 
+        <agent name="priceTeam"
+               classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup"
+               configFile="priceTeam_config.xml"
+               statup="true"
+               description="食品询价组，可以同时查询汉堡和披萨的价格。当用户同时要买汉堡和披萨时使用此Agent，避免一个一个问。"/>
+
         <agent name="dbAgent"
                statup="false"
                description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
