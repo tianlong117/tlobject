@@ -40,7 +40,7 @@ public class startup extends TLAppStartUp {
     protected TLBaseModule init() {
       userTable = (TLBaseModule) getTable("userTable");
       //用以获取数据库表的方式获取一个redis数据类型，该数据类型在database配置文件中以表的方式配置
-      //  <table name="userByIdInRedis"  databaseIndex="1" dbserver="redisServer1" prefix="user:" proxyModule="redisMap"  />
+      //  <table name="userByIdInRedis"  databaseIndex="1" dbserver="redisServer1" prefix="user:" sameClassAs="redisMap"  />
       redisMap = (TLRedisMap) getTable("userByIdInRedis");
       return this ;
     }

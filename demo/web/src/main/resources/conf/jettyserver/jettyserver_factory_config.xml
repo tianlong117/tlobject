@@ -29,13 +29,13 @@
         <!-- 数据库表modle操纵类-->
         <!-- 用户自定义模块 "appCenter" 为系统主启动模块，必须定义-->
         <module name="homepage"  classfile=".servletdemo.homePageControl" />
-        <module name="dbserver1"  proxyModule="dbserver" configfile="database_config.xml"/>
-        <module name="dbserver2"  proxyModule="dbserver" configfile="database_config.xml"/>
+        <module name="dbserver1"  sameClassAs="dbserver" configfile="database_config.xml"/>
+        <module name="dbserver2"  sameClassAs="dbserver" configfile="database_config.xml"/>
         <module name="servletTest1" classfile=".servletdemo.servletTest1" singleton="true" />
         <module name="userTableSplitTrigger"  classfile=".servletdemo.UserTableSplitTrigger" />
         <module name="serv1C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
         <module name="serv2C3p0"  classfile="cn.tianlong.tlobject.db.TLC3P0connect" />
-        <module name="myservice" proxyModule="webSevice"  serverAddress1 ="http://localhost:8080/tltest/tlobject/service"/>
+        <module name="myservice" sameClassAs="webSevice"  serverAddress1 ="http://localhost:8080/tltest/tlobject/service"/>
         <module name="userModle" classfile=".servletdemo.userModle" />
         <module name="servletDbTest"  classfile=".servletdemo.servletDbTest" />
         <module name="myhttpClient"  classfile=".servletdemo.myhttpClientWithkeepalive" singleton="false"

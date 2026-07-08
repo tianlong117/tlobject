@@ -16,7 +16,7 @@
         <module name="singleThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="single" />
         <module name="cachedThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="cached" />
         <module name="fixedThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="fixed" poolSize="10"/>
-        <module name="logThreadPool" proxyModule="threadPool" poolType="single" ifLog="false" ifMonitor="false"/>
+        <module name="logThreadPool" sameClassAs="threadPool" poolType="single" ifLog="false" ifMonitor="false"/>
         <module name="moduleMonitor" classfile="cn.tianlong.tlobject.modules.TLModuleMonitor" />
         <module name="msgRouter" classfile="cn.tianlong.tlobject.modules.TLMsgRouter" />
         <module name="modulePool" classfile="cn.tianlong.tlobject.modules.TLModulePool" />

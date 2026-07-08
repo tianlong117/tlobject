@@ -94,10 +94,10 @@ public class TLDataBase extends TLBaseModule {
     }
 
     private TLBaseModule createDbServer(String serverName, HashMap<String,String> config) {
-        String proxyModule= (config !=null )?config.get(MODULE_PROXYMODULE):DEFAULTDBSERVERMODULE;
+        String sameClassAs= (config !=null )?config.get(MODULE_SameClassAs):DEFAULTDBSERVERMODULE;
         TLBaseModule serverobj;
-        if(proxyModule.indexOf("@") >0){
-            String[] array =TLDataUtils.splitStrToArray(proxyModule,"@");
+        if(sameClassAs.indexOf("@") >0){
+            String[] array =TLDataUtils.splitStrToArray(sameClassAs,"@");
             if(array.length !=3)
                 return null;
             TLMsg msg =createMsg().setAction(DB_GETSERVER).setParam(DB_P_SERVERNAME,array[0]);
@@ -106,7 +106,7 @@ public class TLDataBase extends TLBaseModule {
             serverobj = (TLBaseModule) returnMsg.getParam(INSTANCE);
         }
         else
-            serverobj =  (TLBaseModule)getModule( serverName,proxyModule,false,false,config) ;
+            serverobj =  (TLBaseModule)getModule( serverName,sameClassAs,false,false,config) ;
          if(serverobj != null)
           dbObjs.put(prefixServer+serverName, serverobj);
        return serverobj ;
@@ -654,11 +654,11 @@ public class TLDataBase extends TLBaseModule {
         return tableparams ;
     }
     private TLBaseModule makeTable(String tablename, HashMap<String, String> tableparams) {
-        String proxyModule = tableparams.get(MODULE_PROXYMODULE);
+        String sameClassAs = tableparams.get(MODULE_SameClassAs);
         TLBaseModule tableobj ;
-        if(proxyModule != null && proxyModule.indexOf("@") >0)
+        if(sameClassAs != null && sameClassAs.indexOf("@") >0)
         {
-            String[] array =TLDataUtils.splitStrToArray(proxyModule,"@");
+            String[] array =TLDataUtils.splitStrToArray(sameClassAs,"@");
             if(array.length !=3)
                 return null;
             TLMsg msg =createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME,array[0]);
@@ -668,13 +668,13 @@ public class TLDataBase extends TLBaseModule {
         }
         else
         {
-            if (proxyModule != null && !proxyModule.isEmpty())
-                proxyModule = addPackage(proxyModule);
+            if (sameClassAs != null && !sameClassAs.isEmpty())
+                sameClassAs = addPackage(sameClassAs);
             else
-                proxyModule = DB_DBTABLEMODULENAME;
+                sameClassAs = DB_DBTABLEMODULENAME;
             tableparams.put("defaultDBserver", params.get("defaultDBserver"));
             tableparams.putIfAbsent("database", name);
-            tableobj = (TLBaseModule) getNewModule(tablename,proxyModule,tableparams);
+            tableobj = (TLBaseModule) getNewModule(tablename,sameClassAs,tableparams);
         }
         if(tableobj ==null)
         {
@@ -757,10 +757,10 @@ public class TLDataBase extends TLBaseModule {
         TLBaseModule viewobj = (TLBaseModule) dbObjs.get(prefixView+viewName);
         if (viewobj == null) {
             HashMap<String, String> viewparams = views.get(viewName);
-            String proxyModule = viewparams.get(MODULE_PROXYMODULE);
-            if(proxyModule != null && proxyModule.indexOf("@") >0)
+            String sameClassAs = viewparams.get(MODULE_SameClassAs);
+            if(sameClassAs != null && sameClassAs.indexOf("@") >0)
             {
-                String[] array =TLDataUtils.splitStrToArray(proxyModule,"@");
+                String[] array =TLDataUtils.splitStrToArray(sameClassAs,"@");
                 if(array.length !=3)
                     return null;
                 TLMsg vmsg =createMsg().setAction(DB_GETVIEW).setParam(DB_P_VIEWNAME,array[0]);

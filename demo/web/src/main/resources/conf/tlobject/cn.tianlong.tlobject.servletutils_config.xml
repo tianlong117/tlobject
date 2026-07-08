@@ -16,9 +16,9 @@
                 configfile="tokenUser_config.xml" client="tokenClient"/>
         <module name="webClient"  classfile="cn.tianlong.tlobject.servletutils.TLWClient"
                 inInterface="directInInterface" outInterface="velocity"/>
-        <module name="tokenClient"  proxyModule="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
-        <module name="outJsonClient"  proxyModule="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
-        <module name="jsonClient"  proxyModule="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="tokenClient"  sameClassAs="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="outJsonClient"  sameClassAs="webClient"     inInterface="directInInterface" outInterface="jsonDataOutInterface"/>
+        <module name="jsonClient"  sameClassAs="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
         <module name="directInInterface"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWDirectInInterface" />
         <module name="jsonInInterface"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWJsonInInterface" />
         <module name="uploadInInterface"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWUploadInInterface" />
@@ -26,7 +26,7 @@
         <module name="jsonDataOutInterface" classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWJsonDataOutInterface" charset="text/html;charset=utf-8" />
         <module name="velocity"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWVelocityOutInterface" />
         <module name="thymeleaf"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLThymeleafOutInterface" />
-        <module name="webauth" proxyModule="auth"  configfile="auth_config.xml"/>
+        <module name="webauth" sameClassAs="auth"  configfile="auth_config.xml"/>
         <module name="auth"   classfile="cn.tianlong.tlobject.servletutils.application.TLWAuth" />
         <module name="clientJsonToMsg"  classfile="cn.tianlong.tlobject.servletutils.TLWClientJsonToMsg" configfile="clientJsonToMsg_config.xml"/>
         <module name="uploadFile"  classfile="cn.tianlong.tlobject.servletutils.utils.uploadFile" fileSizeMax="1" fileTypes="image/jpeg"/>

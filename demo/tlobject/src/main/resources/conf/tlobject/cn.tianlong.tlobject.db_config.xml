@@ -9,7 +9,7 @@
         <module name="vtable" classfile="cn.tianlong.tlobject.db.TLVirtualTable" />
         <module name="dbview" classfile="cn.tianlong.tlobject.db.TLDBView" />
         <module name="cachetrigger" classfile="cn.tianlong.tlobject.db.TLDBTriggerForCache" />
-        <module name="aftercachetrigger" proxyModule="cachetrigger" />
+        <module name="aftercachetrigger" sameClassAs="cachetrigger" />
         <module name="moduleParamsInDBModle" classfile="cn.tianlong.tlobject.db.moduleParamsInDBModle" />
         <module name="moduleManager" classfile="cn.tianlong.tlobject.db.TLModuleManager" />
         <module name="moduleFieldInDb" classfile="cn.tianlong.tlobject.db.dbdata.TLModuleFieldInDb" />

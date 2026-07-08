@@ -35,7 +35,7 @@
                 client="thymeleafClient" timeout="60" />
         <module name="dbDemo" classfile="cn.tianlong.java.demo.db.DbDemo" />
         <module name="userModle" classfile="cn.tianlong.java.demo.db.userModle" />
-        <module name="dbEhcache"  proxyModule="EhCache" configfile="EhCache_config.xml"/>
+        <module name="dbEhcache"  sameClassAs="EhCache" configfile="EhCache_config.xml"/>
     </modules>
     <!-- 线程中的公共模块要在工厂启动时启动，放入主线程中，否则容易出错-->
     <factoryBoot>

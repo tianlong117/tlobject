@@ -40,8 +40,8 @@
     <!--
     dbserver参数说明：
             name：数据库server模块名字，用于程序中指向，非数据库中的实体库名
-            proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
-                        如果proxyModule格式为"模块名@数据库名@工厂名”，则表示从另一个工厂空间的数据库中获取
+            sameClassAs：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。
+                        如果sameClassAs格式为"模块名@数据库名@工厂名”，则表示从另一个工厂空间的数据库中获取
             statup:database初始化时是否初始化 ，默认为false
             ifCache:是否开启sql查询缓存，默认false，不开启
             cacheModuleName：缓存模块名，默认为内存缓存memoryCache
@@ -62,13 +62,13 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-        <dbserver name="dbserver1" proxyModule="dbserver" statup="true"
+        <dbserver name="dbserver1" sameClassAs="dbserver" statup="true"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
                   connector="HikariCP"
                   initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
-        <dbserver name="dbserver2" proxyModule="dbserver" statup="true"
+        <dbserver name="dbserver2" sameClassAs="dbserver" statup="true"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
@@ -80,8 +80,8 @@
      对表进行配置，对于没有在此配置的数据库实际表，可以在程序中使用，而采取默认配置。
    name：程序中的表概念名字。
    dbtable:对应数据库中实际的表 。如果该项没有配置，则与name一致
-   proxyModule：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表模块TLTable
-              如果proxyModule格式为"模块名@数据库名@工厂名”，则表示另一个工厂空间的数据库中获取
+   sameClassAs：与工厂配置同一意义，用来实例化的模块类，对应工厂中的模块配置。如果没有配置则为默认表模块TLTable
+              如果sameClassAs格式为"模块名@数据库名@工厂名”，则表示另一个工厂空间的数据库中获取
    dbserver ：表存在的具体数据库，如果配置了readserver ，则为写数据库,进行读写分离。注：读写数据库要自行单独配置同步
    readserver ：表存在的读数据库，如果配置则读操作从该server中进行。注：读写数据库要自行单独配置同步
    statup:database初始化时是否初始实例化 ，如果没有则在访问时实例化 。默认为初始化 true 。

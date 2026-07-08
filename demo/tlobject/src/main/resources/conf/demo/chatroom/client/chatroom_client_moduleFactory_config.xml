@@ -13,7 +13,7 @@
     <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.network_config.xml" includeUnit="modules"/>
 
     <modules>
-        <module name="serverProxy" proxyModule="socketClientAgentPool"
+        <module name="serverProxy" sameClassAs="socketClientAgentPool"
                 configfile="socketClientAgentPool_config.xml" />
         <module name="chatClient" classfile="cn.tianlong.java.demo.chatroom.client.ChatClientModule"
                 configfile="chatClient_config.xml" />

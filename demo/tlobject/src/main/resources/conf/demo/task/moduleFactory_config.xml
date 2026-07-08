@@ -19,11 +19,11 @@
     <modules>
         <!-- 自定义模块 -->
         <module name="pcboy" classfile=".task.PcBoy"  />
-        <module name="pcboy1" proxyModule="pcboy"  />
-        <module name="pcboy2" proxyModule="pcboy"  />
+        <module name="pcboy1" sameClassAs="pcboy"  />
+        <module name="pcboy2" sameClassAs="pcboy"  />
         <module name="light" classfile="cn.tianlong.java.demo.base.Light" />
-        <module name="myTaskManger" proxyModule="msgTask" configfile="msgtask_config.xml" />
-        <module name="mymsgTaskConsole" proxyModule="msgTaskConsole" configfile="mymsgTaskConsole_config.xml" />
+        <module name="myTaskManger" sameClassAs="msgTask" configfile="msgtask_config.xml" />
+        <module name="mymsgTaskConsole" sameClassAs="msgTaskConsole" configfile="mymsgTaskConsole_config.xml" />
 
     </modules>
     <factoryBoot>

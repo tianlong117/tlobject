@@ -87,7 +87,7 @@ public interface TLParamString {
     final String MODULENAME = "moduleName";
     final String MODULE_ONFACTORY = "onfactory";
     final String MODULE_TOMODULE = "toModule";
-    final String MODULE_PROXYMODULE = "proxyModule";
+    final String MODULE_SameClassAs = "sameClassAs";
     final String MODULE_CONFIGFILE = "configfile";
     final String MODULE_CONFIGDIR = "configdir";
     final String MODULE_CLASSFILE = "classfile";

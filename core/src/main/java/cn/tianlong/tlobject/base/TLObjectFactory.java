@@ -635,9 +635,9 @@ public class TLObjectFactory extends TLBaseModule {
         String classFilename;
         if (moduleConfig != null)
         {
-            String proxyModule = moduleConfig.get(MODULE_PROXYMODULE);
-            if (proxyModule != null && !proxyModule.isEmpty())
-                classFilename = modulesClass.get(proxyModule).get(MODULE_CLASSFILE);
+            String sameClassAs = moduleConfig.get(MODULE_SameClassAs);
+            if (sameClassAs != null && !sameClassAs.isEmpty())
+                classFilename = modulesClass.get(sameClassAs).get(MODULE_CLASSFILE);
             else
                 classFilename = moduleConfig.get(MODULE_CLASSFILE);
         } else
@@ -773,7 +773,7 @@ public class TLObjectFactory extends TLBaseModule {
     protected HashMap<String, String> getModuleParams(HashMap<String, String> moduleConfig) {
         HashMap<String, String> params = null;
         for (String key : moduleConfig.keySet()) {
-            if (!key.equals("name") && !key.equals(MODULE_CLASSFILE) && !key.equals(MODULE_ONFACTORY) && !key.equals(MODULE_PROXYMODULE)
+            if (!key.equals("name") && !key.equals(MODULE_CLASSFILE) && !key.equals(MODULE_ONFACTORY) && !key.equals(MODULE_SameClassAs)
                     && !key.equals(MODULE_SINGLETON) && !key.equals(MODULE_CONFIGFILE)&& !key.equals(MODULE_TOMODULE)) {
                 if (params == null)
                     params = new HashMap<>();

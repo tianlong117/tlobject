@@ -27,7 +27,7 @@
         inInterface ： 输入接口
         outInterface ： 输出接口
      4、在cn.tianlong.tlobject.servletutils_config.xml配置文件中，定义预先配置的user 和client类型，如：
-           <module name="jsonClient"  proxyModule="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
+           <module name="jsonClient"  sameClassAs="webClient"     inInterface="jsonInInterface" outInterface="jsonDataOutInterface"/>
            对于jsonClient ，配置了相关的json输入、输出接口
        对于默认的"webClient" 配置如下。其默认输出接口为velocity模板。
          <module name="webClient"  classfile="cn.tianlong.tlobject.servletutils.TLWClient"
