@@ -176,6 +176,8 @@ public interface TLAiAgentParamString extends TLParamString {
     // ======================== MCP Agent 常量 ========================
     /** Agent type 参数：标记为 MCP 桥接 Agent */
     String AGENT_TYPE_MCP = "mcp";
+    /** Agent type 参数：Agent 组（配置层串行链，不创建实例） */
+    String AGENT_TYPE_GROUP = "group";
     /** Agent type 参数：普通 LLM Agent（默认） */
     String AGENT_TYPE_AGENT = "agent";
     /** Agent type 参数的配置键 */

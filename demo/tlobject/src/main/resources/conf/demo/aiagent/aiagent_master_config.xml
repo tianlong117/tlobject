@@ -32,9 +32,30 @@
                      maxCacheEntries="10000"/>
     </memoryStores>
 
-    <!-- ===== 子Agent定义（有此项即为主控模式） ===== -->
-    <!-- type="mcp" → MCP 桥接Agent，无 LLM，自动发现 tools 并展开为 function defs -->
-    <!-- type 缺省/"agent" → 普通子Agent，生成 delegate_to_xxx -->
+    <!-- ===== Agent 定义（有此项即为主控模式） ===== -->
+
+    <!-- type 取值说明：
+         "agent" (默认) : 普通LLM子Agent，独立TLAiAgent实例，有LLM/Skill/Memory
+         "mcp"          : MCP桥接Agent，无LLM，自动发现tools→展开为N个function defs
+         "group"        : Agent组，不创建实例，主控内部按mode调度members
+
+         group 专属参数：
+           mode       : "sequential"(默认,串行链) | "parallel"(并发合并)
+           members    : 成员列表，分号分隔，值对应其他 <agent name="...">
+           waitTime   : 并行超时毫秒数，默认120000
+
+         mcp 专属参数：
+           transport  : "stdio"(子进程) | "sse"(HTTP远程)
+           command/args/url : 按transport选填
+           tools      : 逗号分隔的工具白名单，不填则全部暴露
+           classfile  : cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent
+
+         通用参数：
+           statup     : "true" 启用 | "false" 跳过
+           description: LLM选择Agent时的参考描述
+           classfile  : 自定义类全路径，缺省为TLAiAgent
+           configFile : 配置文件，缺省为 {name}_config.xml
+           sameClassAs: 引用同段另一个agent的classfile -->
     <agents>
         <agent name="fileAgent"
                statup="true"
@@ -53,10 +74,11 @@
                description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/>
 
         <agent name="priceTeam"
-               classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup"
-               configFile="priceTeam_config.xml"
+               type="group"
+               members="hamburgerAgent;pizzaAgent"
+               mode="parallel"
                statup="true"
-               description="食品询价组，可以同时查询汉堡和披萨的价格。当用户同时要买汉堡和披萨时使用此Agent，避免一个一个问。"/>
+               description="食品询价组，依次询问汉堡和披萨价格。当用户同时要买汉堡和披萨时使用此Agent。"/>
 
         <agent name="dbAgent"
                statup="false"

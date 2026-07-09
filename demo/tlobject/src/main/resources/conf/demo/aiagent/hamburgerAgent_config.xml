@@ -26,7 +26,7 @@
                unitPrice="2"/>
     </skills>
 
-    我<agents>
+    <agents>
         <agent name="filesystemMcp"
                statup="true"
                type="mcp"

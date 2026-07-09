@@ -304,7 +304,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     }
                 }
 
-                if (AGENT_TYPE_MCP.equals(type)) {
+                if (AGENT_TYPE_GROUP.equals(type)) {
+                    // Group Agent：不创建实例，members 已在 agentsConfig 中
+                    putLog("Group agent registered: " + agentName + " members=" + agentCfg.get("members"), LogLevel.DEBUG);
+                } else if (AGENT_TYPE_MCP.equals(type)) {
                     if (classfile == null || classfile.isEmpty()) {
                         putLog("MCP Agent missing classfile/sameClassAs: " + agentName, LogLevel.ERROR);
                         continue;
@@ -329,16 +332,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
-        System.out.println("★★★ 主控Agent模式已激活, 子Agent数量: " + subAgents.size() + " ★★★");
-        for (String name : subAgents.keySet()) {
-            TLBaseModule agent = subAgents.get(name);
-            String agentType = agentsConfig.get(name) != null
-                    ? agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT)
-                    : AGENT_TYPE_AGENT;
-            if (AGENT_TYPE_MCP.equals(agentType)) {
-                System.out.println("  ▸ MCP Agent: " + name);
-            } else {
-                System.out.println("  ▸ 子Agent: delegate_to_" + name);
+        int agentCount = subAgents.size();
+        // 计算 group 数量
+        for (String name : agentsConfig.keySet()) {
+            String t = agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
+            if (AGENT_TYPE_GROUP.equals(t) && !subAgents.containsKey(name)) agentCount++;
+        }
+        System.out.println("★★★ 主控Agent模式已激活, Agent数量: " + agentCount + " ★★★");
+        for (String name : agentsConfig.keySet()) {
+            String agentType = agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
+            if (AGENT_TYPE_GROUP.equals(agentType)) {
+                String members = agentsConfig.get(name).getOrDefault("members", "");
+                System.out.println("  ▸ Group: delegate_to_" + name + " → [" + members + "]");
+            } else if (subAgents.containsKey(name)) {
+                if (AGENT_TYPE_MCP.equals(agentType))
+                    System.out.println("  ▸ MCP Agent: " + name);
+                else
+                    System.out.println("  ▸ 子Agent: delegate_to_" + name);
             }
         }
     }
@@ -1032,7 +1042,110 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
             }
         }
+        // Group Agent（不在 subAgents 中，无实例）
+        if (isMaster && agentsConfig != null) {
+            for (String agentName : agentsConfig.keySet()) {
+                if (subAgents != null && subAgents.containsKey(agentName)) continue;
+                HashMap<String, String> agentCfg = agentsConfig.get(agentName);
+                String agentType = agentCfg != null
+                        ? agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT) : AGENT_TYPE_AGENT;
+                if (AGENT_TYPE_GROUP.equals(agentType)) {
+                    String desc = agentCfg.getOrDefault("description", agentName);
+                    defs.add(TLFunctionDefinition.fromSkill(
+                            "delegate_to_" + agentName, desc, buildDelegateParamSchema()));
+                }
+            }
+        }
         return defs;
+    }
+
+    /**
+     * 执行 Group Agent：按 mode 调度 members。
+     * - sequential: 串行，前一步输出 → 下一步输入
+     * - parallel:   并发，putMsgGroupByThread 一发全发，等齐合并结果
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg executeGroup(String groupName, HashMap<String, String> groupCfg,
+                                TLToolCall tc, Object fromWho) {
+        String membersStr = groupCfg.getOrDefault("members", "");
+        if (membersStr.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "Error: group " + groupName + " has no members");
+        }
+        String[] memberNames = membersStr.split(";");
+        String task = parseDelegateArgs(tc.getArguments());
+        String mode = groupCfg.getOrDefault("mode", "sequential");
+
+        System.out.println(">>> [主控-Group] 启动组 [" + groupName + "] mode=" + mode + " members=" + membersStr);
+        System.out.println("    任务: " + task);
+
+        if ("parallel".equals(mode)) {
+            int waitTime = 120000; // 默认120s
+            try { waitTime = Integer.parseInt(groupCfg.getOrDefault("waitTime", "120000")); }
+            catch (NumberFormatException ignored) {}
+            return executeGroupParallel(groupName, memberNames, task, tc, waitTime);
+        }
+        return executeGroupSequential(groupName, memberNames, task, tc);
+    }
+
+    private TLMsg executeGroupSequential(String groupName, String[] memberNames,
+                                          String task, TLToolCall tc) {
+        String currentInput = task;
+        TLMsg lastResult = null;
+        for (String mName : memberNames) {
+            mName = mName.trim();
+            if (mName.isEmpty()) continue;
+            TLBaseModule member = (TLBaseModule) getModule(mName);
+            if (member == null) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Group member not found: " + mName);
+            }
+            String sid = groupName + "_" + mName + ":" + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
+            System.out.println("  → [Group-seq] " + mName);
+            TLMsg result = putMsg(member, createMsg().setAction(AGENT_CHAT)
+                    .setParam(AI_P_USERMESSAGE, currentInput).setParam(AI_P_SESSIONID, sid));
+            if (result == null || !result.parseBoolean(RESULT, false)) {
+                String err = result != null ? result.getStringParam(AI_P_RESPONSE, "unknown") : "no response";
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Group step [" + mName + "] failed: " + err);
+            }
+            lastResult = result;
+            currentInput = result.getStringParam(AI_P_RESPONSE, currentInput);
+            System.out.println("  ✓ [Group-seq] " + mName + " done");
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam(AI_P_SKILLOUTPUT, lastResult != null ? lastResult.getStringParam(AI_P_RESPONSE, "") : "");
+    }
+
+    @SuppressWarnings("unchecked")
+    private TLMsg executeGroupParallel(String groupName, String[] memberNames,
+                                        String task, TLToolCall tc, int waitTime) {
+        List<TLMsg> msgList = new ArrayList<>();
+        for (String mName : memberNames) {
+            mName = mName.trim();
+            if (mName.isEmpty()) continue;
+            String sid = groupName + "_" + mName + ":" + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
+            msgList.add(createMsg().setAction(AGENT_CHAT)
+                    .setParam(AI_P_USERMESSAGE, task).setParam(AI_P_SESSIONID, sid)
+                    .setDestination(mName));
+        }
+
+        TLMsg groupResult = putMsgGroupByThread(msgList, waitTime);
+        List<TLMsg> resultList = (List<TLMsg>) groupResult.getParam(RESULT, List.class);
+
+        StringBuilder merged = new StringBuilder();
+        for (int i = 0; i < memberNames.length; i++) {
+            String mn = memberNames[i].trim();
+            if (mn.isEmpty()) continue;
+            TLMsg r = (resultList != null && i < resultList.size()) ? resultList.get(i) : null;
+            if (r != null && r.parseBoolean(RESULT, false)) {
+                merged.append("【").append(mn).append("】\n").append(r.getStringParam(AI_P_RESPONSE, "")).append("\n\n");
+            } else {
+                merged.append("【").append(mn).append(" - 错误】")
+                        .append(r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout").append("\n\n");
+            }
+        }
+        return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, merged.toString().trim());
     }
 
     /**
@@ -1089,9 +1202,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
-        // 主控模式：路由到子Agent
+        // 主控模式：路由到子Agent / Group
         if (isMaster && functionName.startsWith("delegate_to_")) {
             String agentName = functionName.substring("delegate_to_".length());
+
+            // 检查是否为 Group Agent
+            HashMap<String, String> agentCfg = agentsConfig != null ? agentsConfig.get(agentName) : null;
+            String agentType = agentCfg != null
+                    ? agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT) : AGENT_TYPE_AGENT;
+
+            if (AGENT_TYPE_GROUP.equals(agentType)) {
+                return executeGroup(agentName, agentCfg, tc, fromWho);
+            }
+
             TLBaseModule subAgent = subAgents.get(agentName);
             if (subAgent == null) {
                 putLog("Sub-agent not found: " + agentName, LogLevel.WARN);
