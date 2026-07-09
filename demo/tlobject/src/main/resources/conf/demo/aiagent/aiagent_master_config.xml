@@ -12,6 +12,7 @@
         <defaultMaxTokens value="4096"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <outputGuard value="outputGuard"/>
     </params>
 
     <providers>

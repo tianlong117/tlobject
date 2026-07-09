@@ -17,11 +17,13 @@
     </commonParams>
     <modulesParams>
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
+        <module name="outputGuard" rules="amountLimit:10000;forbiddenTerms:不要谈论政治;maxLength:3000"/>
     </modulesParams>
     <modules>
         <!-- 主控Agent（独立模块名，避免递归） -->
         <module name="aiagent_master" classfile="cn.tianlong.tlobject.aiagent.TLAiAgent"
                 singleton="true" configfile="aiagent_master_config.xml"/>
+        <module name="outputGuard" classfile="cn.tianlong.tlobject.aiagent.TLOutputGuard"/>
     </modules>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
@@ -32,5 +34,6 @@
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
         <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
     </factoryBoot>
 </moduleConfig>

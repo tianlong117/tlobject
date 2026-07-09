@@ -537,6 +537,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
 
             putLog("Chat completed: sessionId=" + sessionId, LogLevel.DEBUG);
+            // 输出护栏：检查并净化回复
+            finalResponse = guardOutput(finalResponse);
             return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
                     .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration);
 
@@ -1149,6 +1151,29 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
+     * 输出护栏：若 params 中配置了 outputGuard 模块名，校验并净化 LLM 回复。
+     */
+    private String guardOutput(String response) {
+        if (response == null || response.isEmpty()) return response;
+        String guardModuleName = params != null ? params.get("outputGuard") : null;
+        if (guardModuleName == null || guardModuleName.isEmpty()) return response;
+        Object found = getModule(guardModuleName);
+        TLBaseModule guard = found instanceof TLBaseModule ? (TLBaseModule) found : null;
+        if (guard == null) return response;
+        try {
+            TLMsg guardMsg = createMsg().setAction("validateOutput")
+                    .setParam(AI_P_RESPONSE, response);
+            TLMsg result = putMsg(guard, guardMsg);
+            if (result != null && result.containsParam(AI_P_RESPONSE)) {
+                return result.getStringParam(AI_P_RESPONSE, response);
+            }
+        } catch (Exception e) {
+            putLog("Output guard error: " + e.toString(), LogLevel.WARN);
+        }
+        return response;
+    }
+
+    /**
      * 构建委托子Agent的参数schema（task描述）
      */
     protected Map<String, Object> buildDelegateParamSchema() {
@@ -1265,6 +1290,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         }
 
         try {
+            // 输入校验：参数不合法则返回错误让 LLM 自修正
+            TLMsg validateMsg = createMsg().setAction(SKILL_VALIDATE)
+                    .setParam(AI_P_SKILLINPUT, tc.getArguments() != null
+                            ? tc.getArguments() : new LinkedHashMap<>());
+            TLMsg vResult = putMsg(skill, validateMsg);
+            if (!vResult.parseBoolean(RESULT, false)) {
+                putLog("Skill validation failed: " + functionName + " - " + vResult.getStringParam("error", ""), LogLevel.WARN);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Validation error: " + vResult.getStringParam("error", "unknown"));
+            }
+
             TLMsg executeMsg = createMsg()
                     .setAction(SKILL_EXECUTE)
                     .setParam(AI_P_SKILLINPUT, tc.getArguments() != null
