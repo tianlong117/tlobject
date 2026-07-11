@@ -99,6 +99,9 @@ public class TLCheckpointModule extends TLBaseModule {
             case CHECKPOINT_GETHISTORY:
                 returnMsg = getHistory(fromWho, msg);
                 break;
+            case CHECKPOINT_GETGLOBALHISTORY:
+                returnMsg = getGlobalHistory(fromWho, msg);
+                break;
             default:
         }
         return returnMsg;
@@ -118,8 +121,9 @@ public class TLCheckpointModule extends TLBaseModule {
         }
         TLMsg originalMsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         if (originalMsg != null) {
-            // 保存断点文件（覆盖写）
+            // 保存断点文件（覆盖写），标记不可关闭
             saveToFile(moduleName, originalMsg);
+            shutdownable = false;
             // 如果配置了 ifHistory=true，追加历史记录
             if ("true".equals(msg.getStringParam(CHECKPOINT_P_IFHISTORY, "false"))) {
                 appendToHistory(moduleName, originalMsg);
@@ -146,12 +150,11 @@ public class TLCheckpointModule extends TLBaseModule {
         if (originalMsg != null) {
             TLMsg nextMsg = originalMsg.getNextMsg();
             if (nextMsg != null) {
-                // 断点前移：下一跳作为新的 WAL
                 saveToFile(moduleName, nextMsg);
             } else {
-                // 处理链结束，清除断点
                 deleteFile(moduleName);
             }
+            shutdownable = true;
         }
         return createMsg();
     }
@@ -261,11 +264,13 @@ public class TLCheckpointModule extends TLBaseModule {
             File file = new File(checkpointDir, moduleName + ".history.jsonl");
             try (FileWriter writer = new FileWriter(file, true)) {
                 String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
+                String previous = msg.getPrevious() != null ? msg.getPrevious() : "";
                 String msgJson = TLMsgUtils.msgToJson(msg);
-                // JSONL: 一行一条记录
+                // previous 表示谁把这条 msg 传过来的，与 module(处理者) 组成 previous→module 跳关系
                 writer.write("{\"seq\":" + seq
                         + ",\"time\":\"" + time
                         + "\",\"module\":\"" + moduleName
+                        + "\",\"previous\":\"" + previous
                         + "\",\"action\":\"" + msg.getAction()
                         + "\",\"msg\":" + (msgJson != null ? msgJson : "{}") + "}\n");
             } catch (IOException e) {
@@ -324,25 +329,12 @@ public class TLCheckpointModule extends TLBaseModule {
                 while ((line = reader.readLine()) != null) {
                     line = line.trim();
                     if (line.isEmpty()) continue;
-                    // 简单解析 JSONL，提取 seq/time/module/action/destination
                     Map<String, Object> record = new HashMap<>();
                     record.put("seq", extractJsonInt(line, "seq"));
                     record.put("time", extractJsonString(line, "time"));
                     record.put("module", extractJsonString(line, "module"));
+                    record.put("previous", extractJsonString(line, "previous"));
                     record.put("action", extractJsonString(line, "action"));
-                    // 从 msg 中提取 destination
-                    int msgStart = line.indexOf("\"msg\":");
-                    if (msgStart > 0) {
-                        String msgPart = line.substring(msgStart + 6, line.length() - 1);
-                        int destIdx = msgPart.indexOf("\"destination\":\"");
-                        if (destIdx >= 0) {
-                            int destStart = destIdx + 15;
-                            int destEnd = msgPart.indexOf("\"", destStart);
-                            if (destEnd > destStart) {
-                                record.put("destination", msgPart.substring(destStart, destEnd));
-                            }
-                        }
-                    }
                     records.add(record);
                 }
             } catch (IOException e) {
@@ -351,6 +343,42 @@ public class TLCheckpointModule extends TLBaseModule {
             }
         }
         return createMsg().setParam(RESULT, records);
+    }
+
+    /**
+     * 扫描所有 *.history.jsonl，按时间合并，返回全局消息流动轨迹。
+     */
+    public TLMsg getGlobalHistory(Object fromWho, TLMsg msg) {
+        List<Map<String, Object>> allRecords = new ArrayList<>();
+        File dir = new File(checkpointDir);
+        File[] files = dir.listFiles((d, name) -> name.endsWith(".history.jsonl"));
+        if (files != null) {
+            for (File file : files) {
+                try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        line = line.trim();
+                        if (line.isEmpty()) continue;
+                        Map<String, Object> record = new HashMap<>();
+                        record.put("seq", extractJsonInt(line, "seq"));
+                        record.put("time", extractJsonString(line, "time"));
+                        record.put("module", extractJsonString(line, "module"));
+                        record.put("previous", extractJsonString(line, "previous"));
+                        record.put("action", extractJsonString(line, "action"));
+                        allRecords.add(record);
+                    }
+                } catch (IOException e) {
+                    putLog("getGlobalHistory read failed: " + file.getName(), LogLevel.ERROR, "getGlobalHistory");
+                }
+            }
+        }
+        // 按时间排序
+        allRecords.sort((a, b) -> {
+            String ta = (String) a.getOrDefault("time", "");
+            String tb = (String) b.getOrDefault("time", "");
+            return ta.compareTo(tb);
+        });
+        return createMsg().setParam(RESULT, allRecords);
     }
 
     private int extractJsonInt(String json, String key) {

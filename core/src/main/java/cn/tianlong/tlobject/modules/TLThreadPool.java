@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 创建日期：2018/4/23 on 21:00
@@ -17,6 +18,7 @@ public class TLThreadPool extends TLBaseModule {
     protected ExecutorService threadPool ;
     protected int poolSize = 5;
     protected String poolType ="fixed";
+    protected int shutdownTimeout = 30; // 关闭时等待线程完成的超时秒数
     public TLThreadPool(){
         super();
     }
@@ -33,6 +35,8 @@ public class TLThreadPool extends TLBaseModule {
             poolSize = Integer.parseInt(params.get(THREADPOOL_P_POOLSIZE));
         if (params != null && params.get(THREADPOOL_P_POOLTYPE) != null)
             poolType = params.get(THREADPOOL_P_POOLTYPE);
+        if (params != null && params.get("shutdownTimeout") != null)
+            shutdownTimeout = Integer.parseInt(params.get("shutdownTimeout"));
     }
     @Override
     protected TLBaseModule init() {
@@ -63,10 +67,10 @@ public class TLThreadPool extends TLBaseModule {
                 returnMsg=createMsg().setParam(THREADPOOL_POOL,threadPool);
                 break;
             case THREADPOOL_SHUTDOWN:
-                threadPool.shutdown();
+                shutdownAndAwait();
                 break;
             case MODULE_DESTROY:
-                threadPool.shutdown();
+                shutdownAndAwait();
                 break;
             default:              ;
         }
@@ -91,6 +95,21 @@ public class TLThreadPool extends TLBaseModule {
         threadPool.execute(threadTask);
         return createMsg().setParam(THREADPOOL_TASK,threadTask);
     }
+    private void shutdownAndAwait() {
+        threadPool.shutdown();
+        try {
+            if (!threadPool.awaitTermination(shutdownTimeout, TimeUnit.SECONDS)) {
+                threadPool.shutdownNow();
+                if (!threadPool.awaitTermination(5, TimeUnit.SECONDS)) {
+                    putLog("thread pool did not terminate", LogLevel.WARN);
+                }
+            }
+        } catch (InterruptedException e) {
+            threadPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         threadPool.shutdown();
        return  super.destroy(fromWho,msg);

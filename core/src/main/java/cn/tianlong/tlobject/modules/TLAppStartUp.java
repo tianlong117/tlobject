@@ -20,7 +20,7 @@ import org.apache.commons.cli.*;
  * 程序启动模块类
  */
 public class TLAppStartUp extends TLBaseModule {
-    protected TLObjectFactory appFactory ;
+    static TLObjectFactory appFactory ;
     protected String appName ;
     protected HashMap<String, HashMap<String, String>> appModules;
     public TLAppStartUp() {
@@ -177,7 +177,7 @@ public class TLAppStartUp extends TLBaseModule {
             }
         }
     }
-     private void startAppModule(HashMap<String,String> appConfig){
+    private void startAppModule(HashMap<String,String> appConfig){
          String registAppName =appConfig.get("registAppName");
          if(registAppName ==null || registAppName.isEmpty())
              registAppName = this.appName ;
@@ -297,6 +297,10 @@ public class TLAppStartUp extends TLBaseModule {
     private void startup(Object fromWho, TLMsg msg) {
         HashMap argsMap =msg.getArgs();
         startAppModule(argsMap);
+    }
+
+    public  static void  shutdown(){
+        appFactory.shutdown();
     }
 
     protected void registInfactory(TLObjectFactory modulefactory, String name, TLBaseModule object)

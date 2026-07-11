@@ -253,6 +253,10 @@ public class TLObjectFactory extends TLBaseModule {
 
     public void shutdown() {
         System.out.println("start shutdown...");
+        // 等待工厂自身允许关闭（模块可通过 setshutdown 消息控制）
+        while (!shutdownable) {
+            try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+        }
         putLog("start shutdown...", LogLevel.DEBUG, "shutdown");
         // 销毁子工厂
         for (TLBaseModule factory : factorys.values()) {
@@ -260,15 +264,17 @@ public class TLObjectFactory extends TLBaseModule {
                 ((TLObjectFactory) factory).destroyModule();
             }
         }
-        // 销毁当前工厂模块
+        // 销毁当前工厂模块（各模块 destroy 会各自等待）
         destroyModule();
-        // 短暂等待日志刷新等收尾工作
         try { Thread.sleep(200); } catch (InterruptedException e) {}
         System.out.println("game is over,bye !");
         System.exit(0);
     }
 
     public void shutdown(int status) {
+        while (!shutdownable) {
+            try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+        }
         putLog("app shutdown... ", LogLevel.INFO);
         for (TLBaseModule factory : factorys.values()) {
             if (factory instanceof TLObjectFactory && factory != this) {

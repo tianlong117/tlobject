@@ -9,9 +9,10 @@
     </initMsg>
     <startMsg>
         <!--msg action="restoreCheckpoint" destination="checkpoint" seq="3" /-->
+        <msg action="setshutdown" destination="moduleFactory" value="false"/>
         <msg action="restoreCheckpoint" destination="checkpoint" />
-        <dmsg action="onHouse"   />
-        <dmsg action="comein"  waitFlag="false" inthreadPool="true"/>
+        <msg action="onHouse"   />
+        <msg action="comein"  waitFlag="false" inthreadPool="true"/>
     </startMsg>
     <beforeMsgTable>
         <action  value="*" >
@@ -34,5 +35,10 @@
         <action  value="cook;sleep1" >
             <msg   action="sing3"  />
         </action>
+        <action value="onLight">
+            <msg   action="setshutdown" value="true" />
+            <msg action="setshutdown" destination="moduleFactory" value="true"/>
+        </action>
+
     </afterMsgTable>
 </moduleConfig>

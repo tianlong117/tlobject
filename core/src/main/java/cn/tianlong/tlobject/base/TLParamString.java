@@ -491,6 +491,7 @@ public interface TLParamString {
     final String CHECKPOINT_CLEARANDFORWARD = "clearAndForward";
     final String CHECKPOINT_RESTORE = "restoreCheckpoint";
     final String CHECKPOINT_GETHISTORY = "getHistory";
+    final String CHECKPOINT_GETGLOBALHISTORY = "getGlobalHistory";
     final String CHECKPOINT_P_DIR = "checkpointDir";
     final String CHECKPOINT_P_MODULE = "checkpointModule";
     final String CHECKPOINT_P_TIMESTAMP = "timestamp";

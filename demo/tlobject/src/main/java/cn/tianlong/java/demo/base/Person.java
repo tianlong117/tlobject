@@ -147,6 +147,7 @@ public class Person extends DemoCommon {
            //     return  returnMsg ;
             }
             else {
+                shutdownable =false ;
                 say( "屋子亮啦，回家的感觉真好。 上上网吧 " + thread);
                 try {
                     sleep(8000);
@@ -164,7 +165,7 @@ public class Person extends DemoCommon {
                     if(content !=null)
                         say("收到儿子返回的消息："+content);
                 }
-                moduleFactory.shutdown();
+
             }
         }
         return  null ;

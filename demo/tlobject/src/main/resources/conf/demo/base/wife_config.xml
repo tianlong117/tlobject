@@ -6,4 +6,14 @@
     <initMsg>
            <msg action="onHouse" description="在屋里"  ></msg>
     </initMsg>
+    <beforeMsgTable>
+        <action  value="*" >
+            <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
+        </action>
+    </beforeMsgTable>
+    <afterMsgTable>
+        <action  value="*" >
+            <msg   action="clearAndForward" destination="checkpoint"  />
+        </action>
+    </afterMsgTable>
 </moduleConfig>

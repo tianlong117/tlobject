@@ -46,6 +46,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected String configFile;
     protected TLModuleConfig mconfig;
     protected boolean destroy = true;       //工厂发出销毁命令时，返回的销毁标志
+    protected volatile boolean shutdownable = true;  //是否允许关闭，默认允许
     protected boolean autoConfig = true; //当配置文件没有设置 ，是否采取工厂自动配置 ，默认采用
     protected boolean ifLog = true;        //是否开启日志 ，默认开启
     protected boolean logWait = true;      //日志是否同步，默认同步
@@ -940,6 +941,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             case MODULE_DESTROY:
                 returnMsg = destroy(fromWho, msg);
                 break;
+            case "setshutdown":
+                returnMsg = setShutdown(fromWho, msg);
+                break;
             default:
                 returnMsg = checkMsgAction(fromWho, msg);
         }
@@ -1061,7 +1065,19 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        while (!shutdownable) {
+            try { Thread.sleep(1000); } catch (InterruptedException e) { break; }
+        }
         return createMsg().setParam("destroy", destroy);
+    }
+
+    /**
+     * 模块准备关闭的信号。在 afterMsgTable 的最后调用，
+     * 确保所有清理工作完成后才标记为可关闭。
+     */
+    public TLMsg setShutdown(Object fromWho, TLMsg msg) {
+        shutdownable = "true".equals(msg.getStringParam("value", "true"));
+        return createMsg();
     }
 
     protected TLMsg msgTransfer(Object fromWho, TLMsg msg) {
