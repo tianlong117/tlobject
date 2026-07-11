@@ -102,8 +102,14 @@
 
     <beforeMsgTable>
         <action name="chat">
+            <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
             <msg action="recallAgentMemory" destination="aiagent_master"
                  paramsFromMsg="sessionId"/>
         </action>
     </beforeMsgTable>
+    <afterMsgTable>
+        <action  value="chat" >
+            <dmsg   action="clearAndForward" destination="checkpoint"  />
+        </action>
+    </afterMsgTable>
 </moduleConfig>

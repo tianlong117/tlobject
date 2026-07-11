@@ -498,4 +498,17 @@ public interface TLParamString {
     final String CHECKPOINT_P_IFHISTORY = "ifHistory";
     final String CHECKPOINT_P_SEQ = "seq";
 
+    /**    消息流分析模块常量 *      */
+    String FLOW_ANALYZE = "analyzeFlow";
+    String FLOW_GENERATE = "generateDiagram";
+    String FLOW_SAVE = "saveDiagram";
+    String FLOW_ANALYZE_AND_SAVE = "analyzeAndSave";
+    String FLOW_SAVEHTML = "saveHtml";
+    String FLOW_ANALYZE_AND_SAVEHTML = "analyzeAndSaveHtml";
+    String FLOW_P_DETAILLEVEL = "detailLevel";
+    String FLOW_P_MODULE = "filterModule";
+    String FLOW_P_FILEPATH = "filePath";
+    String FLOW_P_FLOWRECORDS = "flowRecords";
+    String FLOW_P_DIAGRAM = "diagram";
+
 }

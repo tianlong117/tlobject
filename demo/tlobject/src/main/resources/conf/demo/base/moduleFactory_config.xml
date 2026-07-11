@@ -19,6 +19,8 @@
         <module name="module3"  configfile="myconsoleCmds_config.xml" type="module3"/>
         <module name="module1;module2"  db="qinqin"/>
         <module name="module2;module3"  server="heilong"/>
+        <module name="analyzeAndSave"   detailLevel="detailed"/>
+
     </modulesParams>
     <paramsModules>
         <param  name="param1"  value="value1"  modules="module1;module2"/>

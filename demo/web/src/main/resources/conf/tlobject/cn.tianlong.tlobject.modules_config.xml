@@ -25,6 +25,7 @@
         <module name="paramValidation" classfile="cn.tianlong.tlobject.modules.TLParamValidation" />
         <module name="reUsedModulePool" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" />
        <module name="checkpoint" classfile="cn.tianlong.tlobject.modules.TLCheckpointModule" />
+       <module name="flowAnalyzer" classfile="cn.tianlong.tlobject.modules.TLMsgFlowAnalyzer" />
        <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool">
             <params>
                 <param name="modueInPool">singleThreadPool</param>

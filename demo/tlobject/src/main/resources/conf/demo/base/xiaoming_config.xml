@@ -36,8 +36,10 @@
             <msg   action="sing3"  />
         </action>
         <action value="onLight">
+            <msg action="analyzeAndSaveHtml" destination="flowAnalyzer" />
             <msg   action="setshutdown" value="true" />
             <msg action="setshutdown" destination="moduleFactory" value="true"/>
+
         </action>
 
     </afterMsgTable>
