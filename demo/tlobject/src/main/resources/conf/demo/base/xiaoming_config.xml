@@ -5,15 +5,26 @@
         <mood  value="开心！" />
     </params>
     <initMsg>
-            <msg action="onHouse"   ></msg>
-            <msg action="comein"  waitFlag="false" inthreadPool="true"></msg>
+
     </initMsg>
+    <startMsg>
+        <!--msg action="restoreCheckpoint" destination="checkpoint" seq="3" /-->
+        <msg action="restoreCheckpoint" destination="checkpoint" />
+        <dmsg action="onHouse"   />
+        <dmsg action="comein"  waitFlag="false" inthreadPool="true"/>
+    </startMsg>
     <beforeMsgTable>
+        <action  value="*" >
+            <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
+        </action>
         <action  value="dispatchUrl" >
             <msg   action="setup" destination="website"  ></msg>
         </action>
     </beforeMsgTable>
     <afterMsgTable>
+        <action  value="*" >
+            <msg   action="clearAndForward" destination="checkpoint"  />
+        </action>
         <action  value="cook" >
             <msg   action="sing"  />
         </action>

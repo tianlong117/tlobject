@@ -148,6 +148,11 @@ public class Person extends DemoCommon {
             }
             else {
                 say( "屋子亮啦，回家的感觉真好。 上上网吧 " + thread);
+                try {
+                    sleep(8000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
                 webclient("http://www.baidu.com");
                 TLBaseModule module1Fac= moduleFactory.getFactory("module1");
                 if(module1Fac!=null)

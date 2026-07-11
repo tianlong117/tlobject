@@ -18,6 +18,7 @@ public interface TLParamString {
     final String DEFAULTDATABASE = "database";
     final String DEFAULTDBSERVERMODULE = "dbserver";
     final String DEFAULTMODULEMONITOR = "moduleMonitor";
+    final String DEFAULTCHECKPOINTMODULE = "checkpoint";
     /**    模块名 *      */
     final String M_MSGBROADCAST = "msgBroadCast";
     final String M_HTTPCLIENT = "httpClient";
@@ -54,6 +55,7 @@ public interface TLParamString {
     final String WEBSERVERCLIENT = "webServerClient";
     final String SERVICE = "service";
 
+    final String MSG_P_DESCRIPTION = "description";
     final String MSG_P_ACTION = "action";
     final String MSG_P_MSGID = "msgid";
     final String MSG_P_DESTINATION = "destination";
@@ -483,5 +485,16 @@ public interface TLParamString {
     final String MSG_GETTABLE = "#d="+DEFAULTDATABASE+"; #a="+DB_GETTABLE;
     final String MSG_MSGBROADCASTREGIST = "#d="+M_MSGBROADCAST+" ; #a="+MSGBROADCAST_REGISTRECEIVER;
     final String MSG_HTTPGET = "#d="+M_HTTPCLIENT+" ; #a="+HTTP_GET;
+
+    /**    断点模块常量 *      */
+    final String CHECKPOINT_SAVE = "saveCheckpoint";
+    final String CHECKPOINT_CLEARANDFORWARD = "clearAndForward";
+    final String CHECKPOINT_RESTORE = "restoreCheckpoint";
+    final String CHECKPOINT_GETHISTORY = "getHistory";
+    final String CHECKPOINT_P_DIR = "checkpointDir";
+    final String CHECKPOINT_P_MODULE = "checkpointModule";
+    final String CHECKPOINT_P_TIMESTAMP = "timestamp";
+    final String CHECKPOINT_P_IFHISTORY = "ifHistory";
+    final String CHECKPOINT_P_SEQ = "seq";
 
 }

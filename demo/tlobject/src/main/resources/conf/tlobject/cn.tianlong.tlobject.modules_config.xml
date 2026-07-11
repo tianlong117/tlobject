@@ -24,10 +24,7 @@
         <module name="msgBlockingQueue" classfile="cn.tianlong.tlobject.modules.TLMsgBlockingQueue" />
         <module name="paramValidation" classfile="cn.tianlong.tlobject.modules.TLParamValidation" />
         <module name="reUsedModulePool" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" />
-       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool">
-            <params>
-                <param name="modueInPool">singleThreadPool</param>
-            </params>
-        </module>
+       <module name="checkpoint" classfile="cn.tianlong.tlobject.modules.TLCheckpointModule" />
+       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" modueInPool="singleThreadPool"/>
     </modules>
 </moduleConfig>

@@ -80,6 +80,26 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** MCP tool 路由表：functionName → (agentName, toolName) */
     protected Map<String, String[]> mcpToolRoutes;
 
+    /** LLM 可调用的预定义消息列表（从 XML msgTools 段解析） */
+    protected List<TLMsg> msgTools;
+
+    /** 当前会话 sessionId（chat 过程中自动设置，供 msgTool 注入上下文参数） */
+    protected String currentSessionId;
+
+    // ======================== Session 持久化/断点恢复 ========================
+
+    /** 是否开启断点保存/恢复（从 XML params 读取，默认 false） */
+    protected boolean enableCheckpoint = false;
+
+    /** 启动时检查 LLM Provider 是否可用（默认 false） */
+    protected boolean checkProviderOnStartup = false;
+
+    /** 会话检查点文件存储路径 */
+    protected String sessionStorePath = "./data/session_store/";
+
+    /** JSON 序列化（复用 Gson，aiagent 已依赖） */
+    protected com.google.gson.Gson gson;
+
     // ======================== 构造函数 ========================
 
     public TLAiAgent() {
@@ -102,6 +122,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         mconfig = config;
         super.setConfig();
         providersConfig = config.getProviders();
+        msgTools = config.getMsgTools();
         return config;
     }
 
@@ -132,6 +153,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 try { defaultMaxTokens = Integer.parseInt(params.get("defaultMaxTokens")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("enableCheckpoint") != null)
+                enableCheckpoint = "true".equals(params.get("enableCheckpoint"));
+            if (params.get("sessionStorePath") != null)
+                sessionStorePath = params.get("sessionStorePath");
+            if (params.get("checkProviderOnStartup") != null)
+                checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
         }
     }
 
@@ -139,49 +166,58 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected TLBaseModule init() {
         skills = new ConcurrentHashMap<>();
         memoryStores = new ConcurrentHashMap<>();
-
-        // 加载Provider并注入配置参数
-        if (defaultLlmProvider != null && !defaultLlmProvider.isEmpty()) {
-            TLBaseModule module = (TLBaseModule) getModule(defaultLlmProvider);
-            if (module instanceof TLLlmProvider) {
-                llmProvider = (TLLlmProvider) module;
-                modules.put(defaultLlmProvider, llmProvider);
-
-                // 从 <providers> 配置中注入参数
-                if (providersConfig != null) {
-                    HashMap<String, String> pConf = providersConfig.get(defaultLlmProvider);
-                    if (pConf != null) {
-                        if (pConf.get("apiKey") != null)
-                            llmProvider.setApiKey(pConf.get("apiKey"));
-                        if (pConf.get("apiBaseUrl") != null)
-                            llmProvider.setApiBaseUrl(pConf.get("apiBaseUrl"));
-                        if (pConf.get("defaultModel") != null)
-                            llmProvider.setDefaultModel(pConf.get("defaultModel"));
-                        putLog("LLM Provider configured from XML: " + defaultLlmProvider
-                                + " model=" + llmProvider.getDefaultModel(), LogLevel.DEBUG);
-                    }
-                }
-                putLog("LLM Provider loaded: " + defaultLlmProvider, LogLevel.DEBUG);
-            } else {
-                putLog("LLM Provider not found or wrong type: " + defaultLlmProvider, LogLevel.ERROR);
-            }
-        }
-
-        // 加载内置模块
-        if (modules.containsKey(M_AICONTEXT)) {
-            putLog("Context module registered: " + M_AICONTEXT, LogLevel.DEBUG);
-        }
-
+        gson = new com.google.gson.GsonBuilder().create();
         return this;
     }
 
     @Override
     public void runStartMsg() {
         System.out.println("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===");
+        // 1. 加载 LLM Provider（每个 Agent 独立实例）
+        initProvider();
+        // 2. 启动时检查 LLM Provider 连通性（失败则中断启动）
+        if (checkProviderOnStartup && !checkProvider()) {
+            return;
+        }
+        // 3. 加载 Skills / Memory / Agents
         initSkills();
         initMemoryStores();
         initAgents();
         super.runStartMsg();
+        // 4. 启动后自动恢复持久化的会话 / 断点
+        if (enableCheckpoint) {
+            restoreSessions();
+            autoResumeCheckpoints();
+        }
+    }
+
+    /**
+     * 初始化 LLM Provider。每个 Agent 用 getNewModule 创建独立实例，
+     * 模块名 = {agentName}_{providerName}，避免多 Agent 共享单例导致配置互相覆盖。
+     */
+    protected void initProvider() {
+        if (defaultLlmProvider == null || defaultLlmProvider.isEmpty()) return;
+
+        HashMap<String, String> providerParams = new HashMap<>();
+        if (providersConfig != null) {
+            HashMap<String, String> pConf = providersConfig.get(defaultLlmProvider);
+            if (pConf != null) {
+                providerParams.putAll(pConf);
+            }
+        }
+
+        try {
+            TLBaseModule module = (TLBaseModule) getNewModule(defaultLlmProvider, providerParams);
+            if (module instanceof TLLlmProvider) {
+                llmProvider = (TLLlmProvider) module;
+                putLog("LLM Provider initialized: " + defaultLlmProvider
+                        + " model=" + llmProvider.getDefaultModel(), LogLevel.DEBUG);
+            } else {
+                putLog("Provider not TLLlmProvider: " + defaultLlmProvider, LogLevel.ERROR);
+            }
+        } catch (Exception e) {
+            putLog("Failed to init provider: " + e.toString(), LogLevel.ERROR);
+        }
     }
 
     /**
@@ -195,30 +231,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         HashMap<String, HashMap<String, String>> skillConfigs = config.getSkills();
         for (String skillName : skillConfigs.keySet()) {
             HashMap<String, String> skillParams = skillConfigs.get(skillName);
-            String classfile = skillParams.get(MODULE_CLASSFILE);
-            String sameClassAs = skillParams.get(MODULE_SameClassAs);
             boolean startup = TLDataUtils.parseBoolean(skillParams.get("statup"), true);
+            if (!startup) continue;
 
-            // sameClassAs：Agent局部引用，从同段config中查找classfile
-            if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
-                HashMap<String, String> refParams = skillConfigs.get(sameClassAs);
-                if (refParams != null) {
-                    classfile = refParams.get(MODULE_CLASSFILE);
-                }
+            // 优先用 classfile，没有则用 sameClassAs 引用的 classfile，都没有则让工厂按名查找
+            String classfile = skillParams.get(MODULE_CLASSFILE);
+            if ((classfile == null || classfile.isEmpty()) && skillParams.containsKey(MODULE_SameClassAs)) {
+                HashMap<String, String> ref = skillConfigs.get(skillParams.get(MODULE_SameClassAs));
+                if (ref != null) classfile = ref.get(MODULE_CLASSFILE);
             }
 
-            if (startup && classfile != null && !classfile.isEmpty()) {
-                try {
-                    // 工厂根据classfile自动解析类，skillParams传入额外参数
-                    TLBaseModule module = (TLBaseModule) getNewModule(skillName, classfile, skillParams);
-                    if (module instanceof TLBaseSkill) {
-                        skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
-                        modules.put(skillName, module);
-                        putLog("Skill registered: " + skillName, LogLevel.DEBUG);
-                    }
-                } catch (Exception e) {
-                    putLog("Failed to init skill: " + skillName + " error: " + e.toString(), LogLevel.ERROR);
+            try {
+                TLBaseModule module = classfile != null && !classfile.isEmpty()
+                        ? (TLBaseModule) getNewModule(skillName, classfile, skillParams)
+                        : (TLBaseModule) getNewModule(skillName, skillParams);
+                if (module instanceof TLBaseSkill) {
+                    skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
+                    modules.put(skillName, module);
+                    putLog("Skill registered: " + skillName, LogLevel.DEBUG);
                 }
+            } catch (Exception e) {
+                putLog("Failed to init skill: " + skillName + " error: " + e.toString(), LogLevel.ERROR);
             }
         }
     }
@@ -236,33 +269,30 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
         for (String storeName : memoryConfigs.keySet()) {
             HashMap<String, String> storeParams = memoryConfigs.get(storeName);
-            String classfile = storeParams.get(MODULE_CLASSFILE);
-            String sameClassAs = storeParams.get(MODULE_SameClassAs);
             boolean startup = TLDataUtils.parseBoolean(storeParams.get("statup"), true);
+            if (!startup) continue;
 
-            // sameClassAs：Agent局部引用，从同段config中查找classfile
-            if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
-                HashMap<String, String> refParams = memoryConfigs.get(sameClassAs);
-                if (refParams != null) {
-                    classfile = refParams.get(MODULE_CLASSFILE);
-                }
+            // 优先用 classfile，没有则用 sameClassAs 引用的 classfile，都没有则让工厂按名查找
+            String classfile = storeParams.get(MODULE_CLASSFILE);
+            if ((classfile == null || classfile.isEmpty()) && storeParams.containsKey(MODULE_SameClassAs)) {
+                HashMap<String, String> ref = memoryConfigs.get(storeParams.get(MODULE_SameClassAs));
+                if (ref != null) classfile = ref.get(MODULE_CLASSFILE);
             }
 
-            if (startup && classfile != null && !classfile.isEmpty()) {
-                if (namespace != null && !namespace.isEmpty()) {
-                    storeParams.putIfAbsent("agentNamespace", namespace);
+            if (namespace != null && !namespace.isEmpty()) {
+                storeParams.putIfAbsent("agentNamespace", namespace);
+            }
+            try {
+                TLBaseModule module = classfile != null && !classfile.isEmpty()
+                        ? (TLBaseModule) getNewModule(storeName, classfile, storeParams)
+                        : (TLBaseModule) getNewModule(storeName, storeParams);
+                if (module instanceof TLBaseMemory) {
+                    memoryStores.put(storeName, (TLBaseMemory) module);
+                    modules.put(storeName, module);
+                    putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
                 }
-                try {
-                    // 工厂根据classfile自动解析类，storeParams传入额外参数
-                    TLBaseModule module = (TLBaseModule) getNewModule(storeName, classfile, storeParams);
-                    if (module instanceof TLBaseMemory) {
-                        memoryStores.put(storeName, (TLBaseMemory) module);
-                        modules.put(storeName, module);
-                        putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
-                    }
-                } catch (Exception e) {
-                    putLog("Failed to init memory store: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
-                }
+            } catch (Exception e) {
+                putLog("Failed to init memory store: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
             }
         }
     }
@@ -435,15 +465,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      */
     @SuppressWarnings("unchecked")
     protected TLMsg doChat(Object fromWho, TLMsg msg, boolean stream) {
+        // 最优先检查 Provider 可用性
+        if (llmProvider == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "LLM Provider 未就绪，请检查 API Key 和余额后重启");
+        }
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        currentSessionId = sessionId;
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         String model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
         double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
         int maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
 
-        if (userMessage.isEmpty() || llmProvider == null) {
+        if (userMessage.isEmpty()) {
             return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "Error: " + (userMessage.isEmpty() ? "missing userMessage" : "no provider"));
+                    .setParam(AI_P_RESPONSE, "Error: missing userMessage");
         }
 
         putLog("Chat start: sessionId=" + sessionId + " stream=" + stream, LogLevel.DEBUG);
@@ -461,16 +497,41 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
             }
 
-            List<TLConversationHistory> history = getContextHistory(sessionId);
-            if (memoryContext != null && !memoryContext.isEmpty()) {
-                history.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+            // ==== 断点恢复检查 ====
+            boolean resume = msg.parseBoolean("resume", enableCheckpoint);
+            TLMsg checkpoint = resume ? loadSessionCheckpoint(sessionId) : null;
+            List<TLConversationHistory> history;
+            int iteration = 0;
+            boolean resumedFromCheckpoint = false;
+
+            if (checkpoint != null && SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", ""))) {
+                // L2: 从 mid-loop 断点恢复，跳过预处理
+                history = (List<TLConversationHistory>) checkpoint.getParam("history");
+                iteration = checkpoint.getIntParam("iteration", 0);
+                if (checkpoint.containsParam("model"))
+                    model = checkpoint.getStringParam("model", model);
+                temperature = checkpoint.getDoubleParam("temperature", temperature);
+                maxTokens = checkpoint.getIntParam("maxTokens", maxTokens);
+                resumedFromCheckpoint = true;
+                putLog("Resumed from checkpoint: sessionId=" + sessionId + " iter=" + iteration
+                        + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
+            } else {
+                // 正常流程 / L1 恢复
+                if (checkpoint != null && SESSION_STATE_COMPLETED.equals(checkpoint.getStringParam("state", ""))) {
+                    history = (List<TLConversationHistory>) checkpoint.getParam("history");
+                    putLog("Restored completed session: " + sessionId, LogLevel.DEBUG);
+                } else {
+                    history = getContextHistory(sessionId);
+                }
+                if (memoryContext != null && !memoryContext.isEmpty()) {
+                    history.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+                }
+                history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
             }
-            history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
             List<TLFunctionDefinition> toolDefs = buildFunctionDefinitions();
 
             // ==== LLM请求 ====
             String finalResponse;
-            int iteration = 0;
 
             if (stream) {
                 // 流式: 单次请求，无tool-call循环
@@ -483,6 +544,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 finalResponse = null;
                 while (iteration < maxToolCallIterations) {
                     iteration++;
+                    // L2 checkpoint: 每次迭代前保存（覆盖 LLM 直接返回 / 中途中断等所有场景）
+                    if (enableCheckpoint) {
+                        persistSession(sessionId, history, SESSION_STATE_CHECKPOINT,
+                                iteration, model, temperature, maxTokens, userMessage);
+                    }
                     TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
                             .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_MODEL, model)
                             .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens);
@@ -519,12 +585,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                         history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
                                 tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
                     }
+                    // L2 checkpoint: 每轮工具调用后保存断点
+                    if (enableCheckpoint) {
+                        persistSession(sessionId, history, SESSION_STATE_CHECKPOINT,
+                                iteration, model, temperature, maxTokens, userMessage);
+                    }
                 }
                 if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
             }
 
-            // ==== 后处理: 保存上下文 + 长期记忆 ====
+            // ==== 后处理: 保存上下文 + 长期记忆 + L1持久化 ====
             saveContextHistory(sessionId, history);
+            if (enableCheckpoint) {
+                persistSession(sessionId, history, SESSION_STATE_COMPLETED,
+                        iteration, model, temperature, maxTokens, userMessage);
+            }
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                         .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
@@ -1009,6 +1084,37 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
+        // msgTools：LLM 可调用的预定义消息
+        if (msgTools != null) {
+            for (TLMsg msgTool : msgTools) {
+                String name = msgTool.getMsgId();
+                if (name == null || name.isEmpty()) continue;
+
+                TLFunctionDefinition def = new TLFunctionDefinition();
+                def.setName(name);
+                String desc = msgTool.getDescription();
+                def.setDescription(desc != null && !desc.isEmpty() ? desc : name);
+
+                // 自动从 msg args 推断参数 schema（每个 key → string 类型）
+                HashMap<String, Object> args = msgTool.getArgs();
+                Map<String, Object> properties = new LinkedHashMap<>();
+                if (args != null && !args.isEmpty()) {
+                    for (String key : args.keySet()) {
+                        Map<String, Object> prop = new LinkedHashMap<>();
+                        prop.put("type", "string");
+                        prop.put("description", key);
+                        properties.put(key, prop);
+                    }
+                }
+                Map<String, Object> schema = new LinkedHashMap<>();
+                schema.put("type", "object");
+                schema.put("properties", properties);
+                def.setParameters(schema);
+
+                defs.add(def);
+            }
+        }
+
         // 主控模式额外添加子Agent委托tools
         if (isMaster && subAgents != null) {
             for (String agentName : subAgents.keySet()) {
@@ -1227,6 +1333,72 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
+        // msgTool 路由：查找匹配 msgId 的预定义消息
+        TLMsg matchedMsg = findMsgToolByMsgId(functionName);
+        if (matchedMsg != null) {
+            try {
+                TLMsg execMsg = new TLMsg();
+                execMsg.copyFrom(matchedMsg);
+                execMsg.setSource(getName());
+
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> toolArgs = tc.getArguments() instanceof java.util.Map
+                        ? (java.util.Map<String, Object>) tc.getArguments()
+                        : new java.util.LinkedHashMap<>();
+                // 注入 LLM 参数（覆盖/追加到消息 args 中）
+                if (toolArgs != null) {
+                    for (java.util.Map.Entry<String, Object> entry : toolArgs.entrySet()) {
+                        execMsg.setParam(entry.getKey(), entry.getValue());
+                    }
+                }
+                // 自动注入当前会话上下文参数（如果消息模板未预设）
+                if (!execMsg.containsParam(AI_P_SESSIONID) && currentSessionId != null) {
+                    execMsg.setParam(AI_P_SESSIONID, currentSessionId);
+                }
+
+                String dest = execMsg.getDestination();
+                if (dest == null || dest.isEmpty()) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "msgTool error: no destination for " + functionName);
+                }
+
+                System.out.println(">>> [msgTool] 执行消息 [" + functionName
+                        + "] action=" + execMsg.getAction() + " dest=" + dest);
+                putLog("Executing msgTool: " + functionName + " -> " + dest + "." + execMsg.getAction(), LogLevel.DEBUG);
+
+                TLMsg result = putMsg(dest, execMsg);
+                String output;
+                if (result == null) {
+                    output = "done";
+                } else if (result.containsParam(AI_P_SKILLOUTPUT)) {
+                    // Skill 风格返回（显式设置了 AI_P_SKILLOUTPUT）
+                    output = result.getStringParam(AI_P_SKILLOUTPUT, "");
+                } else {
+                    // 通用返回：从 args 中拼出所有业务参数
+                    HashMap<String, Object> resultArgs = result.getArgs();
+                    if (resultArgs != null && !resultArgs.isEmpty()) {
+                        StringBuilder sb = new StringBuilder();
+                        for (java.util.Map.Entry<String, Object> entry : resultArgs.entrySet()) {
+                            if (sb.length() > 0) sb.append(", ");
+                            sb.append(entry.getKey()).append("=").append(entry.getValue());
+                        }
+                        output = sb.toString();
+                    } else {
+                        output = result.toString();
+                    }
+                }
+
+                System.out.println("<<< [msgTool] 消息 [" + functionName + "] 返回: " + output);
+
+                return createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_SKILLOUTPUT, output);
+            } catch (Exception e) {
+                putLog("msgTool execution error: " + functionName + " -> " + e.toString(), LogLevel.ERROR);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error executing msgTool " + functionName + ": " + e.getMessage());
+            }
+        }
+
         // 主控模式：路由到子Agent / Group
         if (isMaster && functionName.startsWith("delegate_to_")) {
             String agentName = functionName.substring("delegate_to_".length());
@@ -1333,6 +1505,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
+     * 根据 msgId 查找 msgTools 列表中的匹配消息。
+     * @param msgId LLM tool call 中的 function name（对应 msg 的 msgid 属性）
+     * @return 匹配的 TLMsg，未找到返回 null
+     */
+    protected TLMsg findMsgToolByMsgId(String msgId) {
+        if (msgTools == null || msgId == null) return null;
+        for (TLMsg msg : msgTools) {
+            if (msgId.equals(msg.getMsgId())) {
+                return msg;
+            }
+        }
+        return null;
+    }
+
+    /**
      * 添加包名前缀（与TLDataBase.addPackage相同的模式）
      */
     protected String addPackage(String name, String packageName) {
@@ -1347,6 +1534,208 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return name;
     }
 
+    // ======================== Provider 启动检查 ========================
+
+    /**
+     * 启动时检查 LLM Provider 是否可用。发送最小化请求验证 API Key / 余额。
+     */
+    protected boolean checkProvider() {
+        if (llmProvider == null) {
+            System.err.println("!!! [启动检查] LLM Provider 未加载！");
+            return false;
+        }
+        try {
+            List<TLConversationHistory> testHistory = new ArrayList<>();
+            testHistory.add(new TLConversationHistory(TLConversationHistory.Role.user, "ping"));
+            TLMsg testMsg = createMsg().setAction(LLM_COMPLETION)
+                    .setParam(AI_P_MESSAGEHISTORY, testHistory)
+                    .setParam(AI_P_MODEL, llmProvider.getDefaultModel())
+                    .setParam(AI_P_MAXTOKENS, 1);
+            TLMsg result = putMsg(llmProvider, testMsg);
+            if (result.parseBoolean(RESULT, false)) {
+                System.out.println("=== [启动检查] LLM Provider 可用: " + llmProvider.getDefaultModel() + " ===");
+                return true;
+            } else {
+                int status = result.getIntParam(AI_P_HTTPSTATUS, 0);
+                String body = result.getStringParam(AI_P_RESPONSEBODY, "");
+                System.err.println("!!! [启动检查] LLM Provider 不可用！HTTP " + status + " body=" + body);
+                System.err.println("!!! 请检查 API Key 和余额，或切换 Provider");
+                llmProvider = null;  // 置空，chat() 调用时直接返回错误
+                return false;
+            }
+        } catch (Exception e) {
+            System.err.println("!!! [启动检查] LLM Provider 连接失败: " + e.getMessage());
+            llmProvider = null;
+            return false;
+        }
+    }
+
+    // ======================== Session 持久化/断点恢复 ========================
+
+    /**
+     * 保存会话到 JSON 文件。
+     * @param state "checkpoint"（mid-loop 断点）或 "completed"（已完成）
+     */
+    @SuppressWarnings("unchecked")
+    protected void persistSession(String sessionId, List<TLConversationHistory> history,
+                                   String state, int iteration, String model,
+                                   double temperature, int maxTokens, String userMessage) {
+        if (!enableCheckpoint) return;
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists()) dir.mkdirs();
+
+            java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("sessionId", sessionId);
+            data.put("state", state);
+            data.put("iteration", iteration);
+            data.put("model", model);
+            data.put("temperature", temperature);
+            data.put("maxTokens", maxTokens);
+            data.put("userMessage", userMessage);
+            data.put("history", history);
+            data.put("savedAt", System.currentTimeMillis());
+
+            String json = gson.toJson(data);
+            java.io.File file = new java.io.File(dir, sessionId + ".json");
+            java.nio.file.Files.write(file.toPath(), json.getBytes("UTF-8"));
+        } catch (Exception e) {
+            putLog("persistSession failed: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /**
+     * 加载会话检查点文件，返回 TLMsg 包含所有保存的字段。
+     * @return null 表示文件不存在或加载失败
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg loadSessionCheckpoint(String sessionId) {
+        if (!enableCheckpoint || sessionId == null) return null;
+        try {
+            java.io.File file = new java.io.File(sessionStorePath, sessionId + ".json");
+            if (!file.exists()) return null;
+
+            String json = new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
+            com.google.gson.JsonObject obj = gson.fromJson(json, com.google.gson.JsonObject.class);
+
+            TLMsg result = new TLMsg();
+            result.setParam("sessionId", obj.get("sessionId").getAsString());
+            result.setParam("state", obj.get("state").getAsString());
+            result.setParam("iteration", obj.get("iteration").getAsInt());
+            result.setParam("model", obj.has("model") ? obj.get("model").getAsString() : "");
+            result.setParam("temperature", obj.has("temperature") ? obj.get("temperature").getAsDouble() : 0.7);
+            result.setParam("maxTokens", obj.has("maxTokens") ? obj.get("maxTokens").getAsInt() : 4096);
+            result.setParam("userMessage", obj.has("userMessage") ? obj.get("userMessage").getAsString() : "");
+
+            // 反序列化 history 列表
+            com.google.gson.JsonArray histArray = obj.getAsJsonArray("history");
+            List<TLConversationHistory> history = new ArrayList<>();
+            for (int i = 0; i < histArray.size(); i++) {
+                TLConversationHistory h = gson.fromJson(histArray.get(i), TLConversationHistory.class);
+                history.add(h);
+            }
+            result.setParam("history", history);
+            return result;
+        } catch (Exception e) {
+            putLog("loadSessionCheckpoint failed for " + sessionId + ": " + e.toString(), LogLevel.WARN);
+            return null;
+        }
+    }
+
+    /**
+     * 删除会话持久化文件（清理用，如重置会话）
+     */
+    protected void deleteSessionFile(String sessionId) {
+        try {
+            java.io.File file = new java.io.File(sessionStorePath, sessionId + ".json");
+            if (file.exists()) file.delete();
+        } catch (Exception e) {
+            putLog("deleteSessionFile failed: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /**
+     * 程序启动时扫描存储目录，恢复已完成的会话（state=completed）到 TLAiContext。
+     */
+    @SuppressWarnings("unchecked")
+    protected void restoreSessions() {
+        if (!enableCheckpoint) return;
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists() || !dir.isDirectory()) return;
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null) return;
+
+            for (java.io.File f : files) {
+                try {
+                    TLMsg checkpoint = loadSessionCheckpoint(
+                            f.getName().substring(0, f.getName().length() - 5));
+                    if (checkpoint == null) continue;
+                    String state = checkpoint.getStringParam("state", "");
+                    if (!SESSION_STATE_COMPLETED.equals(state)) continue;
+
+                    String sessionId = checkpoint.getStringParam("sessionId", "");
+                    List<TLConversationHistory> history =
+                            (List<TLConversationHistory>) checkpoint.getParam("history");
+                    if (history == null) continue;
+
+                    // 恢复到 TLAiContext
+                    TLMsg replaceMsg = createMsg()
+                            .setAction(CONTEXT_REPLACE)
+                            .setParam(AI_P_SESSIONID, sessionId)
+                            .setParam(AI_P_MESSAGEHISTORY, history);
+                    putMsg(contextModuleName, replaceMsg);
+                    putLog("Restored session: " + sessionId + " (" + history.size() + " msgs)", LogLevel.INFO);
+                } catch (Exception e) {
+                    putLog("restoreSessions skip " + f.getName() + ": " + e.toString(), LogLevel.WARN);
+                }
+            }
+        } catch (Exception e) {
+            putLog("restoreSessions error: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /**
+     * 程序启动时自动恢复未完成的检查点（state=checkpoint），
+     * 异步发送 resume 消息给自己，触发 doChat 从断点继续。
+     */
+    protected void autoResumeCheckpoints() {
+        if (!enableCheckpoint) return;
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists() || !dir.isDirectory()) return;
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null) return;
+
+            for (java.io.File f : files) {
+                try {
+                    TLMsg checkpoint = loadSessionCheckpoint(
+                            f.getName().substring(0, f.getName().length() - 5));
+                    if (checkpoint == null) continue;
+                    String state = checkpoint.getStringParam("state", "");
+                    if (!SESSION_STATE_CHECKPOINT.equals(state)) continue;
+
+                    String sessionId = checkpoint.getStringParam("sessionId", "");
+                    String userMessage = checkpoint.getStringParam("userMessage", "");
+
+                    putLog("Auto-resuming checkpoint: " + sessionId, LogLevel.INFO);
+
+                    TLMsg resumeMsg = createMsg()
+                            .setAction(AGENT_CHAT)
+                            .setParam(AI_P_SESSIONID, sessionId)
+                            .setParam(AI_P_USERMESSAGE, userMessage)
+                            .setParam("resume", true)
+                            .setSystemParam(INTHREADPOOL, true);
+                    putMsg(getName(), resumeMsg);
+                } catch (Exception e) {
+                    putLog("autoResumeCheckpoints skip " + f.getName() + ": " + e.toString(), LogLevel.WARN);
+                }
+            }
+        } catch (Exception e) {
+            putLog("autoResumeCheckpoints error: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
     // ======================== 内部配置解析类 ========================
 
     /**
@@ -1358,6 +1747,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         protected HashMap<String, HashMap<String, String>> skills;
         protected HashMap<String, HashMap<String, String>> memoryStores;
         protected HashMap<String, HashMap<String, String>> agents;
+        protected ArrayList<TLMsg> msgTools;
 
         public myConfig() {}
 
@@ -1369,6 +1759,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         public HashMap<String, HashMap<String, String>> getSkills() { return skills; }
         public HashMap<String, HashMap<String, String>> getMemoryStores() { return memoryStores; }
         public HashMap<String, HashMap<String, String>> getAgents() { return agents; }
+        public ArrayList<TLMsg> getMsgTools() { return msgTools; }
 
         @Override
         protected void myConfig(XmlPullParser xpp) {
@@ -1385,6 +1776,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
                 if (xpp.getName().equals("agents")) {
                     agents = getHashMap(xpp, "agents", "agent");
+                }
+                if (xpp.getName().equals("msgTools")) {
+                    msgTools = getMsgList(xpp, "msgTools");
                 }
             } catch (Throwable t) {
                 putLog("TLAiAgent config parse error: " + t.toString(), LogLevel.WARN);

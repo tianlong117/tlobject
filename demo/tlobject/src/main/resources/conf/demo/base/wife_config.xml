@@ -4,6 +4,6 @@
           <verison value="1"></verison>
     </params>
     <initMsg>
-           <msg action="onHouse"   ></msg>
+           <msg action="onHouse" description="在屋里"  ></msg>
     </initMsg>
 </moduleConfig>

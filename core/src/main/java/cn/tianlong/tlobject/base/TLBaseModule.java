@@ -652,14 +652,17 @@ public abstract class TLBaseModule extends TLBaseObject {
                 } catch (Exception e) {
                     returnMsg = exception(returnMsg, e);
                 }
+                // 先执行 nextMsg 链，再执行 afterMsgTable
+                // 这样 after 钩子在整条处理链完成后触发，语义上更正确（善后/清理）
+                // 同时也让 before→action→nextMsg→after 形成天然的断点配对
+                TLMsg nextMsg = msg.getNextMsg();
+                if (nextMsg != null && ifDoNextMsg(returnMsg))
+                {
+                    usePreReturnMsg(nextMsg ,returnMsg) ;
+                    returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
+                }
                 if (afterMsgTable !=null && !afterMsgTable.isEmpty() && msg.parseBoolean(IGNOREAFTER,false) == false && ifDoNextMsg(returnMsg))
                      returnMsg = doAfterMsgTable(action, msg, returnMsg);
-                 TLMsg nextMsg = msg.getNextMsg(); //  执行nextmsg
-                 if (nextMsg != null && ifDoNextMsg(returnMsg))
-                 {
-                     usePreReturnMsg(nextMsg ,returnMsg) ;
-                     returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
-                 }
             } else
                 {
                 preResult.removeSystemParam(MODULE_DONEXTMSG);

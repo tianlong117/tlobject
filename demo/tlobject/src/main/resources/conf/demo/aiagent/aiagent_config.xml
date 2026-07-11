@@ -11,6 +11,10 @@
         <!-- 上下文最大历史轮次 -->
         <maxHistoryTurns value="50"/>
 
+        <!-- 断点/恢复功能 -->
+        <enableCheckpoint value="true"/>
+        <checkProviderOnStartup value="true"/>
+
         <!-- 默认模型参数 -->
         <defaultModel value="gpt-4o"/>
         <defaultTemperature value="0.7"/>
@@ -112,4 +116,16 @@
         </action>
     </beforeMsgTable>
     <!-- afterMsgTable 会覆盖chat()的返回值，记忆保存改在chat()内部直接调用 -->
+
+    <!-- ===== msgTools: LLM 可调用的预定义消息 ===== -->
+    <msgTools>
+        <msg msgid="getServerStatus"
+             description="获取服务器运行状态，返回当前已注册的所有Skills和子Agent列表"
+             action="listSkills"
+             destination="aiagent"/>
+        <msg msgid="getConversationStats"
+             description="获取当前会话的对话统计信息，包括消息总数"
+             action="getTurnCount"
+             destination="aiContext"/>
+    </msgTools>
 </moduleConfig>

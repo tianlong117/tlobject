@@ -29,11 +29,6 @@
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
     </factoryBoot>
 </moduleConfig>

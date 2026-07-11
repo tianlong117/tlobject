@@ -13,11 +13,12 @@
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <outputGuard value="outputGuard"/>
+        <enableCheckpoint value="true"/>
+        <checkProviderOnStartup value="true"/>
     </params>
 
     <providers>
         <provider name="openAiProvider"
-                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
@@ -26,7 +27,7 @@
 
     <memoryStores>
         <memoryStore name="longTermMemory"
-                     classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                     sameClassAs="longTermMemory"
                      statup="true"
                      memoryType="longTerm"
                      storagePath="./data/master_memory"
@@ -86,6 +87,18 @@
                description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
 
     </agents>
+
+    <!-- ===== msgTools: LLM 可调用的预定义消息 ===== -->
+    <msgTools>
+        <msg msgid="getServerStatus"
+             description="获取服务器运行状态，返回当前已注册的所有Skills和子Agent列表"
+             action="listSkills"
+             destination="aiagent_master"/>
+        <msg msgid="getConversationStats"
+             description="获取当前会话的对话统计信息，包括消息总数"
+             action="getTurnCount"
+             destination="aiContext"/>
+    </msgTools>
 
     <beforeMsgTable>
         <action name="chat">

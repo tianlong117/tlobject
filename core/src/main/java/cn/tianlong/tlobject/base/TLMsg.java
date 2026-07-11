@@ -20,6 +20,7 @@ import java.util.Set;
  */
 public class TLMsg implements Serializable , Cloneable{
     private static final long serialVersionUID = 2631590509760908280L;
+    protected String description;
     protected String source;  //消息产生源
     protected String previous;  //上一个处理消息的对象
     protected String nowObject;  //当前处理消息的对象
@@ -51,6 +52,15 @@ public class TLMsg implements Serializable , Cloneable{
     public TLMsg(String action, String param, Object value){
         this.action = action;
         setParam(param,value);
+    }
+    public String getDescription()
+    {
+            return description;
+    }
+    public TLMsg  setDescription(String description)
+    {
+         this.description=description;
+         return this ;
     }
     public String getSource()
     {
@@ -498,6 +508,7 @@ public class TLMsg implements Serializable , Cloneable{
         return this ;
     }
     public TLMsg copyFrom(TLMsg msg){
+        description=msg.getDescription();
         action =msg.getAction();
         addArgs(msg.getArgs());
         msgId=msg.getMsgId();

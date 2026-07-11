@@ -41,6 +41,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_LISTAGENTS = "listAgents";
     /** 委托任务给子Agent */
     String AGENT_DELEGATE = "delegateToAgent";
+    /** 执行 msgTool（LLM 可调用的预定义消息） */
+    String AGENT_MSGTOOLEXECUTE = "msgToolExecute";
     /** 获取当前会话上下文 */
     String AGENT_GETCONTEXT = "getAgentContext";
     /** 清除会话上下文 */
@@ -188,6 +190,18 @@ public interface TLAiAgentParamString extends TLParamString {
     String MCP_LISTTOOLS = "listTools";
     /** MCP Agent: 重新发现 tool */
     String MCP_REFRESHTOOLS = "refreshTools";
+
+    // ======================== Session 持久化/断点恢复 ========================
+    /** 保存会话到持久化存储 */
+    String AGENT_SAVESESSION = "saveSession";
+    /** 从持久化存储加载会话 */
+    String AGENT_LOADSESSION = "loadSession";
+    /** 删除持久化的会话 */
+    String AGENT_DELETESESSION = "deleteSession";
+    /** 会话状态：断点（mid-loop） */
+    String SESSION_STATE_CHECKPOINT = "checkpoint";
+    /** 会话状态：已完成 */
+    String SESSION_STATE_COMPLETED = "completed";
 
     // ======================== Stream Callback 动作 ========================
     /** 流式块到达 */

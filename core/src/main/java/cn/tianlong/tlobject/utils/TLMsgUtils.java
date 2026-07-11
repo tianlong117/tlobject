@@ -108,6 +108,10 @@ public class TLMsgUtils {
 
     public static TLMsg strToMsg(TLMsg msg, String key, String value) {
         switch (key) {
+            case "#de":
+            case MSG_P_DESCRIPTION:
+                msg.setDescription(value);
+                break;
             case "#d":
             case MSG_P_DESTINATION:
                 msg.setDestination(value);
