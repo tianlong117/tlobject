@@ -108,7 +108,7 @@
 
     <beforeMsgTable>
         <action name="chat">
-            <dmsg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
+            <dmsg action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
             <msg action="recallAgentMemory" destination="aiagent_master"
                  paramsFromMsg="sessionId"/>
         </action>
