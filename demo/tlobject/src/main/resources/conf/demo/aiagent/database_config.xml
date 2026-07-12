@@ -62,18 +62,27 @@
    -->
     <dbservers>
     <!-- 参加demo路径下的readme.txt创建演示数据库及相应的表, dbpass为设定创建的数据库root口令 -->
-        <dbserver name="dbserver1" sameClassAs="dbserver" statup="true"
+        <dbserver name="dbserver1" sameClassAs="dbserver" statup="false"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo1?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
                   connector="HikariCP"
                   initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
-        <dbserver name="dbserver2" sameClassAs="dbserver" statup="true"
+        <dbserver name="dbserver2" sameClassAs="dbserver" statup="false"
                   driver="com.mysql.cj.jdbc.Driver"
                   dburl="jdbc:mysql://127.0.0.1:3306/tldbdemo2?characterEncoding=utf8&amp;zeroDateTimeBehavior=convertToNull&amp;useSSL=false&amp;serverTimezone=UTC&amp;rewriteBatchedStatements=true"
                   dbuser="root" dbpass="123456"
                   connector="c3p0Conn"
                   initPoolSize="5" maxPoolSize="20" maxIdleTime="60"/>
+
+        <!-- SQLite 本地数据库（测试用） -->
+        <dbserver name="sqliteServer" sameClassAs="dbserver" statup="true"
+                  dburl="jdbc:sqlite:data/aiagent.db"
+                  connector="sqliteConn"
+                  journalMode="WAL"
+                  synchronous="NORMAL"
+                  foreignKeys="ON"
+                  busyTimeout="5000"/>
 </dbservers>
 <!--
  tables参数说明：
@@ -110,7 +119,7 @@
         -->
 
         <!-- ===== AI Agent 长期记忆表 ===== -->
-        <table name="aiSessions" dbtable="ai_sessions" dbserver="dbserver1" statup="true"
+        <table name="aiSessions_mysql" dbtable="ai_sessions" dbserver="dbserver1" statup="false"
                ifCreate="create"
                createSql="CREATE TABLE `ai_sessions` (
   `session_id` varchar(255) NOT NULL,
@@ -122,7 +131,7 @@
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
 
-        <table name="aiMemory" dbtable="ai_memory" dbserver="dbserver1" statup="true"
+        <table name="aiMemory_mysql" dbtable="ai_memory" dbserver="dbserver1" statup="false"
                ifCreate="create"
                createSql="CREATE TABLE `ai_memory` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -137,6 +146,32 @@
   PRIMARY KEY (`id`),
   KEY `idx_session_tag_time` (`session_id`, `tag`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
+
+        <!-- ===== SQLite 本地存储测试表 ===== -->
+        <table name="aiSessions" dbtable="ai_sessions" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_sessions (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT,
+  system_message TEXT,
+  created_at INTEGER,
+  last_active INTEGER,
+  metadata TEXT
+);"/>
+
+        <table name="aiMemory" dbtable="ai_memory" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_memory (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT,
+  mem_key TEXT,
+  mem_value TEXT,
+  mem_type TEXT,
+  tag TEXT,
+  created_at INTEGER,
+  expires_at INTEGER,
+  metadata TEXT
+);"/>
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。

@@ -128,13 +128,13 @@ public class TLDataBase extends TLBaseModule {
                 TLBaseModule tableModule =  makeTable(tableName,tableparams);
                 if(tableModule ==null)
                     result =false ;
-            }
-            String ifCreate =TLDataUtils.parseString(tableparams.get("ifCreate"),"");
-            if(ifCreate.equals("create") || ifCreate.equals("reCreate") || ifCreate.equals("copy"))
-            {
-                String dbtable=tableparams.get("dbtable");
-                if(dbtable !=null && !dbtable.isEmpty())
-                    createTable(dbtable,tableparams);
+                String ifCreate =TLDataUtils.parseString(tableparams.get("ifCreate"),"");
+                if(ifCreate.equals("create") || ifCreate.equals("reCreate") || ifCreate.equals("copy"))
+                {
+                    String dbtable=tableparams.get("dbtable");
+                    if(dbtable !=null && !dbtable.isEmpty())
+                        createTable(dbtable,tableparams);
+                }
             }
         }
         return result ;
@@ -208,8 +208,9 @@ public class TLDataBase extends TLBaseModule {
         }
         Boolean result = false;
         try {
-            CallableStatement proc = rconn.prepareCall(sql);
-            proc.execute();
+            java.sql.Statement stmt = rconn.createStatement();
+            stmt.execute(sql);
+            stmt.close();
             result = true;
             rconn.close();
             putLog(dbserver+" sql成功执行： "+sql, LogLevel.DEBUG);

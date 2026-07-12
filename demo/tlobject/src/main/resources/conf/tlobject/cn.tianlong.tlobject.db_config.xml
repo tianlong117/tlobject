@@ -15,6 +15,7 @@
         <module name="moduleFieldInDb" classfile="cn.tianlong.tlobject.db.dbdata.TLModuleFieldInDb" />
         <module name="c3p0Conn" classfile="cn.tianlong.tlobject.db.TLC3P0connect" singleton="false" />
         <module name="HikariCP" classfile="cn.tianlong.tlobject.db.TLHikariCP" singleton="false" />
+        <module name="sqliteConn" classfile="cn.tianlong.tlobject.db.TLSQLiteConnect" singleton="false" />
         <module name="beanTable" classfile="cn.tianlong.tlobject.db.dbdata.BeanTable" singleton="false" />
     </modules>
 </moduleConfig>

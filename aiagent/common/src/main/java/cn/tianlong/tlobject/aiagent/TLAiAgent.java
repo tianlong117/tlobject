@@ -166,7 +166,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected TLBaseModule init() {
         skills = new ConcurrentHashMap<>();
         memoryStores = new ConcurrentHashMap<>();
-        gson = new com.google.gson.GsonBuilder().create();
+        gson = new com.google.gson.GsonBuilder().setPrettyPrinting().create();
         return this;
     }
 

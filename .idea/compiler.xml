@@ -34,6 +34,7 @@
         <module name="tlobject-aiagent-memory-store" />
         <module name="servletutils" />
         <module name="tlobject-network-proxy" />
+        <module name="tlobject-connectpoolofdb-sqlite" />
         <module name="tlobject-aiagent-provider-openai" />
         <module name="tlobject-demo-tlobject" />
         <module name="execl" />
@@ -83,6 +84,7 @@
       <module name="tlobject-connectpoolofdb-c3p0" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-connectpoolofdb-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-connectpoolofdb-hikaricp" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-sqlite" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-core" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-crontab" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
       <module name="tlobject-database" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />

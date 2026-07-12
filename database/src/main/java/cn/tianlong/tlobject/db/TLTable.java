@@ -658,17 +658,17 @@ public class TLTable extends TLBaseDataUnit {
 
     protected List<ColumnModel> getTableStructureFromDB() {
         List<ColumnModel> columnModelList = new ArrayList<ColumnModel>();
+        Connection connection = null;
         try {
             //TODO 表相关
             //ResultSet tableSet = metaData.getTables(null, "%",tableName,new String[]{"TABLE"});
             //TODO 字段相关
-            Connection connection = (Connection) getConnection(null);
+            connection = (Connection) getConnection(null);
             if (connection == null)
                 return null;
             DatabaseMetaData metaData = connection.getMetaData();
             ResultSet columnSet = metaData.getColumns(null, "%", dbtable, "%");
             ColumnModel columnModel = null;
-            connection.close();
             while (columnSet.next()) {
                 columnModel = new ColumnModel();
                 columnModel.setColumnName(columnSet.getString("COLUMN_NAME"));
@@ -699,6 +699,10 @@ public class TLTable extends TLBaseDataUnit {
         } catch (Exception e) {
             e.printStackTrace();
             return null;
+        } finally {
+            if (connection != null) {
+                try { connection.close(); } catch (Exception ignored) {}
+            }
         }
 
         return columnModelList;

@@ -103,6 +103,11 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-connectpoolofdb-sqlite</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
             <artifactId>tlobject-aiagent-common</artifactId>
             <version>1.0</version>
         </dependency>

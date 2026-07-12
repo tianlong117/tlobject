@@ -10,10 +10,11 @@
         <defaultModel value="gpt-4o"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
+        <defaultMemoryStore value="dbMemory" />
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <outputGuard value="outputGuard"/>
-        <enableCheckpoint value="true"/>
+        <enableCheckpoint value="false"/>
         <checkProviderOnStartup value="true"/>
     </params>
 
@@ -26,11 +27,16 @@
     </providers>
 
     <memoryStores>
-        <memoryStore name="longTermMemory"
+        <!--memoryStore name="longTermMemory"
                      sameClassAs="longTermMemory"
                      statup="true"
                      memoryType="longTerm"
                      storagePath="./data/master_memory"
+                     maxCacheEntries="10000"/-->
+        <memoryStore name="dbMemory"
+                     sameClassAs="dbMemory"
+                     statup="true"
+                     memoryType="longTerm"
                      maxCacheEntries="10000"/>
     </memoryStores>
 
@@ -102,7 +108,7 @@
 
     <beforeMsgTable>
         <action name="chat">
-            <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
+            <dmsg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
             <msg action="recallAgentMemory" destination="aiagent_master"
                  paramsFromMsg="sessionId"/>
         </action>
