@@ -31,7 +31,8 @@ import java.util.Scanner;
 public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString {
 
     private String agentModule = "aiagent";
-    private String sessionId = "console_user";
+    private String userId = "console_user";
+    private String sessionId = "chat_" + System.currentTimeMillis();
     private boolean streamMode = false;
     private String prompt = "你 > ";
     private volatile boolean running = false;
@@ -122,6 +123,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         TLMsg response = putMsg(agentModule,
                 createMsg().setAction(AGENT_CHAT)
                         .setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("userId", userId)
                         .setParam(AI_P_USERMESSAGE, input));
         if (response != null) {
             String aiResponse = response.getStringParam(AI_P_RESPONSE, "");
@@ -139,6 +141,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         putMsg(agentModule,
                 createMsg().setAction(AGENT_CHATSTREAM)
                         .setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("userId", userId)
                         .setParam(AI_P_USERMESSAGE, input)
                         .setParam(RESULTFOR, "streamCallback")
                         .setParam(RESULTACTION, "onStreamChunk"));
@@ -173,6 +176,45 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("✓ 上下文已清除\n");
                 break;
 
+            case "/resume":
+                // 找最近的会话
+                TLMsg latestResult = putMsg(agentModule, createMsg().setAction("findLatestSession"));
+                String latestId = latestResult.getStringParam("sessionId", null);
+                if (latestId == null || latestId.equals(sessionId)) {
+                    System.out.println("✗ 没有可恢复的之前会话\n");
+                    break;
+                }
+                sessionId = latestId;
+                // 恢复
+                TLMsg resumeResult = putMsg(agentModule, createMsg()
+                        .setAction("resumeSession")
+                        .setParam(AI_P_SESSIONID, sessionId));
+                if (resumeResult.parseBoolean(RESULT, false)) {
+                    int count = resumeResult.getIntParam("count", 0);
+                    System.out.println("✓ 会话 " + sessionId + " 已恢复 (" + count + " 条):\n");
+                    TLMsg ctxResult = putMsg(agentModule, createMsg()
+                            .setAction(AGENT_GETCONTEXT)
+                            .setParam(AI_P_SESSIONID, sessionId));
+                    java.util.List<?> history = (java.util.List<?>) ctxResult.getListParam(AI_P_MESSAGEHISTORY, null);
+                    if (history != null) {
+                        for (Object h : history) {
+                            if (h instanceof cn.tianlong.tlobject.aiagent.TLConversationHistory) {
+                                cn.tianlong.tlobject.aiagent.TLConversationHistory msg
+                                        = (cn.tianlong.tlobject.aiagent.TLConversationHistory) h;
+                                String role = msg.getRole().name().toLowerCase();
+                                String content = msg.getContent();
+                                if (!"system".equals(role) && content != null) {
+                                    System.out.println((role.equals("user") ? "你" : "AI") + " > " + content);
+                                }
+                            }
+                        }
+                    }
+                    System.out.println();
+                } else {
+                    System.out.println("✗ 恢复失败\n");
+                }
+                break;
+
             case "/stream":
                 streamMode = !streamMode;
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭") + "\n");
@@ -184,7 +226,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("✓ 会话ID切换为: " + sessionId + "\n");
                 } else {
                     System.out.println("未知命令: " + cmd);
-                    System.out.println("可用: /exit /clear /stream /session <id>\n");
+                    System.out.println("可用: /exit /clear /resume /stream /session <id>\n");
                 }
                 break;
         }

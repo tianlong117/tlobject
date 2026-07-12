@@ -59,27 +59,28 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     @Override
     @SuppressWarnings("unchecked")
     protected TLMsg store(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         TLMemoryEntry entry = (TLMemoryEntry) msg.getParam("entry", TLMemoryEntry.class);
         if (entry == null) {
             String key = msg.getStringParam(AI_P_MEMORYKEY, "");
             if (key.isEmpty()) key = "mem_" + UUID.randomUUID().toString().substring(0, 8);
             Object value = msg.getParam(AI_P_MEMORYVALUE);
-            String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+            String userId = msg.getStringParam("userId", sessionId);
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
-            String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
+            String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + key);
             entry = new TLMemoryEntry(scopedKey, value, memoryType);
             entry.setTag(tag);
             entry.setExpiresAt(calculateExpiresAt(exptimeMinutes));
             if (msg.containsParam("metadata")) {
                 entry.setMetadata((Map<String, Object>) msg.getMapParam("metadata", new HashMap<>()));
             }
-            ensureSession(sessionId, msg.getStringParam("userId", sessionId));
+            ensureSession(sessionId, userId);
         }
 
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("session_id", extractSessionId(entry.getKey()));
+        sqlparams.put("session_id", sessionId);
         sqlparams.put("mem_key", entry.getKey());
         sqlparams.put("mem_value", entry.getValue() != null ? entry.getValue().toString() : "");
         sqlparams.put("mem_type", entry.getType());
@@ -139,8 +140,15 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         StringBuilder sql = new StringBuilder("select * from [table] where 1=1");
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
 
-        if (!"global".equals(sessionId)) {
-            sql.append(" and session_id = ?"); sqlparams.put("session_id", sessionId);
+        // 用 userId 做用户级搜索范围（跨会话），sessionId 只用于存储
+        String userId = msg.getStringParam("userId", sessionId);
+        if (!"global".equals(userId) && !userId.equals(sessionId)) {
+            // 通过 mem_key 前缀匹配当前用户的所有会话记忆
+            sql.append(" and mem_key like ?");
+            sqlparams.put("mem_key", userId + ":%");
+        } else if (!"global".equals(sessionId)) {
+            sql.append(" and session_id = ?");
+            sqlparams.put("session_id", sessionId);
         }
         if (tag != null && !tag.isEmpty()) {
             sql.append(" and tag = ?"); sqlparams.put("tag", tag);

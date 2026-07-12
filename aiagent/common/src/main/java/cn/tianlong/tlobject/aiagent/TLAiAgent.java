@@ -126,6 +126,25 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return config;
     }
 
+    /**
+     * 将一组配置注入 modulesClass 和 modulesParams，供 getMyModule 自动使用。
+     * @param configs  配置 map（name → 属性）
+     * @param namespace Agent 命名空间（仅 memoryStores 需要）
+     * @param isMemory 是否为 memoryStores（需要注入 namespace）
+     */
+    private void injectConfigs(HashMap<String, HashMap<String, String>> configs,
+                               String namespace, boolean isMemory) {
+        if (configs == null) return;
+        for (String name : configs.keySet()) {
+            HashMap<String, String> cfg = configs.get(name);
+            if (isMemory && namespace != null && !namespace.isEmpty()) {
+                cfg.putIfAbsent("agentNamespace", namespace);
+            }
+            modulesClass.putIfAbsent(name, cfg);
+            modulesParams.putIfAbsent(name, cfg);
+        }
+    }
+
     @Override
     protected void setModuleParams() {
         if (params != null) {
@@ -160,6 +179,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             if (params.get("checkProviderOnStartup") != null)
                 checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
         }
+
+        // 把 providers/agents/skills/memoryStores 注入 modulesClass + modulesParams
+        // 必须放在 setModuleParams() 而非 setConfig()，因为 initProperty() 会覆盖
+        myConfig config = (myConfig) mconfig;
+        if (modulesClass == null) modulesClass = new HashMap<>();
+        if (modulesParams == null) modulesParams = new HashMap<>();
+        String namespace = params != null ? params.get("agentNamespace") : null;
+        injectConfigs(config.getProviders(), namespace, false);
+        injectConfigs(config.getAgents(), namespace, false);
+        injectConfigs(config.getSkills(), namespace, false);
+        injectConfigs(config.getMemoryStores(), namespace, true);
     }
 
     @Override
@@ -198,16 +228,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected void initProvider() {
         if (defaultLlmProvider == null || defaultLlmProvider.isEmpty()) return;
 
-        HashMap<String, String> providerParams = new HashMap<>();
-        if (providersConfig != null) {
-            HashMap<String, String> pConf = providersConfig.get(defaultLlmProvider);
-            if (pConf != null) {
-                providerParams.putAll(pConf);
-            }
-        }
-
         try {
-            TLBaseModule module = (TLBaseModule) getNewModule(defaultLlmProvider, providerParams);
+            TLBaseModule module = (TLBaseModule) getMyModule(defaultLlmProvider);
             if (module instanceof TLLlmProvider) {
                 llmProvider = (TLLlmProvider) module;
                 putLog("LLM Provider initialized: " + defaultLlmProvider
@@ -234,20 +256,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             boolean startup = TLDataUtils.parseBoolean(skillParams.get("statup"), true);
             if (!startup) continue;
 
-            // 优先用 classfile，没有则用 sameClassAs 引用的 classfile，都没有则让工厂按名查找
-            String classfile = skillParams.get(MODULE_CLASSFILE);
-            if ((classfile == null || classfile.isEmpty()) && skillParams.containsKey(MODULE_SameClassAs)) {
-                HashMap<String, String> ref = skillConfigs.get(skillParams.get(MODULE_SameClassAs));
-                if (ref != null) classfile = ref.get(MODULE_CLASSFILE);
-            }
-
             try {
-                TLBaseModule module = classfile != null && !classfile.isEmpty()
-                        ? (TLBaseModule) getNewModule(skillName, classfile, skillParams)
-                        : (TLBaseModule) getNewModule(skillName, skillParams);
+                TLBaseModule module = (TLBaseModule) getMyModule(skillName);
                 if (module instanceof TLBaseSkill) {
                     skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
-                    modules.put(skillName, module);
                     putLog("Skill registered: " + skillName, LogLevel.DEBUG);
                 }
             } catch (Exception e) {
@@ -264,31 +276,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         myConfig config = (myConfig) mconfig;
         if (config == null || config.getMemoryStores() == null) return;
 
-        String namespace = params != null ? params.get("agentNamespace") : null;
-
         HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
         for (String storeName : memoryConfigs.keySet()) {
             HashMap<String, String> storeParams = memoryConfigs.get(storeName);
             boolean startup = TLDataUtils.parseBoolean(storeParams.get("statup"), true);
             if (!startup) continue;
 
-            // 优先用 classfile，没有则用 sameClassAs 引用的 classfile，都没有则让工厂按名查找
-            String classfile = storeParams.get(MODULE_CLASSFILE);
-            if ((classfile == null || classfile.isEmpty()) && storeParams.containsKey(MODULE_SameClassAs)) {
-                HashMap<String, String> ref = memoryConfigs.get(storeParams.get(MODULE_SameClassAs));
-                if (ref != null) classfile = ref.get(MODULE_CLASSFILE);
-            }
-
-            if (namespace != null && !namespace.isEmpty()) {
-                storeParams.putIfAbsent("agentNamespace", namespace);
-            }
             try {
-                TLBaseModule module = classfile != null && !classfile.isEmpty()
-                        ? (TLBaseModule) getNewModule(storeName, classfile, storeParams)
-                        : (TLBaseModule) getNewModule(storeName, storeParams);
+                TLBaseModule module = (TLBaseModule) getMyModule(storeName);
                 if (module instanceof TLBaseMemory) {
                     memoryStores.put(storeName, (TLBaseMemory) module);
-                    modules.put(storeName, module);
                     putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
                 }
             } catch (Exception e) {
@@ -324,37 +321,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             String type = agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
 
             try {
-                // sameClassAs：Agent局部引用，从同段config中查找classfile
-                String classfile = agentCfg.get(MODULE_CLASSFILE);
-                String sameClassAs = agentCfg.get(MODULE_SameClassAs);
-                if ((classfile == null || classfile.isEmpty()) && sameClassAs != null) {
-                    HashMap<String, String> refParams = agentsConfig.get(sameClassAs);
-                    if (refParams != null) {
-                        classfile = refParams.get(MODULE_CLASSFILE);
-                    }
-                }
-
                 if (AGENT_TYPE_GROUP.equals(type)) {
                     // Group Agent：不创建实例，members 已在 agentsConfig 中
                     putLog("Group agent registered: " + agentName + " members=" + agentCfg.get("members"), LogLevel.DEBUG);
-                } else if (AGENT_TYPE_MCP.equals(type)) {
-                    if (classfile == null || classfile.isEmpty()) {
-                        putLog("MCP Agent missing classfile/sameClassAs: " + agentName, LogLevel.ERROR);
-                        continue;
-                    }
-                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, classfile, agentCfg);
-                    subAgents.put(agentName, module);
-                    modules.put(agentName, module);
-                    putLog("MCP Agent initialized: " + agentName, LogLevel.DEBUG);
                 } else {
-                    agentCfg.putIfAbsent("configFile", agentName + "_config.xml");
-                    // classfile/sameClassAs 优先，否则用 defaultAgentTemplate（默认 "aiagent"）
-                    String template = (classfile != null && !classfile.isEmpty()) ? classfile
-                            : (params != null ? params.getOrDefault("defaultAgentTemplate", "aiagent") : "aiagent");
-                    TLBaseModule module = (TLBaseModule) getNewModule(agentName, template, agentCfg);
-                    // 接受 TLAiAgent、TLAgentGroup 等任何 TLBaseModule
+                    // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
+                    TLBaseModule module = (TLBaseModule) getMyModule(agentName);
                     subAgents.put(agentName, module);
-                    modules.put(agentName, module);
                     putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
                 }
             } catch (Exception e) {
@@ -412,6 +385,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 break;
             case AGENT_CLEARCONTEXT:
                 returnMsg = clearAgentContext(fromWho, msg);
+                break;
+            case "resumeSession":
+                returnMsg = resumeSession(fromWho, msg);
+                break;
+            case "findLatestSession":
+                returnMsg = findLatestSession(fromWho, msg);
                 break;
             case AGENT_SAVEMEMORY:
                 returnMsg = saveAgentMemory(fromWho, msg);
@@ -603,6 +582,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                         .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                        .setParam("userId", msg.getStringParam("userId", sessionId))
                         .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                         .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
                         .setParam(AI_P_MEMORYTAG, "chat_history");
@@ -768,6 +748,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     try {
                         TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                                 .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                                .setParam("userId", msg.getStringParam("userId", sessionId))
                                 .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                                 .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
                                 .setParam(AI_P_MEMORYTAG, "chat_history");
@@ -950,6 +931,59 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return putMsg(contextModuleName, ctxMsg);
     }
 
+    @SuppressWarnings("unchecked")
+    protected TLMsg resumeSession(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        TLMsg checkpoint = loadSessionCheckpoint(sessionId);
+        if (checkpoint == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "No checkpoint found");
+        }
+        List<TLConversationHistory> history =
+                (List<TLConversationHistory>) checkpoint.getParam("history");
+        if (history == null || history.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "Empty history");
+        }
+        putMsg(contextModuleName, createMsg()
+                .setAction(CONTEXT_REPLACE)
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam(AI_P_MESSAGEHISTORY, history));
+        putLog("Session resumed: " + sessionId + " (" + history.size() + " msgs)", LogLevel.DEBUG);
+        return createMsg().setParam(RESULT, true).setParam("count", history.size());
+    }
+
+    protected TLMsg findLatestSession(Object fromWho, TLMsg msg) {
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists() || !dir.isDirectory()) {
+                return createMsg().setParam("sessionId", (String) null);
+            }
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null || files.length == 0) {
+                return createMsg().setParam("sessionId", (String) null);
+            }
+            // 排除当前会话，找最近修改的
+            String currentId = msg.getStringParam(AI_P_SESSIONID, "");
+            java.io.File latest = null;
+            long latestTime = 0;
+            for (java.io.File f : files) {
+                String id = f.getName().replace(".json", "");
+                if (id.equals(currentId)) continue;
+                if (f.lastModified() > latestTime) {
+                    latestTime = f.lastModified();
+                    latest = f;
+                }
+            }
+            if (latest == null) {
+                return createMsg().setParam("sessionId", (String) null);
+            }
+            String sessionId = latest.getName().replace(".json", "");
+            return createMsg().setParam("sessionId", sessionId)
+                    .setParam("lastModified", latestTime);
+        } catch (Exception e) {
+            return createMsg().setParam("sessionId", (String) null);
+        }
+    }
+
     protected TLMsg setSystemMsg(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String systemMsg = msg.getStringParam(AI_P_SYSTEMMESSAGE, "");
@@ -971,6 +1005,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         TLMsg memMsg = createMsg()
                 .setAction(MEMORY_STORE)
                 .setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, "default"))
+                .setParam("userId", msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "default")))
                 .setParam(AI_P_MEMORYKEY, msg.getStringParam(AI_P_MEMORYKEY, ""))
                 .setParam(AI_P_MEMORYVALUE, msg.getParam(AI_P_MEMORYVALUE))
                 .setParam(AI_P_MEMORYTAG, msg.getStringParam(AI_P_MEMORYTAG, null))
@@ -981,6 +1016,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     @SuppressWarnings("unchecked")
     protected TLMsg recallAgentMemory(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        String userId = msg.getStringParam("userId", sessionId);
         List<TLMemoryEntry> allEntries = new ArrayList<>();
 
         // 同时搜索短期和长期记忆，合并结果
@@ -990,6 +1026,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 TLMsg memMsg = createMsg()
                         .setAction(MEMORY_SEARCH)
                         .setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("userId", userId)
                         .setParam(AI_P_MEMORYQUERY, msg.getStringParam(AI_P_MEMORYQUERY, ""))
                         .setParam(AI_P_MEMORYTAG, msg.getStringParam(AI_P_MEMORYTAG, null))
                         .setParam(AI_P_TOPK, msg.getIntParam(AI_P_TOPK, 5));

@@ -8,7 +8,7 @@
 
     <providers>
         <provider name="openAiProvider"
-                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  sameClassAs="openAiProvider"
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"

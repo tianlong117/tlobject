@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 代码执行子Agent配置 ===== -->
+    <!-- 内置 code_execution + script_execution 两个技能 -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <defaultModel value="deepseek-v4-pro"/>
+        <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  sameClassAs="openAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+
+    <skills>
+        <skill name="codeExecutionSkill"
+               sameClassAs="codeExecutionSkill"
+               statup="true"
+               skillName="code_execution"
+               skillDescription="Execute inline code snippets in Python or JavaScript."/>
+
+        <skill name="scriptExecutionSkill"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               skillName="script_execution"
+               skillDescription="Execute an existing script file (.py, .sh, .js etc.) and return its output."/>
+    </skills>
+
+    <memoryStores>
+        <memoryStore name="longTermMemory"
+                     sameClassAs="longTermMemory"
+                     statup="true"
+                     memoryType="longTerm"
+                     storagePath="./data/codeAgent_memory"
+                     maxCacheEntries="10000"/>
+    </memoryStores>
+</moduleConfig>

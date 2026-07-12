@@ -111,12 +111,12 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
                 key = "mem_" + UUID.randomUUID().toString().substring(0, 8);
             }
             Object value = msg.getParam(AI_P_MEMORYVALUE);
-            String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+            String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
-            // 构建scoped key（含Agent命名空间前缀，用于多Agent隔离）
-            String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
+            // 构建scoped key（用 userId 做用户级隔离，跨会话共享记忆）
+            String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + key);
             entry = new TLMemoryEntry(scopedKey, value, memoryType);
             entry.setTag(tag);
             entry.setExpiresAt(calculateExpiresAt(exptimeMinutes));
@@ -140,11 +140,11 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     @Override
     protected TLMsg retrieve(Object fromWho, TLMsg msg) {
         String key = msg.getStringParam(AI_P_MEMORYKEY, "");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
 
-        // 构建完整key（含Agent命名空间）
-        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
+        // 构建完整key（用 userId）
+        String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + key);
 
         TLMemoryEntry entry = cache.get(scopedKey);
         if (entry == null) {
@@ -168,14 +168,14 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     @Override
     protected TLMsg search(Object fromWho, TLMsg msg) {
         String query = msg.getStringParam(AI_P_MEMORYQUERY, "");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
         int topK = msg.getIntParam(AI_P_TOPK, 5);
 
         List<TLMemoryEntry> results = cache.values().stream()
                 .filter(e -> !e.isExpired())
                 .filter(e -> {
-                    if (!"global".equals(sessionId) && !e.getKey().startsWith(sessionId + ":")) {
+                    if (!"global".equals(userId) && !e.getKey().startsWith(userId + ":")) {
                         return false;
                     }
                     if (tag != null && !tag.equals(e.getTag())) {
@@ -201,10 +201,10 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         String key = msg.getStringParam(AI_P_MEMORYKEY, "");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
 
-        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + key);
+        String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + key);
         TLMemoryEntry removed = cache.remove(scopedKey);
         if (removed != null) {
             deletedKeys.add(scopedKey);
@@ -216,8 +216,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
 
     @Override
     protected TLMsg clearAll(Object fromWho, TLMsg msg) {
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "");
-        if (sessionId.isEmpty()) {
+        String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, ""));
+        if (userId.isEmpty()) {
             int size = cache.size();
             cache.clear();
             deletedKeys.clear();
@@ -227,11 +227,11 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             return createMsg().setParam(RESULT, true).setParam("cleared", size);
         } else {
             List<String> toRemove = cache.keySet().stream()
-                    .filter(k -> k.startsWith(sessionId + ":"))
+                    .filter(k -> k.startsWith(userId + ":"))
                     .collect(Collectors.toList());
             toRemove.forEach(k -> { cache.remove(k); deletedKeys.add(k); });
             scheduleCompact();
-            putLog("Long-term memory cleared for session: " + sessionId + " (" + toRemove.size() + " entries)", LogLevel.DEBUG);
+            putLog("Long-term memory cleared for user: " + userId + " (" + toRemove.size() + " entries)", LogLevel.DEBUG);
             return createMsg().setParam(RESULT, true).setParam("cleared", toRemove.size());
         }
     }

@@ -12,7 +12,7 @@
 
     <providers>
         <provider name="openAiProvider"
-                  classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                  sameClassAs="openAiProvider"
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
@@ -25,7 +25,7 @@
                type="mcp"
                tools="read_file,write_file,list_directory"
                description="MCP文件系统工具集（仅暴露3个常用操作）"
-               classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent"
+               sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
                args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"/>
@@ -34,7 +34,7 @@
     </agents>
     <skills>
         <skill name="fileOperationSkill"
-               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+               sameClassAs="fileOperationSkill"
                statup="true"
                skillName="file_operation"
                skillDescription="Read and write files on the local filesystem. Operations: read, write, list, exists, delete."/>
@@ -42,7 +42,7 @@
 
     <memoryStores>
         <memoryStore name="longTermMemory"
-                     classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                     sameClassAs="longTermMemory"
                      statup="true"
                      memoryType="longTerm"
                      storagePath="./data/fileAgent_memory"
