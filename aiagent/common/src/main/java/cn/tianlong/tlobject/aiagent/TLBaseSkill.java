@@ -146,5 +146,10 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
     public void setParameterSchema(Map<String, Object> parameterSchema) { this.parameterSchema = parameterSchema; }
 
     public boolean isEnabled() { return enabled; }
+    /**
+     * 契约：任何在运行时改变 skill 集合或其 enabled 状态的路径，都必须触发所属
+     * TLAiAgent 的 invalidateToolDefs()（如通过 setSkillEnabled action），否则
+     * function definitions 缓存会 stale。直接调用本 setter 不会自动失效缓存。
+     */
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
 }

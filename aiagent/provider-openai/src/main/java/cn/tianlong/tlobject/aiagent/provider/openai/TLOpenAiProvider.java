@@ -129,6 +129,19 @@ public class TLOpenAiProvider extends TLLlmProvider {
             body.addProperty("top_p", msg.getDoubleParam(AI_P_TOPP, 1.0));
         }
 
+        // structured output: response_format（值 "json_object" 或 json_schema map）
+        // 注意：DeepSeek json_object 要求 prompt 内含 "json" 字样；与 tools 的共存约束由调用方负责
+        if (msg.containsParam(AI_P_RESPONSEFORMAT)) {
+            Object rf = msg.getParam(AI_P_RESPONSEFORMAT);
+            if (rf instanceof String) {
+                JsonObject fmt = new JsonObject();
+                fmt.addProperty("type", (String) rf);
+                body.add("response_format", fmt);
+            } else if (rf instanceof Map) {
+                body.add("response_format", gson.toJsonTree(rf));
+            }
+        }
+
         return body.toString();
     }
 

@@ -129,7 +129,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String aiResponse = response.getStringParam(AI_P_RESPONSE, "");
             if (response.parseBoolean(RESULT, false) && !aiResponse.isEmpty()) {
                 System.out.println("AI > " + aiResponse);
-                System.out.println("    (" + (System.currentTimeMillis() - start) + "ms)");
+                int pt = response.getIntParam(AI_P_PROMPTTOKENS, 0);
+                int ct = response.getIntParam(AI_P_COMPLETIONTOKENS, 0);
+                int tt = response.getIntParam(AI_P_TOTALTOKENS, 0);
+                int accTotal = response.getIntParam(AI_P_TOTALTOKENS_TOTAL, 0);
+                String tokenInfo = tt > 0
+                        ? "，tokens 输入 " + pt + "/输出 " + ct + "/合计 " + tt + "，会话累计 " + accTotal
+                        : "";
+                System.out.println("    (" + (System.currentTimeMillis() - start) + "ms" + tokenInfo + ")");
             } else {
                 System.out.println("AI > [错误] " + (aiResponse.isEmpty() ? "空响应" : aiResponse));
             }
@@ -159,7 +166,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (done && printed >= content.length()) break;
             try { Thread.sleep(10); } catch (InterruptedException e) { break; }
         }
-        System.out.println("\n    (" + (System.currentTimeMillis() - start) + "ms)");
+        TLMsg usage = putMsg(agentModule, createMsg().setAction(AGENT_GETTOKENUSAGE)
+                .setParam(AI_P_SESSIONID, sessionId));
+        int accTotal = usage != null ? usage.getIntParam(AI_P_TOTALTOKENS_TOTAL, 0) : 0;
+        String tokenInfo = accTotal > 0 ? "，会话累计 tokens " + accTotal : "";
+        System.out.println("\n    (" + (System.currentTimeMillis() - start) + "ms" + tokenInfo + ")");
     }
 
     private boolean handleCommand(String cmd) {

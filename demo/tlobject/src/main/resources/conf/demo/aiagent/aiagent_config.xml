@@ -50,9 +50,9 @@
         <provider name="claudeProvider"
                   classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
                   statup="false"
-                  apiKey="sk-ant-your-api-key-here"
-                  apiBaseUrl="https://api.anthropic.com"
-                  defaultModel="claude-sonnet-4-6"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com/anthropic"
+                  defaultModel="deepseek-v4-pro"
                   connTimeOut="30"
                   readTimeOut="120"/>
     </providers>

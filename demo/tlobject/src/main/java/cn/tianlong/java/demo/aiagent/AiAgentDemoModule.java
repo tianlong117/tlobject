@@ -637,11 +637,15 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
         log("[TEST] 场景10: Agent委托(主控/子Agent模式) -- 开始");
 
         try {
-            // 10a: 动态注册子Agent，框架自动加载 testSubAgent_config.xml
+            // 10a: 动态注册子Agent，cfg 指定用 aiagent 类 + 加载 testSubAgent_config.xml
+            HashMap<String, String> agentCfg = new HashMap<>();
+            agentCfg.put("sameClassAs", "aiagent");
+            agentCfg.put("configfile", "testSubAgent_config.xml");
+            agentCfg.put("description", "测试子Agent，用于验证主控委托机制");
             TLMsg registerMsg = createMsg()
                     .setAction(AGENT_REGISTERAGENT)
                     .setParam(AI_P_AGENTNAME, "testSubAgent")
-                    .setParam(AI_P_AGENTDESCRIPTION, "测试子Agent，用于验证主控委托机制");
+                    .setParam(AI_P_AGENTCONFIG, agentCfg);
 
             TLMsg regResult = putMsg(M_AIAGENT, registerMsg);
             if (!regResult.parseBoolean(RESULT, false)) {
@@ -701,13 +705,11 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
      */
     private void checkLlmAvailability() {
         try {
-            TLBaseModule provider = (TLBaseModule) getModule(M_LLMPROVIDER_OPENAI);
-            if (provider instanceof TLLlmProvider) {
-                String apiKey = ((TLLlmProvider) provider).getApiKey();
-                llmAvailable = (apiKey != null && !apiKey.isEmpty()
-                        && !apiKey.contains("your-api-key") && !apiKey.contains("sk-xxx"));
-                log("LLM Provider check: available=" + llmAvailable);
-            }
+            // 问主控 aiagent：用它自己的 provider（配置了真实 apiKey 的那个实例）测连通性，
+            // 而不是从工厂另拎一个裸 provider —— 本质上是同一个 LLM。
+            TLMsg r = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHECKPROVIDER));
+            llmAvailable = r != null && r.parseBoolean(RESULT, false);
+            log("LLM Provider check (via aiagent): available=" + llmAvailable);
         } catch (Exception e) {
             llmAvailable = false;
             log("LLM Provider check: not available - " + e.getMessage());

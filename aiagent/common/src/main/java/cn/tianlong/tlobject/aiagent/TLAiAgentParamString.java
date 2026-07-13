@@ -55,6 +55,16 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_SETSYSTEMMSG = "setSystemMsg";
     /** 运行时切换LLM provider */
     String AGENT_SETPROVIDER = "setLlmProvider";
+    /** 检查 LLM Provider 是否可用（复用启动检查 checkProvider()，供外部/测试查询） */
+    String AGENT_CHECKPROVIDER = "checkProvider";
+    /** 查询指定 session 的累计 token 用量 */
+    String AGENT_GETTOKENUSAGE = "getTokenUsage";
+    /** 运行时切换skill启用状态（不删实例） */
+    String AGENT_SETSKILLENABLED = "setSkillEnabled";
+    /** 更新已注册skill的tool定义（描述/参数schema） */
+    String AGENT_UPDATESKILL = "updateSkill";
+    /** 更新已注册子Agent的描述 */
+    String AGENT_UPDATEAGENT = "updateAgent";
 
     // ======================== LLM Provider动作 ========================
     /** 发送completion请求（非流式） */
@@ -125,6 +135,19 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_TOOLID = "toolId";
     String AI_P_TOOLARGUMENTS = "toolArguments";
     String AI_P_FUNCTIONDEFS = "functionDefinitions";
+    /** 结构化输出：response_format（值 "json_object" 或 json_schema map） */
+    String AI_P_RESPONSEFORMAT = "responseFormat";
+    /** tool-call 因到达 maxToolCallIterations 而截断的标志 */
+    String AI_P_TRUNCATED = "truncated";
+
+    // Token 用量（与 Provider parseResponse 已用的裸 key 一致）
+    String AI_P_PROMPTTOKENS = "promptTokens";
+    String AI_P_COMPLETIONTOKENS = "completionTokens";
+    String AI_P_TOTALTOKENS = "totalTokens";
+    /** 累计用量参数键（会话级） */
+    String AI_P_PROMPTTOKENS_TOTAL = "promptTokensTotal";
+    String AI_P_COMPLETIONTOKENS_TOTAL = "completionTokensTotal";
+    String AI_P_TOTALTOKENS_TOTAL = "totalTokensTotal";
 
     // Skill
     String AI_P_SKILLNAME = "skillName";
@@ -132,6 +155,7 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_SKILLPARAMS = "skillParams";
     String AI_P_SKILLINPUT = "skillInput";
     String AI_P_SKILLOUTPUT = "skillOutput";
+    String AI_P_ENABLED = "enabled";
 
     // Memory
     String AI_P_MEMORYKEY = "memoryKey";

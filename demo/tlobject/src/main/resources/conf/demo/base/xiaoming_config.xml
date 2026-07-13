@@ -14,6 +14,11 @@
         <msg action="onHouse"   />
         <msg action="comein"  waitFlag="false" inthreadPool="true"/>
     </startMsg>
+    <msgTable>
+        <msgid  value="cook"  >
+            <msg   action="cook" />
+        </msgid>
+    </msgTable>
     <beforeMsgTable>
         <action  value="*" >
             <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
@@ -26,9 +31,6 @@
         <action  value="*" >
             <msg   action="clearAndForward" destination="checkpoint"  />
         </action>
-        <action  value="cook" >
-            <msg   action="sing"  />
-        </action>
          <action  value="cook;sleep1;start;walk" >
             <msg   action="sing2"  />
         </action>
@@ -36,11 +38,12 @@
             <msg   action="sing3"  />
         </action>
         <action value="onLight">
+            <msg   msgid="cook" />
+        </action>
+        <action  value="cook" >
             <msg action="analyzeAndSaveHtml" destination="flowAnalyzer" />
             <msg   action="setshutdown" value="true" />
             <msg action="setshutdown" destination="moduleFactory" value="true"/>
-
         </action>
-
     </afterMsgTable>
 </moduleConfig>
