@@ -89,6 +89,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 会话级 token 累计：sessionId → {prompt, completion, total} */
     private final Map<String, long[]> sessionTokenUsage = new ConcurrentHashMap<>();
 
+    /** 会话级取消标志：sessionId → cancelled；/stop 置 true，chat 循环协作式退出 */
+    private final Map<String, java.util.concurrent.atomic.AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
+
+    /** 会话级 worker 线程：sessionId → 执行 doChat 的线程；stopChat 用于 interrupt + 定位其派生进程 */
+    private final Map<String, Thread> chatThreads = new ConcurrentHashMap<>();
+
+    /** 当前线程正在执行的 doChat 的根会话 ID（ThreadLocal，供 spawn 点透传给子 agent） */
+    private final ThreadLocal<String> currentRootSessionId = new ThreadLocal<>();
+
     /** LLM 可调用的预定义消息列表（从 XML msgTools 段解析） */
     protected List<TLMsg> msgTools;
 
@@ -437,6 +446,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
                 break;
+            case AGENT_STOPCHAT:
+                returnMsg = stopChat(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -444,6 +456,33 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     // ======================== 核心：Chat循环 ========================
+
+    /**
+     * 中断指定 session 正在进行的 chat（协作式取消）。
+     * 置会话取消标志 + 取消在途 HTTP 请求。可被控制台的 /stop、外部模块调用。
+     * 在与 doChat 不同的线程上执行，靠线程安全的 cancelFlags / OkHttp dispatcher 衔接。
+     */
+    protected TLMsg stopChat(Object fromWho, TLMsg msg) {
+        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+        boolean cascade = msg.parseBoolean("cascade", false);
+        cancelFlags.computeIfAbsent(sid, k -> new java.util.concurrent.atomic.AtomicBoolean()).set(true);
+        // 1) 取消在途 LLM HTTP（级联模式跳过：子 agent 共享 provider，误杀会波及其他会话）
+        if (!cascade && llmProvider != null) {
+            putMsg(llmProvider, createMsg().setAction(LLM_CANCEL));
+        }
+        // 2) C：杀掉该会话 worker 线程派生的外部进程
+        Thread worker = chatThreads.get(sid);
+        int killed = TLProcessRegistry.killByThread(worker);
+        if (killed > 0) {
+            putLog("stopChat killed " + killed + " process(es): sessionId=" + sid, LogLevel.INFO);
+        }
+        // 3) B：中断 worker 线程
+        if (worker != null) {
+            worker.interrupt();
+        }
+        putLog("stopChat requested: sessionId=" + sid + " cascade=" + cascade, LogLevel.INFO);
+        return createMsg().setParam(RESULT, true).setParam(AI_P_SESSIONID, sid);
+    }
 
     /**
      * 完整的chat循环：
@@ -471,6 +510,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     .setParam(AI_P_RESPONSE, "LLM Provider 未就绪，请检查 API Key 和余额后重启");
         }
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        // 根会话 ID：控制台会话标识，在 spawn 子 agent 时透传，供监控模块级联停止
+        String rootSid = msg.getStringParam("rootSessionId", sessionId);
+        currentRootSessionId.set(rootSid);
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         String model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
         double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
@@ -482,6 +524,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         }
 
         putLog("Chat start: sessionId=" + sessionId + " stream=" + stream, LogLevel.DEBUG);
+        // 取消标志：每次 chat 开始复位；/stop 经 stopChat() 置 true
+        final java.util.concurrent.atomic.AtomicBoolean cancelled =
+                cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean());
+        cancelled.set(false);
+        // 登记 worker 线程，供 stopChat 中断 + 杀其派生进程
+        chatThreads.put(sessionId, Thread.currentThread());
+        // 向监控模块登记本执行实例（放在 try 内，finally 负责注销，避免空消息提前 return 泄漏）
+        putMsg(M_AGENTMONITOR, createMsg().setAction("register")
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam("rootSessionId", rootSid)
+                .setParam("agentName", getName()));
         try {
             // ==== 预处理: 记忆召回 + 上下文 ====
             TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
@@ -504,6 +557,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             boolean resumedFromCheckpoint = false;
             long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
             boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
+            boolean aborted = false;   // 是否被 /stop 协作式中断
 
             if (checkpoint != null && SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", ""))) {
                 // L2: 从 mid-loop 断点恢复，跳过预处理
@@ -537,13 +591,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             if (stream) {
                 // 流式: 单次请求，无tool-call循环
                 finalResponse = doStreamCall(history, toolDefs, sessionId, model);
-                if (finalResponse != null) {
+                if (cancelled.get()) {
+                    aborted = true;
+                } else if (finalResponse != null) {
                     history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
                 }
             } else {
                 // 非流式: tool-call循环
                 finalResponse = null;
                 while (iteration < maxToolCallIterations) {
+                    if (cancelled.get()) { aborted = true; break; }
                     iteration++;
                     // L2 checkpoint: 每次迭代前保存（覆盖 LLM 直接返回 / 中途中断等所有场景）
                     if (enableCheckpoint) {
@@ -562,6 +619,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     }
 
                     TLMsg llmResponse = putMsg(llmProvider, llmMsg);
+                    // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
+                    if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
+                        aborted = true;
+                        break;
+                    }
                     if (!llmResponse.parseBoolean(RESULT, false)) {
                         int hs = llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
                         String body = llmResponse.getStringParam(AI_P_RESPONSEBODY, "");
@@ -590,10 +652,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     history.add(aMsg);
 
                     for (TLToolCall tc : toolCalls) {
+                        if (cancelled.get()) { aborted = true; break; }
                         TLMsg tr = executeToolCall(tc, fromWho, sessionId);
                         history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
                                 tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
                     }
+                    if (aborted) break;
                     // L2 checkpoint: 每轮工具调用后保存断点
                     if (enableCheckpoint) {
                         persistSession(sessionId, history, SESSION_STATE_CHECKPOINT,
@@ -604,6 +668,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     truncated = true;
                     finalResponse = "（已达最大迭代次数 " + maxToolCallIterations + "，可能未完成）";
                 }
+            }
+
+            // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
+            if (aborted) {
+                if (enableCheckpoint) {
+                    // 断点落成 COMPLETED，避免 /resume 捡到半截 tool-loop
+                    persistSession(sessionId, history, SESSION_STATE_COMPLETED,
+                            iteration, model, temperature, maxTokens, userMessage);
+                }
+                putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
+                long[] accCancel = accumulateTokenUsage(sessionId, turn);
+                return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
+                        .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("iterations", iteration)
+                        .setParam(AI_P_TOTALTOKENS, (int) turn[2])
+                        .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);
             }
 
             // ==== 后处理: 保存上下文 + 长期记忆 + L1持久化 ====
@@ -640,9 +720,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             return ret;
 
         } catch (Exception e) {
+            // 中断/取消路径（如工具被 interrupt 后异常上抛）→ 当作中断，干净收尾
+            if (cancelled.get() || e instanceof InterruptedException) {
+                putLog("Chat aborted (exception path): sessionId=" + sessionId, LogLevel.INFO);
+                return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
+                        .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId);
+            }
             putLog("Chat error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
+        } finally {
+            chatThreads.remove(sessionId);
+            // 从监控模块注销
+            putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
+                    .setParam(AI_P_SESSIONID, sessionId));
+            currentRootSessionId.remove();
+            Thread.interrupted();
         }
     }
 
@@ -1391,7 +1484,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             String sid = groupName + "_" + mName + ":" + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
             System.out.println("  → [Group-seq] " + mName);
             TLMsg result = putMsg(member, createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, currentInput).setParam(AI_P_SESSIONID, sid));
+                    .setParam(AI_P_USERMESSAGE, currentInput).setParam(AI_P_SESSIONID, sid)
+                    .setParam("rootSessionId", currentRootSessionId.get()));
             if (result == null || !result.parseBoolean(RESULT, false)) {
                 String err = result != null ? result.getStringParam(AI_P_RESPONSE, "unknown") : "no response";
                 return createMsg().setParam(RESULT, false)
@@ -1415,6 +1509,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             String sid = groupName + "_" + mName + ":" + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
             msgList.add(createMsg().setAction(AGENT_CHAT)
                     .setParam(AI_P_USERMESSAGE, task).setParam(AI_P_SESSIONID, sid)
+                    .setParam("rootSessionId", currentRootSessionId.get())
                     .setDestination(mName));
         }
 
@@ -1608,7 +1703,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 TLMsg chatMsg = createMsg()
                         .setAction(AGENT_CHAT)
                         .setParam(AI_P_USERMESSAGE, task)
-                        .setParam(AI_P_SESSIONID, childSessionId);
+                        .setParam(AI_P_SESSIONID, childSessionId)
+                        .setParam("rootSessionId", currentRootSessionId.get());   // 透传给孙子 agent
 
                 System.out.println(">>> [主控] 委托任务给子Agent [" + agentName + "]");
                 System.out.println("    任务: " + task);

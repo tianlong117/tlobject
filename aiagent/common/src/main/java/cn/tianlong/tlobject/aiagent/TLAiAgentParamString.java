@@ -22,6 +22,9 @@ public interface TLAiAgentParamString extends TLParamString {
     String M_SKILL_FILEOPERATION = "fileOperationSkill";
     String M_SKILL_CODEEXECUTION = "codeExecutionSkill";
 
+    /** 会话运行监控模块名 */
+    String M_AGENTMONITOR = "agentMonitor";
+
     // ======================== Agent动作 ========================
     /** 发送用户消息，获取AI回复（非流式，完整chat循环含tool-call） */
     String AGENT_CHAT = "chat";
@@ -65,6 +68,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_UPDATESKILL = "updateSkill";
     /** 更新已注册子Agent的描述 */
     String AGENT_UPDATEAGENT = "updateAgent";
+    /** 中断指定 session 正在进行的 chat（协作式取消） */
+    String AGENT_STOPCHAT = "stopChat";
 
     // ======================== LLM Provider动作 ========================
     /** 发送completion请求（非流式） */
@@ -171,6 +176,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_CHUNK = "chunk";
     String AI_P_STREAMDONE = "streamDone";
     String AI_P_STREAMERROR = "streamError";
+    /** chat 被 /stop 中断的标志 */
+    String AI_P_CANCELLED = "cancelled";
 
     // HTTP内部
     String AI_P_APIKEY = "apiKey";

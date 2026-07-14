@@ -24,6 +24,7 @@
                 singleton="true"/>
         <module name="dbMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
                 singleton="true"/>
+        <module name="agentMonitor" classfile="cn.tianlong.tlobject.aiagent.TLAgentMonitor" singleton="true"/>
         <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
         <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
     </modules>

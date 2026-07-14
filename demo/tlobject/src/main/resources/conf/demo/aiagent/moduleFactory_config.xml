@@ -53,6 +53,7 @@
 
         <!-- 获取Demo测试模块和回调模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
     </factoryBoot>
 </moduleConfig>

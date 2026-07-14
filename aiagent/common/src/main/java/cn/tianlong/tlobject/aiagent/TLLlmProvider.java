@@ -283,8 +283,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
 
         while (attempt <= maxRetries) {
             attempt++;
+            Call call = okHttpClient.newCall(request);
             try {
-                Response response = okHttpClient.newCall(request).execute();
+                Response response = call.execute();
                 String responseBody = response.body() != null ? response.body().string() : "";
                 int statusCode = response.code();
                 response.close();
@@ -316,6 +317,11 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                         .setParam(AI_P_RESPONSEBODY, responseBody);
 
             } catch (IOException e) {
+                // 被 cancel() 主动取消 → 不重试，返回取消标志，交由 Agent 干净收尾
+                if (call.isCanceled()) {
+                    putLog("LLM request cancelled by user", LogLevel.INFO);
+                    return createMsg().setParam(RESULT, false).setParam(AI_P_CANCELLED, true);
+                }
                 lastException = e;
                 if (attempt <= maxRetries) {
                     putLog("LLM retry " + attempt + "/" + maxRetries + " after IO error: "

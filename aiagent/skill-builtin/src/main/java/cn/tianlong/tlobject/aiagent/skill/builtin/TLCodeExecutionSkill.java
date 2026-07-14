@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
+import cn.tianlong.tlobject.aiagent.TLProcessRegistry;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -144,14 +145,14 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             pb.redirectErrorStream(true);
 
             Process process = pb.start();
+            Thread owner = Thread.currentThread();
+            TLProcessRegistry.register(owner, process);   // C：登记进程，供 stopChat 强杀
             StringBuilder output = new StringBuilder();
 
-            // 读取输出（带超时）
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
                 boolean finished = process.waitFor(maxExecutionTime, TimeUnit.SECONDS);
                 if (!finished) {
-                    process.destroyForcibly();
                     tempFile.delete();
                     return createMsg().setParam(RESULT, false)
                             .setParam(AI_P_SKILLOUTPUT, "Execution timeout (" + maxExecutionTime + "s)");
@@ -165,22 +166,27 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
                     }
                     output.append(line).append("\n");
                 }
+
+                int exitCode = process.exitValue();
+                tempFile.delete();
+
+                String result = output.length() > 0 ? output.toString() : "(no output)";
+                putLog("Python executed, exit code: " + exitCode, LogLevel.DEBUG);
+
+                return createMsg().setParam(RESULT, exitCode == 0)
+                        .setParam(AI_P_SKILLOUTPUT, "Exit code: " + exitCode + "\n" + result)
+                        .setParam("exitCode", exitCode);
+            } finally {
+                // 超时 / 被 /stop interrupt / 任何异常：进程仍存活则强杀，避免泄漏；再注销
+                if (process.isAlive()) process.destroyForcibly();
+                TLProcessRegistry.unregister(owner, process);
             }
-
-            int exitCode = process.exitValue();
-            tempFile.delete();
-
-            String result = output.length() > 0 ? output.toString() : "(no output)";
-            putLog("Python executed, exit code: " + exitCode, LogLevel.DEBUG);
-
-            return createMsg().setParam(RESULT, exitCode == 0)
-                    .setParam(AI_P_SKILLOUTPUT, "Exit code: " + exitCode + "\n" + result)
-                    .setParam("exitCode", exitCode);
         } catch (IOException e) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Python execution failed: " + e.getMessage()
                             + "\nMake sure python or python3 is installed and available in PATH.");
         } catch (InterruptedException e) {
+            // 被 /stop 中断：进程已在上面的 finally 中强杀，这里只需复位中断标志并返回
             Thread.currentThread().interrupt();
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Execution interrupted");
