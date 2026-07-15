@@ -66,6 +66,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 默认maxTokens */
     protected int defaultMaxTokens = 4096;
 
+    /** 记忆召回默认条数（contains 粗筛后注入上下文，LLM 自行判断相关性） */
+    protected int defaultMemoryTopK = 50;
+
     // ======================== Agent管理（主控模式） ========================
 
     /** 从XML <agents> 解析出的子Agent配置 */
@@ -185,6 +188,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
             if (params.get("defaultMaxTokens") != null) {
                 try { defaultMaxTokens = Integer.parseInt(params.get("defaultMaxTokens")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("defaultMemoryTopK") != null) {
+                try { defaultMemoryTopK = Integer.parseInt(params.get("defaultMemoryTopK")); }
                 catch (NumberFormatException ignored) {}
             }
             if (params.get("enableCheckpoint") != null)
@@ -1231,29 +1238,56 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected TLMsg recallAgentMemory(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String userId = msg.getStringParam("userId", sessionId);
+        String userMessage = msg.getStringParam(AI_P_MEMORYQUERY,
+                msg.getStringParam(AI_P_USERMESSAGE, ""));
+        int topK = msg.getIntParam(AI_P_TOPK, defaultMemoryTopK);
+        String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
+        Set<String> seenKeys = new java.util.HashSet<>();
         List<TLMemoryEntry> allEntries = new ArrayList<>();
 
-        // 同时搜索短期和长期记忆，合并结果
         for (String storeName : memoryStores.keySet()) {
             TLBaseMemory memory = memoryStores.get(storeName);
-            if (memory != null) {
-                TLMsg memMsg = createMsg()
-                        .setAction(MEMORY_SEARCH)
-                        .setParam(AI_P_SESSIONID, sessionId)
-                        .setParam("userId", userId)
-                        .setParam(AI_P_MEMORYQUERY, msg.getStringParam(AI_P_MEMORYQUERY, ""))
-                        .setParam(AI_P_MEMORYTAG, msg.getStringParam(AI_P_MEMORYTAG, null))
-                        .setParam(AI_P_TOPK, msg.getIntParam(AI_P_TOPK, 50));
-                TLMsg result = putMsg(memory, memMsg);
-                List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
-                        result.getListParam(AI_P_MEMORYRESULT, null);
-                if (entries != null) {
-                    allEntries.addAll(entries);
-                }
+            if (memory == null) continue;
+
+            // 路1: contains() 关键词精准匹配，搜索范围放大，关键词本身已做过滤
+            if (!userMessage.isEmpty()) {
+                collectSearch(memory, sessionId, userId, userMessage, tag, 100, allEntries, seenKeys);
             }
+
+            // 路2: 最近记忆（无关键词过滤），补上 contains() 漏掉的语义相关记忆
+            collectSearch(memory, sessionId, userId, "", tag, topK, allEntries, seenKeys);
+        }
+
+        // 按时间倒序，截取 topK 条注入 LLM
+        allEntries.sort((a, b) -> Long.compare(b.getCreatedAt(), a.getCreatedAt()));
+        if (allEntries.size() > topK) {
+            allEntries = new ArrayList<>(allEntries.subList(0, topK));
         }
         return createMsg().setParam(RESULT, !allEntries.isEmpty())
                 .setParam(AI_P_MEMORYRESULT, allEntries);
+    }
+
+    @SuppressWarnings("unchecked")
+    private void collectSearch(TLBaseMemory memory, String sessionId, String userId,
+                                String query, String tag, int topK,
+                                List<TLMemoryEntry> allEntries, Set<String> seenKeys) {
+        TLMsg memMsg = createMsg()
+                .setAction(MEMORY_SEARCH)
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam("userId", userId)
+                .setParam(AI_P_MEMORYQUERY, query)
+                .setParam(AI_P_MEMORYTAG, tag)
+                .setParam(AI_P_TOPK, topK);
+        TLMsg result = putMsg(memory, memMsg);
+        List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
+                result.getListParam(AI_P_MEMORYRESULT, null);
+        if (entries != null) {
+            for (TLMemoryEntry e : entries) {
+                if (seenKeys.add(e.getKey())) {
+                    allEntries.add(e);
+                }
+            }
+        }
     }
 
     // ======================== Provider管理 ========================
@@ -1360,6 +1394,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // msgTools：LLM 可调用的预定义消息
         if (msgTools != null) {
             for (TLMsg msgTool : msgTools) {
+                // statup="false" 跳过（与 agent/skill/store 一致）
+                if (!TLDataUtils.parseBoolean(msgTool.getStringParam("statup", null), true))
+                    continue;
                 String name = msgTool.getMsgId();
                 if (name == null || name.isEmpty()) continue;
 
@@ -1368,11 +1405,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 String desc = msgTool.getDescription();
                 def.setDescription(desc != null && !desc.isEmpty() ? desc : name);
 
-                // 自动从 msg args 推断参数 schema（每个 key → string 类型）
-                HashMap<String, Object> args = msgTool.getArgs();
+                // 从 paramsFromArgs 声明 LLM 可传参数（分号分隔），不盲目暴露所有内部属性
                 Map<String, Object> properties = new LinkedHashMap<>();
-                if (args != null && !args.isEmpty()) {
-                    for (String key : args.keySet()) {
+                String paramsFromArgs = msgTool.getStringParam("paramsFromArgs", null);
+                if (paramsFromArgs != null && !paramsFromArgs.isEmpty()) {
+                    for (String key : paramsFromArgs.split(";")) {
+                        key = key.trim();
+                        if (key.isEmpty()) continue;
                         Map<String, Object> prop = new LinkedHashMap<>();
                         prop.put("type", "string");
                         prop.put("description", key);

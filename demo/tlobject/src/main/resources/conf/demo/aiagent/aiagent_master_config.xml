@@ -10,6 +10,7 @@
         <defaultModel value="gpt-4o"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
+        <defaultMemoryTopK value="50"/>
         <defaultMemoryStore value="dbMemory" />
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
@@ -110,25 +111,30 @@
     <!-- ===== msgTools: LLM 可调用的预定义消息 ===== -->
     <msgTools>
         <msg msgid="getServerStatus"
+             statup="true"
              description="获取服务器运行状态，返回当前已注册的所有Skills和子Agent列表"
              action="listSkills"
              destination="aiagent_master"/>
         <msg msgid="getConversationStats"
+             statup="true"
              description="获取当前会话的对话统计信息，包括消息总数"
              action="getTurnCount"
              destination="aiContext"/>
+        <!-- 带参数 msgTool 示例（注释，仅供参照）：
         <msg msgid="saveMemory"
-             description="保存一条长期记忆。当用户告诉你重要信息（如姓名、偏好、项目背景）时，调用此工具主动记忆，以便下次对话时回忆。参数: sessionId(会话ID), memKey(记忆标识), memValue(记忆内容), memTag(可选标签)"
+             statup="false"
+             description="保存一条长期记忆。"
              action="saveAgentMemory"
              destination="aiagent_master"
-             paramsFromMsg="sessionId"/>
+             paramsFromArgs="memKey;memValue;memTag"     LLM可传的参数，自动生成函数schema
+             paramsFromMsg="sessionId"/>                 框架自动从chat消息注入的参数 -->
     </msgTools>
 
     <beforeMsgTable>
         <action name="chat">
             <dmsg action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
             <msg action="recallAgentMemory" destination="aiagent_master"
-                 paramsFromMsg="sessionId;userId"/>
+                 paramsFromMsg="sessionId;userId;userMessage"/>
         </action>
     </beforeMsgTable>
     <afterMsgTable>

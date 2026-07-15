@@ -19,6 +19,7 @@
         <defaultModel value="gpt-4o"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
+        <defaultMemoryTopK value="50"/>
 
         <!-- 包名前缀（用于简写classfile） -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
@@ -108,11 +109,11 @@
     <beforeMsgTable>
         <action name="chat">
             <msg action="recallAgentMemory" destination="aiagent"
-                 paramsFromMsg="sessionId"/>
+                 paramsFromMsg="sessionId;userMessage"/>
         </action>
         <action name="chatStreamSync">
             <msg action="recallAgentMemory" destination="aiagent"
-                 paramsFromMsg="sessionId"/>
+                 paramsFromMsg="sessionId;userMessage"/>
         </action>
     </beforeMsgTable>
     <!-- afterMsgTable 会覆盖chat()的返回值，记忆保存改在chat()内部直接调用 -->
