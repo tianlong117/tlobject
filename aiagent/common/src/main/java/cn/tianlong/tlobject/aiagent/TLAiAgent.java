@@ -543,7 +543,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
                         beforeResult.getListParam(AI_P_MEMORYRESULT, null);
                 if (entries != null && !entries.isEmpty()) {
-                    StringBuilder ctx = new StringBuilder("相关历史记忆:\n");
+                    StringBuilder ctx = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
                     for (TLMemoryEntry e : entries) ctx.append("- ").append(e.getValue()).append("\n");
                     memoryContext = ctx.toString();
                 }
@@ -1243,7 +1243,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                         .setParam("userId", userId)
                         .setParam(AI_P_MEMORYQUERY, msg.getStringParam(AI_P_MEMORYQUERY, ""))
                         .setParam(AI_P_MEMORYTAG, msg.getStringParam(AI_P_MEMORYTAG, null))
-                        .setParam(AI_P_TOPK, msg.getIntParam(AI_P_TOPK, 5));
+                        .setParam(AI_P_TOPK, msg.getIntParam(AI_P_TOPK, 50));
                 TLMsg result = putMsg(memory, memMsg);
                 List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
                         result.getListParam(AI_P_MEMORYRESULT, null);

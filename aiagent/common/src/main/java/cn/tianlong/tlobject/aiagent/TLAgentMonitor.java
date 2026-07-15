@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.aiagent;
 
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -31,11 +32,13 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
     private static final class RunEntry {
         final String rootSessionId;
         final String agentName;
+        final Object instance;  // Agent 模块实例，stopByRoot 时直接发消息，避免走工厂查找
         volatile Thread thread; // doChat 所在线程，供 interrupt
 
-        RunEntry(String rootSessionId, String agentName, Thread thread) {
+        RunEntry(String rootSessionId, String agentName, Object instance, Thread thread) {
             this.rootSessionId = rootSessionId;
             this.agentName = agentName;
+            this.instance = instance;
             this.thread = thread;
         }
     }
@@ -72,7 +75,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         Thread thread = Thread.currentThread();
         if (sid.isEmpty()) return null;
 
-        runningAgents.put(sid, new RunEntry(rootSid, agentName, thread));
+        runningAgents.put(sid, new RunEntry(rootSid, agentName, fromWho, thread));
         putLog("Agent registered: sid=" + sid + " root=" + rootSid
                 + " agent=" + agentName, LogLevel.DEBUG);
         return null;
@@ -123,7 +126,11 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
             TLMsg stopMsg = createMsg().setAction(AGENT_STOPCHAT)
                     .setParam(AI_P_SESSIONID, sid)
                     .setParam("cascade", true);
-            putMsg(re.agentName, stopMsg);
+            if (re.instance instanceof IObject) {
+                putMsg((IObject) re.instance, stopMsg);
+            } else {
+                putLog("stopByRoot: instance is null for agent=" + re.agentName, LogLevel.WARN);
+            }
         }
 
         return createMsg().setParam(RESULT, true).setParam("count", snapshot.size());

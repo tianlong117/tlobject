@@ -22,6 +22,8 @@
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
                   statup="true"
+                  debugMode="true"
+                  traceDir="./data/traces"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
@@ -74,12 +76,12 @@
         <agent name="hamburgerAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="汉堡店店员，专门处理汉堡相关的咨询和下单。汉堡2块钱一个。当用户想买汉堡、问汉堡价格时使用此Agent。"/>
+               description="汉堡店店员，专门处理汉堡相关的咨询和下单。汉堡2块钱一个。当用户只买汉堡时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
 
         <agent name="pizzaAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="披萨店店员，专门处理披萨相关的咨询和下单。披萨3块钱一个。当用户想买披萨、问披萨价格时使用此Agent。"/>
+               description="披萨店店员，专门处理披萨相关的咨询和下单。披萨3块钱一个。当用户只买披萨时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
 
         <agent name="cloudRevenueAgent"
                sameClassAs="aiagent"
@@ -134,4 +136,8 @@
             <dmsg   action="clearAndForward" destination="checkpoint"  />
         </action>
     </afterMsgTable>
+
+    <modulesParams>
+        <module name="aiContext" defaultSystemMessage="你是一个智能助手。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。"/>
+    </modulesParams>
 </moduleConfig>

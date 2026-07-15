@@ -261,10 +261,23 @@ public class TLOpenAiProvider extends TLLlmProvider {
         String jsonBody = buildRequestBody(msg, messages, tools, false);
 
         // 发送HTTP请求
+        long traceStart = System.currentTimeMillis();
         Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
         putLog("LLM request to: " + request.url(), LogLevel.DEBUG);
 
         TLMsg httpResult = executeHttpRequest(request, fromWho, msg);
+
+        // debug trace: 记录原始请求/响应
+        traceLlmCall(
+                msg.getStringParam(AI_P_SESSIONID, "default"),
+                msg.getSource() != null ? msg.getSource().toString() : "unknown",
+                jsonBody,
+                httpResult.getStringParam(AI_P_RESPONSEBODY, ""),
+                httpResult.getIntParam(AI_P_HTTPSTATUS, 0),
+                getEffectiveModel(msg),
+                System.currentTimeMillis() - traceStart
+        );
+
         if (!httpResult.parseBoolean(RESULT, false)) {
             return httpResult;
         }

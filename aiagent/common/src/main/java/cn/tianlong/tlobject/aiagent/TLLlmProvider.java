@@ -9,14 +9,13 @@ import com.google.gson.GsonBuilder;
 import okhttp3.*;
 
 import javax.net.ssl.*;
-import java.io.IOException;
+import java.io.*;
 import java.security.SecureRandom;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 抽象LLM Provider基类。封装与大语言模型API的HTTP通信。
@@ -40,6 +39,14 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     protected Map<String, String> defaultHeaders;
     protected OkHttpClient okHttpClient;
     protected Gson gson;
+
+    // ======================== Debug / Trace ========================
+    /** 调试追踪开关：配置文件 debugMode=true 或运行时 debugOn/debugOff 控制 */
+    protected boolean debugMode = false;
+    /** trace 文件输出目录，默认 ./data/traces */
+    protected String traceDir = "./data/traces";
+    /** 每个 session 的调用计数器，用于给 trace 编号 */
+    private final Map<String, AtomicInteger> callCounters = new ConcurrentHashMap<>();
 
     public TLLlmProvider() {
         super();
@@ -85,6 +92,12 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 try { retryDelayMs = Long.parseLong(params.get("retryDelayMs")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("debugMode") != null) {
+                debugMode = Boolean.parseBoolean(params.get("debugMode"));
+            }
+            if (params.get("traceDir") != null) {
+                traceDir = params.get("traceDir");
+            }
         }
     }
 
@@ -110,6 +123,22 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 break;
             case LLM_CANCEL:
                 returnMsg = cancel(fromWho, msg);
+                break;
+            case LLM_DEBUG_ON:
+                debugMode = true;
+                putLog("Debug trace enabled for provider: " + getName(), LogLevel.INFO);
+                returnMsg = createMsg().setParam(RESULT, true);
+                break;
+            case LLM_DEBUG_OFF:
+                debugMode = false;
+                putLog("Debug trace disabled for provider: " + getName(), LogLevel.INFO);
+                returnMsg = createMsg().setParam(RESULT, true);
+                break;
+            case LLM_GETTRACES:
+                returnMsg = getTraces(msg);
+                break;
+            case LLM_CLEARTRACES:
+                returnMsg = clearTraces(msg);
                 break;
             default:
                 returnMsg = null;
@@ -366,6 +395,152 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
      */
     protected void executeHttpRequestAsync(Request request, Callback callback) {
         okHttpClient.newCall(request).enqueue(callback);
+    }
+
+    // ======================== Debug Trace 方法 ========================
+
+    /**
+     * 记录一次 LLM 调用 trace。当 debugMode=true 时，格式化写入 session 专属文件。
+     *
+     * @param sessionId    会话 ID（用于文件隔离和编号）
+     * @param senderName   发起调用的 agent/skill 名称
+     * @param requestBody  发送给 LLM 的原始 JSON
+     * @param responseBody LLM 返回的原始 JSON
+     * @param httpStatus   HTTP 状态码
+     * @param model        使用的模型
+     * @param durationMs   耗时（毫秒）
+     */
+    protected void traceLlmCall(String sessionId, String senderName, String requestBody,
+                                 String responseBody, int httpStatus, String model, long durationMs) {
+        if (!debugMode) return;
+        // sessionId 安全化：替换路径分隔符，防止路径穿越
+        String safeSession = sessionId != null ? sessionId.replaceAll("[/\\\\:\"*?<>|]", "_") : "default";
+        if (safeSession.isEmpty()) safeSession = "default";
+
+        try {
+            // 确保目录存在
+            File dir = new File(traceDir);
+            if (!dir.exists()) dir.mkdirs();
+
+            // 获取该 session 的调用序号
+            AtomicInteger counter = callCounters.computeIfAbsent(sessionId, k -> new AtomicInteger(0));
+            int callIndex = counter.incrementAndGet();
+
+            // 构建 trace 对象
+            TLLlmTrace trace = new TLLlmTrace();
+            trace.setSessionId(sessionId);
+            trace.setSenderName(senderName);
+            trace.setProviderName(getName());
+            trace.setRequestBody(requestBody);
+            trace.setResponseBody(responseBody);
+            trace.setHttpStatus(httpStatus);
+            trace.setTimestamp(System.currentTimeMillis());
+            trace.setModel(model);
+            trace.setDurationMs(durationMs);
+            trace.setCallIndex(callIndex);
+
+            // 追加写入文件
+            File file = new File(dir, getName() + "_" + safeSession + ".trace");
+            try (FileWriter fw = new FileWriter(file, true);
+                 BufferedWriter bw = new BufferedWriter(fw)) {
+                bw.write(trace.toFormattedString());
+                bw.flush();
+            }
+        } catch (Exception e) {
+            putLog("Trace write error: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /**
+     * 读取指定 session 的 trace 文件内容
+     */
+    private TLMsg getTraces(TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        try {
+            if (sessionId != null && !sessionId.isEmpty()) {
+                // 读取单个 session
+                String safeSession = sessionId.replaceAll("[/\\\\:\"*?<>|]", "_");
+                File file = new File(traceDir, getName() + "_" + safeSession + ".trace");
+                if (!file.exists()) {
+                    return createMsg().setParam(RESULT, true)
+                            .setParam("traceContent", "(no trace file for session: " + sessionId + ")");
+                }
+                String content = readFileToString(file);
+                return createMsg().setParam(RESULT, true).setParam("traceContent", content)
+                        .setParam("sessionId", sessionId);
+            } else {
+                // 列出所有 session 的 trace 文件
+                File dir = new File(traceDir);
+                StringBuilder all = new StringBuilder();
+                if (dir.exists() && dir.isDirectory()) {
+                    File[] files = dir.listFiles((d, name) ->
+                            name.startsWith(getName() + "_") && name.endsWith(".trace"));
+                    if (files != null) {
+                        for (File f : files) {
+                            all.append("=== ").append(f.getName()).append(" ===\n");
+                            all.append(readFileToString(f)).append("\n");
+                        }
+                    }
+                }
+                if (all.length() == 0) all.append("(no trace files)");
+                return createMsg().setParam(RESULT, true).setParam("traceContent", all.toString());
+            }
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(EXCEPTION, "Read trace error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 清除指定 session 的 trace 文件
+     */
+    private TLMsg clearTraces(TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        try {
+            if (sessionId != null && !sessionId.isEmpty()) {
+                String safeSession = sessionId.replaceAll("[/\\\\:\"*?<>|]", "_");
+                File file = new File(traceDir, getName() + "_" + safeSession + ".trace");
+                if (file.exists()) {
+                    file.delete();
+                    callCounters.remove(sessionId);
+                    return createMsg().setParam(RESULT, true)
+                            .setParam("msg", "Trace file deleted for session: " + sessionId);
+                }
+                return createMsg().setParam(RESULT, true)
+                        .setParam("msg", "No trace file for session: " + sessionId);
+            } else {
+                // 清空所有
+                File dir = new File(traceDir);
+                int count = 0;
+                if (dir.exists() && dir.isDirectory()) {
+                    File[] files = dir.listFiles((d, name) ->
+                            name.startsWith(getName() + "_") && name.endsWith(".trace"));
+                    if (files != null) {
+                        for (File f : files) { if (f.delete()) count++; }
+                    }
+                }
+                callCounters.clear();
+                return createMsg().setParam(RESULT, true)
+                        .setParam("msg", "Deleted " + count + " trace file(s)");
+            }
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(EXCEPTION, "Clear trace error: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 读取文件内容为字符串
+     */
+    private String readFileToString(File file) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line).append('\n');
+            }
+        }
+        return sb.toString();
     }
 
     /**

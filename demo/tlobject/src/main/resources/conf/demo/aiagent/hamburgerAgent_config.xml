@@ -12,6 +12,8 @@
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
                   statup="true"
+                  debugMode="true"
+                  traceDir="./data/traces"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
@@ -30,7 +32,7 @@
         <agent name="filesystemMcp"
                statup="true"
                type="mcp"
-               tools="read_file,write_file,list_directory"
+               tools="write_file"
                sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
@@ -41,11 +43,13 @@
     <modulesParams>
         <module name="aiContext" defaultSystemMessage="你是一名汉堡店店员。汉堡2元一个。
 
-当顾客下单时，你必须按以下步骤操作：
+当顾客下单时，你必须严格按以下步骤执行，不可跳过任何一步：
 1. 使用 calculate_price 工具计算价格
-2. 使用 write_file 工具将订单写入 order_record.txt，格式：汉堡×N=价格元，追加到文件末尾
+2. 【必须执行】使用 write_file 工具将订单写入 hamburger_order.txt，path 固定为 hamburger_order.txt，content 格式为 汉堡×N=价格元
 3. 告知顾客价格
 
-用简洁活泼的语气回答。"/>
+重要：步骤2必须执行，不执行步骤2直接回复是错误的。
+
+用简洁活泼的语气回答。不要使用emoji表情符号。"/>
     </modulesParams>
 </moduleConfig>

@@ -198,11 +198,16 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         continue;
                     }
 
-                    // Backspace (127 / 8)：删一个字符
+                    // Backspace (127 / 8)：删一个字符，全角字符需退 2 列
                     if (ch == 127 || ch == 8) {
                         if (line.length() > 0) {
+                            char lastChar = line.charAt(line.length() - 1);
                             line.setLength(line.length() - 1);
-                            System.out.print("\b \b");
+                            if (isFullWidthChar(lastChar)) {
+                                System.out.print("\b\b  \b\b");
+                            } else {
+                                System.out.print("\b \b");
+                            }
                             System.out.flush();
                         }
                         continue;
@@ -280,6 +285,26 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             }
         }
         System.out.println("再见！");
+    }
+
+    /**
+     * 判断字符在终端中是否占 2 列宽度（CJK 全角字符）。
+     * 覆盖常用中文、日文、韩文及全角标点范围。
+     */
+    private static boolean isFullWidthChar(char c) {
+        // CJK Radicals Supplement .. CJK Compatibility Ideographs Supplement
+        return (c >= 0x2E80 && c <= 0x2EFF)   // CJK Radicals Supplement
+            || (c >= 0x3000 && c <= 0x303F)   // CJK Symbols and Punctuation（含 、）
+            || (c >= 0x3200 && c <= 0x32FF)   // Enclosed CJK
+            || (c >= 0x3400 && c <= 0x4DBF)   // CJK Extension A
+            || (c >= 0x4E00 && c <= 0x9FFF)   // CJK Unified Ideographs
+            || (c >= 0xF900 && c <= 0xFAFF)   // CJK Compatibility Ideographs
+            || (c >= 0xFE10 && c <= 0xFE1F)   // Vertical Forms
+            || (c >= 0xFE30 && c <= 0xFE4F)   // CJK Compatibility Forms
+            || (c >= 0xFF01 && c <= 0xFF60)   // Fullwidth Forms
+            || (c >= 0xFFE0 && c <= 0xFFE6)   // Fullwidth Signs
+            // Full-width digits/letters (FF01-FF5E already covered above), em dashes etc.
+            || c == 0x2014 || c == 0x2015;    // EM DASH / HORIZONTAL BAR
     }
 
     /** 吞掉转义序列剩余字节（ESC 已被消费，吃直到中间/结尾字节） */

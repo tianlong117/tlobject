@@ -80,6 +80,14 @@ public interface TLAiAgentParamString extends TLParamString {
     String LLM_LISTMODELS = "listModels";
     /** 取消进行中的请求 */
     String LLM_CANCEL = "cancelLlm";
+    /** 开启调试追踪（运行时） */
+    String LLM_DEBUG_ON = "debugOn";
+    /** 关闭调试追踪（运行时） */
+    String LLM_DEBUG_OFF = "debugOff";
+    /** 获取指定 session 的 trace 文件内容 */
+    String LLM_GETTRACES = "getTraces";
+    /** 清除指定 session 的 trace 文件 */
+    String LLM_CLEARTRACES = "clearTraces";
 
     // ======================== Context动作 ========================
     /** 添加一条消息到历史 */

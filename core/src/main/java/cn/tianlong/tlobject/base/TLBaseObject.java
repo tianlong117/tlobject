@@ -93,7 +93,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         private  Object taskSessionData ;
         private String taskResultAction ;
         private Thread mainThread ;
-        protected Boolean isThreadOver =false ;
+        protected volatile boolean isThreadOver =false ;
         protected Boolean ifTaskResult =false ;
         private CountDownLatch doneSignal;
         public ThreadTask(IObject toWho ,TLMsg msg,IObject fromWho){
@@ -153,7 +153,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                    doneSignal.countDown();
            }
        }
-        public TLMsg getResult(){
+       public TLMsg getResult(){
           return returnMsg ;
         }
        public boolean isThreadOver(){

@@ -1312,6 +1312,33 @@ public abstract class TLBaseModule extends TLBaseObject {
         return createMsg().setParam(RESULT,resultMsgList);
     }
 
+    /**
+     * 异步发送单条消息并等待返回结果
+     * @param msg 要发送的消息
+     * @param waitTime 等待超时时间（毫秒）
+     * @return 消息返回结果
+     */
+    public TLMsg putMsgByThread(TLMsg msg, int waitTime) {
+        msg.setWaitFlag(false);
+        CountDownLatch latch = new CountDownLatch(1);
+        TLMsg returnMsg = putMsg(msg);
+        ThreadTask threadTask = null;
+        if (returnMsg != null && !returnMsg.isNull(THREADPOOL_TASK)) {
+            threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
+            threadTask.setDoneSignal(latch);
+        } else {
+            latch.countDown();
+        }
+        try {
+            latch.await(waitTime, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (threadTask != null && threadTask.isThreadOver())
+            return threadTask.getResult();
+        return createMsg().setParam(TASKRESULTTIMEOUT, true);
+    }
+
     public   ArrayList putMsgGroupByThread(List<TLMsg> msgList, int waitTime , String resultParam)
     {
         TLMsg returnMsg = putMsgGroupByThread(msgList, waitTime);   // 多表并行查询
