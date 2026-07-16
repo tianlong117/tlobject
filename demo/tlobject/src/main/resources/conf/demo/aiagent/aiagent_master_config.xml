@@ -76,12 +76,12 @@
 
         <agent name="hamburgerAgent"
                sameClassAs="aiagent"
-               statup="true"
+               statup="false"
                description="汉堡店店员，专门处理汉堡相关的咨询和下单。汉堡2块钱一个。当用户只买汉堡时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
 
         <agent name="pizzaAgent"
                sameClassAs="aiagent"
-               statup="true"
+               statup="false"
                description="披萨店店员，专门处理披萨相关的咨询和下单。披萨3块钱一个。当用户只买披萨时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
 
         <agent name="cloudRevenueAgent"
