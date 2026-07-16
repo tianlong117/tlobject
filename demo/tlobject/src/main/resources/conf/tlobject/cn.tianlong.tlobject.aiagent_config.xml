@@ -18,6 +18,7 @@
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"
                 singleton="true"/>
         <module name="mcpAgent" classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent" singleton="false"/>
+        <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
         <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
                 singleton="true"/>
         <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"

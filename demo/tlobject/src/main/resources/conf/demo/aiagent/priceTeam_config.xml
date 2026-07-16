@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== Agent组配置示例（TLAgentGroup） =====
+         组是普通子 agent：master 只管创建（sameClassAs="agentGroup"），
+         成员初始化、md 读取全部由组自己完成，保持各自独立性。
+
+         params：
+           mode     : "sequential"(默认,串行链，前一步输出→下一步输入) | "parallel"(并发合并)
+           waitTime : parallel 模式等待超时毫秒数，默认120000
+           agentMd  : 组 md 文件路径（未配则自动发现 {configDir}md/{name}.md，
+                      frontmatter description 合并进组描述）
+
+         <agents> 列表即成员名单（保序，名单顺序即 sequential 执行顺序）：
+           条目只含创建所需项（sameClassAs/classfile/statup 等），
+           成员详细配置（provider/skills/memory）在各自的 {name}_config.xml 中自治管理，
+           成员是本组的私有实例，statup="false" 可临时摘除某个成员 -->
+
+    <params>
+        <mode value="parallel"/>
+    </params>
+
+    <agents>
+        <agent name="hamburgerAgent" sameClassAs="aiagent"/>
+        <agent name="pizzaAgent" sameClassAs="aiagent"/>
+    </agents>
+</moduleConfig>

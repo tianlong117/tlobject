@@ -46,45 +46,31 @@
 
     <!-- ===== Agent 定义（有此项即为主控模式） ===== -->
 
-    <!-- type 取值说明：
-         "agent" (默认) : 普通LLM子Agent，独立TLAiAgent实例，有LLM/Skill/Memory
-         "mcp"          : MCP桥接Agent，无LLM，自动发现tools→展开为N个function defs
-         "group"        : Agent组，不创建实例，主控内部按mode调度members
+    <!-- Agent 说明：
+         master 眼里所有子 agent 一视同仁：一律 getMyModule 创建，类由配置决定
+         （classfile / sameClassAs），无任何类型特判。
 
-         group 专属参数：
-           mode       : "sequential"(默认,串行链) | "parallel"(并发合并)
-           members    : 成员列表，分号分隔，值对应其他 <agent name="...">
-           waitTime   : 并行超时毫秒数，默认120000
-
-         mcp 专属参数：
-           transport  : "stdio"(子进程) | "sse"(HTTP远程)
-           command/args/url : 按transport选填
-           tools      : 逗号分隔的工具白名单，不填则全部暴露
-           classfile  : cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent
+         普通LLM子Agent : sameClassAs="aiagent"，独立TLAiAgent实例，有LLM/Skill/Memory
+         MCP桥接Agent   : type="mcp"，无LLM，自动发现tools→展开为N个function defs，
+                          classfile=cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent
+         Agent组        : sameClassAs="agentGroup"（TLAgentGroup 实例），无LLM，
+                          组在自己的 {name}_config.xml 里配置成员名单（<agents> 列表即成员，
+                          保序）和 mode（sequential串行链 | parallel并发合并）、waitTime，
+                          成员由组内部创建为私有实例，与 master 无关
 
          通用参数：
            statup     : "true" 启用 | "false" 跳过
-           description: LLM选择Agent时的参考描述
-           classfile  : 自定义类全路径，缺省为TLAiAgent
+           description: LLM选择Agent时的参考描述（md frontmatter 会合并，经消息向实例获取）
+           classfile  : 自定义类全路径
            configFile : 配置文件，缺省为 {name}_config.xml
-           sameClassAs: 引用同段另一个agent的classfile -->
+           sameClassAs: 引用工厂中已注册模块的classfile -->
     <agents>
         <agent name="fileAgent"
                sameClassAs="aiagent"
                statup="true"
                description="文件处理专家，负责文件的读写、目录操作等。注意：不执行脚本，如需运行.py/.sh等脚本请用codeAgent。当用户请求涉及文件操作（读、写、列表、删除）时使用此Agent。"/>
 
-        <agent name="hamburgerAgent"
-               sameClassAs="aiagent"
-               statup="false"
-               description="汉堡店店员，专门处理汉堡相关的咨询和下单。汉堡2块钱一个。当用户只买汉堡时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
-
-        <agent name="pizzaAgent"
-               sameClassAs="aiagent"
-               statup="false"
-               description="披萨店店员，专门处理披萨相关的咨询和下单。披萨3块钱一个。当用户只买披萨时使用此Agent。注意：如果用户同时要买汉堡和披萨，必须使用 priceTeam 而非分别调用。"/>
-
-        <agent name="cloudRevenueAgent"
+         <agent name="cloudRevenueAgent"
                sameClassAs="aiagent"
                statup="true"
                description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/>
@@ -95,9 +81,7 @@
                description="代码执行专家，可执行内联代码或运行.py/.sh等脚本文件。当用户要求运行脚本、执行代码、计算、数据处理时使用此Agent。"/>
 
         <agent name="priceTeam"
-               type="group"
-               members="hamburgerAgent;pizzaAgent"
-               mode="parallel"
+               sameClassAs="agentGroup"
                statup="true"
                description="食品询价组，依次询问汉堡和披萨价格。当用户同时要买汉堡和披萨时使用此Agent。"/>
 

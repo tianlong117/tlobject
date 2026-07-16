@@ -274,60 +274,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         }
     }
 
-    /**
-     * Group Agent 无实例，由 master 在 initAgents 时替它读 md 文件，
-     * frontmatter description 合并回 agentCfg 的 description 键（正文对 group 无消费方，忽略）。
-     */
-    protected void loadGroupMd(String groupName, HashMap<String, String> groupCfg) {
-        String mdPath = groupCfg.get("agentMd");
-        String content = (mdPath != null && !mdPath.isEmpty())
-                ? TLMdFileLoader.readFileOrResource(mdPath, this.getClass())
-                : TLMdFileLoader.readFileOrResource(
-                        moduleFactory.getConfigDir() + "md/" + groupName + ".md", this.getClass());
-        if (content == null || content.trim().isEmpty()) return;
-
-        String fmDesc = TLMdFileLoader.parseFrontmatterDescription(content);
-        if (fmDesc == null || fmDesc.isEmpty()) return;
-
-        String xmlDesc = groupCfg.get("description");
-        if (xmlDesc == null || xmlDesc.isEmpty())
-            groupCfg.put("description", fmDesc);
-        else if (!xmlDesc.contains(fmDesc))
-            groupCfg.put("description", xmlDesc + "\n" + fmDesc);
-    }
-
-    /** 本 Agent 描述（XML description + md frontmatter 合并），master 生成 delegate_to 时读取 */
+    /** 本 Agent 描述（XML description + md frontmatter 合并），master 经 AGENT_GETDESCRIPTION 消息读取 */
     public String getAgentDescription() {
         return agentDescription;
-    }
-
-    /**
-     * 创建 Group 实例（TLAgentGroup）并注入成员 cfg。initAgents 与 registerAgent 共用。
-     * group 进 subAgents 当普通子 agent；成员由 group 内部 getMyModule 建私有实例
-     * （statup=false 的成员仅组内可用，不会出现在 delegate_to 工具中）。
-     */
-    protected void initGroupInstance(String groupName, HashMap<String, String> groupCfg) {
-        groupCfg.putIfAbsent("classfile", "cn.tianlong.tlobject.aiagent.TLAgentGroup");
-        TLBaseModule group = (TLBaseModule) getMyModule(groupName);
-        if (group == null) {
-            putLog("Failed to create group: " + groupName, LogLevel.ERROR);
-            return;
-        }
-        subAgents.put(groupName, group);
-        // 逐成员注入 cfg（group 内部创建私有成员实例），契约与 registerAgent 一致
-        String membersStr = groupCfg.getOrDefault("members", "");
-        for (String mName : membersStr.split(";")) {
-            mName = mName.trim();
-            if (mName.isEmpty()) continue;
-            HashMap<String, String> mCfg = agentsConfig != null ? agentsConfig.get(mName) : null;
-            if (mCfg == null) {
-                putLog("Group [" + groupName + "] member not defined in <agents>: " + mName, LogLevel.WARN);
-                continue;
-            }
-            putMsg(group, createMsg().setAction(AGENT_REGISTERAGENT)
-                    .setParam(AI_P_AGENTNAME, mName).setParam(AI_P_AGENTCONFIG, mCfg));
-        }
-        putLog("Group agent initialized: " + groupName + " members=" + membersStr, LogLevel.DEBUG);
     }
 
     @Override
@@ -354,9 +303,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         initMemoryStores();
         initAgents();
         super.runStartMsg();
-        // 4. 启动后自动恢复持久化的会话 / 断点
+        // 4. 启动后自动续跑 mid-loop 断点（state=checkpoint，异常退出留下的）。
+        // L1 完成态会话不在启动时全量装载——doChat 每轮本就 loadSessionCheckpoint 文件优先，
+        // resumeSession/findLatestSession 也按需读文件，启动全量恢复是冗余且随文件数无限膨胀
         if (enableCheckpoint) {
-            restoreSessions();
             autoResumeCheckpoints();
         }
     }
@@ -452,9 +402,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 初始化子Agent（仅主控模式）。
-     * 读取<agents>配置，根据 type 参数创建不同类型的 Agent：
-     * - type="mcp" → TLMcpAgent（无 LLM，纯协议转发）
-     * - type 缺省/"agent" → TLAiAgent（有 LLM，标准子Agent）
+     * 读取<agents>配置，一律走 getMyModule 创建——类由配置决定（classfile/sameClassAs），
+     * 无任何 type 特判。group 也是普通子 agent（自己读配置初始化成员，见 TLAgentGroup）。
      * 框架自动加载 {agentName}_config.xml 作为配置文件。
      */
     protected void initAgents() {
@@ -474,32 +423,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             boolean startup = TLDataUtils.parseBoolean(agentCfg.get("statup"), true);
             if (!startup) continue;
 
-            String type = agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
-
             try {
-                if (AGENT_TYPE_GROUP.equals(type)) {
-                    // Group Agent：TLAgentGroup 实例，进 subAgents 当普通子 agent；md 由 master 替它读
-                    loadGroupMd(agentName, agentCfg);
-                    initGroupInstance(agentName, agentCfg);
-                } else {
-                    // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
-                    TLBaseModule module = (TLBaseModule) getMyModule(agentName);
-                    subAgents.put(agentName, module);
-                    putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
-                }
+                // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
+                TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+                subAgents.put(agentName, module);
+                putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
             } catch (Exception e) {
                 putLog("Failed to init sub-agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
             }
         }
 
-        int agentCount = subAgents.size();   // group 也是实例，已在 subAgents 中
+        int agentCount = subAgents.size();
         System.out.println("★★★ 主控Agent模式已激活, Agent数量: " + agentCount + " ★★★");
         for (String name : agentsConfig.keySet()) {
             String agentType = agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
-            if (AGENT_TYPE_GROUP.equals(agentType)) {
-                String members = agentsConfig.get(name).getOrDefault("members", "");
-                System.out.println("  ▸ Group: delegate_to_" + name + " → [" + members + "]");
-            } else if (subAgents.containsKey(name)) {
+            if (subAgents.containsKey(name)) {
                 if (AGENT_TYPE_MCP.equals(agentType))
                     System.out.println("  ▸ MCP Agent: " + name);
                 else
@@ -579,6 +517,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 break;
             case AGENT_LISTAGENTS:
                 returnMsg = listAgents(fromWho, msg);
+                break;
+            case AGENT_GETDESCRIPTION:
+                returnMsg = createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_AGENTDESCRIPTION, agentDescription != null ? agentDescription : "");
                 break;
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
@@ -1191,27 +1133,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             if (agentsConfig == null) agentsConfig = new HashMap<>();
             isMaster = true;
             agentsConfig.put(agentName, cfg);
-            if (AGENT_TYPE_GROUP.equals(cfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT))) {
-                // group 同样创建实例（TLAgentGroup），与 initAgents 走同一 helper
-                loadGroupMd(agentName, cfg);
-                initGroupInstance(agentName, cfg);
-                if (!subAgents.containsKey(agentName)) {
-                    modulesClass.remove(agentName);
-                    modulesParams.remove(agentName);
-                    agentsConfig.remove(agentName);
-                    return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
-                }
-            } else {
-                // agent/mcp 一律 getMyModule 创建（内部已 modules.put）
-                TLBaseModule module = (TLBaseModule) getMyModule(agentName);
-                if (module == null) {
-                    modulesClass.remove(agentName);
-                    modulesParams.remove(agentName);
-                    agentsConfig.remove(agentName);
-                    return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
-                }
-                subAgents.put(agentName, module);
+            // 一律 getMyModule 创建（内部已 modules.put），类由配置决定（classfile/sameClassAs），
+            // group 也是普通子 agent，无需特判
+            TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+            if (module == null) {
+                modulesClass.remove(agentName);
+                modulesParams.remove(agentName);
+                agentsConfig.remove(agentName);
+                return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
             }
+            subAgents.put(agentName, module);
             putLog("Agent registered: " + agentName, LogLevel.DEBUG);
             invalidateToolDefs();
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
@@ -1585,10 +1516,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                                 + mcpAgent.getToolDefinitions().size() + " tools", LogLevel.DEBUG);
                     }
                 } else {
-                    // 普通 Agent：单个 delegate_to_xxx def。描述优先取子 Agent 实例自己加载好的（XML+md 已合并）
+                    // 普通 Agent：单个 delegate_to_xxx def。描述经消息向子 agent 获取
+                    // （AGENT_GETDESCRIPTION，实例自己已合并 XML+md），符合消息框架规则，
+                    // 无需研判模块类型；未实现该 action 或为空则回落 agentCfg.description
                     TLBaseModule sub = subAgents.get(agentName);
-                    String desc = (sub instanceof TLAiAgent)
-                            ? ((TLAiAgent) sub).getAgentDescription() : null;
+                    String desc = null;
+                    try {
+                        TLMsg descMsg = putMsg(sub, createMsg().setAction(AGENT_GETDESCRIPTION));
+                        if (descMsg != null)
+                            desc = descMsg.getStringParam(AI_P_AGENTDESCRIPTION, null);
+                    } catch (Exception e) {
+                        putLog("getAgentDescription failed: " + agentName + " " + e, LogLevel.DEBUG);
+                    }
                     if (desc == null || desc.isEmpty())
                         desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
                     TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
@@ -1597,8 +1536,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
             }
         }
-        // Group 也是 subAgents 中的普通子 agent（TLAgentGroup 非 TLAiAgent，
-        // 描述自动回落 agentCfg 的 description——loadGroupMd 已合并 md frontmatter）
         return defs;
     }
 
@@ -2008,47 +1945,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             if (file.exists()) file.delete();
         } catch (Exception e) {
             putLog("deleteSessionFile failed: " + e.toString(), LogLevel.WARN);
-        }
-    }
-
-    /**
-     * 程序启动时扫描存储目录，恢复已完成的会话（state=completed）到 TLAiContext。
-     */
-    @SuppressWarnings("unchecked")
-    protected void restoreSessions() {
-        if (!enableCheckpoint) return;
-        try {
-            java.io.File dir = new java.io.File(sessionStorePath);
-            if (!dir.exists() || !dir.isDirectory()) return;
-            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
-            if (files == null) return;
-
-            for (java.io.File f : files) {
-                try {
-                    TLMsg checkpoint = loadSessionCheckpoint(
-                            f.getName().substring(0, f.getName().length() - 5));
-                    if (checkpoint == null) continue;
-                    String state = checkpoint.getStringParam("state", "");
-                    if (!SESSION_STATE_COMPLETED.equals(state)) continue;
-
-                    String sessionId = checkpoint.getStringParam("sessionId", "");
-                    List<TLConversationHistory> history =
-                            (List<TLConversationHistory>) checkpoint.getParam("history");
-                    if (history == null) continue;
-
-                    // 恢复到 TLAiContext
-                    TLMsg replaceMsg = createMsg()
-                            .setAction(CONTEXT_REPLACE)
-                            .setParam(AI_P_SESSIONID, sessionId)
-                            .setParam(AI_P_MESSAGEHISTORY, history);
-                    putMsg(contextModuleName, replaceMsg);
-                    putLog("Restored session: " + sessionId + " (" + history.size() + " msgs)", LogLevel.INFO);
-                } catch (Exception e) {
-                    putLog("restoreSessions skip " + f.getName() + ": " + e.toString(), LogLevel.WARN);
-                }
-            }
-        } catch (Exception e) {
-            putLog("restoreSessions error: " + e.toString(), LogLevel.WARN);
         }
     }
 

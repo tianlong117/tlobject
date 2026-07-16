@@ -42,6 +42,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_UNREGISTERAGENT = "unregisterAgent";
     /** 列出所有已注册子Agent */
     String AGENT_LISTAGENTS = "listAgents";
+    /** 获取Agent描述（XML description + md frontmatter 已合并；master 生成 delegate_to 描述时向子 agent 发此消息，未实现则回落配置 description） */
+    String AGENT_GETDESCRIPTION = "getAgentDescription";
     /** 委托任务给子Agent */
     String AGENT_DELEGATE = "delegateToAgent";
     /** 执行 msgTool（LLM 可调用的预定义消息） */
@@ -217,8 +219,6 @@ public interface TLAiAgentParamString extends TLParamString {
     // ======================== MCP Agent 常量 ========================
     /** Agent type 参数：标记为 MCP 桥接 Agent */
     String AGENT_TYPE_MCP = "mcp";
-    /** Agent type 参数：Agent 组（配置层串行链，不创建实例） */
-    String AGENT_TYPE_GROUP = "group";
     /** Agent type 参数：普通 LLM Agent（默认） */
     String AGENT_TYPE_AGENT = "agent";
     /** Agent type 参数的配置键 */
