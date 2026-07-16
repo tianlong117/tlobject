@@ -85,6 +85,34 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             argsProp.put("description", "Optional arguments to pass to the script (space-separated), e.g. '--months 1-5'");
             parameterSchema.put("arguments", argsProp);
         }
+
+        // 把可用脚本清单直接写进 description，LLM 无需用 dir/ls 探索目录（contains 守卫幂等）
+        String scriptsHint = availableScriptsHint();
+        if (!scriptsHint.isEmpty() && !skillDescription.contains(scriptsHint))
+            skillDescription = skillDescription + "\n\n" + scriptsHint;
+    }
+
+    /** 列出 allowedScriptDir 下的可用脚本文件，供 description 与错误提示引用 */
+    private String availableScriptsHint() {
+        try {
+            Path dir = Paths.get(allowedScriptDir).toAbsolutePath().normalize();
+            if (!Files.isDirectory(dir)) return "";
+            List<String> scripts = new ArrayList<>();
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
+                for (Path p : stream) {
+                    String fn = p.getFileName().toString();
+                    if (Files.isRegularFile(p) && fn.matches(".*\\.(py|sh|js|bat|cmd|ps1)$"))
+                        scripts.add(fn);
+                }
+            }
+            if (scripts.isEmpty()) return "";
+            Collections.sort(scripts);
+            if (scripts.size() > 20)
+                scripts = scripts.subList(0, 20);
+            return "Available scripts (pass file name as script_path): " + String.join(", ", scripts);
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     /**
@@ -136,6 +164,14 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                     .setParam(AI_P_SKILLOUTPUT, "Error: script_path is required");
         }
 
+        // LLM 常见误用：把 shell 命令当 script_path 传入（含空格/引号必非合法脚本名），
+        // 提前拦截并回可用脚本清单，让 LLM 下一轮自纠，而不是 InvalidPathException 干耗迭代
+        if (scriptPath.contains(" ") || scriptPath.contains("\"") || scriptPath.contains("'")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "Error: script_path must be a script file name, NOT a shell command. "
+                            + availableScriptsHint());
+        }
+
         try {
             // 安全检查：解析脚本路径，确保在 allowedScriptDir 内
             Path allowedRoot = Paths.get(allowedScriptDir).toAbsolutePath().normalize();
@@ -148,7 +184,8 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
             if (!Files.exists(resolvedScript)) {
                 return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error: script not found: " + resolvedScript);
+                        .setParam(AI_P_SKILLOUTPUT, "Error: script not found: " + resolvedScript
+                                + ". " + availableScriptsHint());
             }
 
             if (!Files.isRegularFile(resolvedScript)) {
@@ -158,6 +195,10 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
             return executeScript(resolvedScript, arguments);
 
+        } catch (InvalidPathException e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "Error: invalid script_path '" + scriptPath
+                            + "'. script_path must be a script file name. " + availableScriptsHint());
         } catch (Exception e) {
             putLog("Script Execution error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)

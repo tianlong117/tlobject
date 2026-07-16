@@ -37,6 +37,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 上下文模块名 */
     protected String contextModuleName = M_AICONTEXT;
 
+    /** 本Agent描述（XML description 参数 + md frontmatter 合并），master 生成 delegate_to 时读取 */
+    protected String agentDescription;
+
+    /** Agent md 文件路径（XML 显式配置 agentMd，未配则自动发现 {configDir}md/{name}.md） */
+    protected String agentMdPath;
+
     /** 最大tool-call迭代次数 */
     protected int maxToolCallIterations = 10;
 
@@ -172,6 +178,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 defaultMemoryStore = params.get("defaultMemoryStore");
             if (params.get("contextModuleName") != null)
                 contextModuleName = params.get("contextModuleName");
+            if (params.get("description") != null)
+                agentDescription = params.get("description");
+            if (params.get("agentMd") != null)
+                agentMdPath = params.get("agentMd");
             if (params.get("maxToolCallIterations") != null) {
                 try { maxToolCallIterations = Integer.parseInt(params.get("maxToolCallIterations")); }
                 catch (NumberFormatException ignored) {}
@@ -212,6 +222,83 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         injectConfigs(config.getAgents(), namespace, false);
         injectConfigs(config.getSkills(), namespace, false);
         injectConfigs(config.getMemoryStores(), namespace, true);
+
+        // 自动加载本 Agent 的 md 文件（须在最后：依赖 contextModuleName 和 modulesParams 已就位）
+        loadAgentMd();
+    }
+
+    /**
+     * 自动加载本 Agent 的 md 文件（与 TLBaseSkill.loadSkillMd 同构，每个 agent 只读自己的 md）。
+     * 查找顺序：
+     * 1. XML 显式配置 agentMd 路径
+     * 2. 配置目录下默认 md/ 文件夹：{configDir}md/{agentName}.md
+     * 内容映射：frontmatter description → agentDescription（master 生成 delegate_to 用）；
+     * 正文 → 注入 contextModuleName 的 defaultSystemMessage（等价于 XML modulesParams 配置）。
+     * XML 已配置时 md 内容追加在后面（contains 去重）——XML 描述只是简单说明，详细内容以 md 为主。
+     */
+    protected void loadAgentMd() {
+        String content = null;
+
+        // 1. XML 显式配置
+        if (agentMdPath != null && !agentMdPath.isEmpty())
+            content = TLMdFileLoader.readFileOrResource(agentMdPath, this.getClass());
+
+        // 2. 配置目录下默认 md/ 文件夹（configDir 已带尾分隔符）
+        if (content == null)
+            content = TLMdFileLoader.readFileOrResource(
+                    moduleFactory.getConfigDir() + "md/" + name + ".md", this.getClass());
+
+        if (content == null || content.trim().isEmpty()) return;
+
+        String fmDescription = TLMdFileLoader.parseFrontmatterDescription(content);
+        String body = TLMdFileLoader.parseBody(content);
+
+        // frontmatter description → agentDescription（md 追加到 XML 之后，contains 去重）
+        if (fmDescription != null && !fmDescription.isEmpty()) {
+            if (agentDescription == null || agentDescription.isEmpty())
+                agentDescription = fmDescription;
+            else if (!agentDescription.contains(fmDescription))
+                agentDescription = agentDescription + "\n" + fmDescription;
+        }
+
+        // 正文 → 注入 context 模块的 defaultSystemMessage（context 懒加载，此时改 modulesParams 即生效）
+        if (body != null && !body.isEmpty()) {
+            HashMap<String, String> ctxParams =
+                    modulesParams.computeIfAbsent(contextModuleName, k -> new HashMap<>());
+            String existing = ctxParams.get("defaultSystemMessage");
+            if (existing == null || existing.isEmpty())
+                ctxParams.put("defaultSystemMessage", body);
+            else if (!existing.contains(body))
+                ctxParams.put("defaultSystemMessage", existing + "\n\n" + body);
+            putLog("Agent md loaded: " + name + " (systemMessage " + body.length() + " chars)", LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * Group Agent 无实例，由 master 在 initAgents 时替它读 md 文件，
+     * frontmatter description 合并回 agentCfg 的 description 键（正文对 group 无消费方，忽略）。
+     */
+    protected void loadGroupMd(String groupName, HashMap<String, String> groupCfg) {
+        String mdPath = groupCfg.get("agentMd");
+        String content = (mdPath != null && !mdPath.isEmpty())
+                ? TLMdFileLoader.readFileOrResource(mdPath, this.getClass())
+                : TLMdFileLoader.readFileOrResource(
+                        moduleFactory.getConfigDir() + "md/" + groupName + ".md", this.getClass());
+        if (content == null || content.trim().isEmpty()) return;
+
+        String fmDesc = TLMdFileLoader.parseFrontmatterDescription(content);
+        if (fmDesc == null || fmDesc.isEmpty()) return;
+
+        String xmlDesc = groupCfg.get("description");
+        if (xmlDesc == null || xmlDesc.isEmpty())
+            groupCfg.put("description", fmDesc);
+        else if (!xmlDesc.contains(fmDesc))
+            groupCfg.put("description", xmlDesc + "\n" + fmDesc);
+    }
+
+    /** 本 Agent 描述（XML description + md frontmatter 合并），master 生成 delegate_to 时读取 */
+    public String getAgentDescription() {
+        return agentDescription;
     }
 
     @Override
@@ -227,6 +314,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         System.out.println("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===");
         // 1. 加载 LLM Provider（每个 Agent 独立实例）
         initProvider();
+        // 1.5 私有 context 实例（与 provider/skill/memory 对称），本 agent 的 defaultSystemMessage/md 正文才能生效
+        initContext();
         // 2. 启动时检查 LLM Provider 连通性（失败仅告警，不中断——skills/memory/agents 仍初始化，可事后 setLlmProvider 恢复）
         if (checkProviderOnStartup && !checkProvider()) {
             putLog("LLM Provider 不可用，skills/memory/agents 仍会初始化，可事后发 setLlmProvider 恢复", LogLevel.WARN);
@@ -261,6 +350,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         } catch (Exception e) {
             putLog("Failed to init provider: " + e.toString(), LogLevel.ERROR);
+        }
+    }
+
+    /**
+     * 初始化私有 context 实例（与 provider/skill/memory 对称）。
+     * getMyModule = 新建实例（不注册工厂）+ 存入本地 modules map，
+     * 后续 putMsg(contextModuleName, ...) 先查本地 map 即命中私有实例，
+     * 本 agent 的 modulesParams defaultSystemMessage / md 正文注入由此生效。
+     */
+    protected void initContext() {
+        try {
+            TLBaseModule module = (TLBaseModule) getMyModule(contextModuleName);
+            if (module != null)
+                putLog("Private context initialized: " + contextModuleName, LogLevel.DEBUG);
+        } catch (Exception e) {
+            putLog("Failed to init context: " + contextModuleName + " error: " + e.toString(), LogLevel.WARN);
         }
     }
 
@@ -344,7 +449,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
             try {
                 if (AGENT_TYPE_GROUP.equals(type)) {
-                    // Group Agent：不创建实例，members 已在 agentsConfig 中
+                    // Group Agent：不创建实例，members 已在 agentsConfig 中；md 由 master 替它读
+                    loadGroupMd(agentName, agentCfg);
                     putLog("Group agent registered: " + agentName + " members=" + agentCfg.get("members"), LogLevel.DEBUG);
                 } else {
                     // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
@@ -1454,8 +1560,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                                 + mcpAgent.getToolDefinitions().size() + " tools", LogLevel.DEBUG);
                     }
                 } else {
-                    // 普通 Agent：单个 delegate_to_xxx def
-                    String desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
+                    // 普通 Agent：单个 delegate_to_xxx def。描述优先取子 Agent 实例自己加载好的（XML+md 已合并）
+                    TLBaseModule sub = subAgents.get(agentName);
+                    String desc = (sub instanceof TLAiAgent)
+                            ? ((TLAiAgent) sub).getAgentDescription() : null;
+                    if (desc == null || desc.isEmpty())
+                        desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
                     TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
                             "delegate_to_" + agentName, desc, buildDelegateParamSchema());
                     defs.add(def);

@@ -4,13 +4,6 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -113,29 +106,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
         if (content == null || content.trim().isEmpty()) return;
 
         // 解析 YAML frontmatter
-        String fmDescription = null;
-        String body = content;
-
-        if (content.startsWith("---")) {
-            int endIdx = content.indexOf("\n---", 3);
-            if (endIdx > 0) {
-                String frontmatter = content.substring(4, endIdx).trim();
-                body = content.substring(endIdx + 4).trim();
-                for (String line : frontmatter.split("\n")) {
-                    line = line.trim();
-                    if (line.startsWith("description:")) {
-                        fmDescription = line.substring("description:".length()).trim();
-                        // YAML 多行折叠语法 >- / >
-                        if (fmDescription.startsWith(">-")) fmDescription = fmDescription.substring(2).trim();
-                        else if (fmDescription.startsWith(">")) fmDescription = fmDescription.substring(1).trim();
-                        // YAML 引号
-                        if ((fmDescription.startsWith("\"") && fmDescription.endsWith("\""))
-                                || (fmDescription.startsWith("'") && fmDescription.endsWith("'")))
-                            fmDescription = fmDescription.substring(1, fmDescription.length() - 1);
-                    }
-                }
-            }
-        }
+        String fmDescription = TLMdFileLoader.parseFrontmatterDescription(content);
+        String body = TLMdFileLoader.parseBody(content);
 
         // frontmatter description 与已有 skillDescription 合并
         if (fmDescription != null && !fmDescription.isEmpty()) {
@@ -158,29 +130,12 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
 
     /** 尝试文件系统，回退到 classpath */
     private String readFileOrResource(String path) {
-        try {
-            return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            return readClasspathResource(path);
-        }
+        return TLMdFileLoader.readFileOrResource(path, this.getClass());
     }
 
     /** 从 classpath 读取资源文件 */
     private String readClasspathResource(String resourcePath) {
-        if (resourcePath.startsWith("./") || resourcePath.startsWith(".\\"))
-            resourcePath = resourcePath.substring(2);
-        InputStream is = this.getClass().getClassLoader().getResourceAsStream(resourcePath);
-        if (is == null) return null;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
-            StringBuilder sb = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                sb.append(line).append("\n");
-            }
-            return sb.toString().trim();
-        } catch (IOException e) {
-            return null;
-        }
+        return TLMdFileLoader.readClasspathResource(resourcePath, this.getClass());
     }
 
     @Override
