@@ -4,6 +4,13 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -25,6 +32,9 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
 
     /** JSON Schema格式的参数定义 */
     protected Map<String, Object> parameterSchema;
+
+    /** SKILL.md 路径（显式配置或自动发现） */
+    protected String skillMdPath;
 
     /** 是否启用 */
     protected boolean enabled = true;
@@ -48,6 +58,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
                 skillName = params.get("skillName");
             if (params.get("skillDescription") != null)
                 skillDescription = params.get("skillDescription");
+            if (params.get("skillMd") != null)
+                skillMdPath = params.get("skillMd");
             if (params.get("enabled") != null)
                 enabled = Boolean.parseBoolean(params.get("enabled"));
         }
@@ -58,11 +70,117 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
             skillDescription = name + " skill";
         if (parameterSchema == null)
             parameterSchema = new LinkedHashMap<>();
+
+        // 自动加载 SKILL.md（子类覆盖可扩展发现路径）
+        loadSkillMd();
     }
 
     @Override
     protected TLBaseModule init() {
         return this;
+    }
+
+    // ======================== SKILL.md 自动加载 ========================
+
+    /**
+     * 加载 SKILL.md 并注入 skillDescription。
+     * 查找顺序：
+     * 1. XML 显式配置 skillMd 路径
+     * 2. classpath 同 package 下 {skillName}.md
+     * 3. classpath 同 package 下 SKILL.md
+     * 子类可覆盖以扩展发现路径（如 TLScriptExecutionSkill 额外查找脚本目录）。
+     */
+    protected void loadSkillMd() {
+        String content = null;
+
+        // 1. XML 显式配置
+        if (skillMdPath != null && !skillMdPath.isEmpty()) {
+            content = readFileOrResource(skillMdPath);
+        }
+
+        // 2. classpath 同 package 下 {skillName}.md
+        if (content == null) {
+            String pkgPath = this.getClass().getPackage().getName().replace('.', '/');
+            content = readClasspathResource(pkgPath + "/" + skillName + ".md");
+        }
+
+        // 3. classpath 同 package 下 SKILL.md
+        if (content == null) {
+            String pkgPath = this.getClass().getPackage().getName().replace('.', '/');
+            content = readClasspathResource(pkgPath + "/SKILL.md");
+        }
+
+        if (content == null || content.trim().isEmpty()) return;
+
+        // 解析 YAML frontmatter
+        String fmDescription = null;
+        String body = content;
+
+        if (content.startsWith("---")) {
+            int endIdx = content.indexOf("\n---", 3);
+            if (endIdx > 0) {
+                String frontmatter = content.substring(4, endIdx).trim();
+                body = content.substring(endIdx + 4).trim();
+                for (String line : frontmatter.split("\n")) {
+                    line = line.trim();
+                    if (line.startsWith("description:")) {
+                        fmDescription = line.substring("description:".length()).trim();
+                        // YAML 多行折叠语法 >- / >
+                        if (fmDescription.startsWith(">-")) fmDescription = fmDescription.substring(2).trim();
+                        else if (fmDescription.startsWith(">")) fmDescription = fmDescription.substring(1).trim();
+                        // YAML 引号
+                        if ((fmDescription.startsWith("\"") && fmDescription.endsWith("\""))
+                                || (fmDescription.startsWith("'") && fmDescription.endsWith("'")))
+                            fmDescription = fmDescription.substring(1, fmDescription.length() - 1);
+                    }
+                }
+            }
+        }
+
+        // frontmatter description 与已有 skillDescription 合并
+        if (fmDescription != null && !fmDescription.isEmpty()) {
+            if (skillDescription == null || skillDescription.equals(name + " skill")) {
+                skillDescription = fmDescription;
+            } else if (!skillDescription.contains(fmDescription)) {
+                skillDescription = fmDescription + "\n\n" + skillDescription;
+            }
+        }
+
+        // 正文追加（去重）
+        if (body != null && !body.isEmpty()) {
+            if (skillDescription == null || skillDescription.equals(name + " skill")) {
+                skillDescription = body;
+            } else if (!skillDescription.contains(body)) {
+                skillDescription = skillDescription + "\n\n" + body;
+            }
+        }
+    }
+
+    /** 尝试文件系统，回退到 classpath */
+    private String readFileOrResource(String path) {
+        try {
+            return new String(Files.readAllBytes(Paths.get(path)), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return readClasspathResource(path);
+        }
+    }
+
+    /** 从 classpath 读取资源文件 */
+    private String readClasspathResource(String resourcePath) {
+        if (resourcePath.startsWith("./") || resourcePath.startsWith(".\\"))
+            resourcePath = resourcePath.substring(2);
+        InputStream is = this.getClass().getClassLoader().getResourceAsStream(resourcePath);
+        if (is == null) return null;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line).append("\n");
+            }
+            return sb.toString().trim();
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     @Override

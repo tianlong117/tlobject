@@ -48,12 +48,8 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
     @Override
     protected void setModuleParams() {
-        super.setModuleParams();
-        if (skillName == null || skillName.isEmpty())
-            skillName = "script_execution";
-        if (skillDescription == null || skillDescription.isEmpty())
-            skillDescription = "Execute an existing script file (.py, .sh, .js, etc.) and return its output. IMPORTANT: script_path must be a relative filename (e.g. 'process.py'), NOT a shell command.";
-
+        // 先读脚本相关参数：super.setModuleParams() 会触发 loadSkillMd()，
+        // 需要 allowedScriptDir 已就绪才能自动发现 SKILL.md
         if (params != null) {
             if (params.get("interpreter") != null)
                 interpreter = params.get("interpreter");
@@ -69,6 +65,13 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             }
         }
 
+        super.setModuleParams();
+
+        if (skillName == null || skillName.isEmpty())
+            skillName = "script_execution";
+        if (skillDescription == null || skillDescription.isEmpty())
+            skillDescription = "Execute an existing script file (.py, .sh, .js, etc.) and return its output. IMPORTANT: script_path must be a relative filename (e.g. 'process.py'), NOT a shell command.";
+
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
             Map<String, Object> pathProp = new LinkedHashMap<>();
@@ -82,6 +85,35 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             argsProp.put("description", "Optional arguments to pass to the script (space-separated), e.g. '--months 1-5'");
             parameterSchema.put("arguments", argsProp);
         }
+    }
+
+    /**
+     * 扩展 SKILL.md 发现：在 allowedScriptDir 父目录查找。
+     * 脚本 skill 通常不放在 classpath 中，需要在部署目录查找。
+     */
+    @Override
+    protected void loadSkillMd() {
+        // 显式配置优先，未配则在 allowedScriptDir 父目录自动发现
+        if (skillMdPath == null && allowedScriptDir != null && !allowedScriptDir.isEmpty()) {
+            try {
+                java.nio.file.Path dir = java.nio.file.Paths.get(allowedScriptDir).toAbsolutePath().normalize();
+                java.nio.file.Path parent = dir.getParent();
+                if (parent != null) {
+                    // {skillName}.md 优先
+                    java.nio.file.Path namedMd = parent.resolve(skillName + ".md");
+                    if (java.nio.file.Files.exists(namedMd)) {
+                        skillMdPath = namedMd.toString();
+                    } else {
+                        // 兜底 SKILL.md
+                        java.nio.file.Path skillMd = parent.resolve("SKILL.md");
+                        if (java.nio.file.Files.exists(skillMd)) {
+                            skillMdPath = skillMd.toString();
+                        }
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+        super.loadSkillMd();
     }
 
     @Override
