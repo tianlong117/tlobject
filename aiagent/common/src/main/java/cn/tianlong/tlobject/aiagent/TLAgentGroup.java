@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Group Agent 模块：把一组成员 agent 当作一个子 agent 对外提供服务。
@@ -34,12 +35,20 @@ import java.util.List;
  * frontmatter description 合并进 agentDescription，master 生成 delegate_to
  * 描述时经 AGENT_GETDESCRIPTION 消息获取；组无 LLM 无 context，正文忽略。
  *
+ * 监理（supervisor，可选）：名单中 role="supervisor" 标记的成员（普通 LLM agent，
+ * 不进调度名单）。成员执行完后，组把 任务+各成员结果+输出契约 发给监理审核：
+ * 达标 → 监理输出面向用户的最终统一结果（组黑盒统一输出）；
+ * 不达标 → 监理输出 {"retry":{"成员名":"反馈"}}，组重跑被点名成员（输入追加反馈）再审，
+ * 最多 maxReviewRounds 轮（默认 1），轮次用尽返回当前拼接结果。
+ * 审核业务标准写在监理自己的 md/system prompt 里，组代码只带 JSON 输出契约。
+ * 不配监理时保持原行为（parallel 拼接 / sequential 返回末步输出）。
+ *
  * 创建日期：2026/7/16
  * 作者:tianlong
  */
 public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
 
-    /** 成员名列表（自身配置 <agents> 名单顺序；运行时 registerAgent 追加） */
+    /** 成员名列表（自身配置 <agents> 名单顺序；运行时 registerAgent 追加），不含监理 */
     protected String[] memberNames;
 
     /** 调度模式：sequential | parallel */
@@ -48,11 +57,20 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
     /** parallel 模式等待超时（毫秒） */
     protected int waitTime = 120000;
 
+    /** 监理成员名（名单 role="supervisor" 标记；审核+汇总，不进调度名单），null 表示无监理 */
+    protected String supervisorName;
+
+    /** 监理审核最大重跑轮次（params maxReviewRounds，默认 1） */
+    protected int maxReviewRounds = 1;
+
     /** 本组描述（XML description 参数 + md frontmatter 合并），master 经 AGENT_GETDESCRIPTION 消息读取 */
     protected String agentDescription;
 
     /** 组 md 文件路径（XML 显式配置 agentMd，未配则自动发现 {configDir}md/{name}.md） */
     protected String agentMdPath;
+
+    /** JSON 解析（宽容解析监理 retry 指令） */
+    protected com.google.gson.Gson gson = new com.google.gson.Gson();
 
     public TLAgentGroup() { super(); }
     public TLAgentGroup(String name) { super(name); }
@@ -73,6 +91,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 mode = params.get("mode");
             if (params.get("waitTime") != null) {
                 try { waitTime = Integer.parseInt(params.get("waitTime")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("maxReviewRounds") != null) {
+                try { maxReviewRounds = Integer.parseInt(params.get("maxReviewRounds")); }
                 catch (NumberFormatException ignored) {}
             }
             if (params.get("description") != null)
@@ -126,6 +148,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
      * 名单 LinkedHashMap 保序，顺序即 sequential 执行顺序；
      * cfg 注入 modulesClass/modulesParams 后 getMyModule 创建私有实例，
      * 类解析走工厂既有机制（classfile/sameClassAs），代码不硬编码类名。
+     * role="supervisor" 的条目创建为监理（不进调度名单，多个只取第一个）。
      */
     protected void initMembers() {
         if (!(mconfig instanceof myConfig)) return;
@@ -138,6 +161,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         for (String mName : membersConfig.keySet()) {
             HashMap<String, String> cfg = membersConfig.get(mName);
             if (!TLDataUtils.parseBoolean(cfg.get("statup"), true)) continue;
+            boolean isSupervisor = "supervisor".equals(cfg.get("role"));
             try {
                 modulesClass.putIfAbsent(mName, cfg);
                 modulesParams.putIfAbsent(mName, cfg);
@@ -146,15 +170,26 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                     putLog("Failed to create group member: " + mName + " (group " + name + ")", LogLevel.ERROR);
                     continue;
                 }
-                created.add(mName);
-                putLog("Group member initialized: " + mName + " (group " + name + ")", LogLevel.DEBUG);
+                if (isSupervisor) {
+                    if (supervisorName == null) {
+                        supervisorName = mName;
+                        putLog("Group supervisor initialized: " + mName + " (group " + name + ")", LogLevel.DEBUG);
+                    } else {
+                        putLog("Group " + name + " already has supervisor " + supervisorName
+                                + ", ignore: " + mName, LogLevel.WARN);
+                    }
+                } else {
+                    created.add(mName);
+                    putLog("Group member initialized: " + mName + " (group " + name + ")", LogLevel.DEBUG);
+                }
             } catch (Exception e) {
                 putLog("Failed to init group member: " + mName + " error: " + e.toString(), LogLevel.ERROR);
             }
         }
         memberNames = created.toArray(new String[0]);
         System.out.println("  ▸ Group [" + name + "] mode=" + mode
-                + " members=[" + String.join(";", created) + "]");
+                + " members=[" + String.join(";", created) + "]"
+                + (supervisorName != null ? " supervisor=" + supervisorName : ""));
     }
 
     @Override
@@ -182,22 +217,23 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 停止级联：组收到 stopChat 后按成员 sessionId 派生规则（{group}_{member}:{sid}）
-     * 转发给每个成员。成员 doChat 期间也会向 agentMonitor 自注册被 stopByRoot 直接停到，
+     * 转发给每个成员和监理。成员 doChat 期间也会向 agentMonitor 自注册被 stopByRoot 直接停到，
      * 此处转发补的是间隙（成员尚未进入/已退出 doChat 时），重复停止无害（置标志+interrupt 幂等）。
      */
     protected TLMsg stopChat(Object fromWho, TLMsg msg) {
         String sid = msg.getStringParam(AI_P_SESSIONID, "default");
-        if (memberNames != null) {
-            for (String mName : memberNames) {
-                mName = mName.trim();
-                if (mName.isEmpty()) continue;
-                TLBaseModule member = (TLBaseModule) getModule(mName);
-                if (member == null) continue;
-                TLMsg stopMsg = createMsg().setAction(AGENT_STOPCHAT)
-                        .setParam(AI_P_SESSIONID, name + "_" + mName + ":" + sid)
-                        .setParam("cascade", true);
-                putMsg(member, stopMsg);
-            }
+        List<String> targets = new ArrayList<>();
+        if (memberNames != null) Collections.addAll(targets, memberNames);
+        if (supervisorName != null) targets.add(supervisorName);
+        for (String mName : targets) {
+            mName = mName.trim();
+            if (mName.isEmpty()) continue;
+            TLBaseModule member = (TLBaseModule) getModule(mName);
+            if (member == null) continue;
+            TLMsg stopMsg = createMsg().setAction(AGENT_STOPCHAT)
+                    .setParam(AI_P_SESSIONID, name + "_" + mName + ":" + sid)
+                    .setParam("cascade", true);
+            putMsg(member, stopMsg);
         }
         putLog("Group stopChat forwarded to members: sessionId=" + sid, LogLevel.INFO);
         return createMsg().setParam(RESULT, true).setParam(AI_P_SESSIONID, sid);
@@ -205,7 +241,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 运行时注册成员：cfg 注入 modulesClass/modulesParams 后 getMyModule 创建私有实例，
-     * 并追加进调度名单。消息契约与 TLAiAgent.registerAgent 一致：AI_P_AGENTNAME + AI_P_AGENTCONFIG。
+     * 并追加进调度名单（cfg role="supervisor" 时注册为监理）。
+     * 消息契约与 TLAiAgent.registerAgent 一致：AI_P_AGENTNAME + AI_P_AGENTCONFIG。
      */
     protected synchronized TLMsg registerMember(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
@@ -224,7 +261,13 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 modulesParams.remove(agentName);
                 return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
             }
-            appendMember(agentName);
+            if ("supervisor".equals(cfg.get("role"))) {
+                if (supervisorName == null) supervisorName = agentName;
+                else putLog("Group " + name + " already has supervisor " + supervisorName
+                        + ", ignore: " + agentName, LogLevel.WARN);
+            } else {
+                appendMember(agentName);
+            }
             putLog("Group member registered: " + agentName + " (group " + name + ")", LogLevel.DEBUG);
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
         } catch (Exception e) {
@@ -244,6 +287,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
     /**
      * 子 agent chat 契约：收 AI_P_USERMESSAGE，按 mode 调度成员，
      * 返回 RESULT + AI_P_RESPONSE（master 委托路径读取 AI_P_RESPONSE）。
+     * 配置了监理时结果交监理审核+汇总（见 supervise），组黑盒统一输出；
+     * 无监理时 parallel 拼接返回 / sequential 返回链条末步输出（原语义）。
      * 向 agentMonitor 自注册：stopByRoot 级联时能找到组本身，
      * 组的 stopChat 再转发给成员（补成员未进入 doChat 时的间隙）。
      */
@@ -256,7 +301,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         String baseSession = msg.getStringParam(AI_P_SESSIONID, String.valueOf(System.currentTimeMillis()));
         String rootSessionId = msg.getStringParam("rootSessionId", baseSession);
 
-        System.out.println(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames));
+        System.out.println(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames)
+                + (supervisorName != null ? " supervisor=" + supervisorName : ""));
         System.out.println("    任务: " + task);
 
         // 向监控模块登记（与 TLAiAgent.doChat 同契约），finally 注销
@@ -265,19 +311,38 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 .setParam("rootSessionId", rootSessionId)
                 .setParam("agentName", getName()));
         try {
+            LinkedHashMap<String, String> results;
+            String plainAnswer;   // 无监理时的返回内容
             if ("parallel".equals(mode)) {
-                return chatParallel(task, baseSession, rootSessionId);
+                LinkedHashMap<String, String> tasks = new LinkedHashMap<>();
+                for (String mName : memberNames) tasks.put(mName, task);
+                results = runParallel(tasks, baseSession, rootSessionId);
+                plainAnswer = mergeResults(results);
+            } else {
+                results = new LinkedHashMap<>();
+                TLMsg err = runSequential(task, baseSession, rootSessionId, results);
+                if (err != null) return err;
+                // sequential 无监理时维持原语义：返回链条最后一步输出
+                String last = "";
+                for (String v : results.values()) last = v;
+                plainAnswer = last;
             }
-            return chatSequential(task, baseSession, rootSessionId);
+            if (supervisorName != null)
+                return supervise(task, results, baseSession, rootSessionId);
+            return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, plainAnswer);
         } finally {
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                     .setParam(AI_P_SESSIONID, baseSession));
         }
     }
 
-    protected TLMsg chatSequential(String task, String baseSession, String rootSessionId) {
+    /**
+     * 串行执行全部成员：前一步输出 → 下一步输入，各步结果按序存入 results。
+     * @return 成员失败时返回错误 TLMsg，全部成功返回 null
+     */
+    protected TLMsg runSequential(String task, String baseSession, String rootSessionId,
+                                  LinkedHashMap<String, String> results) {
         String currentInput = task;
-        TLMsg lastResult = null;
         for (String mName : memberNames) {
             mName = mName.trim();
             if (mName.isEmpty()) continue;
@@ -296,23 +361,29 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_RESPONSE, "Group step [" + mName + "] failed: " + err);
             }
-            lastResult = result;
-            currentInput = result.getStringParam(AI_P_RESPONSE, currentInput);
+            String resp = result.getStringParam(AI_P_RESPONSE, "");
+            results.put(mName, resp);
+            if (!resp.isEmpty())
+                currentInput = resp;
             System.out.println("  ✓ [Group-seq] " + mName + " done");
         }
-        return createMsg().setParam(RESULT, true)
-                .setParam(AI_P_RESPONSE, lastResult != null ? lastResult.getStringParam(AI_P_RESPONSE, "") : "");
+        return null;
     }
 
+    /**
+     * 并行执行指定成员：memberTasks 为 成员名→输入（保序），一发全发等齐。
+     * 返回 成员名→响应；失败/超时的条目内容为 "[错误] xxx"。
+     * 监理重跑时传入被点名成员的子集（输入已追加反馈）。
+     */
     @SuppressWarnings("unchecked")
-    protected TLMsg chatParallel(String task, String baseSession, String rootSessionId) {
+    protected LinkedHashMap<String, String> runParallel(LinkedHashMap<String, String> memberTasks,
+                                                        String baseSession, String rootSessionId) {
+        List<String> order = new ArrayList<>(memberTasks.keySet());
         List<TLMsg> msgList = new ArrayList<>();
-        for (String mName : memberNames) {
-            mName = mName.trim();
-            if (mName.isEmpty()) continue;
+        for (String mName : order) {
             String sid = name + "_" + mName + ":" + baseSession;
             msgList.add(createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, task).setParam(AI_P_SESSIONID, sid)
+                    .setParam(AI_P_USERMESSAGE, memberTasks.get(mName)).setParam(AI_P_SESSIONID, sid)
                     .setParam("rootSessionId", rootSessionId)
                     .setDestination(mName));
         }
@@ -320,19 +391,121 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         TLMsg groupResult = putMsgGroupByThread(msgList, waitTime);
         List<TLMsg> resultList = (List<TLMsg>) groupResult.getParam(RESULT, List.class);
 
-        StringBuilder merged = new StringBuilder();
-        for (int i = 0; i < memberNames.length; i++) {
-            String mn = memberNames[i].trim();
-            if (mn.isEmpty()) continue;
+        LinkedHashMap<String, String> results = new LinkedHashMap<>();
+        for (int i = 0; i < order.size(); i++) {
+            String mn = order.get(i);
             TLMsg r = (resultList != null && i < resultList.size()) ? resultList.get(i) : null;
             if (r != null && r.parseBoolean(RESULT, false)) {
-                merged.append("【").append(mn).append("】\n").append(r.getStringParam(AI_P_RESPONSE, "")).append("\n\n");
+                results.put(mn, r.getStringParam(AI_P_RESPONSE, ""));
             } else {
-                merged.append("【").append(mn).append(" - 错误】")
-                        .append(r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout").append("\n\n");
+                results.put(mn, "[错误] " + (r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout"));
             }
         }
-        return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, merged.toString().trim());
+        return results;
+    }
+
+    /** 拼接各成员结果为 【成员】内容 格式文本（无监理时的返回格式 / 监理审核的输入） */
+    protected String mergeResults(LinkedHashMap<String, String> results) {
+        StringBuilder merged = new StringBuilder();
+        for (Map.Entry<String, String> e : results.entrySet())
+            merged.append("【").append(e.getKey()).append("】\n").append(e.getValue()).append("\n\n");
+        return merged.toString().trim();
+    }
+
+    /**
+     * 监理审核循环：任务+各成员结果 发给监理（AGENT_CHAT），审核标准在监理自己的
+     * md/system prompt 中，此处只携带 JSON 输出契约。
+     * - 监理返回解析不出 retry 指令 → 即最终统一结果，返回 master
+     * - 有 retry 且轮次未用尽 → 重跑被点名成员（parallel 只重发点名者，输入追加 [监理反馈]；
+     *   sequential 整链重跑，任务追加全部反馈），更新结果后再审
+     * - 轮次用尽仍不达标 / 监理不可用 → 返回当前拼接结果（不把 JSON 指令返给 master），WARN
+     */
+    protected TLMsg supervise(String task, LinkedHashMap<String, String> results,
+                              String baseSession, String rootSessionId) {
+        TLBaseModule supervisor = (TLBaseModule) getModule(supervisorName);
+        if (supervisor == null) {
+            putLog("Group supervisor not found: " + supervisorName + ", fallback to merged results", LogLevel.WARN);
+            return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
+        }
+        String sid = name + "_" + supervisorName + ":" + baseSession;
+
+        for (int round = 0; round <= maxReviewRounds; round++) {
+            String reviewInput = "任务：" + task
+                    + "\n\n各成员执行结果：\n" + mergeResults(results)
+                    + "\n\n请按你的审核标准逐个检查成员结果："
+                    + "全部达标则直接输出面向用户的最终统一结果（不要提及审核过程）；"
+                    + "若有成员结果不达标，只输出JSON（不要任何其他文字）："
+                    + "{\"retry\":{\"成员名\":\"具体反馈意见\"}}";
+            System.out.println("  → [Group-supervisor] " + supervisorName + " 审核 (round " + (round + 1) + ")");
+            TLMsg r = putMsg(supervisor, createMsg().setAction(AGENT_CHAT)
+                    .setParam(AI_P_USERMESSAGE, reviewInput).setParam(AI_P_SESSIONID, sid)
+                    .setParam("rootSessionId", rootSessionId));
+            if (r == null || !r.parseBoolean(RESULT, false)) {
+                putLog("Group supervisor chat failed, fallback to merged results", LogLevel.WARN);
+                return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
+            }
+            String resp = r.getStringParam(AI_P_RESPONSE, "");
+            Map<String, String> retry = parseRetryDirective(resp);
+            if (retry == null || retry.isEmpty()) {
+                System.out.println("  ✓ [Group-supervisor] 审核通过，输出统一结果");
+                return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, resp);
+            }
+            if (round == maxReviewRounds) {
+                putLog("Group " + name + " review rounds exhausted, still failing: " + retry.keySet(), LogLevel.WARN);
+                break;
+            }
+
+            System.out.println("  ↻ [Group-supervisor] 要求重跑: " + retry.keySet() + " 反馈: " + retry.values());
+            if ("parallel".equals(mode)) {
+                // 只重发被点名且在结果集中的成员，输入 = 原任务 + 监理反馈
+                LinkedHashMap<String, String> retryTasks = new LinkedHashMap<>();
+                for (Map.Entry<String, String> e : retry.entrySet()) {
+                    if (results.containsKey(e.getKey()))
+                        retryTasks.put(e.getKey(), task + "\n\n[监理反馈] " + e.getValue());
+                }
+                if (retryTasks.isEmpty()) {
+                    putLog("Group supervisor named unknown members: " + retry.keySet(), LogLevel.WARN);
+                    break;
+                }
+                results.putAll(runParallel(retryTasks, baseSession, rootSessionId));
+            } else {
+                // sequential 链条有依赖，整链重跑，任务追加全部反馈
+                String fbTask = task + "\n\n[监理反馈] " + String.join("；", retry.values());
+                LinkedHashMap<String, String> rerun = new LinkedHashMap<>();
+                TLMsg err = runSequential(fbTask, baseSession, rootSessionId, rerun);
+                if (err != null) {
+                    putLog("Group sequential rerun failed, keep previous results", LogLevel.WARN);
+                    break;
+                }
+                results.clear();
+                results.putAll(rerun);
+            }
+        }
+        return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
+    }
+
+    /**
+     * 宽容解析监理的 retry 指令：截取首个 '{' 到末个 '}'（天然剥掉 ```json 围栏），
+     * gson 解析取 "retry" 对象 → 成员名→反馈 map。任何解析失败返回 null（视为最终结果）。
+     */
+    protected Map<String, String> parseRetryDirective(String resp) {
+        if (resp == null || resp.isEmpty()) return null;
+        try {
+            int start = resp.indexOf('{');
+            int end = resp.lastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            com.google.gson.JsonObject obj =
+                    gson.fromJson(resp.substring(start, end + 1), com.google.gson.JsonObject.class);
+            if (obj == null || !obj.has("retry") || !obj.get("retry").isJsonObject()) return null;
+            Map<String, String> map = new LinkedHashMap<>();
+            for (Map.Entry<String, com.google.gson.JsonElement> e : obj.getAsJsonObject("retry").entrySet()) {
+                map.put(e.getKey(), e.getValue().isJsonPrimitive()
+                        ? e.getValue().getAsString() : e.getValue().toString());
+            }
+            return map;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ======================== 内部配置解析类 ========================

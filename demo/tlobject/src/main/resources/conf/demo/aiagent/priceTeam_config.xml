@@ -2,25 +2,34 @@
 <moduleConfig>
     <!-- ===== Agent组配置示例（TLAgentGroup） =====
          组是普通子 agent：master 只管创建（sameClassAs="agentGroup"），
-         成员初始化、md 读取全部由组自己完成，保持各自独立性。
+         成员初始化、md 读取、结果审核汇总全部由组自己完成，保持各自独立性。
 
          params：
-           mode     : "sequential"(默认,串行链，前一步输出→下一步输入) | "parallel"(并发合并)
-           waitTime : parallel 模式等待超时毫秒数，默认120000
-           agentMd  : 组 md 文件路径（未配则自动发现 {configDir}md/{name}.md，
-                      frontmatter description 合并进组描述）
+           mode            : "sequential"(默认,串行链，前一步输出→下一步输入) | "parallel"(并发合并)
+           waitTime        : parallel 模式等待超时毫秒数，默认120000
+           maxReviewRounds : 监理审核最大重跑轮次，默认1（配了 supervisor 才生效）
+           agentMd         : 组 md 文件路径（未配则自动发现 {configDir}md/{name}.md，
+                             frontmatter description 合并进组描述）
 
          <agents> 列表即成员名单（保序，名单顺序即 sequential 执行顺序）：
            条目只含创建所需项（sameClassAs/classfile/statup 等），
            成员详细配置（provider/skills/memory）在各自的 {name}_config.xml 中自治管理，
-           成员是本组的私有实例，statup="false" 可临时摘除某个成员 -->
+           成员是本组的私有实例，statup="false" 可临时摘除某个成员
+
+         role="supervisor"（可选监理，不进调度名单）：
+           成员执行完后，组把任务+各成员结果交监理审核：达标→监理输出最终统一结果
+           （组黑盒统一输出）；不达标→输出 retry 指令，组重跑被点名成员再审，
+           最多 maxReviewRounds 轮。审核标准写在监理自己的 md（md/priceReviewer.md）。
+           去掉此条目组即回到原拼接返回行为 -->
 
     <params>
         <mode value="parallel"/>
+        <maxReviewRounds value="1"/>
     </params>
 
     <agents>
         <agent name="hamburgerAgent" sameClassAs="aiagent"/>
         <agent name="pizzaAgent" sameClassAs="aiagent"/>
+        <agent name="priceReviewer" sameClassAs="aiagent" role="supervisor"/>
     </agents>
 </moduleConfig>

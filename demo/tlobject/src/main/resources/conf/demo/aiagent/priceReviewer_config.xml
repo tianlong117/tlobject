@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 询价组监理Agent（supervisor） =====
+         priceTeam 组内监理：审核汉堡/披萨报价并汇总统一报价单。
+         审核标准与输出要求在 md/priceReviewer.md（loadAgentMd 自动加载为 system prompt），
+         retry JSON 输出契约由组在审核消息里携带，此处无需配置。无 skills。 -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+        <defaultModel value="deepseek-v4-pro"/>
+        <maxToolCallIterations value="3"/>
+    </params>
+
+    <providers>
+        <provider name="openAiProvider"
+                  sameClassAs="openAiProvider"
+                  statup="true"
+                  debugMode="true"
+                  traceDir="./data/traces"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-pro"/>
+    </providers>
+</moduleConfig>

@@ -86,8 +86,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     /** 是否主控模式（配置了<agents>即为true） */
     protected boolean isMaster = false;
 
-    /** MCP tool 路由表：functionName → (agentName, toolName) */
-    protected Map<String, String[]> mcpToolRoutes;
+    /** 子 agent 贡献的工具路由表：functionName → (agentName, toolName)，经 AGENT_GETTOOLDEFS 登记，调用发 callTool 消息 */
+    protected Map<String, String[]> agentToolRoutes;
 
     /** 缓存的 function definitions（不可变列表）；随工具集变更失效重建 */
     private volatile List<TLFunctionDefinition> cachedToolDefs;
@@ -416,7 +416,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
         isMaster = true;
         subAgents = new ConcurrentHashMap<>();
-        mcpToolRoutes = new ConcurrentHashMap<>();
+        agentToolRoutes = new ConcurrentHashMap<>();
 
         for (String agentName : agentsConfig.keySet()) {
             HashMap<String, String> agentCfg = agentsConfig.get(agentName);
@@ -1435,12 +1435,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 从已注册skills构建function definitions列表（真正的构建逻辑，仅由 getFunctionDefinitions 调用）。
-     * 主控模式下，每个子Agent作为一个委托tool。
+     * 主控模式下，对所有子 agent 统一两步消息协议，不研判模块类型：
+     * 1. AGENT_GETTOOLDEFS 问工具贡献——实现者（如 MCP）返回 N 个 defs + 路由，全部纳入；
+     * 2. 未实现者生成单个 delegate_to_xxx，描述经 AGENT_GETDESCRIPTION 消息获取。
      */
+    @SuppressWarnings("unchecked")
     private List<TLFunctionDefinition> rebuildFunctionDefinitions() {
         List<TLFunctionDefinition> defs = new ArrayList<>();
         // 重建前清空 MCP 路由，避免 unregisterAgent 后旧路由残留
-        if (mcpToolRoutes != null) mcpToolRoutes.clear();
+        if (agentToolRoutes != null) agentToolRoutes.clear();
 
         // 始终包含自身的skills（主控也可以有自己的skill）
         for (TLBaseSkill skill : skills.values()) {
@@ -1489,51 +1492,54 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
-        // 主控模式额外添加子Agent委托tools
+        // 主控模式额外添加子Agent委托tools——统一消息协议，不研判类型
         if (isMaster && subAgents != null) {
             for (String agentName : subAgents.keySet()) {
                 HashMap<String, String> agentCfg = agentsConfig.get(agentName);
-                String agentType = agentCfg != null
-                        ? agentCfg.getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT)
-                        : AGENT_TYPE_AGENT;
+                TLBaseModule sub = subAgents.get(agentName);
 
-                if (AGENT_TYPE_MCP.equals(agentType)) {
-                    // MCP Agent：展开为 N 个 tool def，注册路由
-                    TLBaseModule mcpModule = subAgents.get(agentName);
-                    if (mcpModule instanceof cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) {
-                        cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent mcpAgent =
-                                (cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) mcpModule;
-                        for (TLFunctionDefinition toolDef : mcpAgent.getToolDefinitions()) {
-                            defs.add(toolDef);
-                            if (mcpToolRoutes == null) mcpToolRoutes = new ConcurrentHashMap<>();
-                            String toolName = mcpAgent.getToolNameByFunctionName(toolDef.getName());
-                            if (toolName != null) {
-                                mcpToolRoutes.put(toolDef.getName(),
-                                        new String[]{agentName, toolName});
-                            }
-                        }
-                        putLog("MCP Agent [" + agentName + "] contributed "
-                                + mcpAgent.getToolDefinitions().size() + " tools", LogLevel.DEBUG);
+                // 1. 问子 agent 是否自带工具定义（AGENT_GETTOOLDEFS，MCP 等实现者返回 defs+路由）
+                List<TLFunctionDefinition> contributed = null;
+                Map<String, String> routes = null;
+                try {
+                    TLMsg defsMsg = putMsg(sub, createMsg().setAction(AGENT_GETTOOLDEFS));
+                    if (defsMsg != null) {
+                        contributed = (List<TLFunctionDefinition>) defsMsg.getListParam(AI_P_FUNCTIONDEFS, null);
+                        routes = (Map<String, String>) defsMsg.getMapParam(AI_P_TOOLROUTES, null);
                     }
-                } else {
-                    // 普通 Agent：单个 delegate_to_xxx def。描述经消息向子 agent 获取
-                    // （AGENT_GETDESCRIPTION，实例自己已合并 XML+md），符合消息框架规则，
-                    // 无需研判模块类型；未实现该 action 或为空则回落 agentCfg.description
-                    TLBaseModule sub = subAgents.get(agentName);
-                    String desc = null;
-                    try {
-                        TLMsg descMsg = putMsg(sub, createMsg().setAction(AGENT_GETDESCRIPTION));
-                        if (descMsg != null)
-                            desc = descMsg.getStringParam(AI_P_AGENTDESCRIPTION, null);
-                    } catch (Exception e) {
-                        putLog("getAgentDescription failed: " + agentName + " " + e, LogLevel.DEBUG);
-                    }
-                    if (desc == null || desc.isEmpty())
-                        desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
-                    TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
-                            "delegate_to_" + agentName, desc, buildDelegateParamSchema());
-                    defs.add(def);
+                } catch (Exception e) {
+                    putLog("getToolDefinitions failed: " + agentName + " " + e, LogLevel.DEBUG);
                 }
+                if (contributed != null && !contributed.isEmpty()) {
+                    for (TLFunctionDefinition toolDef : contributed) {
+                        defs.add(toolDef);
+                        String toolName = routes != null ? routes.get(toolDef.getName()) : null;
+                        if (toolName != null) {
+                            if (agentToolRoutes == null) agentToolRoutes = new ConcurrentHashMap<>();
+                            agentToolRoutes.put(toolDef.getName(), new String[]{agentName, toolName});
+                        }
+                    }
+                    putLog("Sub-agent [" + agentName + "] contributed "
+                            + contributed.size() + " tools", LogLevel.DEBUG);
+                    continue;
+                }
+
+                // 2. 默认：单个 delegate_to_xxx def。描述经消息向子 agent 获取
+                // （AGENT_GETDESCRIPTION，实例自己已合并 XML+md），符合消息框架规则，
+                // 无需研判模块类型；未实现该 action 或为空则回落 agentCfg.description
+                String desc = null;
+                try {
+                    TLMsg descMsg = putMsg(sub, createMsg().setAction(AGENT_GETDESCRIPTION));
+                    if (descMsg != null)
+                        desc = descMsg.getStringParam(AI_P_AGENTDESCRIPTION, null);
+                } catch (Exception e) {
+                    putLog("getAgentDescription failed: " + agentName + " " + e, LogLevel.DEBUG);
+                }
+                if (desc == null || desc.isEmpty())
+                    desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
+                TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
+                        "delegate_to_" + agentName, desc, buildDelegateParamSchema());
+                defs.add(def);
             }
         }
         return defs;
@@ -1579,17 +1585,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected TLMsg executeToolCall(TLToolCall tc, Object fromWho, String sessionId) {
         String functionName = tc.getFunctionName();
 
-        // 主控模式：MCP tool 路由（查 mcpToolRoutes 表）
-        if (isMaster && mcpToolRoutes != null && mcpToolRoutes.containsKey(functionName)) {
-            String[] route = mcpToolRoutes.get(functionName);
-            String mcpAgentName = route[0];
-            String mcpToolName = route[1];
-            cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent mcpAgent =
-                    (cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent) subAgents.get(mcpAgentName);
-            if (mcpAgent == null) {
-                putLog("MCP Agent not found: " + mcpAgentName, LogLevel.WARN);
+        // 主控模式：子 agent 贡献的工具路由（查路由表 → 发 callTool 消息，不研判类型）
+        if (isMaster && agentToolRoutes != null && agentToolRoutes.containsKey(functionName)) {
+            String[] route = agentToolRoutes.get(functionName);
+            String routeAgentName = route[0];
+            String routeToolName = route[1];
+            TLBaseModule routeAgent = subAgents.get(routeAgentName);
+            if (routeAgent == null) {
+                putLog("Tool route agent not found: " + routeAgentName, LogLevel.WARN);
                 return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error: MCP Agent not found: " + mcpAgentName);
+                        .setParam(AI_P_SKILLOUTPUT, "Error: agent not found: " + routeAgentName);
             }
 
             try {
@@ -1598,21 +1603,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                         ? (java.util.Map<String, Object>) tc.getArguments()
                         : new java.util.LinkedHashMap<>();
 
-                System.out.println(">>> [主控-MCP] 调用 MCP tool [" + mcpAgentName + "." + mcpToolName + "]");
+                System.out.println(">>> [主控-tool路由] 调用 [" + routeAgentName + "." + routeToolName + "]");
                 System.out.println("    参数: " + toolArgs);
 
-                TLMsg result = mcpAgent.callTool(mcpToolName, toolArgs);
+                TLMsg result = putMsg(routeAgent, createMsg().setAction(MCP_CALLTOOL)
+                        .setParam(AI_P_TOOLNAME, routeToolName)
+                        .setParam(AI_P_TOOLARGUMENTS, toolArgs));
+                if (result == null) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "Error: no response from " + routeAgentName);
+                }
                 String output = result.getStringParam(AI_P_SKILLOUTPUT,
                         result.parseBoolean(RESULT, false) ? "OK" : "Failed");
 
-                System.out.println("<<< [主控-MCP] MCP tool [" + mcpAgentName + "." + mcpToolName
+                System.out.println("<<< [主控-tool路由] [" + routeAgentName + "." + routeToolName
                         + "] 返回 (前200字): " + (output != null ? output.substring(0, Math.min(200, output.length())) : "null"));
 
                 return result;
             } catch (Exception e) {
-                putLog("!!! [主控-MCP] MCP tool [" + mcpAgentName + "." + mcpToolName + "] 异常: " + e.toString(), LogLevel.ERROR);
+                putLog("!!! [主控-tool路由] [" + routeAgentName + "." + routeToolName + "] 异常: " + e.toString(), LogLevel.ERROR);
                 return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error executing MCP tool: " + e.getMessage());
+                        .setParam(AI_P_SKILLOUTPUT, "Error executing tool: " + e.getMessage());
             }
         }
 

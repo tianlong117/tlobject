@@ -177,6 +177,17 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString {
             case "refreshTools":
                 returnMsg = handleRefreshTools(fromWho, msg);
                 break;
+            case AGENT_GETTOOLDEFS:
+                // 向 master 贡献工具定义（统一子 agent 协议）：defs + functionName→toolName 路由映射
+                returnMsg = createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_FUNCTIONDEFS, getToolDefinitions())
+                        .setParam(AI_P_TOOLROUTES, new LinkedHashMap<>(functionNameToTool));
+                break;
+            case AGENT_GETDESCRIPTION:
+                // 与 TLAiAgent/TLAgentGroup 对称（MCP 的 delegate 描述场景少，但协议统一）
+                returnMsg = createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_AGENTDESCRIPTION, getAgentDescription());
+                break;
             default:
                 returnMsg = null;
         }
@@ -342,7 +353,7 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString {
     private TLMsg handleCallTool(Object fromWho, TLMsg msg) {
         String toolName = msg.getStringParam(AI_P_TOOLNAME, "");
         @SuppressWarnings("unchecked")
-        Map<String, Object> args = msg.getMapParam("toolArguments", new LinkedHashMap<>());
+        Map<String, Object> args = msg.getMapParam(AI_P_TOOLARGUMENTS, new LinkedHashMap<>());
         if (toolName.isEmpty()) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error: toolName required");

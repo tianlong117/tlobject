@@ -44,6 +44,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_LISTAGENTS = "listAgents";
     /** 获取Agent描述（XML description + md frontmatter 已合并；master 生成 delegate_to 描述时向子 agent 发此消息，未实现则回落配置 description） */
     String AGENT_GETDESCRIPTION = "getAgentDescription";
+    /** 向子 agent 索取其贡献的工具定义（实现者如 MCP 返回 functionDefinitions + toolRoutes 展开为 N 个工具；未实现则 master 生成默认 delegate_to_xxx） */
+    String AGENT_GETTOOLDEFS = "getToolDefinitions";
     /** 委托任务给子Agent */
     String AGENT_DELEGATE = "delegateToAgent";
     /** 执行 msgTool（LLM 可调用的预定义消息） */
@@ -207,6 +209,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_AGENTNAME = "agentName";
     String AI_P_AGENTDESCRIPTION = "agentDescription";
     String AI_P_AGENTCONFIG = "agentConfig";
+    /** 工具路由映射：functionName → 原生 toolName（AGENT_GETTOOLDEFS 返回参数，master 据此登记调用路由；defs 列表复用 AI_P_FUNCTIONDEFS） */
+    String AI_P_TOOLROUTES = "toolRoutes";
     String AI_P_AGENTINPUT = "agentInput";
     String AI_P_AGENTOUTPUT = "agentOutput";
     String AI_P_AGENTERROR = "agentError";
