@@ -5,7 +5,6 @@
 
     <params>
         <defaultLlmProvider value="openAiProvider"/>
-        <defaultModel value="deepseek-v4-pro"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
     </params>

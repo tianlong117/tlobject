@@ -3,7 +3,6 @@
     <!-- 测试用的最简子Agent配置 -->
     <params>
         <defaultLlmProvider value="openAiProvider"/>
-        <defaultModel value="gpt-4o-mini"/>
     </params>
 
     <providers>

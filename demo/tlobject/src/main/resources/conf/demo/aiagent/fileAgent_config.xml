@@ -4,20 +4,18 @@
     <!-- 只有文件相关skill，无<agents> → 独立/叶子Agent模式 -->
 
     <params>
-        <defaultLlmProvider value="openAiProvider"/>
-        <defaultModel value="deepseek-v4-pro"/>
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
     </params>
-
-    <providers>
+    <!--providers>
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
-    </providers>
+    </providers-->
     <agents>
         <!-- MCP Agent 示例：本地文件系统工具集 -->
         <agent name="filesystemMcp"

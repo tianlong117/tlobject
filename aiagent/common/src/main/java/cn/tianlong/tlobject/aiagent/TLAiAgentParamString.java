@@ -226,6 +226,12 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_AGENTINPUT = "agentInput";
     String AI_P_AGENTOUTPUT = "agentOutput";
     String AI_P_AGENTERROR = "agentError";
+    /** delegate_to 返回：子 agent 需要更多信息才能完成任务 */
+    String AI_P_NEEDSCLARIFICATION = "needsClarification";
+    /** delegate_to 返回：子 agent 提出的澄清问题 */
+    String AI_P_CLARIFICATIONQUESTION = "clarificationQuestion";
+    /** 内建工具：向用户请求澄清（function name） */
+    String AGENT_REQUESTCLARITY = "request_clarification";
     String AI_P_SUBAGENTS = "subAgents";
 
     // Agent错误码

@@ -15,8 +15,7 @@
         <enableCheckpoint value="true"/>
         <checkProviderOnStartup value="true"/>
 
-        <!-- 默认模型参数 -->
-        <defaultModel value="gpt-4o"/>
+        <!-- 默认参数 -->
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
         <defaultMemoryTopK value="50"/>

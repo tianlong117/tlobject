@@ -3,21 +3,17 @@
     <!-- ===== 汉堡售卖Agent ===== -->
 
     <params>
-        <defaultLlmProvider value="openAiProvider"/>
-        <defaultModel value="deepseek-v4-pro"/>
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <maxToolCallIterations value="5"/>
     </params>
-
-    <providers>
+    <!--providers>
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
                   statup="true"
-                  debugMode="true"
-                  traceDir="./data/traces"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
-    </providers>
+    </providers-->
 
     <skills>
         <skill name="priceCalc"

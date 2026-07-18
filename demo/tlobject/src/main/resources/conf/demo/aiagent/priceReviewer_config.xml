@@ -6,19 +6,7 @@
          retry JSON 输出契约由组在审核消息里携带，此处无需配置。无 skills。 -->
 
     <params>
-        <defaultLlmProvider value="openAiProvider"/>
-        <defaultModel value="deepseek-v4-pro"/>
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <maxToolCallIterations value="3"/>
     </params>
-
-    <providers>
-        <provider name="openAiProvider"
-                  sameClassAs="openAiProvider"
-                  statup="true"
-                  debugMode="true"
-                  traceDir="./data/traces"
-                  apiKey="sk-your-api-key"
-                  apiBaseUrl="https://api.deepseek.com"
-                  defaultModel="deepseek-v4-pro"/>
-    </providers>
 </moduleConfig>

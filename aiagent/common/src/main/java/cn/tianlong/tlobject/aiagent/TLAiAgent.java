@@ -312,13 +312,31 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 初始化 LLM Provider。每个 Agent 用 getNewModule 创建独立实例，
-     * 模块名 = {agentName}_{providerName}，避免多 Agent 共享单例导致配置互相覆盖。
+     * 初始化 LLM Provider。
+     * defaultLlmProvider="openAiProvider" → 创建本 agent 私有实例（独立配置，保持隔离）
+     * defaultLlmProvider="masterAgent:openAiProvider" → 从 master 借引用（共享，免重复配置）
      */
     protected void initProvider() {
         if (defaultLlmProvider == null || defaultLlmProvider.isEmpty()) return;
 
         try {
+            int colon = defaultLlmProvider.indexOf(':');
+            if (colon > 0) {
+                // 共享模式：从指定 module 借 llmProvider 引用
+                String ownerName = defaultLlmProvider.substring(0, colon);
+                String provName = defaultLlmProvider.substring(colon + 1);
+                TLMsg refResult = putMsg(ownerName,
+                        createMsg().setAction("getLlmProvider").setParam("provName", provName));
+                Object ref = refResult != null ? refResult.getParam("provider") : null;
+                if (ref instanceof TLLlmProvider) {
+                    llmProvider = (TLLlmProvider) ref;
+                    putLog("LLM Provider borrowed: " + defaultLlmProvider
+                            + " model=" + llmProvider.getDefaultModel(), LogLevel.DEBUG);
+                    return;
+                }
+                putLog("Failed to borrow provider: " + defaultLlmProvider + ", fallback to create", LogLevel.WARN);
+            }
+            // 自建模式
             TLBaseModule module = (TLBaseModule) getMyModule(defaultLlmProvider);
             if (module instanceof TLLlmProvider) {
                 llmProvider = (TLLlmProvider) module;
@@ -511,6 +529,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             case AGENT_CHECKPROVIDER:
                 returnMsg = createMsg().setParam(RESULT, checkProvider());
                 break;
+            case "getLlmProvider":
+                returnMsg = createMsg().setParam(RESULT, llmProvider != null)
+                        .setParam("provider", llmProvider);
+                break;
             case AGENT_GETTOKENUSAGE:
                 returnMsg = getTokenUsage(fromWho, msg);
                 break;
@@ -651,6 +673,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
             boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
             boolean aborted = false;   // 是否被 /stop 协作式中断
+            boolean clarified = false; // 是否调用了 request_clarification 工具
 
             if (checkpoint != null && SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", ""))) {
                 // L2: 从 mid-loop 断点恢复，跳过预处理
@@ -766,8 +789,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                         TLMsg tr = executeToolCall(tc, fromWho, sessionId);
                         history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
                                 tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
+                        // request_clarification：LLM 主动要求用户确认 → 提前结束循环
+                        if (tr.parseBoolean(AI_P_NEEDSCLARIFICATION, false)) {
+                            clarified = true;
+                            finalResponse = tr.getStringParam(AI_P_CLARIFICATIONQUESTION, "")
+                                    + "\n\n请提供更多信息后重新提交。";
+                            break;
+                        }
                     }
-                    if (aborted) break;
+                    if (aborted || clarified) break;
                     // L2 checkpoint: 每轮工具调用后保存断点
                     if (enableCheckpoint) {
                         persistSession(sessionId, history, SESSION_STATE_CHECKPOINT,
@@ -820,6 +850,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             long[] acc = accumulateTokenUsage(sessionId, turn);
             TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
                     .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration)
+                    .setParam(AI_P_NEEDSCLARIFICATION, clarified)
                     .setParam(AI_P_PROMPTTOKENS, (int) turn[0])
                     .setParam(AI_P_COMPLETIONTOKENS, (int) turn[1])
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
@@ -1476,6 +1507,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // 重建前清空 MCP 路由，避免 unregisterAgent 后旧路由残留
         if (agentToolRoutes != null) agentToolRoutes.clear();
 
+        // 内建工具 request_clarification：agent 可主动要求用户确认，不猜测
+        // 始终可用，不依赖 skill 配置。当 LLM 调此工具时直接结束 tool-call 循环
+        defs.add(TLFunctionDefinition.fromSkill(
+                AGENT_REQUESTCLARITY,
+                "当缺少必要信息无法完成任务时调用此工具请求用户确认。不要猜测或编造信息。",
+                Map.of("question", Map.of("type", "string", "description", "需要用户确认的具体问题"))));
+
         // 始终包含自身的skills（主控也可以有自己的skill）
         for (TLBaseSkill skill : skills.values()) {
             if (skill.isEnabled()) {
@@ -1615,6 +1653,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      */
     protected TLMsg executeToolCall(TLToolCall tc, Object fromWho, String sessionId) {
         String functionName = tc.getFunctionName();
+
+        // 内建工具 request_clarification：agent 向用户请求确认，不走 skill 路由
+        if (AGENT_REQUESTCLARITY.equals(functionName)) {
+            String question = "";
+            if (tc.getArguments() instanceof java.util.Map) {
+                Object q = ((java.util.Map<?, ?>) tc.getArguments()).get("question");
+                if (q != null) question = q.toString();
+            }
+            System.out.println(">>> [Clarify] Agent 请求确认: " + question);
+            return createMsg().setParam(RESULT, true)
+                    .setParam(AI_P_NEEDSCLARIFICATION, true)
+                    .setParam(AI_P_CLARIFICATIONQUESTION, question)
+                    .setParam(AI_P_SKILLOUTPUT, "⚠️ 需要确认: " + question);
+        }
 
         // 主控模式：子 agent 贡献的工具路由（查路由表 → 发 callTool 消息，不研判类型）
         if (isMaster && agentToolRoutes != null && agentToolRoutes.containsKey(functionName)) {
@@ -1787,9 +1839,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 System.out.println("    任务: " + task);
 
                 TLMsg result = putMsg(subAgent, chatMsg);
-                String agentOutput = result != null
-                        ? result.getStringParam(AI_P_RESPONSE, result.toString())
-                        : "No response from agent " + agentName;
+                boolean needsClarify = result != null && result.parseBoolean(AI_P_NEEDSCLARIFICATION, false);
+                String agentOutput;
+                if (needsClarify) {
+                    String question = result.getStringParam(AI_P_CLARIFICATIONQUESTION, "");
+                    agentOutput = "⚠️ Agent [" + agentName + "] requests clarification: " + question
+                            + "\n\nAsk the user before re-delegating.";
+                } else {
+                    agentOutput = result != null
+                            ? result.getStringParam(AI_P_RESPONSE, result.toString())
+                            : "No response from agent " + agentName;
+                }
 
                 System.out.println("<<< [主控] 子Agent [" + agentName + "] 返回结果 (前200字): "
                         + (agentOutput != null ? agentOutput.substring(0, Math.min(200, agentOutput.length())) : "null"));

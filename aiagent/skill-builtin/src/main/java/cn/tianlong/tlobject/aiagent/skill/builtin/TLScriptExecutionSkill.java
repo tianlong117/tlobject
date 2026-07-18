@@ -36,12 +36,26 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     /** 允许的脚本目录（配置值，相对路径基于 configDir） */
     private String allowedScriptDir = ".";
 
-    /** 相对于 configDir 解析脚本目录为绝对路径 */
+    /**
+     * 解析 allowedScriptDir 为绝对路径。绝对路径原样返回；相对路径直接拼在
+     * moduleFactory.getConfigDir() 后面（工厂启动时已是绝对路径，无需再解析）。
+     */
     private String resolveScriptDir() {
         java.nio.file.Path p = java.nio.file.Paths.get(allowedScriptDir);
-        if (p.isAbsolute()) return p.normalize().toString();
-        String configDir = moduleFactory != null ? moduleFactory.getConfigDir() : ".";
-        return java.nio.file.Paths.get(configDir, allowedScriptDir).normalize().toAbsolutePath().toString();
+        if (p.isAbsolute()) return p.toString();
+        String base = moduleFactory != null ? moduleFactory.getConfigDir() : ".";
+        if (base.startsWith("CLASSPATH/"))
+            base = base.substring("CLASSPATH/".length());
+        else if (base.startsWith("CLASSPATH\\"))
+            base = base.substring("CLASSPATH\\".length());
+        // 去掉前导斜杠（如 /D:/ → D:/），Windows 的 Paths.get 才不报 InvalidPathException
+        if (base.startsWith("/") && base.length() > 3 && base.charAt(2) == ':')
+            base = base.substring(1);
+        // 归一化多余斜杠
+        base = base.replaceAll("[/\\\\]+", "/");
+        String resolved = base + allowedScriptDir;
+        putLog("[ScriptSkill] resolved: " + resolved, LogLevel.DEBUG);
+        return resolved;
     }
 
     /** 最大执行时间（秒） */
@@ -184,7 +198,6 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             // 安全检查：解析脚本路径，确保在 allowedScriptDir 内
             Path allowedRoot = Paths.get(resolveScriptDir());
             Path resolvedScript = allowedRoot.resolve(scriptPath).normalize().toAbsolutePath();
-
             if (!resolvedScript.startsWith(allowedRoot)) {
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_SKILLOUTPUT, "Error: script path is outside allowed directory: " + allowedRoot);
@@ -206,7 +219,8 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
         } catch (InvalidPathException e) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error: invalid script_path '" + scriptPath
-                            + "'. script_path must be a script file name. " + availableScriptsHint());
+                            + "'. allowedDir=" + resolveScriptDir()
+                            + ". Must be a script file name. " + availableScriptsHint());
         } catch (Exception e) {
             putLog("Script Execution error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)
