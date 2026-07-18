@@ -676,6 +676,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
                 history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
             }
+            // 模板变量替换：{{key}} 占位符，查找规则：msg 参数 → agent params → 内置值
+            java.text.SimpleDateFormat dateFmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String nowStr = dateFmt.format(new java.util.Date());
+            java.util.regex.Pattern varPattern = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\}\\}");
+            for (TLConversationHistory h : history) {
+                if (h.getContent() == null || h.getContent().isEmpty()) continue;
+                String c = h.getContent();
+                java.util.regex.Matcher m = varPattern.matcher(c);
+                StringBuffer sb = new StringBuffer();
+                while (m.find()) {
+                    String key = m.group(1);
+                    String value = resolveVar(key, msg, sessionId, nowStr);
+                    m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+                }
+                m.appendTail(sb);
+                h.setContent(sb.toString());
+            }
             List<TLFunctionDefinition> toolDefs = getFunctionDefinitions();
 
             // ==== LLM请求 ====
@@ -1764,7 +1781,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                         .setAction(AGENT_CHAT)
                         .setParam(AI_P_USERMESSAGE, task)
                         .setParam(AI_P_SESSIONID, childSessionId)
-                        .setParam("rootSessionId", currentRootSessionId.get());   // 透传给孙子 agent
+                        .setParam("rootSessionId", currentRootSessionId.get());
 
                 System.out.println(">>> [主控] 委托任务给子Agent [" + agentName + "]");
                 System.out.println("    任务: " + task);
@@ -1845,6 +1862,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      * @param msgId LLM tool call 中的 function name（对应 msg 的 msgid 属性）
      * @return 匹配的 TLMsg，未找到返回 null
      */
+    /** 解析模板变量 {{key}}：msg 参数 → agent params → 内置值 → 原样保留 */
+    private String resolveVar(String key, TLMsg msg, String sessionId, String nowStr) {
+        // 1. 从消息参数查找
+        if (msg != null && msg.containsParam(key)) {
+            Object v = msg.getParam(key);
+            return v != null ? v.toString() : "";
+        }
+        // 2. 从 agent 自身 params 查找
+        if (params != null && params.containsKey(key))
+            return params.get(key);
+        // 3. 内置变量
+        switch (key) {
+            case "date": case "time": return nowStr;
+            case "sessionId": return sessionId;
+            case "agentName": return name;
+            case "agentDescription": return agentDescription != null ? agentDescription : "";
+        }
+        // 4. 未匹配 → 原样保留，不破坏模板
+        return "{{" + key + "}}";
+    }
+
     protected TLMsg findMsgToolByMsgId(String msgId) {
         if (msgTools == null || msgId == null) return null;
         for (TLMsg msg : msgTools) {

@@ -167,6 +167,6 @@
     </afterMsgTable>
 
     <modulesParams>
-        <module name="aiContext" defaultSystemMessage="你是一个智能助手。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。"/>
+        <module name="aiContext" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。"/>
     </modulesParams>
 </moduleConfig>
