@@ -412,7 +412,8 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
     }
     private void putAppSessionResult(String appSessionId, TLMsg resultMsg ,String channel)
     {
-        ArrayList<TLMsg> sessionMsgList = msgTable.get("returnAppResult");
+        HashMap<String, Object> entry = msgTable.get("returnAppResult");
+        ArrayList<TLMsg> sessionMsgList = entry != null ? (ArrayList<TLMsg>) entry.get("msglist") : null;
         if(sessionMsgList ==null || sessionMsgList.isEmpty())
             return;
         TLMsg sessionMsg =sessionMsgList.get(0);

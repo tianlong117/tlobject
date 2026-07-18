@@ -84,6 +84,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String LLM_LISTMODELS = "listModels";
     /** 取消进行中的请求 */
     String LLM_CANCEL = "cancelLlm";
+    /** 文本向量化（embedding），返回 float[] */
+    String LLM_EMBEDDING = "embedding";
     /** 开启调试追踪（运行时） */
     String LLM_DEBUG_ON = "debugOn";
     /** 关闭调试追踪（运行时） */
@@ -183,6 +185,16 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_MEMORYQUERY = "memoryQuery";
     String AI_P_MEMORYRESULT = "memoryResult";
     String AI_P_TOPK = "topK";
+    /** embedding 功能开关：true 启用向量搜索（需配 embeddingProvider） */
+    String AI_P_EMBEDDINGENABLE = "enableEmbedding";
+    /** embedding 调用的 Provider 模块名（如 \"openAiProvider\"） */
+    String AI_P_EMBEDDINGPROVIDER = "embeddingProvider";
+    /** embedding 模型名（如 \"text-embedding-3-small\"，deepseek 的默认即此） */
+    String AI_P_EMBEDDINGMODEL = "embeddingModel";
+    /** embedding 输入文本 */
+    String AI_P_EMBEDTEXT = "embedText";
+    /** embedding 返回的浮点向量（float[]） */
+    String AI_P_EMBEDDING = "embeddingVector";
 
     // 流式
     String AI_P_CHUNK = "chunk";

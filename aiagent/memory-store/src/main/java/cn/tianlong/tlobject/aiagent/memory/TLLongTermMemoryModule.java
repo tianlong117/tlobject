@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.memory;
 
 import cn.tianlong.tlobject.aiagent.TLBaseMemory;
+import cn.tianlong.tlobject.aiagent.TLLlmProvider;
 import cn.tianlong.tlobject.aiagent.TLMemoryEntry;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -56,6 +57,10 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     /** 是否已加载 */
     private boolean loaded = false;
 
+    // ---- embedding 语义搜索 ----
+    private boolean enableEmbedding = false;
+    private String embeddingModel = "text-embedding-3-small";
+
     public TLLongTermMemoryModule() {
         super();
         this.memoryType = "longTerm";
@@ -80,6 +85,11 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             if (params.get("maxCacheEntries") != null) {
                 try { maxCacheEntries = Integer.parseInt(params.get("maxCacheEntries")); }
                 catch (NumberFormatException ignored) {}
+            }
+            if ("true".equals(params.get(AI_P_EMBEDDINGENABLE))) {
+                enableEmbedding = true;
+                if (params.get(AI_P_EMBEDDINGMODEL) != null)
+                    embeddingModel = params.get(AI_P_EMBEDDINGMODEL);
             }
         }
     }
@@ -126,6 +136,31 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             }
         }
 
+        // embedding：文本向量化并存入 entry metadata
+        Object embedText = entry.getValue();
+        if (enableEmbedding && embeddingProviderInstance != null && embedText != null) {
+            try {
+                String text = embedText.toString();
+                TLMsg embedResult = putMsg(embeddingProviderInstance, createMsg().setAction(LLM_EMBEDDING)
+                        .setParam(AI_P_EMBEDTEXT, text).setParam(AI_P_EMBEDDINGMODEL, embeddingModel));
+                if (embedResult == null || !embedResult.parseBoolean(RESULT, false)) {
+                    putLog("embedding store failed: " + (embedResult != null
+                            ? embedResult.getStringParam("error", "unknown") : "no response"), LogLevel.WARN);
+                } else {
+                    Object vecObj = embedResult.getParam(AI_P_EMBEDDING);
+                    if (vecObj instanceof float[]) {
+                        float[] vector = (float[]) vecObj;
+                        Map<String, Object> meta = entry.getMetadata();
+                        if (meta == null) meta = new HashMap<>();
+                        meta.put("embedding", vectorToString(vector));
+                        entry.setMetadata(meta);
+                    }
+                }
+            } catch (Exception e) {
+                putLog("embedding store failed: " + e.toString(), LogLevel.WARN);
+            }
+        }
+
         cache.put(entry.getKey(), entry);
         // 强制maxCacheEntries限制
         ensureCapacity();
@@ -165,6 +200,7 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
                 .setParam("entry", entry);
     }
 
+    @SuppressWarnings("unchecked")
     @Override
     protected TLMsg search(Object fromWho, TLMsg msg) {
         String query = msg.getStringParam(AI_P_MEMORYQUERY, "");
@@ -172,6 +208,41 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
         int topK = msg.getIntParam(AI_P_TOPK, 5);
 
+        // embedding 语义搜索
+        if (enableEmbedding && embeddingProviderInstance != null && !query.isEmpty()) {
+            try {
+                TLMsg embedResult = putMsg(embeddingProviderInstance, createMsg().setAction(LLM_EMBEDDING)
+                        .setParam(AI_P_EMBEDTEXT, query).setParam(AI_P_EMBEDDINGMODEL, embeddingModel));
+                if (embedResult != null && embedResult.parseBoolean(RESULT, false)
+                        && embedResult.getParam(AI_P_EMBEDDING) instanceof float[]) {
+                    float[] queryVec = (float[]) embedResult.getParam(AI_P_EMBEDDING);
+                    // 过滤候选 + 算相似度
+                    List<Map.Entry<TLMemoryEntry, Double>> scored = new ArrayList<>();
+                    for (TLMemoryEntry e : cache.values()) {
+                        if (e.isExpired()) continue;
+                        if (!"global".equals(userId) && !e.getKey().startsWith(userId + ":")) continue;
+                        if (tag != null && !tag.equals(e.getTag())) continue;
+                        float[] entryVec = getEmbedding(e);
+                        if (entryVec == null) continue;
+                        double sim = cosineSimilarity(queryVec, entryVec);
+                        if (sim > 0.3) scored.add(new AbstractMap.SimpleEntry<>(e, sim));
+                    }
+                    if (!scored.isEmpty()) {
+                        scored.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+                        List<TLMemoryEntry> results = new ArrayList<>();
+                        for (int i = 0; i < Math.min(topK, scored.size()); i++)
+                            results.add(scored.get(i).getKey());
+                        putLog("embedding search: query=" + query + " candidates=" + scored.size(), LogLevel.DEBUG);
+                        return createMsg().setParam(RESULT, true)
+                                .setParam(AI_P_MEMORYRESULT, results).setParam("count", results.size());
+                    }
+                }
+            } catch (Exception e) {
+                putLog("embedding search failed: " + e.toString() + ", fallback to contains", LogLevel.WARN);
+            }
+        }
+
+        // 回落 contains 匹配
         List<TLMemoryEntry> results = cache.values().stream()
                 .filter(e -> !e.isExpired())
                 .filter(e -> {
@@ -196,6 +267,50 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         return createMsg().setParam(RESULT, true)
                 .setParam(AI_P_MEMORYRESULT, results)
                 .setParam("count", results.size());
+    }
+
+    /** 从 entry metadata 中提取 embedding 向量（null 表示无向量） */
+    private static float[] getEmbedding(TLMemoryEntry entry) {
+        if (entry.getMetadata() == null) return null;
+        Object v = entry.getMetadata().get("embedding");
+        if (v == null) return null;
+        return stringToVector(v.toString());
+    }
+
+    /** float[] → 逗号分隔字符串（存入 JSON/DB） */
+    static String vectorToString(float[] vec) {
+        if (vec == null) return null;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < vec.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(vec[i]);
+        }
+        return sb.toString();
+    }
+
+    /** 逗号分隔字符串 → float[] */
+    static float[] stringToVector(String str) {
+        if (str == null || str.isEmpty()) return null;
+        String[] parts = str.split(",");
+        float[] vec = new float[parts.length];
+        for (int i = 0; i < parts.length; i++) {
+            try { vec[i] = Float.parseFloat(parts[i]); }
+            catch (NumberFormatException e) { return null; }
+        }
+        return vec;
+    }
+
+    /** 余弦相似度 */
+    static double cosineSimilarity(float[] a, float[] b) {
+        if (a.length != b.length) return 0;
+        double dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        if (normA == 0 || normB == 0) return 0;
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
     @Override

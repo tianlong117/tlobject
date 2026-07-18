@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.*;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.ScheduledExecutorService;
 
 /**
@@ -64,7 +65,8 @@ public  class TLABMsgTableAdd extends TLBaseModule {
         if(returnMsg ==null || returnMsg.getParam("new")==null) return msg;
         String moduleName= (String) returnMsg.getParam("moduleName");
         if(moduleName ==null || moduleName==name) return msg;
-        ArrayList<TLMsg> msgList = msgTable.get(moduleName);//取出msgid对应的信息路由表
+        HashMap<String, Object> entry = msgTable.get(moduleName);
+        ArrayList<TLMsg> msgList = entry != null ? (ArrayList<TLMsg>) entry.get("msglist") : null;
         if (msgList == null) return msg;
         for (int i = 0; i < msgList.size(); i++) {
             TLMsg lmsg=msgList.get(i);

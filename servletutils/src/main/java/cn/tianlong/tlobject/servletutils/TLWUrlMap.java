@@ -8,6 +8,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import org.xmlpull.v1.XmlPullParser;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.*;
 
@@ -291,7 +292,11 @@ public class TLWUrlMap extends TLWServModule {
             super.myConfig(xpp);
             try {
                 if (xpp.getName().equals("url-mapping")) {
-                    urlMapTable= getMsgTable(xpp,"url-mapping","url");
+                    LinkedHashMap<String, ArrayList<TLMsg>> linked = getLinkHashMsgList(xpp, "url-mapping", "url");
+                    if (linked != null) {
+                        urlMapTable = new HashMap<>();
+                        urlMapTable.putAll(linked);
+                    }
                 }
 
             } catch (Throwable t) {

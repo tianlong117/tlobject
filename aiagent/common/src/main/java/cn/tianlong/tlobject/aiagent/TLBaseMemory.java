@@ -22,6 +22,9 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
     /** 命名空间前缀，用于多Agent记忆隔离。通常设为所属Agent名称 */
     protected String agentNamespace = "";
 
+    /** embedding 调用的实际 Provider 实例（由 Agent 注入；工厂单例无 apiKey，不可用名字查找） */
+    protected TLLlmProvider embeddingProviderInstance;
+
     public TLBaseMemory() {
         super();
     }
@@ -82,6 +85,11 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                 break;
             case MEMORY_CLEARALL:
                 returnMsg = clearAll(fromWho, msg);
+                break;
+            case "setEmbeddingProvider":
+                if (msg.getParam("provider") instanceof TLLlmProvider)
+                    embeddingProviderInstance = (TLLlmProvider) msg.getParam("provider");
+                returnMsg = createMsg().setParam(RESULT, true);
                 break;
             default:
                 returnMsg = null;

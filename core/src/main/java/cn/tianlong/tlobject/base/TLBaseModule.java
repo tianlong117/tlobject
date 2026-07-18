@@ -36,7 +36,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected HashMap<String, HashMap<String, String>> paramsForModules;   //定义参数适用的模块，getmodule 时自动赋值
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
     protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
-    protected HashMap<String, ArrayList<TLMsg>> msgTable;   //消息路由表，消息id对应消息序列
+    protected HashMap<String, HashMap<String, Object>> msgTable;   //消息路由表，msgid→{msglist:ArrayList<TLMsg>, mode:"parallel", ...}
     protected ArrayList<TLMsg> initMsgTable;          //对象初始化时，还没放入工厂，执行的消息队列
     protected ArrayList<TLMsg> startMsgTable;          //对象初始化后，已经放入工厂，执行的消息队列
     protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //方法运行前执行的msg列表
@@ -597,6 +597,35 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
         return returnMsg;
     }
+    /**
+     * 与 doMsgList 对称的并行执行器：所有 msg 独立 copyFrom template + 注入 paramKeys，
+     * putMsgGroupByThread 并发发出，返回 TLMsg 内含 RESULT 为 List&lt;TLMsg&gt; 原始结果集
+     * （无格式化——标注由应用层完成）。未设置 destination 的 msg 默认发往本模块自身。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg doMsgListParallel(ArrayList<TLMsg> msgList, TLMsg msg, int waitTime) {
+        List<TLMsg> parallelMsgs = new ArrayList<>();
+        for (TLMsg template : msgList) {
+            TLMsg step = new TLMsg();
+            step.copyFrom(template);
+            // 从原始消息注入参数，遵循 MSGTABLEONLY 外的 copyMsgFromMsgTable 语义
+            String useType = (String) template.getSystemParam(MSGTABLEUSETYPE);
+            if (useType == null || !useType.equals(MSGTABLEONLY)) {
+                String[] paramKeys = (String[]) template.getSystemParam(PARAMSFROMMSG);
+                step.copyParams(paramKeys, msg);
+                if (msg != null && TLDataUtils.parseBoolean(template.getSystemParam(USEINPUTMSG), true) == true)
+                    step.copyParams(paramKeys, msg);
+                step.addSystemArgs(msg != null ? msg.getSystemArgs() : null);
+            }
+            step.setSource(name);
+            if (step.getDestination() == null || step.getDestination().isEmpty())
+                step.setDestination(name);   // 缺省发往本模块自身
+            parallelMsgs.add(step);
+        }
+        TLMsg groupResult = putMsgGroupByThread(parallelMsgs, waitTime);
+        return groupResult;
+    }
+
     protected   boolean ifToMySelf(String destination ){
         if(destination ==null)
             return true ;
@@ -910,9 +939,30 @@ public abstract class TLBaseModule extends TLBaseObject {
                 if (msgTable == null)
                     msgTable = new HashMap<>();
                 if(!msg.isNull("msgTable"))
-                    msgTable= (HashMap<String, ArrayList<TLMsg>>) msg.getParam("msgTable");
-                else
-                   addMsgTable(msgTable, "msgId", msg);
+                    msgTable= (HashMap<String, HashMap<String, Object>>) msg.getParam("msgTable");
+                else {
+                    // 运行时动态加 msgTable 条目（适配新容器类型）
+                    String msgId = msg.getStringParam("msgId", null);
+                    if (msgId != null && !msgId.isEmpty() && !msg.isNull("msg")) {
+                        HashMap<String, Object> entry = msgTable.get(msgId);
+                        ArrayList<TLMsg> msglist = null;
+                        if (entry != null)
+                            msglist = (ArrayList<TLMsg>) entry.get("msglist");
+                        if (msglist == null) {
+                            if (entry == null) {
+                                entry = new HashMap<>();
+                                msgTable.put(msgId, entry);
+                            }
+                            msglist = new ArrayList<>();
+                            entry.put("msglist", msglist);
+                        }
+                        if (msg.getParam("msg") instanceof TLMsg) {
+                            msglist.add((TLMsg) msg.getParam("msg"));
+                        } else if (msg.getParam("msg") instanceof ArrayList) {
+                            msglist.addAll((ArrayList) msg.getParam("msg"));
+                        }
+                    }
+                }
                 break;
             case MODULE_ADDINITMSG:
                 addInitMsg(msg);
@@ -1092,10 +1142,22 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected TLMsg checkMsgId(String msgId, Object fromWho, TLMsg msg) {
         if (msgTable == null || msgTable.isEmpty())
             return null;
-        ArrayList<TLMsg> msgList = msgTable.get(msgId);//取出msgid对应的信息路由表
+        HashMap<String, Object> entry = msgTable.get(msgId);
+        if (entry == null)
+            return null;
+        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) entry.get("msglist");
         if (msgList == null || msgList.isEmpty())
             return null;
-        putLog("run msgid:"+msgId, LogLevel.TRACE, "checkMsgId");
+        String mode = (String) entry.getOrDefault("mode", "sequential");
+        putLog("run msgid:"+msgId+" mode:"+mode, LogLevel.TRACE, "checkMsgId");
+        if ("parallel".equals(mode)) {
+            int waitTime = 120000;
+            if (entry.containsKey("waitTime")) {
+                try { waitTime = Integer.parseInt((String) entry.get("waitTime")); }
+                catch (NumberFormatException ignored) {}
+            }
+            return doMsgListParallel(msgList, msg, waitTime);
+        }
         return doMsgList(msgList, msg, null);
     }
 

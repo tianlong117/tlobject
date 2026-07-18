@@ -292,6 +292,43 @@ public class TLOpenAiProvider extends TLLlmProvider {
     }
 
     @Override
+    protected TLMsg embed(Object fromWho, TLMsg msg) {
+        String text = msg.getStringParam(AI_P_EMBEDTEXT, "");
+        if (text.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "embedText required");
+        }
+        String model = msg.getStringParam(AI_P_EMBEDDINGMODEL, "text-embedding-3-small");
+
+        JsonObject body = new JsonObject();
+        body.addProperty("model", model);
+        body.addProperty("input", text);
+
+        Request request = buildHttpRequest("/v1/embeddings", gson.toJson(body), null);
+        TLMsg httpResult = executeHttpRequest(request, fromWho, msg);
+
+        if (!httpResult.parseBoolean(RESULT, false)) {
+            return httpResult;
+        }
+
+        try {
+            String responseBody = httpResult.getStringParam(AI_P_RESPONSEBODY, "");
+            JsonObject json = JsonParser.parseString(responseBody).getAsJsonObject();
+            JsonArray data = json.getAsJsonArray("data");
+            if (data == null || data.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "no embedding data returned");
+            }
+            JsonArray embedding = data.get(0).getAsJsonObject().getAsJsonArray("embedding");
+            float[] vector = new float[embedding.size()];
+            for (int i = 0; i < embedding.size(); i++) {
+                vector[i] = embedding.get(i).getAsFloat();
+            }
+            return createMsg().setParam(RESULT, true).setParam(AI_P_EMBEDDING, vector);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
+        }
+    }
+
+    @Override
     protected TLMsg completionStream(Object fromWho, TLMsg msg) {
         return doCompletionStream(fromWho, msg);
     }

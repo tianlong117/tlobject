@@ -28,7 +28,7 @@ public  class TLModuleConfig extends TLBaseModule {
     protected HashMap<String, String> params ;
     protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable ;           //前期执行msg
     protected HashMap<String, ArrayList<TLMsg>> afterMsgTable ;          //后期执行msg
-    protected HashMap<String, ArrayList<TLMsg>> msgTable ;
+    protected HashMap<String, HashMap<String, Object>> msgTable ;  // entry: {"msglist":ArrayList<TLMsg>, "mode":"parallel", ...}
     protected String configFile;
     public TLModuleConfig(String configFile ,String configDir) {
         this.configFile = configFile;
@@ -104,7 +104,7 @@ public  class TLModuleConfig extends TLBaseModule {
     public ArrayList<TLMsg> getStartMsgTable() {
         return startMsgTable;
     }
-    public HashMap getMsgTable() {
+    public HashMap<String, HashMap<String, Object>> getMsgTable() {
         return msgTable;
     }
     public HashMap getBeforeMsgTable() {
@@ -176,7 +176,7 @@ public  class TLModuleConfig extends TLBaseModule {
                         }
                     }
                     else if (tagName.equals("msgTable")) {
-                        HashMap cmsgTable=getMsgTable(xpp,"msgTable","msgid");
+                        HashMap<String, HashMap<String, Object>> cmsgTable=getMsgTable(xpp,"msgTable","msgid");
                         if(cmsgTable!=null)
                         {
                             if(paramName !=null )
@@ -191,7 +191,7 @@ public  class TLModuleConfig extends TLBaseModule {
                         }
                     }
                     else if (tagName.equals("beforeMsgTable")) {
-                        HashMap cbeforeMsgTable=getMsgTable(xpp,"beforeMsgTable","action");
+                        LinkedHashMap<String, ArrayList<TLMsg>> cbeforeMsgTable=getLinkHashMsgList(xpp,"beforeMsgTable","action");
                         if(cbeforeMsgTable !=null)
                         {
                             if(paramName !=null )
@@ -205,7 +205,7 @@ public  class TLModuleConfig extends TLBaseModule {
                         }
                     }
                     else if (tagName.equals("afterMsgTable")) {
-                        HashMap cafterMsgTable= getMsgTable(xpp,"afterMsgTable","action");
+                        LinkedHashMap<String, ArrayList<TLMsg>> cafterMsgTable= getLinkHashMsgList(xpp,"afterMsgTable","action");
                         if(cafterMsgTable !=null)
                         {
                             if(paramName !=null )
@@ -445,21 +445,70 @@ public  class TLModuleConfig extends TLBaseModule {
     protected void myConfig(XmlPullParser xpp) {
     }
 
-    protected  HashMap<String, ArrayList<TLMsg>> getMsgTable(XmlPullParser xpp, String table, String tag) throws Throwable {
-        LinkedHashMap<String, ArrayList<TLMsg>> linkedHashMap =getLinkHashMsgList(xpp,table,tag);
+    protected  HashMap<String, HashMap<String, Object>> getMsgTable(XmlPullParser xpp, String table, String tag) throws Throwable {
+        LinkedHashMap<String, HashMap<String, Object>> linkedHashMap =getLinkHashMsgListWithParams(xpp,table,tag);
         if(linkedHashMap ==null)
             return null ;
-        HashMap<String, ArrayList<TLMsg>> msgTable=new HashMap<>();
+        HashMap<String, HashMap<String, Object>> msgTable=new HashMap<>();
         msgTable.putAll(linkedHashMap);
         return  msgTable;
     }
+    /** 与 getLinkHashMsgList 同构，额外解析 <msgid> 的运行参数（mode/waitTime 等），存入 entry map */
+    private LinkedHashMap<String, HashMap<String, Object>> getLinkHashMsgListWithParams(XmlPullParser xpp, String table, String tag) throws Throwable {
+        LinkedHashMap<String, HashMap<String, Object>> msgTable=null;
+        HashMap<String, String> params = null;   // 当前 msgid 的额外属性（mode 等）
+        String msgid = null;
+        ArrayList<TLMsg> msglist = null;
+        while (true) {
+            xpp.next();
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(table))
+                    || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
+                break;
+            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag)))
+            {
+                if (msgid != null && msglist != null) {
+                    if(msgTable ==null)
+                        msgTable =new LinkedHashMap<>();
+                    HashMap<String, Object> entry = new HashMap<>();
+                    entry.put("msglist", msglist);
+                    if (params != null)
+                        entry.putAll(params);
+                    msgTable.put(msgid, entry);
+                }
+                params = null;
+            }
+            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+                String name = xpp.getName();
+                if (name.equals(tag)) {
+                    msglist = new ArrayList<>();
+                    // 读全部属性：第一个→msgid（key），其余→运行参数（mode/waitTime 等）
+                    msgid = xpp.getAttributeValue(0);
+                    if (xpp.getAttributeCount() > 1) {
+                        params = new HashMap<>();
+                        for (int i = 1; i < xpp.getAttributeCount(); i++) {
+                            String key = xpp.getAttributeName(i);
+                            String value = xpp.getAttributeValue(i);
+                            if (value != null && !value.isEmpty())
+                                params.put(key, value);
+                        }
+                    }
+                }
+                if (name.equals("msg")) {
+                    TLMsg msg = getMsg(xpp);
+                    if(msg !=null)
+                        msglist.add(msg);
+                }
+            }
+        }
+        return  msgTable;
+    }
+    /** 原版：只解析 msgid→msglist，不读 msgid 的运行参数（向后兼容，供 paramsTable 等非 msgTable 段使用） */
     protected  LinkedHashMap<String, ArrayList<TLMsg>> getLinkHashMsgList(XmlPullParser xpp, String table, String tag) throws Throwable {
         LinkedHashMap<String, ArrayList<TLMsg>> msgTable=null;
         String msgid = null;
         ArrayList<TLMsg> msglist = null;
         while (true) {
             xpp.next();
-            /*<ListItems> ...</ListItems>的内容已经检索完毕，或者文件结束，都退出处理*/
             if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(table))
                     || xpp.getEventType() == XmlPullParser.END_DOCUMENT)
                 break;

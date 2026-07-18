@@ -169,7 +169,8 @@ public class TLClientMsgHandler extends TLBaseModule {
     }
 
     protected void despatchMsgBySessionPool(String clientMsgid  ,TLMsg clientMsg) {
-        ArrayList<TLMsg> msgLists =msgTable.get(clientMsgid );
+        HashMap<String, Object> entry = msgTable.get(clientMsgid);
+        ArrayList<TLMsg> msgLists = entry != null ? (ArrayList<TLMsg>) entry.get("msglist") : null;
         if(msgLists==null || msgLists.isEmpty())
             return;
         HashMap<String,Object> clientSystemArgs = (HashMap<String, Object>) clientMsg.getSystemArgs();

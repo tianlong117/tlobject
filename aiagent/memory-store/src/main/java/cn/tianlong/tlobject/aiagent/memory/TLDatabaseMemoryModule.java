@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.memory;
 
 import cn.tianlong.tlobject.aiagent.TLBaseMemory;
+import cn.tianlong.tlobject.aiagent.TLLlmProvider;
 import cn.tianlong.tlobject.aiagent.TLMemoryEntry;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -30,6 +31,10 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     private TLBaseModule memTable;
     private TLBaseModule sessTable;
 
+    // ---- embedding 语义搜索 ----
+    private boolean enableEmbedding = false;
+    private String embeddingModel = "text-embedding-3-small";
+
     public TLDatabaseMemoryModule() { super(); this.memoryType = "longTerm"; }
     public TLDatabaseMemoryModule(String name) { super(name); this.memoryType = "longTerm"; }
     public TLDatabaseMemoryModule(String name, TLObjectFactory modulefactory) {
@@ -39,9 +44,16 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     @Override
     protected void setModuleParams() {
         super.setModuleParams();
-        if (params != null && params.get("maxCacheEntries") != null) {
-            try { maxCacheEntries = Integer.parseInt(params.get("maxCacheEntries")); }
-            catch (NumberFormatException ignored) {}
+        if (params != null) {
+            if (params.get("maxCacheEntries") != null) {
+                try { maxCacheEntries = Integer.parseInt(params.get("maxCacheEntries")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if ("true".equals(params.get(AI_P_EMBEDDINGENABLE))) {
+                enableEmbedding = true;
+                if (params.get(AI_P_EMBEDDINGMODEL) != null)
+                    embeddingModel = params.get(AI_P_EMBEDDINGMODEL);
+            }
         }
     }
 
@@ -77,6 +89,31 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
                 entry.setMetadata((Map<String, Object>) msg.getMapParam("metadata", new HashMap<>()));
             }
             ensureSession(sessionId, userId);
+        }
+
+        // embedding：文本向量化并存入 entry metadata（与 longTerm 对称）
+        Object embedText = entry.getValue();
+        if (enableEmbedding && embeddingProviderInstance != null && embedText != null) {
+            try {
+                String text = embedText.toString();
+                TLMsg embedResult = putMsg(embeddingProviderInstance, createMsg().setAction(LLM_EMBEDDING)
+                        .setParam(AI_P_EMBEDTEXT, text).setParam(AI_P_EMBEDDINGMODEL, embeddingModel));
+                if (embedResult == null || !embedResult.parseBoolean(RESULT, false)) {
+                    putLog("embedding store failed: " + (embedResult != null
+                            ? embedResult.getStringParam("error", "unknown") : "no response"), LogLevel.WARN);
+                } else {
+                    Object vecObj = embedResult.getParam(AI_P_EMBEDDING);
+                    if (vecObj instanceof float[]) {
+                        float[] vector = (float[]) vecObj;
+                        Map<String, Object> meta = entry.getMetadata();
+                        if (meta == null) meta = new HashMap<>();
+                        meta.put("embedding", TLLongTermMemoryModule.vectorToString(vector));
+                        entry.setMetadata(meta);
+                    }
+                }
+            } catch (Exception e) {
+                putLog("embedding store failed: " + e.toString(), LogLevel.WARN);
+            }
         }
 
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
@@ -129,26 +166,73 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
                 .setParam("entry", entry);
     }
 
-    @Override
     @SuppressWarnings("unchecked")
+    @Override
     protected TLMsg search(Object fromWho, TLMsg msg) {
         String query = msg.getStringParam(AI_P_MEMORYQUERY, "");
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
         int topK = msg.getIntParam(AI_P_TOPK, 5);
+        String userId = msg.getStringParam("userId", sessionId);
 
+        // embedding 语义搜索
+        if (enableEmbedding && embeddingProviderInstance != null && !query.isEmpty()) {
+            try {
+                TLMsg embedResult = putMsg(embeddingProviderInstance, createMsg().setAction(LLM_EMBEDDING)
+                        .setParam(AI_P_EMBEDTEXT, query).setParam(AI_P_EMBEDDINGMODEL, embeddingModel));
+                if (embedResult != null && embedResult.parseBoolean(RESULT, false)
+                        && embedResult.getParam(AI_P_EMBEDDING) instanceof float[]) {
+                    float[] queryVec = (float[]) embedResult.getParam(AI_P_EMBEDDING);
+                    // 从 DB 拉取当前用户的所有有效记忆（带 embedding metadata）
+                    StringBuilder sql = new StringBuilder("select * from [table] where 1=1");
+                    LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+                    if (!"global".equals(userId) && !userId.equals(sessionId)) {
+                        sql.append(" and mem_key like ?"); sqlparams.put("mem_key", userId + ":%");
+                    } else if (!"global".equals(sessionId)) {
+                        sql.append(" and session_id = ?"); sqlparams.put("session_id", sessionId);
+                    }
+                    if (tag != null && !tag.isEmpty()) {
+                        sql.append(" and tag = ?"); sqlparams.put("tag", tag);
+                    }
+                    sql.append(" and metadata is not null and metadata like '%embedding%'");
+                    sql.append(" and (expires_at = 0 or expires_at > ?)");
+                    sqlparams.put("expires_at", System.currentTimeMillis());
+                    TLMsg dbResult = sendToTable(memTable, createMsg().setAction(DB_QUERY)
+                            .setParam(DB_P_SQL, sql.toString()).setParam(DB_P_PARAMS, sqlparams));
+                    List<Map<String, Object>> rows = (List<Map<String, Object>>) dbResult.getListParam(DB_R_RESULT, new ArrayList<>());
+
+                    List<AbstractMap.SimpleEntry<TLMemoryEntry, Double>> scored = new ArrayList<>();
+                    if (rows != null) {
+                        for (Map<String, Object> row : rows) {
+                            TLMemoryEntry e = rowToEntry(row);
+                            float[] entryVec = getEmbedding(e);
+                            if (entryVec == null) continue;
+                            double sim = cosineSimilarity(queryVec, entryVec);
+                            if (sim > 0.3) scored.add(new AbstractMap.SimpleEntry<>(e, sim));
+                        }
+                    }
+                    if (!scored.isEmpty()) {
+                        scored.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
+                        List<TLMemoryEntry> results = new ArrayList<>();
+                        for (int i = 0; i < Math.min(topK, scored.size()); i++)
+                            results.add(scored.get(i).getKey());
+                        putLog("DB embedding search: query=" + query + " candidates=" + scored.size(), LogLevel.DEBUG);
+                        return createMsg().setParam(RESULT, true)
+                                .setParam(AI_P_MEMORYRESULT, results).setParam("count", results.size());
+                    }
+                }
+            } catch (Exception e) {
+                putLog("embedding search failed: " + e.toString() + ", fallback to LIKE", LogLevel.WARN);
+            }
+        }
+
+        // 回落 LIKE 匹配
         StringBuilder sql = new StringBuilder("select * from [table] where 1=1");
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-
-        // 用 userId 做用户级搜索范围（跨会话），sessionId 只用于存储
-        String userId = msg.getStringParam("userId", sessionId);
         if (!"global".equals(userId) && !userId.equals(sessionId)) {
-            // 通过 mem_key 前缀匹配当前用户的所有会话记忆
-            sql.append(" and mem_key like ?");
-            sqlparams.put("mem_key", userId + ":%");
+            sql.append(" and mem_key like ?"); sqlparams.put("mem_key", userId + ":%");
         } else if (!"global".equals(sessionId)) {
-            sql.append(" and session_id = ?");
-            sqlparams.put("session_id", sessionId);
+            sql.append(" and session_id = ?"); sqlparams.put("session_id", sessionId);
         }
         if (tag != null && !tag.isEmpty()) {
             sql.append(" and tag = ?"); sqlparams.put("tag", tag);
@@ -169,6 +253,18 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         if (rows != null) for (Map<String, Object> row : rows) entries.add(rowToEntry(row));
 
         return createMsg().setParam(RESULT, true).setParam(AI_P_MEMORYRESULT, entries).setParam("count", entries.size());
+    }
+
+    private static float[] getEmbedding(TLMemoryEntry entry) {
+        if (entry.getMetadata() == null) return null;
+        Object v = entry.getMetadata().get("embedding");
+        if (v == null) return null;
+        return TLLongTermMemoryModule.stringToVector(v.toString());
+    }
+
+    /** 复用 TLLongTermMemoryModule 的工具方法（避免跨模块重复） */
+    static double cosineSimilarity(float[] a, float[] b) {
+        return TLLongTermMemoryModule.cosineSimilarity(a, b);
     }
 
     @Override

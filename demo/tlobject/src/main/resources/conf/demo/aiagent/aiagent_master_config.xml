@@ -28,6 +28,14 @@
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"/>
+        <provider name="embeddingProvider"
+                  sameClassAs="openAiProvider"
+                  statup="true"
+                  debugMode="true"
+                  traceDir="./data/traces"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="text-embedding-3-small"/>
     </providers>
 
     <memoryStores>
@@ -41,7 +49,10 @@
                      sameClassAs="dbMemory"
                      statup="true"
                      memoryType="longTerm"
-                     maxCacheEntries="10000"/>
+                     maxCacheEntries="10000"
+                     enableEmbedding="false"
+                     embeddingProvider="embeddingProvider"
+                     embeddingModel="text-embedding-3-small"/>
     </memoryStores>
 
     <!-- ===== Agent 定义（有此项即为主控模式） ===== -->
@@ -92,7 +103,32 @@
 
     </agents>
 
-    <!-- ===== msgTools: LLM 可调用的预定义消息 ===== -->
+    <!-- ===== msgTools: LLM 可调用的预定义消息 =====
+
+         两种形态：
+         1. 有 action：直接执行到 destination（缺省发给本 agent 自己）
+         2. 只有 msgid 无 action：框架按 msgid 查 destination 模块（或本 agent 自己）的
+            <msgTable>，一个 msgid 可对应多条 msg 顺序执行
+            （msgTable 格式见 <msgTable> 注释示例）
+
+         通用参数：
+           statup     : "true" 启用 | "false" 跳过
+           description: LLM 看到的工具描述
+           destination: 目标模块（缺省=本 agent），无 action 时消息以 msgid 发给该模块,
+                        其 getMsg() 会查 checkMsgId()→msgTable 路由
+           paramsFromArgs : LLM 可传参数（分号分隔），自动生成函数 schema
+           paramsFromMsg  : 框架自动注入的参数（分号分隔） -->
+    <!-- ===== msgTable: 消息路由表 =====
+         msgid 可配运行参数：mode="parallel" 并发收集全部结果；不配默认 sequential 顺序返回末条。
+         waitTime 可设并行超时毫秒（默认 120000）。 -->
+    <msgTable>
+        <msgid value="healthCheck" mode="parallel" waitTime="30000">
+            <msg action="listSkills" destination="aiagent_master" />
+            <msg action="getTurnCount" destination="aiContext" />
+            <msg action="checkProvider" destination="aiagent_master" />
+        </msgid>
+    </msgTable>
+
     <msgTools>
         <msg msgid="getServerStatus"
              statup="true"
@@ -104,7 +140,10 @@
              description="获取当前会话的对话统计信息，包括消息总数"
              action="getTurnCount"
              destination="aiContext"/>
-        <!-- 带参数 msgTool 示例（注释，仅供参照）：
+        <msg msgid="healthCheck"
+             statup="true"
+             description="综合健康检查：查询服务器状态+对话统计+provider连通性，一次并行调用获取全部信息。"/>
+        <!-- 带参数 msgTool 示例（statup=false，注释仅供参照）：
         <msg msgid="saveMemory"
              statup="false"
              description="保存一条长期记忆。"

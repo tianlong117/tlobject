@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -37,8 +38,10 @@ public class TLMsgBroadCast extends TLBaseModule {
     }
     @Override
     protected TLBaseModule init() {
-        if(msgTable !=null && !msgTable.isEmpty())
-             receivers.putAll(msgTable);
+        if(msgTable !=null && !msgTable.isEmpty()) {
+            for (java.util.Map.Entry<String, HashMap<String, Object>> e : msgTable.entrySet())
+                receivers.put(e.getKey(), (ArrayList<TLMsg>) e.getValue().get("msglist"));
+        }
         return  this ;
     }
 

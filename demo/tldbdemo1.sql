@@ -48,7 +48,7 @@ CREATE TABLE `ai_sessions` (
                                `system_message` text,
                                `created_at` bigint DEFAULT NULL,
                                `last_active` bigint DEFAULT NULL,
-                               `metadata` varchar(2048) DEFAULT NULL,
+                               `metadata` TEXT DEFAULT NULL,
                                PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 
@@ -62,7 +62,7 @@ CREATE TABLE `ai_memory` (
                              `tag` varchar(255) DEFAULT NULL,
                              `created_at` bigint DEFAULT NULL,
                              `expires_at` bigint DEFAULT NULL,
-                             `metadata` varchar(2048) DEFAULT NULL,
+                             `metadata` TEXT DEFAULT NULL,
                              PRIMARY KEY (`id`),
                              KEY `idx_session_tag_time` (`session_id`, `tag`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;

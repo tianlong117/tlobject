@@ -378,6 +378,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
      * 初始化Memory Stores。
      * 框架自动根据classfile解析类名，自动注入agentNamespace用于多Agent记忆隔离。
      */
+    @SuppressWarnings("unchecked")
     protected void initMemoryStores() {
         myConfig config = (myConfig) mconfig;
         if (config == null || config.getMemoryStores() == null) return;
@@ -392,6 +393,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 TLBaseModule module = (TLBaseModule) getMyModule(storeName);
                 if (module instanceof TLBaseMemory) {
                     memoryStores.put(storeName, (TLBaseMemory) module);
+                    // 按配置创建专用的 embedding provider 实例并注入
+                    String embName = storeParams.get(AI_P_EMBEDDINGPROVIDER);
+                    if (embName != null && config.getProviders() != null) {
+                        HashMap<String, String> embCfg = config.getProviders().get(embName);
+                        if (embCfg != null) {
+                            modulesClass.putIfAbsent(embName, embCfg);
+                            modulesParams.putIfAbsent(embName, embCfg);
+                            TLBaseModule embM = (TLBaseModule) getMyModule(embName);
+                            if (embM instanceof TLLlmProvider)
+                                putMsg(module, createMsg().setAction("setEmbeddingProvider")
+                                        .setParam("provider", embM));
+                        }
+                    }
                     putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
                 }
             } catch (Exception e) {
@@ -1627,7 +1641,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
         }
 
-        // msgTool 路由：查找匹配 msgId 的预定义消息
+        // msgTool 路由：查找匹配 msgId 的预定义消息。
+        // 有 action：直接执行到 destination（缺省发给本 agent 自己）；
+        // 只有 msgid 无 action：走框架 msgid 路由——目标模块的 getMsg() 会
+        // 调用 checkMsgId() 查其 msgTable（一个 msgid 可挂多条 msg），doMsgList 顺序执行。
         TLMsg matchedMsg = findMsgToolByMsgId(functionName);
         if (matchedMsg != null) {
             try {
@@ -1651,19 +1668,52 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 }
 
                 String dest = execMsg.getDestination();
-                if (dest == null || dest.isEmpty()) {
-                    return createMsg().setParam(RESULT, false)
-                            .setParam(AI_P_SKILLOUTPUT, "msgTool error: no destination for " + functionName);
-                }
+                String action = execMsg.getAction();
+                String msgId = execMsg.getMsgId();
+                if (action != null && !action.isEmpty())
+                    System.out.println(">>> [msgTool] [" + functionName + "] action=" + action
+                            + " dest=" + (dest != null && !dest.isEmpty() ? dest : "self"));
+                else
+                    System.out.println(">>> [msgTool] [" + functionName + "] msgid=" + (msgId != null ? msgId : "-")
+                            + " dest=" + (dest != null && !dest.isEmpty() ? dest : "self") + " (路由查 msgTable)");
+                putLog("Executing msgTool: " + functionName + " -> " + (dest != null && !dest.isEmpty() ? dest : "self"), LogLevel.DEBUG);
 
-                System.out.println(">>> [msgTool] 执行消息 [" + functionName
-                        + "] action=" + execMsg.getAction() + " dest=" + dest);
-                putLog("Executing msgTool: " + functionName + " -> " + dest + "." + execMsg.getAction(), LogLevel.DEBUG);
-
-                TLMsg result = putMsg(dest, execMsg);
+                TLMsg result = (dest != null && !dest.isEmpty()) ? putMsg(dest, execMsg) : putMsg(this, execMsg);
                 String output;
                 if (result == null) {
                     output = "done";
+                } else if (result.getParam(RESULT) instanceof java.util.List) {
+                    // 并行结果集（doMsgListParallel 返回）：逐条提取标签+内容
+                    @SuppressWarnings("unchecked")
+                    java.util.List<TLMsg> results = (java.util.List<TLMsg>) result.getParam(RESULT);
+                    StringBuilder sb = new StringBuilder();
+                    for (TLMsg r : results) {
+                        if (sb.length() > 0) sb.append("\n");
+                        String label = r.getDestination();
+                        if (label == null) label = r.getAction();
+                        if (label == null) label = r.getMsgId();
+                        if (label == null) label = "msg";
+                        String body;
+                        if (r == null) {
+                            body = "no response";
+                        } else if (r.containsParam(AI_P_SKILLOUTPUT)) {
+                            body = r.getStringParam(AI_P_SKILLOUTPUT, "");
+                        } else {
+                            HashMap<String, Object> args = r.getArgs();
+                            if (args != null && !args.isEmpty()) {
+                                StringBuilder asb = new StringBuilder();
+                                for (java.util.Map.Entry<String, Object> e : args.entrySet()) {
+                                    if (asb.length() > 0) asb.append(", ");
+                                    asb.append(e.getKey()).append("=").append(e.getValue());
+                                }
+                                body = asb.toString();
+                            } else {
+                                body = r.toString();
+                            }
+                        }
+                        sb.append("【").append(label).append("】").append(body);
+                    }
+                    output = sb.toString();
                 } else if (result.containsParam(AI_P_SKILLOUTPUT)) {
                     // Skill 风格返回（显式设置了 AI_P_SKILLOUTPUT）
                     output = result.getStringParam(AI_P_SKILLOUTPUT, "");

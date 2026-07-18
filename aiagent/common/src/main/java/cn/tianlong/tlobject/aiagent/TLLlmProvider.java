@@ -140,6 +140,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             case LLM_CLEARTRACES:
                 returnMsg = clearTraces(msg);
                 break;
+            case LLM_EMBEDDING:
+                returnMsg = embed(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -209,6 +212,13 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         executeHttpRequestAsync(request, callback);
 
         return null; // 异步，无返回值
+    }
+
+    /**
+     * 文本向量化（默认不支持，子类可覆盖）。Msg 入参：embedText + model；出参：embeddingVector(float[])。
+     */
+    protected TLMsg embed(Object fromWho, TLMsg msg) {
+        return createMsg().setParam(RESULT, false).setParam("error", "embedding not supported by this provider");
     }
 
     /**
