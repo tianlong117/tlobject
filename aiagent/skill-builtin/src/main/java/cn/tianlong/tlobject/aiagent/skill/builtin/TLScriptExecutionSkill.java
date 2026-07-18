@@ -33,8 +33,16 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     /** 解释器命令（如 python, python3, bash, node） */
     private String interpreter = "python";
 
-    /** 允许的脚本目录（安全检查） */
+    /** 允许的脚本目录（配置值，相对路径基于 configDir） */
     private String allowedScriptDir = ".";
+
+    /** 相对于 configDir 解析脚本目录为绝对路径 */
+    private String resolveScriptDir() {
+        java.nio.file.Path p = java.nio.file.Paths.get(allowedScriptDir);
+        if (p.isAbsolute()) return p.normalize().toString();
+        String configDir = moduleFactory != null ? moduleFactory.getConfigDir() : ".";
+        return java.nio.file.Paths.get(configDir, allowedScriptDir).normalize().toAbsolutePath().toString();
+    }
 
     /** 最大执行时间（秒） */
     private int maxExecutionTime = 60;
@@ -95,7 +103,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     /** 列出 allowedScriptDir 下的可用脚本文件，供 description 与错误提示引用 */
     private String availableScriptsHint() {
         try {
-            Path dir = Paths.get(allowedScriptDir).toAbsolutePath().normalize();
+            Path dir = Paths.get(resolveScriptDir());
             if (!Files.isDirectory(dir)) return "";
             List<String> scripts = new ArrayList<>();
             try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir)) {
@@ -124,7 +132,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
         // 显式配置优先，未配则在 allowedScriptDir 父目录自动发现
         if (skillMdPath == null && allowedScriptDir != null && !allowedScriptDir.isEmpty()) {
             try {
-                java.nio.file.Path dir = java.nio.file.Paths.get(allowedScriptDir).toAbsolutePath().normalize();
+                java.nio.file.Path dir = java.nio.file.Paths.get(resolveScriptDir());
                 java.nio.file.Path parent = dir.getParent();
                 if (parent != null) {
                     // {skillName}.md 优先
@@ -174,7 +182,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
         try {
             // 安全检查：解析脚本路径，确保在 allowedScriptDir 内
-            Path allowedRoot = Paths.get(allowedScriptDir).toAbsolutePath().normalize();
+            Path allowedRoot = Paths.get(resolveScriptDir());
             Path resolvedScript = allowedRoot.resolve(scriptPath).normalize().toAbsolutePath();
 
             if (!resolvedScript.startsWith(allowedRoot)) {
