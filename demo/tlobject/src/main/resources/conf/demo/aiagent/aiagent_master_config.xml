@@ -80,10 +80,10 @@
                statup="true"
                description="文件处理专家，负责文件的读写、目录操作等。注意：不执行脚本，如需运行.py/.sh等脚本请用codeAgent。当用户请求涉及文件操作（读、写、列表、删除）时使用此Agent。"/>
 
-         <agent name="cloudRevenueAgent"
+         <!--agent name="cloudRevenueAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/>
+               description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/-->
 
         <agent name="codeAgent"
                sameClassAs="aiagent"
@@ -172,4 +172,5 @@
 
 如果子 agent 的返回结果中包含「请求确认」字眼，你应该向用户转达确认问题，拿到回复后重新委托给子 agent。"/>
     </modulesParams>
+
 </moduleConfig>

@@ -387,8 +387,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 TLBaseModule module = (TLBaseModule) getMyModule(skillName);
                 registerToRegistry(skillName, module, "skill");
                 if (module instanceof TLBaseSkill) {
-                    skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
-                    putLog("Skill registered: " + skillName, LogLevel.DEBUG);
+                    TLBaseSkill skill = (TLBaseSkill) module;
+                    skills.put(skill.getSkillName(), skill);
+                    putLog("Skill registered: " + skillName + " → getSkillName()=" + skill.getSkillName(), LogLevel.INFO);
+                } else {
+                    putLog("Skill NOT TLBaseSkill: " + skillName + " module=" + (module != null ? module.getClass().getName() : "null"), LogLevel.ERROR);
                 }
             } catch (Exception e) {
                 putLog("Failed to init skill: " + skillName + " error: " + e.toString(), LogLevel.ERROR);
@@ -501,6 +504,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 break;
             case AGENT_HOTLOADSKILL:
                 returnMsg = hotLoadSkill(fromWho, msg);
+                break;
+            case AGENT_HOTUNLOADSKILL:
+                returnMsg = hotUnloadSkill(fromWho, msg);
                 break;
             case AGENT_REGISTERSKILL:
                 returnMsg = registerSkill(fromWho, msg);
@@ -1098,8 +1104,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         if (skillDir == null || skillDir.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "skillDir required");
         }
-        // 目录名转驼峰 → moduleName，如 "unicom-cloud-revenue" → "cloudRevenueScript"
-        String moduleName = dirToModuleName(skillDir) + "Script";
+        // 目录名即模块名
+        String moduleName = skillDir;
         String skillName = msg.getStringParam(AI_P_SKILLNAME, "script_execution");
         String interpreter = msg.getStringParam("interpreter", "python");
         int maxExecutionTime = msg.getIntParam("maxExecutionTime", 120);
@@ -1140,17 +1146,88 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return createMsg().setParam(RESULT, false).setParam("error", "create skill failed: " + moduleName);
     }
 
-    /** "unicom-cloud-revenue" → "cloudRevenue" */
-    private String dirToModuleName(String dir) {
-        StringBuilder sb = new StringBuilder();
-        boolean upper = false;
-        for (int i = 0; i < dir.length(); i++) {
-            char c = dir.charAt(i);
-            if (c == '-' || c == '_') { upper = true; continue; }
-            if (i == 0 || upper) { sb.append(Character.toUpperCase(c)); upper = false; }
-            else sb.append(c);
+    /** 热卸载 skill：从 skills/map, modulesClass/modulesParams 和配置文件中移除 */
+    protected TLMsg hotUnloadSkill(Object fromWho, TLMsg msg) {
+        String skillDir = msg.getStringParam("skillDir", null);
+        String moduleName = msg.getStringParam(MODULENAME, null);
+        boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+
+        // moduleName 优先；否则根据 skillDir 在 skills map 中搜索匹配的 allowedScriptDir
+        if (moduleName == null || moduleName.isEmpty()) {
+            if (skillDir == null || skillDir.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "skillDir or moduleName required");
+            }
+            String targetDir = "skills/" + skillDir + "/scripts";
+            // 在自己的 modulesParams 中找匹配 allowedScriptDir 的 skill
+            if (modulesParams != null) {
+                for (Map.Entry<String, HashMap<String, String>> e : modulesParams.entrySet()) {
+                    if (targetDir.equals(e.getValue().get("allowedScriptDir"))) {
+                        moduleName = e.getKey();
+                        break;
+                    }
+                }
+            }
+            if (moduleName == null) {
+                return createMsg().setParam(RESULT, false).setParam("error", "skill not found for dir: " + skillDir);
+            }
         }
-        return sb.toString();
+
+        // 从 skills map 中移除（按 getSkillName() 查找）
+        String foundSkillName = null;
+        for (Map.Entry<String, TLBaseSkill> entry : skills.entrySet()) {
+            if (moduleName.equals(entry.getValue().getName())) {
+                foundSkillName = entry.getKey();
+                break;
+            }
+        }
+        if (foundSkillName != null) {
+            skills.remove(foundSkillName);
+        }
+
+        // 从本地 modules 移除
+        modules.remove(moduleName);
+
+        // 从 modulesClass/modulesParams 移除
+        if (modulesClass != null) modulesClass.remove(moduleName);
+        if (modulesParams != null) modulesParams.remove(moduleName);
+
+        // 从 registry 注销
+        String key = getName() + ":" + moduleName;
+        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                .setParam(REGISTRY_P_KEY, key));
+
+        invalidateToolDefs();
+        putLog("Hot-unloaded skill: " + moduleName, LogLevel.INFO, AGENT_HOTUNLOADSKILL);
+
+        // 从配置文件删除
+        if (persist && configFile != null) {
+            try {
+                removeSkillFromConfig(moduleName);
+            } catch (Exception e) {
+                putLog("remove skill from config failed", LogLevel.ERROR, AGENT_HOTUNLOADSKILL);
+            }
+        }
+
+        return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
+    }
+
+    /** 从 XML 配置文件中删除指定模块名的 <skill> 行 */
+    private void removeSkillFromConfig(String moduleName) throws IOException {
+        File file = new File(configFile);
+        if (!file.exists()) return;
+
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) content.append(line).append("\n");
+        }
+        String xml = content.toString();
+        String escaped = java.util.regex.Pattern.quote(moduleName);
+        xml = xml.replaceAll("\\s*<skill\\s+[^>]*name=\"" + escaped + "\"[^>]*/>\\s*\\n?", "\n");
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            writer.write(xml);
+        }
     }
 
     /** 将 skill 配置写入 agent XML，在 </skills> 或 </moduleConfig> 前插入 */

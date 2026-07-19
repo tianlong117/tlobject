@@ -535,6 +535,31 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /** /install skillDir [agentName] — 向指定 agent 热加载脚本 skill */
+    /** 从 moduleRegistry 查找 agent 实例，找不到返回 null */
+    private TLBaseModule findAgentInstance(String agentName) {
+        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
+                .setParam(REGISTRY_P_KEY, agentName + ":" + agentName));
+        if (result != null) {
+            Object inst = result.getParam(INSTANCE);
+            if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
+        }
+        // fallback: 遍历 registry list 找匹配的 agent
+        TLMsg listResult = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_LIST)
+                .setParam(REGISTRY_P_TYPE, "agent"));
+        if (listResult != null) {
+            java.util.List<?> list = (java.util.List<?>) listResult.getParam(RESULT);
+            if (list != null) {
+                for (Object item : list) {
+                    java.util.Map<?, ?> m = (java.util.Map<?, ?>) item;
+                    if (agentName.equals(m.get(MODULENAME))) {
+                        return (TLBaseModule) m.get(INSTANCE);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private void handleInstall(String cmd) {
         String[] parts = cmd.split("\\s+", 3);
         if (parts.length < 2) {
@@ -544,13 +569,45 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         String skillDir = parts[1];
         String targetAgent = parts.length > 2 ? parts[2] : agentModule;
 
-        TLMsg result = putMsg(targetAgent, createMsg().setAction(AGENT_HOTLOADSKILL)
-                .setParam("skillDir", skillDir));
+        TLBaseModule agent = findAgentInstance(targetAgent);
+        if (agent == null) {
+            System.out.println("✗ Agent 未找到: " + targetAgent);
+            return;
+        }
+        TLMsg msg = createMsg().setAction(AGENT_HOTLOADSKILL).setParam("skillDir", skillDir);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(agent, msg);
         if (result != null && result.parseBoolean(RESULT, false)) {
             System.out.println("✓ Skill 已安装: " + skillDir + " → " + targetAgent);
         } else {
             String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
             System.out.println("✗ 安装失败: " + err);
+        }
+    }
+
+    /** /uninstall skillDir [agentName] — 卸载脚本 skill */
+    private void handleUninstall(String cmd) {
+        String[] parts = cmd.split("\\s+", 3);
+        if (parts.length < 2) {
+            System.out.println("用法: /uninstall <skillDir> [agentName]");
+            return;
+        }
+        String skillDir = parts[1];
+        String targetAgent = parts.length > 2 ? parts[2] : agentModule;
+
+        TLBaseModule agent = findAgentInstance(targetAgent);
+        if (agent == null) {
+            System.out.println("✗ Agent 未找到: " + targetAgent);
+            return;
+        }
+        TLMsg msg = createMsg().setAction(AGENT_HOTUNLOADSKILL).setParam("skillDir", skillDir);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(agent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ Skill 已卸载: " + skillDir + " ← " + targetAgent);
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
+            System.out.println("✗ 卸载失败: " + err);
         }
     }
 
@@ -614,7 +671,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             case "/install":
-                System.out.println("用法: /install <skillDir> [agentName]");
+            case "/uninstall":
+                System.out.println("用法: " + cmd + " <skillDir> [agentName]");
                 break;
 
             case "/agents":
@@ -625,6 +683,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             default:
                 if (cmd.startsWith("/install ")) {
                     handleInstall(cmd);
+                } else if (cmd.startsWith("/uninstall ")) {
+                    handleUninstall(cmd);
                 } else if (cmd.startsWith("/agents ")) {
                     handleListModules(cmd);
                 } else if (cmd.startsWith("/skills ")) {
@@ -634,7 +694,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("✓ 会话ID切换为: " + sessionId);
                 } else {
                     System.out.println("未知命令: " + cmd);
-                    System.out.println("可用: /exit /stop /clear /resume /stream /session <id> /install <dir> [agent] /agents [/skills] [owner]  ESC=中断");
+                    System.out.println("可用: /exit /stop /clear /resume /stream /session <id> /install|/uninstall <dir> [agent] /agents [/skills] [owner]  ESC=中断");
                 }
                 break;
         }

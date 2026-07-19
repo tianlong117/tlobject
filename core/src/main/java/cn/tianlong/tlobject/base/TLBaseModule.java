@@ -1493,9 +1493,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             return putMsg(module, msg);
         }
         else {
-            if((boolean)(msg.getSystemParam(IGNOREMODULEISNULL,false)) ==true)
-                return null ;
             putLog("module is not exist " + moduleName, LogLevel.ERROR);
+            if((boolean)(msg.getSystemParam(IGNOREMODULEISNULL,false)) ==true)
+                return createMsg().setParam(IGNOREMODULEISNULL,false);
             moduleFactory.shutdown(-1);
             return null ;
         }
