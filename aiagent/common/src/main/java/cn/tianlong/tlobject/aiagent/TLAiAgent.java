@@ -215,8 +215,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // 把 providers/agents/skills/memoryStores 注入 modulesClass + modulesParams
         // 必须放在 setModuleParams() 而非 setConfig()，因为 initProperty() 会覆盖
         myConfig config = (myConfig) mconfig;
-        if (modulesClass == null) modulesClass = new HashMap<>();
-        if (modulesParams == null) modulesParams = new HashMap<>();
+        if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+        if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
         String namespace = params != null ? params.get("agentNamespace") : null;
         injectConfigs(config.getProviders(), namespace, false);
         injectConfigs(config.getAgents(), namespace, false);

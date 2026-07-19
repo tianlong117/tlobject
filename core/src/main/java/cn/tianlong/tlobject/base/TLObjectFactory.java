@@ -84,10 +84,10 @@ public class TLObjectFactory extends TLBaseModule {
         addConfigFile =addConfigDir+"/"+addConfigFile;
         myConfig config = new myConfig(addConfigFile, addConfigDir);
         config.init();
-        HashMap<String, HashMap<String, String>> addmodulesClass = config.getModulesClass();
+        ConcurrentHashMap<String, HashMap<String, String>> addmodulesClass = config.getModulesClass();
         if(addmodulesClass !=null)
             modulesClass.putAll(addmodulesClass);
-        HashMap<String, HashMap<String, String>>  addmodulesParams =config.getModulesParams();
+        ConcurrentHashMap<String, HashMap<String, String>>  addmodulesParams =config.getModulesParams();
         if(addmodulesParams !=null)
             modulesParams.putAll(addmodulesParams);
         HashMap<String, String> addparams = config.getParams();

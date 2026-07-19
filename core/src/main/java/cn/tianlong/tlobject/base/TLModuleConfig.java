@@ -11,6 +11,8 @@ import java.io.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 创建日期：2018/4/11 on 8:50
@@ -20,15 +22,15 @@ import java.util.LinkedHashMap;
 
 public  class TLModuleConfig extends TLBaseModule {
     protected String configDir ;
-    protected HashMap<String, HashMap<String, String>> modulesClass;
-    protected HashMap<String, HashMap<String, String>> modulesParams;
-    protected HashMap<String, HashMap<String, String>> paramsModules;
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesClass;
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesParams;
+    protected ConcurrentHashMap<String, HashMap<String, String>> paramsModules;
     protected ArrayList<TLMsg> initMsgTable ;          //初始化时的消息队列
     protected ArrayList<TLMsg> startMsgTable ;
     protected HashMap<String, String> params ;
-    protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable ;           //前期执行msg
-    protected HashMap<String, ArrayList<TLMsg>> afterMsgTable ;          //后期执行msg
-    protected HashMap<String, HashMap<String, Object>> msgTable ;  // entry: {"msglist":ArrayList<TLMsg>, "mode":"parallel", ...}
+    protected ConcurrentHashMap<String, ArrayList<TLMsg>> beforeMsgTable ;           //前期执行msg
+    protected ConcurrentHashMap<String, ArrayList<TLMsg>> afterMsgTable ;          //后期执行msg
+    protected ConcurrentHashMap<String, HashMap<String, Object>> msgTable ;  // entry: {"msglist":ArrayList<TLMsg>, "mode":"parallel", ...}
     protected String configFile;
     public TLModuleConfig(String configFile ,String configDir) {
         this.configFile = configFile;
@@ -97,13 +99,13 @@ public  class TLModuleConfig extends TLBaseModule {
             }
         }
     }
-    public HashMap getModulesClass() {
+    public ConcurrentHashMap getModulesClass() {
         return modulesClass;
     }
-    public HashMap getModulesParams() {
+    public ConcurrentHashMap getModulesParams() {
         return modulesParams;
     }
-    public HashMap getParamsModules() {
+    public ConcurrentHashMap getParamsModules() {
         return paramsModules;
     }
     public HashMap getParams() {
@@ -115,13 +117,13 @@ public  class TLModuleConfig extends TLBaseModule {
     public ArrayList<TLMsg> getStartMsgTable() {
         return startMsgTable;
     }
-    public HashMap<String, HashMap<String, Object>> getMsgTable() {
+    public ConcurrentHashMap<String, HashMap<String, Object>> getMsgTable() {
         return msgTable;
     }
-    public HashMap getBeforeMsgTable() {
+    public ConcurrentHashMap getBeforeMsgTable() {
         return beforeMsgTable;
     }
-    public HashMap getAfterMsgTable() {
+    public ConcurrentHashMap getAfterMsgTable() {
         return afterMsgTable;
     }
     protected Object parseconfig(InputStream xmlData ,String paramName) {
@@ -187,7 +189,7 @@ public  class TLModuleConfig extends TLBaseModule {
                         }
                     }
                     else if (tagName.equals("msgTable")) {
-                        HashMap<String, HashMap<String, Object>> cmsgTable=getMsgTable(xpp,"msgTable","msgid");
+                        ConcurrentHashMap<String, HashMap<String, Object>> cmsgTable=getMsgTable(xpp,"msgTable","msgid");
                         if(cmsgTable!=null)
                         {
                             if(paramName !=null )
@@ -195,7 +197,7 @@ public  class TLModuleConfig extends TLBaseModule {
                             else
                             {
                                 if(msgTable ==null)
-                                    msgTable =new HashMap<>();
+                                    msgTable =new ConcurrentHashMap<>();
                                 msgTable.putAll(cmsgTable);
                             }
 
@@ -209,7 +211,7 @@ public  class TLModuleConfig extends TLBaseModule {
                                 returnObj =cbeforeMsgTable ;
                             else {
                                 if(beforeMsgTable ==null)
-                                    beforeMsgTable =new HashMap<>();
+                                    beforeMsgTable =new ConcurrentHashMap<>();
                                 beforeMsgTable.putAll(cbeforeMsgTable);
                             }
 
@@ -223,7 +225,7 @@ public  class TLModuleConfig extends TLBaseModule {
                                 returnObj =  cafterMsgTable ;
                             else{
                                 if(afterMsgTable ==null)
-                                    afterMsgTable =new HashMap<>();
+                                    afterMsgTable =new ConcurrentHashMap<>();
                                 afterMsgTable.putAll(cafterMsgTable);
                             }
 
@@ -237,7 +239,7 @@ public  class TLModuleConfig extends TLBaseModule {
                                 returnObj =  cmodulesClass ;
                             else {
                                 if(modulesClass ==null)
-                                    modulesClass =new HashMap<>();
+                                    modulesClass =new ConcurrentHashMap<>();
                                 modulesClass.putAll(cmodulesClass);
                             }
                         }
@@ -250,7 +252,7 @@ public  class TLModuleConfig extends TLBaseModule {
                                 returnObj =  cmodulesParams ;
                             else {
                                 if(modulesParams ==null)
-                                    modulesParams =new HashMap<>();
+                                    modulesParams =new ConcurrentHashMap<>();
                                 modulesParams.putAll(cmodulesParams);
                             }
 
@@ -264,7 +266,7 @@ public  class TLModuleConfig extends TLBaseModule {
                                 returnObj =  cparamModules ;
                             else {
                                 if(paramsModules ==null)
-                                    paramsModules =new HashMap<>();
+                                    paramsModules =new ConcurrentHashMap<>();
                                 paramsModules.putAll(cparamModules);
                             }
 
@@ -339,19 +341,25 @@ public  class TLModuleConfig extends TLBaseModule {
             switch (array[0].trim()) {
                 case "modules":
                     String[] includeModules=checkUnit(includeUnits);
-                    modulesClass =mapCopy(modulesClass,config.getModulesClass(),includeModules);
+                    modulesClass =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
+                        modulesClass != null ? modulesClass : new ConcurrentHashMap<>(),
+                        config.getModulesClass(),includeModules);
                     break;
                 case "modulesParams":
                     String[] includeModulesParams=checkUnit(includeUnits);
-                    modulesParams =mapCopy(modulesParams,config.getModulesClass(),includeModulesParams);
+                    modulesParams =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
+                        modulesParams != null ? modulesParams : new ConcurrentHashMap<>(),
+                        config.getModulesClass(),includeModulesParams);
                     break;
                 case "paramsModules":
                     String[] includeParamsModules=checkUnit(includeUnits);
-                    modulesParams =mapCopy(paramsModules,config.getModulesClass(),includeParamsModules);
+                    modulesParams =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
+                        paramsModules != null ? paramsModules : new ConcurrentHashMap<>(),
+                        config.getModulesClass(),includeParamsModules);
                     break;
                 case "params":
                     String[] includeParams=checkUnit(includeUnits);
-                    params =mapCopy(params,config.getParams(),includeParams);
+                    params =(HashMap<String, String>) mapCopy(params,config.getParams(),includeParams);
                     break;
                 case "initMsg":
                     if(initMsgTable ==null)
@@ -365,17 +373,17 @@ public  class TLModuleConfig extends TLBaseModule {
                     break;
                 case "msgTable":
                     if(msgTable ==null)
-                        msgTable=new HashMap<>();
+                        msgTable=new ConcurrentHashMap<>();
                     msgTable.putAll(config.getMsgTable());
                     break;
                 case "beforeMsgTable":
                     if(beforeMsgTable ==null)
-                        beforeMsgTable=new HashMap<>();
+                        beforeMsgTable=new ConcurrentHashMap<>();
                     beforeMsgTable.putAll(config.getBeforeMsgTable());
                     break;
                 case "afterMsgTable":
                     if(afterMsgTable ==null)
-                        afterMsgTable=new HashMap<>();
+                        afterMsgTable=new ConcurrentHashMap<>();
                     afterMsgTable.putAll(config.getAfterMsgTable());
                     break;
                 default:
@@ -394,7 +402,7 @@ public  class TLModuleConfig extends TLBaseModule {
             array[i]=array[i].trim();
         return array;
     }
-    private HashMap mapCopy( HashMap map , HashMap source , String[] keys){
+    private Map mapCopy( Map map , Map source , String[] keys){
         if(map ==null)
             map =new HashMap();
         if(keys==null || keys.length==0)
@@ -456,11 +464,11 @@ public  class TLModuleConfig extends TLBaseModule {
     protected void myConfig(XmlPullParser xpp) {
     }
 
-    protected  HashMap<String, HashMap<String, Object>> getMsgTable(XmlPullParser xpp, String table, String tag) throws Throwable {
+    protected  ConcurrentHashMap<String, HashMap<String, Object>> getMsgTable(XmlPullParser xpp, String table, String tag) throws Throwable {
         LinkedHashMap<String, HashMap<String, Object>> linkedHashMap =getLinkHashMsgListWithParams(xpp,table,tag);
         if(linkedHashMap ==null)
             return null ;
-        HashMap<String, HashMap<String, Object>> msgTable=new HashMap<>();
+        ConcurrentHashMap<String, HashMap<String, Object>> msgTable=new ConcurrentHashMap<>();
         msgTable.putAll(linkedHashMap);
         return  msgTable;
     }

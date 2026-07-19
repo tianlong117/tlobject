@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Group Agent 模块：把一组成员 agent 当作一个子 agent 对外提供服务。
@@ -155,8 +156,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         LinkedHashMap<String, HashMap<String, String>> membersConfig = ((myConfig) mconfig).getAgents();
         if (membersConfig == null || membersConfig.isEmpty()) return;
 
-        if (modulesClass == null) modulesClass = new HashMap<>();
-        if (modulesParams == null) modulesParams = new HashMap<>();
+        if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+        if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
         List<String> created = new ArrayList<>();
         for (String mName : membersConfig.keySet()) {
             HashMap<String, String> cfg = membersConfig.get(mName);
@@ -251,8 +252,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         }
         HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG, new HashMap<>()));
         try {
-            if (modulesClass == null) modulesClass = new HashMap<>();
-            if (modulesParams == null) modulesParams = new HashMap<>();
+            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
             modulesClass.put(agentName, cfg);
             modulesParams.put(agentName, cfg);
             TLBaseModule module = (TLBaseModule) getMyModule(agentName);

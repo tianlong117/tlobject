@@ -31,16 +31,16 @@ public abstract class TLBaseModule extends TLBaseObject {
     public static final String PRERESULT = "beforeResult";
     protected String applicationId="tlobjectApp";
     protected boolean ifMonitor = false;    //是否开启工厂监控 ，默认关闭
-    protected HashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
-    protected HashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
-    protected HashMap<String, HashMap<String, String>> paramsForModules;   //定义参数适用的模块，getmodule 时自动赋值
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
+    protected ConcurrentHashMap<String, HashMap<String, String>> paramsForModules;   //定义参数适用的模块，getmodule 时自动赋值
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
     protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
-    protected HashMap<String, HashMap<String, Object>> msgTable;   //消息路由表，msgid→{msglist:ArrayList<TLMsg>, mode:"parallel", ...}
+    protected ConcurrentHashMap<String, HashMap<String, Object>> msgTable;   //消息路由表，msgid→{msglist:ArrayList<TLMsg>, mode:"parallel", ...}
     protected ArrayList<TLMsg> initMsgTable;          //对象初始化时，还没放入工厂，执行的消息队列
     protected ArrayList<TLMsg> startMsgTable;          //对象初始化后，已经放入工厂，执行的消息队列
-    protected HashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //方法运行前执行的msg列表
-    protected HashMap<String, ArrayList<TLMsg>> afterMsgTable;          //方法运行后执行的msg列表
+    protected ConcurrentHashMap<String, ArrayList<TLMsg>> beforeMsgTable;          //方法运行前执行的msg列表
+    protected ConcurrentHashMap<String, ArrayList<TLMsg>> afterMsgTable;          //方法运行后执行的msg列表
     protected TLObjectFactory moduleFactory;
     protected HashMap<String, String> params;  //模块参数，在配置文件中设定
     protected String configFile;
@@ -249,7 +249,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         return  mconfig ;
     }
 
-    private void splitModulesParams(HashMap<String,HashMap<String,String>> modulesParams) {
+    private void splitModulesParams(ConcurrentHashMap<String,HashMap<String,String>> modulesParams) {
         HashMap<String,HashMap<String,String>>  tmpMap =new HashMap<>();
         Iterator<?> entries = modulesParams.entrySet().iterator();
         while (entries.hasNext()) {
@@ -290,7 +290,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
-    private void splitParamsModules(HashMap<String,HashMap<String,String>> paramsModules) {
+    private void splitParamsModules(ConcurrentHashMap<String,HashMap<String,String>> paramsModules) {
         for(String paramName : paramsModules.keySet())
         {
             HashMap<String,String> map =paramsModules.get(paramName) ;
@@ -302,7 +302,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             if(moduelsArray ==null )
                 continue;
             if(modulesParams ==null)
-                modulesParams =new HashMap<>() ;
+                modulesParams =new ConcurrentHashMap<>() ;
             for(int i=0 ; i<moduelsArray.length ; i ++)
             {
                String moduleUnit = moduelsArray[i];
@@ -329,7 +329,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
-    protected  void splitActionsArray(HashMap<String,ArrayList<TLMsg>> msgTableList){
+    protected  void splitActionsArray(ConcurrentHashMap<String,ArrayList<TLMsg>> msgTableList){
         HashMap<String,ArrayList<TLMsg>> tmpMsgList =new HashMap<>() ;
         for(String action : msgTableList.keySet())
         {
@@ -390,7 +390,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
-    private void setParamsFromMsg(HashMap<String, ArrayList<TLMsg>> msgHashMap){
+    private void setParamsFromMsg(ConcurrentHashMap<String, ArrayList<TLMsg>> msgHashMap){
         for(ArrayList<TLMsg> msgList :msgHashMap.values()){
               setParamsFromMsg(msgList);
         }
@@ -937,9 +937,9 @@ public abstract class TLBaseModule extends TLBaseObject {
                 break;
             case MODULE_ADDMSGTABLE:
                 if (msgTable == null)
-                    msgTable = new HashMap<>();
+                    msgTable = new ConcurrentHashMap<>();
                 if(!msg.isNull("msgTable"))
-                    msgTable= (HashMap<String, HashMap<String, Object>>) msg.getParam("msgTable");
+                    msgTable= (ConcurrentHashMap<String, HashMap<String, Object>>) msg.getParam("msgTable");
                 else {
                     // 运行时动态加 msgTable 条目（适配新容器类型）
                     String msgId = msg.getStringParam("msgId", null);
@@ -969,13 +969,13 @@ public abstract class TLBaseModule extends TLBaseObject {
                 break;
             case MODULE_ADDBEFOREMSG:
                 if (beforeMsgTable == null)
-                    beforeMsgTable = new HashMap<>();
+                    beforeMsgTable = new ConcurrentHashMap<>();
                 addMsgTable(beforeMsgTable, "action", msg);
                 putLog(name +" action:"+ action + "增加beforeMsg", LogLevel.DEBUG,"runAction");
                 break;
             case MODULE_ADDAFTERMSG:
                 if (afterMsgTable == null)
-                    afterMsgTable = new HashMap<>();
+                    afterMsgTable = new ConcurrentHashMap<>();
                 addMsgTable(afterMsgTable, "action", msg);
                 putLog(name +" action:"+ action +" 增加afterMsg" , LogLevel.DEBUG,"runAction");
                 break;
@@ -1178,7 +1178,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         initMsgTable.add((TLMsg) msg.getParam("msg"));
     }
 
-    protected void addMsgTable(HashMap<String, ArrayList<TLMsg>> tableVar, String tag, TLMsg msg) {
+    protected void addMsgTable(Map<String, ArrayList<TLMsg>> tableVar, String tag, TLMsg msg) {
         String key =msg.getStringParam(tag,null);
         if (key == null || key.isEmpty())
             return;
@@ -1196,11 +1196,11 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
-    protected void addMsg(HashMap<String, ArrayList<TLMsg>> tableVar, String key, TLMsg msg, int position) {
+    protected void addMsg(Map<String, ArrayList<TLMsg>> tableVar, String key, TLMsg msg, int position) {
         if (msg == null)
             return;
         if (tableVar == null)
-            tableVar = new HashMap<>();
+            tableVar = new ConcurrentHashMap<>();
         ArrayList<TLMsg> msgList = tableVar.get(key);
         if (msgList == null) {
             msgList = new ArrayList<TLMsg>();
@@ -1218,7 +1218,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         if(addModulesClass ==null)
             return;
         if(modulesClass ==null)
-            modulesClass =new HashMap<>();
+            modulesClass =new ConcurrentHashMap<>();
         modulesClass.putAll(addModulesClass);
     }
     private TLMsg addModule(Object fromWho, TLMsg msg) {
