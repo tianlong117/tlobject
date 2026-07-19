@@ -30,6 +30,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_CHAT = "chat";
     /** 流式chat */
     String AGENT_CHATSTREAM = "chatStream";
+    /** 热加载第三方脚本skill */
+    String AGENT_HOTLOADSKILL = "hotLoadSkill";
     /** 注册skill模块 */
     String AGENT_REGISTERSKILL = "registerSkill";
     /** 注销skill模块 */

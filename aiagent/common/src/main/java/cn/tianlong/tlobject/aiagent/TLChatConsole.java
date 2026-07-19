@@ -498,6 +498,62 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
+    /** /agents [/skills] [ownerName] — 从 moduleRegistry 列出模块 */
+    private void handleListModules(String cmd) {
+        String[] parts = cmd.split("\\s+", 2);
+        String action = parts[0];           // "/agents" or "/skills"
+        String ownerName = parts.length > 1 ? parts[1].trim() : null;
+        String moduleType = action.equals("/agents") ? "agent" : "skill";
+
+        TLMsg listMsg = createMsg().setAction(REGISTRY_LIST)
+                .setParam(REGISTRY_P_TYPE, moduleType);
+        if (ownerName != null && !ownerName.isEmpty())
+            listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
+
+        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
+        if (result == null) {
+            System.out.println("✗ moduleRegistry 未配置或未启动");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Object>> modules =
+                (java.util.List<java.util.Map<String, Object>>) result.getParam(RESULT);
+        if (modules == null || modules.isEmpty()) {
+            System.out.println("(无)");
+            return;
+        }
+        String label = moduleType.equals("agent") ? "Agent" : "Skill";
+        System.out.println(label + " (" + modules.size() + "):");
+        for (java.util.Map<String, Object> m : modules) {
+            String key = (String) m.get(REGISTRY_P_KEY);
+            String modName = (String) m.get(MODULENAME);
+            String owner = (String) m.get(REGISTRY_P_OWNERNAME);
+            Object inst = m.get(INSTANCE);
+            String clazz = inst != null ? inst.getClass().getSimpleName() : "?";
+            System.out.println("  " + key + "  [" + clazz + "]  owner=" + owner);
+        }
+    }
+
+    /** /install skillDir [agentName] — 向指定 agent 热加载脚本 skill */
+    private void handleInstall(String cmd) {
+        String[] parts = cmd.split("\\s+", 3);
+        if (parts.length < 2) {
+            System.out.println("用法: /install <skillDir> [agentName]");
+            return;
+        }
+        String skillDir = parts[1];
+        String targetAgent = parts.length > 2 ? parts[2] : agentModule;
+
+        TLMsg result = putMsg(targetAgent, createMsg().setAction(AGENT_HOTLOADSKILL)
+                .setParam("skillDir", skillDir));
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ Skill 已安装: " + skillDir + " → " + targetAgent);
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
+            System.out.println("✗ 安装失败: " + err);
+        }
+    }
+
     private boolean handleCommand(String cmd) {
         switch (cmd.toLowerCase()) {
             case "/exit":
@@ -557,13 +613,28 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭"));
                 break;
 
+            case "/install":
+                System.out.println("用法: /install <skillDir> [agentName]");
+                break;
+
+            case "/agents":
+            case "/skills":
+                handleListModules(cmd);
+                break;
+
             default:
-                if (cmd.startsWith("/session ")) {
+                if (cmd.startsWith("/install ")) {
+                    handleInstall(cmd);
+                } else if (cmd.startsWith("/agents ")) {
+                    handleListModules(cmd);
+                } else if (cmd.startsWith("/skills ")) {
+                    handleListModules(cmd);
+                } else if (cmd.startsWith("/session ")) {
                     sessionId = cmd.substring(9).trim();
                     System.out.println("✓ 会话ID切换为: " + sessionId);
                 } else {
                     System.out.println("未知命令: " + cmd);
-                    System.out.println("可用: /exit /stop /clear /resume /stream /session <id>  ESC=中断");
+                    System.out.println("可用: /exit /stop /clear /resume /stream /session <id> /install <dir> [agent] /agents [/skills] [owner]  ESC=中断");
                 }
                 break;
         }

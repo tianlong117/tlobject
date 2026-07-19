@@ -44,6 +44,7 @@
             <msg   msgid="cook" />
         </action>
         <action  value="cook" >
+            <msg action="hotUnloadModule" moduleName="son"  sameClassAs="person" toFactory="true"/>
 
             <msg action="analyzeAndSaveHtml" destination="flowAnalyzer" />
             <msg   action="setshutdown" value="true" />

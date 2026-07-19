@@ -167,6 +167,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 modulesClass.putIfAbsent(mName, cfg);
                 modulesParams.putIfAbsent(mName, cfg);
                 TLBaseModule module = (TLBaseModule) getMyModule(mName);
+                registerToRegistry(mName, module, "agent");
                 if (module == null) {
                     putLog("Failed to create group member: " + mName + " (group " + name + ")", LogLevel.ERROR);
                     continue;
@@ -245,6 +246,18 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
      * 并追加进调度名单（cfg role="supervisor" 时注册为监理）。
      * 消息契约与 TLAiAgent.registerAgent 一致：AI_P_AGENTNAME + AI_P_AGENTCONFIG。
      */
+    private void registerToRegistry(String subName, Object module, String moduleType) {
+        if (module == null) return;
+        TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
+                .setParam(REGISTRY_P_KEY, getName() + ":" + subName)
+                .setParam(MODULENAME, subName)
+                .setParam(REGISTRY_P_OWNERNAME, getName())
+                .setParam(REGISTRY_P_TYPE, moduleType)
+                .setParam(INSTANCE, module);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        putMsg(DEFAULTMODULEREGISTRY, msg);
+    }
+
     protected synchronized TLMsg registerMember(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
         if (agentName.isEmpty()) {
@@ -257,6 +270,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
             modulesClass.put(agentName, cfg);
             modulesParams.put(agentName, cfg);
             TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+            registerToRegistry(agentName, module, "agent");
             if (module == null) {
                 modulesClass.remove(agentName);
                 modulesParams.remove(agentName);

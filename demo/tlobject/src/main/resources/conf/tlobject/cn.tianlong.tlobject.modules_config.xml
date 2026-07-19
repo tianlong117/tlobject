@@ -18,6 +18,7 @@
         <module name="fixedThreadPool" classfile="cn.tianlong.tlobject.modules.TLThreadPool" poolType="fixed" poolSize="10"/>
         <module name="logThreadPool" sameClassAs="threadPool" poolType="single" ifLog="false" ifMonitor="false"/>
         <module name="moduleMonitor" classfile="cn.tianlong.tlobject.modules.TLModuleMonitor" />
+        <module name="moduleRegistry" classfile="cn.tianlong.tlobject.modules.TLModuleRegistry" />
         <module name="msgRouter" classfile="cn.tianlong.tlobject.modules.TLMsgRouter" />
         <module name="modulePool" classfile="cn.tianlong.tlobject.modules.TLModulePool" />
         <module name="exceptionHandler" classfile="cn.tianlong.tlobject.modules.TLExceptionHandler" />

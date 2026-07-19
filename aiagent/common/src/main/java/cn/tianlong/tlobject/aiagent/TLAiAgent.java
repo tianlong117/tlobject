@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.xmlpull.v1.XmlPullParser;
 
+import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -338,6 +339,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             }
             // 自建模式
             TLBaseModule module = (TLBaseModule) getMyModule(defaultLlmProvider);
+            registerToRegistry(defaultLlmProvider, module, "provider");
             if (module instanceof TLLlmProvider) {
                 llmProvider = (TLLlmProvider) module;
                 putLog("LLM Provider initialized: " + defaultLlmProvider
@@ -359,6 +361,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
     protected void initContext() {
         try {
             TLBaseModule module = (TLBaseModule) getMyModule(contextModuleName);
+            registerToRegistry(contextModuleName, module, "context");
             if (module != null)
                 putLog("Private context initialized: " + contextModuleName, LogLevel.DEBUG);
         } catch (Exception e) {
@@ -382,6 +385,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
             try {
                 TLBaseModule module = (TLBaseModule) getMyModule(skillName);
+                registerToRegistry(skillName, module, "skill");
                 if (module instanceof TLBaseSkill) {
                     skills.put(((TLBaseSkill) module).getSkillName(), (TLBaseSkill) module);
                     putLog("Skill registered: " + skillName, LogLevel.DEBUG);
@@ -409,6 +413,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
             try {
                 TLBaseModule module = (TLBaseModule) getMyModule(storeName);
+                registerToRegistry(storeName, module, "memory");
                 if (module instanceof TLBaseMemory) {
                     memoryStores.put(storeName, (TLBaseMemory) module);
                     // 按配置创建专用的 embedding provider 实例并注入
@@ -458,6 +463,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             try {
                 // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
                 TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+                registerToRegistry(agentName, module, "agent");
                 subAgents.put(agentName, module);
                 putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
             } catch (Exception e) {
@@ -492,6 +498,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                 break;
             case "chatStreamSync":
                 returnMsg = doChat(fromWho, msg, true);
+                break;
+            case AGENT_HOTLOADSKILL:
+                returnMsg = hotLoadSkill(fromWho, msg);
                 break;
             case AGENT_REGISTERSKILL:
                 returnMsg = registerSkill(fromWho, msg);
@@ -1081,6 +1090,104 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
     // ======================== Skill管理 ========================
 
+    /**
+     * 热加载第三方脚本 Skill：指定 skillDir 目录名，自动拼出 TLScriptExecutionSkill 配置并创建。
+     */
+    protected TLMsg hotLoadSkill(Object fromWho, TLMsg msg) {
+        String skillDir = msg.getStringParam("skillDir", null);
+        if (skillDir == null || skillDir.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "skillDir required");
+        }
+        // 目录名转驼峰 → moduleName，如 "unicom-cloud-revenue" → "cloudRevenueScript"
+        String moduleName = dirToModuleName(skillDir) + "Script";
+        String skillName = msg.getStringParam(AI_P_SKILLNAME, "script_execution");
+        String interpreter = msg.getStringParam("interpreter", "python");
+        int maxExecutionTime = msg.getIntParam("maxExecutionTime", 120);
+        boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+
+        // 构建 skill 配置
+        HashMap<String, String> cfg = new HashMap<>();
+        cfg.put(MODULE_SameClassAs, "scriptExecutionSkill");
+        cfg.put("statup", "true");
+        cfg.put(AI_P_SKILLNAME, skillName);
+        cfg.put("interpreter", interpreter);
+        cfg.put("maxExecutionTime", String.valueOf(maxExecutionTime));
+        cfg.put("allowedScriptDir", "skills/" + skillDir + "/scripts");
+
+        // 注入配置
+        modulesClass.put(moduleName, cfg);
+        modulesParams.put(moduleName, new HashMap<>(cfg));
+
+        // 创建
+        TLBaseModule module = (TLBaseModule) getMyModule(moduleName);
+        if (module instanceof TLBaseSkill) {
+            TLBaseSkill skill = (TLBaseSkill) module;
+            skills.put(skill.getSkillName(), skill);
+            registerToRegistry(moduleName, module, "skill");
+            invalidateToolDefs();
+            putLog("Hot-loaded skill: " + moduleName + " (dir=" + skillDir + ")", LogLevel.INFO, AGENT_HOTLOADSKILL);
+
+            // 持久化
+            if (persist && configFile != null) {
+                try {
+                    writeSkillToConfig(moduleName, skillName, interpreter, maxExecutionTime, skillDir);
+                } catch (Exception e) {
+                    putLog("persist skill config failed", LogLevel.ERROR, AGENT_HOTLOADSKILL);
+                }
+            }
+            return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
+        }
+        return createMsg().setParam(RESULT, false).setParam("error", "create skill failed: " + moduleName);
+    }
+
+    /** "unicom-cloud-revenue" → "cloudRevenue" */
+    private String dirToModuleName(String dir) {
+        StringBuilder sb = new StringBuilder();
+        boolean upper = false;
+        for (int i = 0; i < dir.length(); i++) {
+            char c = dir.charAt(i);
+            if (c == '-' || c == '_') { upper = true; continue; }
+            if (i == 0 || upper) { sb.append(Character.toUpperCase(c)); upper = false; }
+            else sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /** 将 skill 配置写入 agent XML，在 </skills> 或 </moduleConfig> 前插入 */
+    private void writeSkillToConfig(String moduleName, String skillName, String interpreter,
+                                     int maxExecutionTime, String skillDir) throws IOException {
+        File file = new File(configFile);
+        if (!file.exists()) return;
+
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) content.append(line).append("\n");
+        }
+        String xml = content.toString();
+
+        String skillTag = "\t\t<skill name=\"" + moduleName
+                + "\" sameClassAs=\"scriptExecutionSkill\" statup=\"true\""
+                + " skillName=\"" + skillName + "\""
+                + " interpreter=\"" + interpreter + "\""
+                + " maxExecutionTime=\"" + maxExecutionTime + "\""
+                + " allowedScriptDir=\"skills/" + skillDir + "/scripts\"/>";
+
+        int pos = xml.indexOf("</skills>");
+        if (pos != -1) {
+            xml = xml.substring(0, pos) + skillTag + "\n" + xml.substring(pos);
+        } else {
+            pos = xml.indexOf("</moduleConfig>");
+            if (pos != -1) {
+                xml = xml.substring(0, pos) + "\t<skills>\n" + skillTag + "\n\t</skills>\n" + xml.substring(pos);
+            }
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            writer.write(xml);
+        }
+    }
+
     protected synchronized TLMsg registerSkill(Object fromWho, TLMsg msg) {
         // 支持通过instance直接注册
         TLBaseSkill instance = (TLBaseSkill) msg.getParam(INSTANCE, TLBaseSkill.class);
@@ -1099,6 +1206,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
 
         if (!skillModuleName.isEmpty() && !classfile.isEmpty()) {
             TLBaseModule module = (TLBaseModule) getNewModule(skillModuleName, classfile, skillParams);
+            registerToRegistry(skillModuleName, module, "skill");
             if (module instanceof TLBaseSkill) {
                 TLBaseSkill skill = (TLBaseSkill) module;
                 skills.put(skill.getSkillName(), skill);
@@ -1177,6 +1285,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLNAME, skillName);
     }
 
+    /**
+     * 向全局 moduleRegistry 注册子模块，key=ownerName:moduleName。
+     * registry 未配置时静默跳过（IGNOREMODULEISNULL）。
+     */
+    private void registerToRegistry(String subName, Object module, String moduleType) {
+        if (module == null) return;
+        TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
+                .setParam(REGISTRY_P_KEY, getName() + ":" + subName)
+                .setParam(MODULENAME, subName)
+                .setParam(REGISTRY_P_OWNERNAME, getName())
+                .setParam(REGISTRY_P_TYPE, moduleType)
+                .setParam(INSTANCE, module);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        putMsg(DEFAULTMODULEREGISTRY, msg);
+    }
+
     // ======================== Agent管理 ========================
 
     @SuppressWarnings("unchecked")
@@ -1198,6 +1322,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             // 一律 getMyModule 创建（内部已 modules.put），类由配置决定（classfile/sameClassAs），
             // group 也是普通子 agent，无需特判
             TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+            registerToRegistry(agentName, module, "agent");
             if (module == null) {
                 modulesClass.remove(agentName);
                 modulesParams.remove(agentName);

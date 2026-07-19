@@ -11,6 +11,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -995,6 +996,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             case MODULE_HOTLOADMODULE:
                 returnMsg = hotLoadModule(fromWho, msg);
                 break;
+            case MODULE_HOTUNLOADMODULE:
+                returnMsg = hotUnloadModule(fromWho, msg);
+                break;
             case "setshutdown":
                 returnMsg = setShutdown(fromWho, msg);
                 break;
@@ -1198,6 +1202,76 @@ public abstract class TLBaseModule extends TLBaseObject {
 
         putLog(moduleName + " loaded", LogLevel.INFO, MODULE_HOTLOADMODULE);
         return createMsg().setParam(INSTANCE, module).setParam(MODULENAME, moduleName);
+    }
+
+    /**
+     * 热卸载模块：从内存和配置文件中移除模块定义。
+     */
+    protected TLMsg hotUnloadModule(Object fromWho, TLMsg msg) {
+        String moduleName = msg.getStringParam(MODULENAME, null);
+        boolean fromFactory = msg.parseBoolean(HOTUNLOAD_P_FROMFACTORY, true);
+        boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+
+        if (moduleName == null) {
+            putLog("moduleName required", LogLevel.ERROR, MODULE_HOTUNLOADMODULE);
+            return null;
+        }
+
+        // 1. 从本地 modules 移除
+        modules.remove(moduleName);
+
+        // 2. 从 modulesClass 移除
+        if (modulesClass != null)
+            modulesClass.remove(moduleName);
+
+        // 3. 从 modulesParams 移除
+        if (modulesParams != null)
+            modulesParams.remove(moduleName);
+
+        // 4. 从工厂移除
+        if (fromFactory && moduleFactory != null) {
+            putMsg(moduleFactory, createMsg().setAction(FACTORY_REMOVEFROMFACTORY)
+                    .setParam(FACTORY_P_MODULENAME, moduleName));
+        }
+
+        // 5. 从配置文件删除
+        if (persist && configFile != null) {
+            try {
+                removeModuleFromConfig(moduleName);
+            } catch (Exception e) {
+                putLog("remove from config failed " + configFile, LogLevel.ERROR, MODULE_HOTUNLOADMODULE);
+                putLog(e, LogLevel.ERROR, MODULE_HOTUNLOADMODULE);
+            }
+        }
+
+        putLog(moduleName + " unloaded", LogLevel.INFO, MODULE_HOTUNLOADMODULE);
+        return createMsg().setParam(MODULENAME, moduleName).setParam(RESULT, true);
+    }
+
+    /**
+     * 从 XML 配置文件中删除指定模块的 <module> 条目，纯文本操作。
+     */
+    private void removeModuleFromConfig(String moduleName) throws IOException {
+        File file = new File(configFile);
+        if (!file.exists()) return;
+
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+        }
+
+        String xml = content.toString();
+        // 删除含该 name 的 <module .../> 行（可能出现在 <modules> 或 <modulesParams> 中）
+        String escaped = Pattern.quote(moduleName);
+        String regex = "\\s*<module\\s+[^>]*name=\"" + escaped + "\"[^>]*/>\\s*\\n?";
+        xml = xml.replaceAll(regex, "\n");
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            writer.write(xml);
+        }
     }
 
     /**

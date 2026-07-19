@@ -19,6 +19,7 @@ public interface TLParamString {
     final String DEFAULTDBSERVERMODULE = "dbserver";
     final String DEFAULTMODULEMONITOR = "moduleMonitor";
     final String DEFAULTCHECKPOINTMODULE = "checkpoint";
+    final String DEFAULTMODULEREGISTRY = "moduleRegistry";
     /**    模块名 *      */
     final String M_MSGBROADCAST = "msgBroadCast";
     final String M_HTTPCLIENT = "httpClient";
@@ -74,6 +75,13 @@ public interface TLParamString {
     final String FACTORY_REGISTINFACTORY = "registInFactory";
     final String FACTORY_REMOVEFROMFACTORY = "removeFromFactory";
     final String FACTORY_GETRUNMODULES = "getRunModulesInFactory";
+    final String REGISTRY_REGISTER = "register";
+    final String REGISTRY_UNREGISTER = "unregister";
+    final String REGISTRY_LIST = "list";
+    final String REGISTRY_GET = "get";
+    final String REGISTRY_P_KEY = "key";
+    final String REGISTRY_P_OWNERNAME = "ownerName";
+    final String REGISTRY_P_TYPE = "moduleType";
     final String FACTORY_R_MODULEINSTANCE = "instance";
     final String FACTORY_P_MODULENAME = "moduleName";
     final String FACTORY_P_NEWMODULENAME = "newModuleName";
@@ -112,8 +120,10 @@ public interface TLParamString {
     final String MODULE_GETAFTERMSG = "getAfterMsg";
     final String MODULE_RELOADCONFIG = "reloadConfig";
     final String MODULE_HOTLOADMODULE = "hotLoadModule";
+    final String MODULE_HOTUNLOADMODULE = "hotUnloadModule";
     final String HOTLOAD_P_TOFACTORY = "toFactory";
     final String HOTLOAD_P_PERSIST = "persist";
+    final String HOTUNLOAD_P_FROMFACTORY = "fromFactory";
     final String MODULE_SETFACTORY = "setFactory";
     final String DOWITHMSG = "doWiThMsg";
     final String MODULE_GETMODULEBYMODULE = "getModuleByModule";
