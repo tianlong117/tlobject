@@ -24,7 +24,10 @@
             <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
         </action>
         <action  value="dispatchUrl" >
-            <msg   action="setup" destination="website"  ></msg>
+            <msg   action="setup" destination="website"  />
+        </action>
+        <action  value="cook" >
+            <msg action="hotLoadModule" moduleName="son"  sameClassAs="person" toFactory="true"/>
         </action>
     </beforeMsgTable>
     <afterMsgTable>
@@ -41,6 +44,7 @@
             <msg   msgid="cook" />
         </action>
         <action  value="cook" >
+
             <msg action="analyzeAndSaveHtml" destination="flowAnalyzer" />
             <msg   action="setshutdown" value="true" />
             <msg action="setshutdown" destination="moduleFactory" value="true"/>

@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import cn.tianlong.tlobject.utils.TLToolsUtils;
 
+import java.io.*;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -991,6 +992,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             case MODULE_DESTROY:
                 returnMsg = destroy(fromWho, msg);
                 break;
+            case MODULE_HOTLOADMODULE:
+                returnMsg = hotLoadModule(fromWho, msg);
+                break;
             case "setshutdown":
                 returnMsg = setShutdown(fromWho, msg);
                 break;
@@ -1128,6 +1132,146 @@ public abstract class TLBaseModule extends TLBaseObject {
     public TLMsg setShutdown(Object fromWho, TLMsg msg) {
         shutdownable = "true".equals(msg.getStringParam("value", "true"));
         return createMsg();
+    }
+
+    /**
+     * 热加载模块：动态创建模块，可选注入工厂、可选持久化到配置文件。
+     */
+    protected TLMsg hotLoadModule(Object fromWho, TLMsg msg) {
+        String moduleName = msg.getStringParam(MODULENAME, null);
+        String classFile = msg.getStringParam(MODULE_CLASSFILE, null);
+        String sameClassAs = msg.getStringParam(MODULE_SameClassAs, null);
+        String mconfigFile = msg.getStringParam(MODULE_CONFIGFILE, null);
+        boolean toFactory = msg.parseBoolean(HOTLOAD_P_TOFACTORY, false);
+        boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+        HashMap<String, String> moduleParams = (HashMap<String, String>) msg.getParam(MODULE_PARAMS);
+
+        if (moduleName == null || (classFile == null && sameClassAs == null)) {
+            putLog("moduleName and classFile or sameClassAs required", LogLevel.ERROR, MODULE_HOTLOADMODULE);
+            return null;
+        }
+
+        // 1. 写入 modulesClass
+        if (modulesClass == null)
+            modulesClass = new ConcurrentHashMap<>();
+        HashMap<String, String> cfg = new HashMap<>();
+        if (classFile != null)
+            cfg.put(MODULE_CLASSFILE, classFile);
+        if (sameClassAs != null)
+            cfg.put(MODULE_SameClassAs, sameClassAs);
+        if (mconfigFile != null)
+            cfg.put(MODULE_CONFIGFILE, mconfigFile);
+        cfg.put(MODULE_SINGLETON, String.valueOf(toFactory));
+        modulesClass.put(moduleName, cfg);
+
+        // 2. 写入 modulesParams
+        if (moduleParams != null && !moduleParams.isEmpty()) {
+            if (modulesParams == null)
+                modulesParams = new ConcurrentHashMap<>();
+            modulesParams.put(moduleName, new HashMap<>(moduleParams));
+        }
+
+        // 3. 创建模块
+        Object module;
+        if (toFactory) {
+            module = getModule(moduleName);
+            if (module != null)
+                modules.put(moduleName, module);
+        } else {
+            module = getMyModule(moduleName);
+        }
+
+        if (module == null) {
+            putLog("create module failed " + moduleName, LogLevel.ERROR, MODULE_HOTLOADMODULE);
+            return null;
+        }
+
+        // 4. 持久化到配置文件
+        if (persist && configFile != null) {
+            try {
+                writeModuleToConfig(moduleName, classFile, sameClassAs, mconfigFile, moduleParams);
+            } catch (Exception e) {
+                putLog("persist config failed " + configFile, LogLevel.ERROR, MODULE_HOTLOADMODULE);
+                putLog(e, LogLevel.ERROR, MODULE_HOTLOADMODULE);
+            }
+        }
+
+        putLog(moduleName + " loaded", LogLevel.INFO, MODULE_HOTLOADMODULE);
+        return createMsg().setParam(INSTANCE, module).setParam(MODULENAME, moduleName);
+    }
+
+    /**
+     * 将模块配置追加写入 XML 配置文件，纯文本操作。
+     */
+    private void writeModuleToConfig(String moduleName, String classFile, String sameClassAs,
+                                      String mconfigFile, HashMap<String, String> moduleParams) throws IOException {
+        File file = new File(configFile);
+        if (!file.exists()) {
+            putLog("file not found " + configFile, LogLevel.WARN, MODULE_HOTLOADMODULE);
+            return;
+        }
+
+        // 读全部内容
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                content.append(line).append("\n");
+            }
+        }
+
+        String xml = content.toString();
+        StringBuilder moduleTag = new StringBuilder("\t\t<module name=\"").append(moduleName).append("\"");
+        if (classFile != null)
+            moduleTag.append(" classfile=\"").append(classFile).append("\"");
+        if (sameClassAs != null)
+            moduleTag.append(" sameClassAs=\"").append(sameClassAs).append("\"");
+        if (mconfigFile != null)
+            moduleTag.append(" configfile=\"").append(mconfigFile).append("\"");
+        moduleTag.append("/>");
+
+        String moduleTagStr = moduleTag.toString();
+
+        // 情况A: 已有 </modules> → 在它前面插入
+        int pos = xml.indexOf("</modules>");
+        if (pos != -1) {
+            xml = xml.substring(0, pos) + moduleTagStr + "\n" + xml.substring(pos);
+        } else {
+            // 情况B: 无 <modules> → 在 </moduleConfig> 前插入整段
+            pos = xml.indexOf("</moduleConfig>");
+            if (pos != -1) {
+                String modulesBlock = "\t<modules>\n" + moduleTagStr + "\n\t</modules>\n";
+                xml = xml.substring(0, pos) + modulesBlock + xml.substring(pos);
+            } else {
+                putLog("no </moduleConfig> found", LogLevel.WARN, MODULE_HOTLOADMODULE);
+                return;
+            }
+        }
+
+        // 如果有参数，同样处理 <modulesParams>
+        if (moduleParams != null && !moduleParams.isEmpty()) {
+            StringBuilder paramAttrs = new StringBuilder();
+            for (Map.Entry<String, String> e : moduleParams.entrySet()) {
+                paramAttrs.append(" ").append(e.getKey()).append("=\"").append(e.getValue()).append("\"");
+            }
+            String paramTag = "\t\t<module name=\"" + moduleName + "\"" + paramAttrs + "/>";
+
+            int ppos = xml.indexOf("</modulesParams>");
+            if (ppos != -1) {
+                xml = xml.substring(0, ppos) + paramTag + "\n" + xml.substring(ppos);
+            } else {
+                ppos = xml.indexOf("</moduleConfig>");
+                if (ppos != -1) {
+                    String paramsBlock = "\t<modulesParams>\n" + paramTag + "\n\t</modulesParams>\n";
+                    xml = xml.substring(0, ppos) + paramsBlock + xml.substring(ppos);
+                }
+            }
+        }
+
+        // 写回文件
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+            writer.write(xml);
+        }
     }
 
     protected TLMsg msgTransfer(Object fromWho, TLMsg msg) {

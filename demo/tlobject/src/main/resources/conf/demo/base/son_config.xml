@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+          <verison value="1"></verison>
+    </params>
+    <initMsg>
+           <msg action="study"   ></msg>
+    </initMsg>
+    <beforeMsgTable>
+        <action  value="*" >
+            <msg   action="saveCheckpoint" destination="checkpoint" ifHistory="true" />
+        </action>
+    </beforeMsgTable>
+    <afterMsgTable>
+        <action  value="*" >
+            <msg   action="clearAndForward" destination="checkpoint"  />
+        </action>
+    </afterMsgTable>
+</moduleConfig>

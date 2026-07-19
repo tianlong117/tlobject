@@ -111,6 +111,9 @@ public interface TLParamString {
     final String MODULE_ADDAFTERMSG = "addAfterMsg";
     final String MODULE_GETAFTERMSG = "getAfterMsg";
     final String MODULE_RELOADCONFIG = "reloadConfig";
+    final String MODULE_HOTLOADMODULE = "hotLoadModule";
+    final String HOTLOAD_P_TOFACTORY = "toFactory";
+    final String HOTLOAD_P_PERSIST = "persist";
     final String MODULE_SETFACTORY = "setFactory";
     final String DOWITHMSG = "doWiThMsg";
     final String MODULE_GETMODULEBYMODULE = "getModuleByModule";

@@ -150,7 +150,7 @@ public class Person extends DemoCommon {
                 shutdownable =false ;
                 say( "屋子亮啦，回家的感觉真好。 上上网吧 " + thread);
                 try {
-                    sleep(8000);
+                    sleep(3000);
                 } catch (InterruptedException e) {
                     throw new RuntimeException(e);
                 }
