@@ -45,7 +45,11 @@ public  class TLModuleConfig extends TLBaseModule {
         InputStream xmlData= setFileInputStream(null);
         if(xmlData ==null)
             return null ;
-        parseconfig(xmlData,null);
+        try {
+            parseconfig(xmlData,null);
+        } finally {
+            try { xmlData.close(); } catch (IOException ignored) {}
+        }
         return  this ;
     }
 
@@ -73,10 +77,11 @@ public  class TLModuleConfig extends TLBaseModule {
         return  parseFile(paramName,null) ;
     }
     public void parseFile(File file){
-        try {
-            InputStream in = new FileInputStream(file);
+        try (InputStream in = new FileInputStream(file)) {
             parseconfig(in,null);
         } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
             e.printStackTrace();
         }
     }
@@ -84,7 +89,13 @@ public  class TLModuleConfig extends TLBaseModule {
         if(file ==null)
             file = configFile ;
         InputStream xmlData= setFileInputStream(file);
-         return parseconfig(xmlData,paramName);
+        try {
+            return parseconfig(xmlData,paramName);
+        } finally {
+            if (xmlData != null) {
+                try { xmlData.close(); } catch (IOException ignored) {}
+            }
+        }
     }
     public HashMap getModulesClass() {
         return modulesClass;

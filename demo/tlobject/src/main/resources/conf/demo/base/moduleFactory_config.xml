@@ -9,6 +9,10 @@
         <ifModuleMonitor value="false"/>
         <defaultLogModule value="log4j"/>
         <applicationId value="demo"/>
+        <!-- 自定义类加载器方式一：指定 ClassLoader 实现类全限定名 -->
+        <!-- <classLoaderClass value="com.example.MyClassLoader"/> -->
+        <!-- 自定义类加载器方式二：指定额外 class/jar 目录，框架自动构建 URLClassLoader -->
+        <!-- <extraClassPath value="D:/myapp/plugins;D:/myapp/lib"/> -->
     </params>
     <commonParams>
         <loglevel value="trace"/>

@@ -7,6 +7,8 @@ import org.xmlpull.v1.XmlPullParser;
 import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -36,6 +38,7 @@ public class TLObjectFactory extends TLBaseModule {
     protected long startTime = System.nanoTime();
     protected TLBaseModule  parentFactory ;
     protected  String  classPath ;
+    protected ClassLoader classLoader;
     protected final ConcurrentHashMap<String, Object> moduleLocks = new ConcurrentHashMap<>();
     public TLObjectFactory(String name, String factoryConfigFile) {
         super(name, factoryConfigFile);
@@ -120,6 +123,32 @@ public class TLObjectFactory extends TLBaseModule {
                 ifModuleMonitor = Boolean.parseBoolean(params.get("ifModuleMonitor"));
             if (params.get("defaultUseParentFactory") !=null)
                 defaultUseParentFactory = Boolean.parseBoolean(params.get("defaultUseParentFactory"));
+            // 自定义 ClassLoader：配置方式，setter 已设则不覆盖
+            if (classLoader == null && params.get("classLoaderClass") != null) {
+                try {
+                    Class<?> cl = Class.forName(params.get("classLoaderClass"));
+                    try {
+                        classLoader = (ClassLoader) cl.getConstructor(ClassLoader.class)
+                                .newInstance(ClassLoader.getSystemClassLoader());
+                    } catch (NoSuchMethodException e) {
+                        classLoader = (ClassLoader) cl.getDeclaredConstructor().newInstance();
+                    }
+                } catch (Exception e) {
+                    putLog("classLoaderClass 实例化失败: " + params.get("classLoaderClass"), LogLevel.ERROR);
+                }
+            }
+            if (classLoader == null && params.get("extraClassPath") != null) {
+                try {
+                    String[] paths = params.get("extraClassPath").split(";");
+                    URL[] urls = new URL[paths.length];
+                    for (int i = 0; i < paths.length; i++) {
+                        urls[i] = new File(paths[i].trim()).toURI().toURL();
+                    }
+                    classLoader = new URLClassLoader(urls, ClassLoader.getSystemClassLoader());
+                } catch (Exception e) {
+                    putLog("extraClassPath 配置错误: " + params.get("extraClassPath"), LogLevel.ERROR);
+                }
+            }
         }
         modules.put(name, this);
         if (factoryBoot != null && !factoryBoot.isEmpty())
@@ -209,6 +238,12 @@ public class TLObjectFactory extends TLBaseModule {
     }
     public void setClassPath(String classPath){
         this.classPath =classPath ;
+    }
+    public ClassLoader getClassLoader(){
+        return this.classLoader;
+    }
+    public void setClassLoader(ClassLoader classLoader){
+        this.classLoader = classLoader;
     }
     public void setConfigDir(String configDir) {
         this.configDir = configDir;
@@ -850,17 +885,28 @@ public class TLObjectFactory extends TLBaseModule {
 
     public  Class<?> myClassforName(String className){
         Class<?> cls = null; // 取得Class对象
+        // 1. 先试自定义 ClassLoader
+        if (classLoader != null) {
+            try {
+                cls = Class.forName(className, true, classLoader);
+                return cls;
+            } catch (ClassNotFoundException ignored) {}
+        }
+        // 2. 调用者 ClassLoader
         try {
             cls = Class.forName(className);
         } catch (ClassNotFoundException e)
         {
+            // 3. 系统 ClassLoader 兜底
             ClassLoader systemClassLoader = ClassLoader.getSystemClassLoader();
-            try {
-                cls=Class.forName(className,true,systemClassLoader) ;
-            } catch (ClassNotFoundException e1) {
-                e1.printStackTrace();
-                String log= "classPath:"+classPath +"\n"+className + ": 没有找到类文件\n"+TLToolsUtils.exceptionToString(e1) ;
-                putLog(log, LogLevel.ERROR, "myClassforName");
+            if (systemClassLoader != classLoader) {
+                try {
+                    cls = Class.forName(className, true, systemClassLoader);
+                } catch (ClassNotFoundException e1) {
+                    e1.printStackTrace();
+                    String log= "classPath:"+classPath +"\n"+className + ": 没有找到类文件\n"+TLToolsUtils.exceptionToString(e1) ;
+                    putLog(log, LogLevel.ERROR, "myClassforName");
+                }
             }
         }
         return  cls;

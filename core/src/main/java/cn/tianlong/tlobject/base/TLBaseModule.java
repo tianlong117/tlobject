@@ -233,8 +233,8 @@ public abstract class TLBaseModule extends TLBaseObject {
                    field.setAccessible(true);
                    field.set(this ,value);
                } catch (IllegalAccessException e) {
-                   e.printStackTrace();
                    putLog(" field set error:"+ fieldName,LogLevel.ERROR);
+                   putLog(e, LogLevel.ERROR, "setfieldFromModule");
                }
            }
         }
@@ -401,8 +401,8 @@ public abstract class TLBaseModule extends TLBaseObject {
             Field field=clazz.getDeclaredField(fieldName) ;
             return  field ;
         } catch (NoSuchFieldException e) {
-            e.printStackTrace();
             putLog("no field:"+fieldName ,LogLevel.ERROR);
+            putLog(e, LogLevel.ERROR, "getField");
             return null ;
         }
     }
@@ -792,9 +792,9 @@ public abstract class TLBaseModule extends TLBaseObject {
         try {
             result = (TLMsg) method.invoke(this,fromWho,msg);
         } catch (IllegalAccessException e) {
-            e.printStackTrace();
+            putLog(e, LogLevel.ERROR, action);
         } catch (InvocationTargetException e) {
-            e.printStackTrace();
+            putLog(e, LogLevel.ERROR, action);
         }
         return result;
     }
