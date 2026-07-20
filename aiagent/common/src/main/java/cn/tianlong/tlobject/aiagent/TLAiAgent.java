@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.aiagent;
 import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.io.*;
@@ -1211,57 +1212,30 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
     }
 
-    /** 从 XML 配置文件中删除指定模块名的 <skill> 行 */
+    /** 从 XML 配置文件中删除指定模块名的 &lt;skill&gt; 条目（DOM 操作） */
     private void removeSkillFromConfig(String moduleName) throws IOException {
-        File file = new File(configFile);
-        if (!file.exists()) return;
-
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) content.append(line).append("\n");
-        }
-        String xml = content.toString();
-        String escaped = java.util.regex.Pattern.quote(moduleName);
-        xml = xml.replaceAll("\\s*<skill\\s+[^>]*name=\"" + escaped + "\"[^>]*/>\\s*\\n?", "\n");
-
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-            writer.write(xml);
+        try {
+            TLXmlConfigWriter.removeElement(configFile, "skills", "skill", moduleName);
+        } catch (Exception e) {
+            throw new IOException("remove from <skills> failed: " + moduleName, e);
         }
     }
 
-    /** 将 skill 配置写入 agent XML，在 </skills> 或 </moduleConfig> 前插入 */
+    /** 将 skill 配置写入 agent XML（DOM 操作，替换已有同名条目） */
     private void writeSkillToConfig(String moduleName, String skillName, String interpreter,
                                      int maxExecutionTime, String skillDir) throws IOException {
-        File file = new File(configFile);
-        if (!file.exists()) return;
+        Map<String, String> attrs = new LinkedHashMap<>();
+        attrs.put("sameClassAs", "scriptExecutionSkill");
+        attrs.put("statup", "true");
+        attrs.put("skillName", skillName);
+        if (interpreter != null) attrs.put("interpreter", interpreter);
+        attrs.put("maxExecutionTime", String.valueOf(maxExecutionTime));
+        attrs.put("allowedScriptDir", "skills/" + skillDir + "/scripts");
 
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) content.append(line).append("\n");
-        }
-        String xml = content.toString();
-
-        String skillTag = "\t\t<skill name=\"" + moduleName
-                + "\" sameClassAs=\"scriptExecutionSkill\" statup=\"true\""
-                + " skillName=\"" + skillName + "\""
-                + " interpreter=\"" + interpreter + "\""
-                + " maxExecutionTime=\"" + maxExecutionTime + "\""
-                + " allowedScriptDir=\"skills/" + skillDir + "/scripts\"/>";
-
-        int pos = xml.indexOf("</skills>");
-        if (pos != -1) {
-            xml = xml.substring(0, pos) + skillTag + "\n" + xml.substring(pos);
-        } else {
-            pos = xml.indexOf("</moduleConfig>");
-            if (pos != -1) {
-                xml = xml.substring(0, pos) + "\t<skills>\n" + skillTag + "\n\t</skills>\n" + xml.substring(pos);
-            }
-        }
-
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-            writer.write(xml);
+        try {
+            TLXmlConfigWriter.addOrReplaceElement(configFile, "skills", "skill", moduleName, attrs);
+        } catch (Exception e) {
+            throw new IOException("write to <skills> failed: " + moduleName, e);
         }
     }
 

@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import cn.tianlong.tlobject.utils.TLToolsUtils;
+import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 
 import java.io.*;
 import java.lang.reflect.Field;
@@ -11,7 +12,6 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.regex.Pattern;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -1249,102 +1249,46 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     /**
-     * 从 XML 配置文件中删除指定模块的 <module> 条目，纯文本操作。
+     * 从 XML 配置文件中删除指定模块的 &lt;module&gt; 条目（DOM 操作）。
      */
     private void removeModuleFromConfig(String moduleName) throws IOException {
-        File file = new File(configFile);
-        if (!file.exists()) return;
-
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
-            }
+        try {
+            TLXmlConfigWriter.removeElement(configFile, "modules", "module", moduleName);
+        } catch (Exception e) {
+            throw new IOException("remove from <modules> failed: " + moduleName, e);
         }
-
-        String xml = content.toString();
-        // 删除含该 name 的 <module .../> 行（可能出现在 <modules> 或 <modulesParams> 中）
-        String escaped = Pattern.quote(moduleName);
-        String regex = "\\s*<module\\s+[^>]*name=\"" + escaped + "\"[^>]*/>\\s*\\n?";
-        xml = xml.replaceAll(regex, "\n");
-
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-            writer.write(xml);
+        try {
+            TLXmlConfigWriter.removeElement(configFile, "modulesParams", "module", moduleName);
+        } catch (Exception e) {
+            throw new IOException("remove from <modulesParams> failed: " + moduleName, e);
         }
     }
 
     /**
-     * 将模块配置追加写入 XML 配置文件，纯文本操作。
+     * 将模块配置写入 XML 配置文件（DOM 操作，替换已有同名条目）。
      */
     private void writeModuleToConfig(String moduleName, String classFile, String sameClassAs,
                                       String mconfigFile, HashMap<String, String> moduleParams) throws IOException {
-        File file = new File(configFile);
-        if (!file.exists()) {
-            putLog("file not found " + configFile, LogLevel.WARN, MODULE_HOTLOADMODULE);
-            return;
+        // <modules> 区段
+        Map<String, String> moduleAttrs = new LinkedHashMap<>();
+        if (classFile != null)   moduleAttrs.put("classfile", classFile);
+        if (sameClassAs != null) moduleAttrs.put("sameClassAs", sameClassAs);
+        if (mconfigFile != null) moduleAttrs.put("configfile", mconfigFile);
+
+        try {
+            TLXmlConfigWriter.addOrReplaceElement(configFile, "modules", "module", moduleName, moduleAttrs);
+        } catch (Exception e) {
+            throw new IOException("write to <modules> failed: " + moduleName, e);
         }
 
-        // 读全部内容
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                content.append(line).append("\n");
-            }
-        }
-
-        String xml = content.toString();
-        StringBuilder moduleTag = new StringBuilder("\t\t<module name=\"").append(moduleName).append("\"");
-        if (classFile != null)
-            moduleTag.append(" classfile=\"").append(classFile).append("\"");
-        if (sameClassAs != null)
-            moduleTag.append(" sameClassAs=\"").append(sameClassAs).append("\"");
-        if (mconfigFile != null)
-            moduleTag.append(" configfile=\"").append(mconfigFile).append("\"");
-        moduleTag.append("/>");
-
-        String moduleTagStr = moduleTag.toString();
-
-        // 情况A: 已有 </modules> → 在它前面插入
-        int pos = xml.indexOf("</modules>");
-        if (pos != -1) {
-            xml = xml.substring(0, pos) + moduleTagStr + "\n" + xml.substring(pos);
-        } else {
-            // 情况B: 无 <modules> → 在 </moduleConfig> 前插入整段
-            pos = xml.indexOf("</moduleConfig>");
-            if (pos != -1) {
-                String modulesBlock = "\t<modules>\n" + moduleTagStr + "\n\t</modules>\n";
-                xml = xml.substring(0, pos) + modulesBlock + xml.substring(pos);
-            } else {
-                putLog("no </moduleConfig> found", LogLevel.WARN, MODULE_HOTLOADMODULE);
-                return;
-            }
-        }
-
-        // 如果有参数，同样处理 <modulesParams>
+        // <modulesParams> 区段（仅有参数时写入）
         if (moduleParams != null && !moduleParams.isEmpty()) {
-            StringBuilder paramAttrs = new StringBuilder();
-            for (Map.Entry<String, String> e : moduleParams.entrySet()) {
-                paramAttrs.append(" ").append(e.getKey()).append("=\"").append(e.getValue()).append("\"");
+            Map<String, String> paramsAttrs = new LinkedHashMap<>(moduleParams);
+            try {
+                TLXmlConfigWriter.addOrReplaceElement(configFile, "modulesParams", "module", moduleName, paramsAttrs);
+            } catch (Exception e) {
+                throw new IOException("write to <modulesParams> failed: " + moduleName, e);
             }
-            String paramTag = "\t\t<module name=\"" + moduleName + "\"" + paramAttrs + "/>";
-
-            int ppos = xml.indexOf("</modulesParams>");
-            if (ppos != -1) {
-                xml = xml.substring(0, ppos) + paramTag + "\n" + xml.substring(ppos);
-            } else {
-                ppos = xml.indexOf("</moduleConfig>");
-                if (ppos != -1) {
-                    String paramsBlock = "\t<modulesParams>\n" + paramTag + "\n\t</modulesParams>\n";
-                    xml = xml.substring(0, ppos) + paramsBlock + xml.substring(ppos);
-                }
-            }
-        }
-
-        // 写回文件
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
-            writer.write(xml);
         }
     }
 
