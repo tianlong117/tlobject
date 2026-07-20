@@ -2,22 +2,15 @@ package cn.tianlong.tlobject.utils;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.w3c.dom.Text;
 
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.transform.OutputKeys;
-import javax.xml.transform.Transformer;
-import javax.xml.transform.TransformerFactory;
-import javax.xml.transform.dom.DOMSource;
-import javax.xml.transform.stream.StreamResult;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.OutputStreamWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -40,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><b>并发控制</b> — 按文件规范路径映射锁对象，同一文件 read-modify-write 串行化</li>
  *   <li><b>原子写入</b> — 先写 .tmp 再 {@code ATOMIC_MOVE}，失败降级 {@code REPLACE_EXISTING}</li>
  *   <li><b>UTF-8</b> — 全程 {@link StandardCharsets#UTF_8}；DOM {@code setAttribute()} 自动处理 XML 转义</li>
+ *   <li><b>属性顺序</b> — 自定义序列化器保持 DOM 插入顺序（{@code LinkedHashMap}），不重排</li>
  * </ul>
  *
  * @author tianlong
@@ -69,6 +63,7 @@ public class TLXmlConfigWriter {
      */
     public static void removeElement(String filePath, String parentTag,
                                       String elementTag, String elementName) throws Exception {
+        filePath = normalizePath(filePath);
         Object lock = getLock(filePath);
         synchronized (lock) {
             backupFile(filePath);
@@ -90,6 +85,10 @@ public class TLXmlConfigWriter {
             }
 
             if (removed) {
+                // 父区段已无子元素则一并删除（避免残留空 <skills/> 等）
+                if (!hasElementChildren(parent)) {
+                    parent.getParentNode().removeChild(parent);
+                }
                 writeXml(doc, filePath);
             }
         }
@@ -112,6 +111,7 @@ public class TLXmlConfigWriter {
     public static void addOrReplaceElement(String filePath, String parentTag,
                                             String elementTag, String elementName,
                                             Map<String, String> attributes) throws Exception {
+        filePath = normalizePath(filePath);
         Object lock = getLock(filePath);
         synchronized (lock) {
             backupFile(filePath);
@@ -181,9 +181,23 @@ public class TLXmlConfigWriter {
     }
 
     /**
+     * 路径规范化：去掉 Windows 路径前缀 "/"（如 /D:/... → D:/...），
+     * 并用 {@link File#getAbsolutePath()} 消除双斜杠等不规范写法。
+     */
+    private static String normalizePath(String filePath) {
+        if (filePath == null) return null;
+        // 去掉 Windows 绝对路径前面多余的 "/"
+        if (filePath.matches("^/[A-Za-z]:[/\\\\].*")) {
+            filePath = filePath.substring(1);
+        }
+        return new File(filePath).getAbsolutePath();
+    }
+
+    /**
      * 递归清除 DOM 树中所有纯空白文本节点。
      * <p>
-     * 写入前调用此方法可避免 Transformer INDENT 与已有空白节点叠加导致双倍缩进。
+     * 写入前调用，避免原始 XML 中的缩进空白与序列化器的统一缩进叠加。
+     * 注释节点保留不动。
      */
     private static void stripWhitespaceNodes(Node node) {
         NodeList children = node.getChildNodes();
@@ -227,6 +241,15 @@ public class TLXmlConfigWriter {
         return builder.parse(new File(filePath));
     }
 
+    /** 判断元素是否有 ELEMENT 类型的子节点（忽略注释和空白文本） */
+    private static boolean hasElementChildren(Element parent) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i).getNodeType() == Node.ELEMENT_NODE) return true;
+        }
+        return false;
+    }
+
     /** 在文档中查找指定标签名的父元素（取第一个匹配的直接子元素） */
     private static Element findParentElement(Document doc, String parentTag) {
         Element root = doc.getDocumentElement();
@@ -253,8 +276,8 @@ public class TLXmlConfigWriter {
     /**
      * DOM 写回文件（原子写入：先写 .tmp 再 move）。
      * <p>
-     * 写入前会清除所有纯空白文本节点，由 Transformer INDENT 统一缩进，
-     * 避免手动缩进与自动缩进叠加导致格式混乱。
+     * 自定义序列化器替代 Transformer，保持属性按 DOM 插入顺序输出（不重排）。
+     * 写入前清除纯空白文本节点，由序列化器统一 4 空格缩进。
      * <p>
      * 写入失败时 .tmp 保留在目标路径旁，方便手动恢复。
      */
@@ -262,35 +285,110 @@ public class TLXmlConfigWriter {
         Path targetPath = Paths.get(filePath);
         Path tmpPath = targetPath.resolveSibling(targetPath.getFileName() + ".tmp");
 
-        // 清除已有空白节点，让 Transformer INDENT 从头格式化
+        // 清除已有空白节点
         stripWhitespaceNodes(doc.getDocumentElement());
 
-        TransformerFactory tf = TransformerFactory.newInstance();
-        Transformer transformer = tf.newTransformer();
-        transformer.setOutputProperty(OutputKeys.ENCODING, "UTF-8");
-        transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-        transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
-        transformer.setOutputProperty(OutputKeys.STANDALONE, "no");
+        // 自定义序列化：保持属性顺序 + 统一缩进
+        StringBuilder sb = new StringBuilder();
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+        serializeNode(doc.getDocumentElement(), sb, 0);
 
-        // 先写到临时文件
-        try (OutputStream os = new FileOutputStream(tmpPath.toFile());
-             OutputStreamWriter writer = new OutputStreamWriter(os, StandardCharsets.UTF_8)) {
-            transformer.transform(new DOMSource(doc), new StreamResult(writer));
-        }
+        Files.writeString(tmpPath, sb.toString(), StandardCharsets.UTF_8);
 
         // 原子替换：优先 ATOMIC_MOVE，不支持的平台降级 REPLACE_EXISTING
         try {
             try {
                 Files.move(tmpPath, targetPath, StandardCopyOption.ATOMIC_MOVE);
-                // ATOMIC_MOVE 成功：tmp 已不存在，无需清理
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(tmpPath, targetPath, StandardCopyOption.REPLACE_EXISTING);
-                // REPLACE_EXISTING 成功：手动清理残留 tmp
                 Files.deleteIfExists(tmpPath);
             }
         } catch (Exception e) {
-            // move 失败：保留 .tmp 方便手动恢复，不删除
+            // move 失败：保留 .tmp 方便手动恢复
             throw e;
         }
+    }
+
+    /**
+     * 递归序列化 DOM 节点为 XML 字符串。
+     * <p>
+     * 显式确保 {@code name} 属性始终第一个输出，与 {@link TLModuleConfig#getHashMap}
+     * 的解析顺序一致。其余属性按 DOM 顺序输出。
+     * 注释保留，纯空白文本节点已在写入前被 {@link #stripWhitespaceNodes} 清除。
+     */
+    private static void serializeNode(Node node, StringBuilder sb, int indent) {
+        switch (node.getNodeType()) {
+            case Node.ELEMENT_NODE: {
+                Element elem = (Element) node;
+                indent(sb, indent).append('<').append(elem.getTagName());
+
+                NamedNodeMap attrs = elem.getAttributes();
+                // 强制 name 属性第一个输出（getHashMap 依赖此顺序）
+                if (attrs != null) {
+                    Node nameAttr = attrs.getNamedItem("name");
+                    if (nameAttr != null) {
+                        sb.append(' ').append("name").append("=\"")
+                          .append(escapeXml(nameAttr.getNodeValue())).append('"');
+                    }
+                    // 其余属性按 DOM 顺序
+                    for (int i = 0; i < attrs.getLength(); i++) {
+                        Node attr = attrs.item(i);
+                        if (!"name".equals(attr.getNodeName())) {
+                            sb.append(' ').append(attr.getNodeName()).append("=\"")
+                              .append(escapeXml(attr.getNodeValue())).append('"');
+                        }
+                    }
+                }
+
+                NodeList children = elem.getChildNodes();
+                if (children.getLength() == 0) {
+                    sb.append("/>\n");
+                } else {
+                    sb.append(">\n");
+                    for (int i = 0; i < children.getLength(); i++) {
+                        serializeNode(children.item(i), sb, indent + 1);
+                    }
+                    indent(sb, indent).append("</").append(elem.getTagName()).append(">\n");
+                }
+                break;
+            }
+            case Node.TEXT_NODE: {
+                String text = node.getTextContent();
+                if (text != null && !text.trim().isEmpty()) {
+                    indent(sb, indent).append(escapeXml(text.trim())).append('\n');
+                }
+                break;
+            }
+            case Node.COMMENT_NODE: {
+                indent(sb, indent).append("<!--").append(node.getNodeValue()).append("-->\n");
+                break;
+            }
+            // CDATA、processing instruction 等其他类型按原样输出
+            default:
+                break;
+        }
+    }
+
+    /** 缩进辅助 */
+    private static StringBuilder indent(StringBuilder sb, int level) {
+        for (int i = 0; i < level; i++) sb.append("    ");
+        return sb;
+    }
+
+    /** XML 特殊字符转义 */
+    private static String escapeXml(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '&':  sb.append("&amp;"); break;
+                case '<':  sb.append("&lt;"); break;
+                case '>':  sb.append("&gt;"); break;
+                case '"':  sb.append("&quot;"); break;
+                case '\'': sb.append("&apos;"); break;
+                default:   sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 }

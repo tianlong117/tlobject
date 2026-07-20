@@ -37,6 +37,7 @@
                 <configuration>
                     <source>17</source>
                     <target>17</target>
+                    <encoding>UTF-8</encoding>
                     <compilerArguments>
                         <bootclasspath>${java.home}/lib/rt.jar${path.separator}${java.home}/lib/jce.jar
                         </bootclasspath>

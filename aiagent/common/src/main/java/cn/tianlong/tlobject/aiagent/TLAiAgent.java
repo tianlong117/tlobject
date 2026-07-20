@@ -305,6 +305,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         initMemoryStores();
         initAgents();
         super.runStartMsg();
+        // 3.5 将本 Agent 自身注册到全局 registry（供 /install 等命令查找）
+        registerToRegistry(name, this, "agent");
         // 4. 启动后自动续跑 mid-loop 断点（state=checkpoint，异常退出留下的）。
         // L1 完成态会话不在启动时全量装载——doChat 每轮本就 loadSessionCheckpoint 文件优先，
         // resumeSession/findLatestSession 也按需读文件，启动全量恢复是冗余且随文件数无限膨胀
@@ -1383,6 +1385,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             subAgents.put(agentName, module);
             putLog("Agent registered: " + agentName, LogLevel.DEBUG);
             invalidateToolDefs();
+
+            // 持久化到配置文件
+            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+            if (persist && configFile != null) {
+                try {
+                    Map<String, String> attrs = new LinkedHashMap<>();
+                    for (Map.Entry<String, String> e : cfg.entrySet()) {
+                        if (e.getValue() != null) attrs.put(e.getKey(), e.getValue());
+                    }
+                    TLXmlConfigWriter.addOrReplaceElement(configFile, "agents", "agent", agentName, attrs);
+                } catch (Exception ex) {
+                    putLog("persist agent config failed: " + ex, LogLevel.ERROR, AGENT_HOTLOADSKILL);
+                }
+            }
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
         } catch (Exception e) {
             putLog("Failed to register agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
@@ -1399,6 +1415,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             // group 也是实例（在 subAgents 中），空了即退出主控模式
             if (subAgents.isEmpty()) isMaster = false;
             if (removed != null) invalidateToolDefs();
+
+            // 持久化：从配置文件删除
+            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+            if (persist && configFile != null) {
+                try {
+                    TLXmlConfigWriter.removeElement(configFile, "agents", "agent", agentName);
+                } catch (Exception ex) {
+                    putLog("remove agent from config failed: " + ex, LogLevel.ERROR, AGENT_HOTLOADSKILL);
+                }
+            }
             return createMsg().setParam(RESULT, removed != null);
         }
         return createMsg().setParam(RESULT, false).setParam("error", "agentName required");

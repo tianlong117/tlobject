@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.util.ArrayList;
@@ -13,6 +14,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -204,6 +206,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
             case AGENT_REGISTERAGENT:
                 returnMsg = registerMember(fromWho, msg);
                 break;
+            case AGENT_UNREGISTERAGENT:
+                returnMsg = unregisterMember(fromWho, msg);
+                break;
             case AGENT_GETDESCRIPTION:
                 returnMsg = createMsg().setParam(RESULT, true)
                         .setParam(AI_P_AGENTDESCRIPTION, agentDescription != null ? agentDescription : "");
@@ -284,6 +289,20 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
                 appendMember(agentName);
             }
             putLog("Group member registered: " + agentName + " (group " + name + ")", LogLevel.DEBUG);
+
+            // 持久化到配置文件
+            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+            if (persist && configFile != null) {
+                try {
+                    Map<String, String> attrs = new LinkedHashMap<>();
+                    for (Map.Entry<String, String> e : cfg.entrySet()) {
+                        if (e.getValue() != null) attrs.put(e.getKey(), e.getValue());
+                    }
+                    TLXmlConfigWriter.addOrReplaceElement(configFile, "agents", "agent", agentName, attrs);
+                } catch (Exception ex) {
+                    putLog("persist group member config failed: " + ex, LogLevel.ERROR);
+                }
+            }
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
         } catch (Exception e) {
             putLog("Failed to register group member: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
@@ -297,6 +316,41 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         if (memberNames != null) Collections.addAll(list, memberNames);
         if (!list.contains(mName)) list.add(mName);
         memberNames = list.toArray(new String[0]);
+    }
+
+    /** 从调度名单移除成员 */
+    protected synchronized void removeMember(String mName) {
+        if (memberNames == null) return;
+        List<String> list = new ArrayList<>();
+        for (String n : memberNames) {
+            if (!n.equals(mName)) list.add(n);
+        }
+        memberNames = list.toArray(new String[0]);
+    }
+
+    /** 卸载成员：从内存和配置文件移除 */
+    protected synchronized TLMsg unregisterMember(Object fromWho, TLMsg msg) {
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (agentName.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+        }
+        removeMember(agentName);
+        modules.remove(agentName);
+        if (modulesClass != null) modulesClass.remove(agentName);
+        if (modulesParams != null) modulesParams.remove(agentName);
+        if (supervisorName != null && supervisorName.equals(agentName)) supervisorName = null;
+
+        // 持久化：从配置文件删除
+        boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+        if (persist && configFile != null) {
+            try {
+                TLXmlConfigWriter.removeElement(configFile, "agents", "agent", agentName);
+            } catch (Exception ex) {
+                putLog("remove group member from config failed: " + ex, LogLevel.ERROR);
+            }
+        }
+        putLog("Group member unregistered: " + agentName + " (group " + name + ")", LogLevel.DEBUG);
+        return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
     }
 
     /**

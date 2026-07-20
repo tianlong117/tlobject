@@ -451,10 +451,14 @@ public  class TLModuleConfig extends TLBaseModule {
                 String name = xpp.getName();
                 if (name.equals(tag)) {
                     sonMap = new HashMap<>();
-                    findex = xpp.getAttributeValue(0);
+                    // 按属性名取值，不依赖属性顺序（DOM Transformer 会按字母重排）
+                    findex = xpp.getAttributeValue(null, "name");
                 }
-                for (int i = 1; i < xpp.getAttributeCount(); i++) {
-                    sonMap.put(xpp.getAttributeName(i), xpp.getAttributeValue(i));
+                for (int i = 0; i < xpp.getAttributeCount(); i++) {
+                    String attrName = xpp.getAttributeName(i);
+                    if (!"name".equals(attrName)) {
+                        sonMap.put(attrName, xpp.getAttributeValue(i));
+                    }
                 }
             }
         }
