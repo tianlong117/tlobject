@@ -561,15 +561,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         return null;
     }
 
-    private void handleInstall(String cmd) {
-        String[] parts = cmd.split("\\s+", 3);
-        if (parts.length < 2) {
-            System.out.println("用法: /install <skillDir> [agentName]");
-            return;
-        }
-        String skillDir = parts[1];
-        String targetAgent = parts.length > 2 ? parts[2] : agentModule;
+    // ======================== 共享安装/卸载方法 ========================
 
+    /** 安装脚本 Skill（热加载目录型 skill） */
+    private void installScriptSkill(String skillDir, String targetAgent) {
         TLBaseModule agent = findAgentInstance(targetAgent);
         if (agent == null) {
             System.out.println("✗ Agent 未找到: " + targetAgent);
@@ -586,16 +581,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** /uninstall skillDir [agentName] — 卸载脚本 skill */
-    private void handleUninstall(String cmd) {
-        String[] parts = cmd.split("\\s+", 3);
-        if (parts.length < 2) {
-            System.out.println("用法: /uninstall <skillDir> [agentName]");
-            return;
-        }
-        String skillDir = parts[1];
-        String targetAgent = parts.length > 2 ? parts[2] : agentModule;
-
+    /** 卸载脚本 Skill */
+    private void uninstallScriptSkill(String skillDir, String targetAgent) {
         TLBaseModule agent = findAgentInstance(targetAgent);
         if (agent == null) {
             System.out.println("✗ Agent 未找到: " + targetAgent);
@@ -612,26 +599,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** /installagent <agentName> <classFile|sameClassAs> [parentAgent] — 向指定 agent 热加载子 agent */
-    private void handleInstallAgent(String cmd) {
-        String[] parts = cmd.split("\\s+", 4);
-        if (parts.length < 3) {
-            System.out.println("用法: /installagent <agentName> <classFile|sameClassAs> [parentAgent]");
-            System.out.println("  例: /installagent myAgent aiagent");
-            System.out.println("  例: /installagent myAgent cn.tianlong.tlobject.aiagent.TLAiAgent");
-            System.out.println("  例: /installagent myTeam agentGroup aiagent_master");
-            return;
-        }
-        String agentName = parts[1];
-        String classRef = parts[2];   // 含 "." 视为 classfile，否则视为 sameClassAs
-        String targetAgent = parts.length > 3 ? parts[3] : agentModule;
-
+    /** 安装 Agent（子 agent） */
+    private void installAgent(String agentName, String classRef, String targetAgent) {
         TLBaseModule parent = findAgentInstance(targetAgent);
         if (parent == null) {
             System.out.println("✗ Agent 未找到: " + targetAgent);
             return;
         }
-
         HashMap<String, String> cfg = new HashMap<>();
         if (classRef.contains(".")) {
             cfg.put("classfile", classRef);
@@ -654,22 +628,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** /uninstallagent <agentName> [parentAgent] — 从指定 agent 卸载子 agent */
-    private void handleUninstallAgent(String cmd) {
-        String[] parts = cmd.split("\\s+", 3);
-        if (parts.length < 2) {
-            System.out.println("用法: /uninstallagent <agentName> [parentAgent]");
-            return;
-        }
-        String agentName = parts[1];
-        String targetAgent = parts.length > 2 ? parts[2] : agentModule;
-
+    /** 卸载 Agent */
+    private void uninstallAgent(String agentName, String targetAgent) {
         TLBaseModule parent = findAgentInstance(targetAgent);
         if (parent == null) {
             System.out.println("✗ Agent 未找到: " + targetAgent);
             return;
         }
-
         TLMsg msg = createMsg().setAction(AGENT_UNREGISTERAGENT)
                 .setParam(AI_P_AGENTNAME, agentName)
                 .setParam(HOTLOAD_P_PERSIST, "true");
@@ -681,6 +646,174 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
             System.out.println("✗ 卸载失败: " + err);
         }
+    }
+
+    // ======================== /help 命令 ========================
+
+    private void handleHelp() {
+        System.out.println("╔══════════════════════════════════════════════════╗");
+        System.out.println("║            AI Agent 控制台命令帮助              ║");
+        System.out.println("╚══════════════════════════════════════════════════╝");
+        System.out.println();
+        System.out.println("对话命令:");
+        System.out.println("  /exit, /quit   退出控制台");
+        System.out.println("  /stop          中断当前正在运行的对话");
+        System.out.println("  ESC            快捷中断（效果同 /stop）");
+        System.out.println("  /clear         清除当前会话上下文");
+        System.out.println("  /resume        恢复最近一次会话");
+        System.out.println("  /stream        切换流式/非流式模式");
+        System.out.println("  /session <id>  切换会话ID");
+        System.out.println();
+        System.out.println("安装命令:");
+        System.out.println("  /install -s <skillDir> [agentName]           安装脚本型Skill（目录）");
+        System.out.println("  /install -a <name> <classRef> [parent]       安装Agent");
+        System.out.println("  /install -bs <skillName> <classFile> [agent] 安装Java BaseSkill");
+        System.out.println();
+        System.out.println("卸载命令:");
+        System.out.println("  /uninstall -s <skillDir> [agentName]         卸载脚本Skill");
+        System.out.println("  /uninstall -bs <skillName> [agentName]       卸载Java BaseSkill");
+        System.out.println("  /uninstall -a <name> [parent]                卸载Agent");
+        System.out.println();
+        System.out.println("查询命令:");
+        System.out.println("  /agents [ownerName]    列出已注册的Agent");
+        System.out.println("  /skills [ownerName]    列出已注册的Skill");
+        System.out.println("  /help                  显示此帮助");
+    }
+
+    // ======================== 新统一命令处理器 ========================
+
+    /** /install -s|-a|-bs ... — 统一安装入口 */
+    private void handleInstall(String cmd) {
+        String[] parts = cmd.split("\\s+");
+        if (parts.length < 2) {
+            printInstallUsage();
+            return;
+        }
+        String flag = parts[1];
+        switch (flag) {
+            case "-s":
+                // /install -s <skillDir> [agentName]
+                if (parts.length < 3) {
+                    System.out.println("用法: /install -s <skillDir> [agentName]");
+                    return;
+                }
+                installScriptSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
+                break;
+            case "-a":
+                // /install -a <agentName> <classFile|sameClassAs> [parentAgent]
+                if (parts.length < 4) {
+                    System.out.println("用法: /install -a <agentName> <classFile|sameClassAs> [parentAgent]");
+                    return;
+                }
+                installAgent(parts[2], parts[3], parts.length > 4 ? parts[4] : agentModule);
+                break;
+            case "-bs":
+                // /install -bs <skillName> <classFile> [agentName]
+                if (parts.length < 4) {
+                    System.out.println("用法: /install -bs <skillName> <classFile> [agentName]");
+                    System.out.println("  例: /install -bs mySkill cn.tianlong.java.demo.aiagent.skills.MyDemoSkill");
+                    return;
+                }
+                installBaseSkill(parts[2], parts[3], parts.length > 4 ? parts[4] : agentModule);
+                break;
+            default:
+                System.out.println("未知flag: " + flag + "，可用: -s (脚本Skill), -a (Agent), -bs (JavaSkill)");
+                break;
+        }
+    }
+
+    /** /uninstall -s|-a ... — 统一卸载入口 */
+    private void handleUninstall(String cmd) {
+        String[] parts = cmd.split("\\s+");
+        if (parts.length < 2) {
+            printUninstallUsage();
+            return;
+        }
+        String flag = parts[1];
+        switch (flag) {
+            case "-s":
+                // /uninstall -s <skillDir> [agentName]
+                if (parts.length < 3) {
+                    System.out.println("用法: /uninstall -s <skillDir> [agentName]");
+                    return;
+                }
+                uninstallScriptSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
+                break;
+            case "-bs":
+                // /uninstall -bs <skillName> [agentName]
+                if (parts.length < 3) {
+                    System.out.println("用法: /uninstall -bs <skillName> [agentName]");
+                    return;
+                }
+                uninstallBaseSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
+                break;
+            case "-a":
+                // /uninstall -a <agentName> [parentAgent]
+                if (parts.length < 3) {
+                    System.out.println("用法: /uninstall -a <agentName> [parentAgent]");
+                    return;
+                }
+                uninstallAgent(parts[2], parts.length > 3 ? parts[3] : agentModule);
+                break;
+            default:
+                System.out.println("未知flag: " + flag + "，可用: -s (脚本Skill), -bs (JavaSkill), -a (Agent)");
+                break;
+        }
+    }
+
+    /** 安装 Java BaseSkill 类（/install -bs） */
+    private void installBaseSkill(String skillName, String classFile, String targetAgent) {
+        TLBaseModule agent = findAgentInstance(targetAgent);
+        if (agent == null) {
+            System.out.println("✗ Agent 未找到: " + targetAgent);
+            return;
+        }
+        TLMsg msg = createMsg()
+                .setAction(AGENT_REGISTERSKILL)
+                .setParam(MODULENAME, skillName)
+                .setParam(MODULE_CLASSFILE, classFile)
+                .setParam(HOTLOAD_P_PERSIST, "true");
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(agent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ JavaSkill 已安装: " + skillName + " (" + classFile + ") → " + targetAgent);
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
+            System.out.println("✗ 安装失败: " + err);
+        }
+    }
+
+    /** 卸载 Java BaseSkill（/uninstall -bs） */
+    private void uninstallBaseSkill(String skillName, String targetAgent) {
+        TLBaseModule agent = findAgentInstance(targetAgent);
+        if (agent == null) {
+            System.out.println("✗ Agent 未找到: " + targetAgent);
+            return;
+        }
+        TLMsg msg = createMsg()
+                .setAction(AGENT_UNREGISTERSKILL)
+                .setParam(AI_P_SKILLNAME, skillName)
+                .setParam(HOTLOAD_P_PERSIST, "true");
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(agent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ JavaSkill已卸载: " + skillName + " ← " + targetAgent);
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
+            System.out.println("✗ 卸载失败: " + err);
+        }
+    }
+
+    private void printInstallUsage() {
+        System.out.println("用法: /install -s <skillDir> [agentName]  (安装脚本Skill)");
+        System.out.println("      /install -a <name> <classRef> [parent]  (安装Agent)");
+        System.out.println("      /install -bs <skillName> <classFile> [agentName]  (安装JavaSkill)");
+    }
+
+    private void printUninstallUsage() {
+        System.out.println("用法: /uninstall -s <skillDir> [agentName]  (卸载脚本Skill)");
+        System.out.println("      /uninstall -bs <skillName> [agentName]  (卸载JavaSkill)");
+        System.out.println("      /uninstall -a <name> [parent]  (卸载Agent)");
     }
 
     private boolean handleCommand(String cmd) {
@@ -742,16 +875,16 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭"));
                 break;
 
-            case "/installskill":
-            case "/uninstallskill":
-                System.out.println("用法: " + cmd + " <skillDir> [agentName]");
+            case "/?":
+            case "/help":
+                handleHelp();
                 break;
 
-            case "/installagent":
-                System.out.println("用法: /installagent <agentName> <classFile|sameClassAs> [parentAgent]");
+            case "/install":
+                printInstallUsage();
                 break;
-            case "/uninstallagent":
-                System.out.println("用法: /uninstallagent <agentName> [parentAgent]");
+            case "/uninstall":
+                printUninstallUsage();
                 break;
 
             case "/agents":
@@ -760,14 +893,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             default:
-                if (cmd.startsWith("/installskill ")) {
+                if (cmd.startsWith("/?") || cmd.startsWith("/help ")) {
+                    handleHelp();
+                } else if (cmd.startsWith("/install ")) {
                     handleInstall(cmd);
-                } else if (cmd.startsWith("/uninstallskill ")) {
+                } else if (cmd.startsWith("/uninstall ")) {
                     handleUninstall(cmd);
-                } else if (cmd.startsWith("/installagent ")) {
-                    handleInstallAgent(cmd);
-                } else if (cmd.startsWith("/uninstallagent ")) {
-                    handleUninstallAgent(cmd);
                 } else if (cmd.startsWith("/agents ")) {
                     handleListModules(cmd);
                 } else if (cmd.startsWith("/skills ")) {
@@ -777,7 +908,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("✓ 会话ID切换为: " + sessionId);
                 } else {
                     System.out.println("未知命令: " + cmd);
-                    System.out.println("可用: /exit /stop /clear /resume /stream /session <id> /installskill|/uninstallskill <dir> [agent] /installagent|/uninstallagent <name> /agents [/skills] [owner]  ESC=中断");
+                    System.out.println("可用命令: /help 查看详细帮助");
                 }
                 break;
         }

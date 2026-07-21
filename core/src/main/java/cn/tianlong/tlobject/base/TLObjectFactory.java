@@ -765,6 +765,13 @@ public class TLObjectFactory extends TLBaseModule {
             ((TLBaseModule) module).runStartMsg();
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, newModuleName);
     }
+    /**
+     * 获取模块的原始配置。返回 null 表示该模块未在工厂中注册。
+     */
+    public HashMap<String, String> getModuleConfig(String moduleName) {
+        return modulesClass != null ? modulesClass.get(moduleName) : null;
+    }
+
     public   HashMap<String, String> getModuleParam(String moduleName){
         HashMap<String, String> moduleConfig = modulesClass.get(moduleName);
         HashMap<String, String> cparams = new HashMap<>();
@@ -903,9 +910,9 @@ public class TLObjectFactory extends TLBaseModule {
                 try {
                     cls = Class.forName(className, true, systemClassLoader);
                 } catch (ClassNotFoundException e1) {
-                    e1.printStackTrace();
-                    String log= "classPath:"+classPath +"\n"+className + ": 没有找到类文件\n"+TLToolsUtils.exceptionToString(e1) ;
+                    String log= "classPath:"+classPath +"\n"+className + ": 没有找到类文件\n" ;
                     putLog(log, LogLevel.ERROR, "myClassforName");
+                    putLog(e1,LogLevel.ERROR, "myClassforName");
                 }
             }
         }

@@ -1123,6 +1123,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         cfg.put("maxExecutionTime", String.valueOf(maxExecutionTime));
         cfg.put("allowedScriptDir", "skills/" + skillDir + "/scripts");
 
+        // 校验脚本目录是否真实存在（与 TLScriptExecutionSkill.resolveScriptDir 路径解析一致）
+        String base = moduleFactory.getConfigDir();
+        // 修复 Windows "/D:/..." 问题
+        if (base.startsWith("/") && base.length() > 3 && base.charAt(2) == ':')
+            base = base.substring(1);
+        String resolvedDir = base + "skills/" + skillDir + "/scripts";
+        java.nio.file.Path scriptPath = java.nio.file.Paths.get(resolvedDir);
+        if (!java.nio.file.Files.isDirectory(scriptPath)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "脚本目录不存在: " + resolvedDir);
+        }
+
         // 注入配置
         modulesClass.put(moduleName, cfg);
         modulesParams.put(moduleName, new HashMap<>(cfg));
@@ -1258,13 +1270,48 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         HashMap<String, String> skillParams = new HashMap<>(msg.getMapParam(MODULE_PARAMS, new HashMap<>()));
 
         if (!skillModuleName.isEmpty() && !classfile.isEmpty()) {
+            // 前置校验
+            HashMap<String, String> refCfg = new HashMap<>();
+            if (classfile.contains(".")) {
+                refCfg.put(MODULE_CLASSFILE, classfile);
+            } else {
+                refCfg.put(MODULE_SameClassAs, classfile);
+            }
+            TLMsg err = validateModuleRef(refCfg);
+            if (err != null) return err;
             TLBaseModule module = (TLBaseModule) getNewModule(skillModuleName, classfile, skillParams);
+            if (module ==null)
+                return createMsg().setParam(RESULT, false).setParam("error", "Invalid skill registration");
             registerToRegistry(skillModuleName, module, "skill");
             if (module instanceof TLBaseSkill) {
                 TLBaseSkill skill = (TLBaseSkill) module;
                 skills.put(skill.getSkillName(), skill);
                 modules.put(skillModuleName, skill);
+                // 注入 modulesClass/modulesParams（与 hotLoadSkill 对称，供持久化和重启恢复）
+                HashMap<String, String> cfg = new HashMap<>(skillParams);
+                cfg.put(MODULE_CLASSFILE, classfile);
+                modulesClass.put(skillModuleName, cfg);
+                modulesParams.put(skillModuleName, new HashMap<>(cfg));
                 invalidateToolDefs();
+                // 持久化到 XML 配置文件
+                boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+                if (persist && configFile != null) {
+                    try {
+                        Map<String, String> attrs = new LinkedHashMap<>();
+                        if (classfile.contains(".")) {
+                            attrs.put("classfile", classfile);
+                        } else {
+                            attrs.put("sameClassAs", classfile);
+                        }
+                        attrs.put("statup", "true");
+                        for (Map.Entry<String, String> e : skillParams.entrySet()) {
+                            if (e.getValue() != null) attrs.put(e.getKey(), e.getValue());
+                        }
+                        TLXmlConfigWriter.addOrReplaceElement(configFile, "skills", "skill", skillModuleName, attrs);
+                    } catch (Exception ex) {
+                        putLog("persist skill config failed: " + ex, LogLevel.ERROR, AGENT_REGISTERSKILL);
+                    }
+                }
                 return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLNAME, skill.getSkillName());
             }
         }
@@ -1277,8 +1324,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         if (!skillName.isEmpty()) {
             TLBaseSkill removed = skills.remove(skillName);
             modules.remove(skillName);
-            if (removed != null) invalidateToolDefs();
-            return createMsg().setParam(RESULT, removed != null);
+            if (removed != null) {
+                // 从 modulesClass/modulesParams 清理（对称 registerSkill）
+                String moduleName = removed.getName();
+                if (modulesClass != null) modulesClass.remove(moduleName);
+                if (modulesParams != null) modulesParams.remove(moduleName);
+                invalidateToolDefs();
+                // 持久化：从 XML 配置文件删除
+                boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+                if (persist && configFile != null) {
+                    try {
+                        TLXmlConfigWriter.removeElement(configFile, "skills", "skill", moduleName);
+                    } catch (Exception ex) {
+                        putLog("remove skill from config failed: " + ex, LogLevel.ERROR, AGENT_UNREGISTERSKILL);
+                    }
+                }
+            }
+            return createMsg().setParam(RESULT, removed != null)
+                    .setParam("error", removed != null ? null : "skill 不存在: " + skillName);
         }
         return createMsg().setParam(RESULT, false).setParam("error", "skillName required");
     }
@@ -1366,6 +1429,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // 与 initAgents 走同一套 getMyModule 机制。默认值由调用方在 cfg 里备好。
         HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG, new HashMap<>()));
         try {
+            // 前置校验
+            TLMsg err = validateModuleRef(cfg);
+            if (err != null) return err;
             modulesClass.put(agentName, cfg);
             modulesParams.put(agentName, cfg);
             if (subAgents == null) subAgents = new ConcurrentHashMap<>();
@@ -1375,13 +1441,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             // 一律 getMyModule 创建（内部已 modules.put），类由配置决定（classfile/sameClassAs），
             // group 也是普通子 agent，无需特判
             TLBaseModule module = (TLBaseModule) getMyModule(agentName);
-            registerToRegistry(agentName, module, "agent");
             if (module == null) {
                 modulesClass.remove(agentName);
                 modulesParams.remove(agentName);
                 agentsConfig.remove(agentName);
                 return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
             }
+            registerToRegistry(agentName, module, "agent");
             subAgents.put(agentName, module);
             putLog("Agent registered: " + agentName, LogLevel.DEBUG);
             invalidateToolDefs();
@@ -1425,7 +1491,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
                     putLog("remove agent from config failed: " + ex, LogLevel.ERROR, AGENT_HOTLOADSKILL);
                 }
             }
-            return createMsg().setParam(RESULT, removed != null);
+            return createMsg().setParam(RESULT, removed != null)
+                    .setParam("error", removed != null ? null : "agent 不存在: " + agentName);
         }
         return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
     }

@@ -1741,6 +1741,32 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected Object getModule(String moduleName,HashMap<String, String> paramsInMsg) {
         return getModule( moduleName,moduleName,true,true,paramsInMsg);
     }
+    /**
+     * 校验 cfg 中的 sameClassAs 模块或 classfile 类是否存在。
+     * @param cfg 模块配置，需含 MODULE_SameClassAs 或 MODULE_CLASSFILE
+     * @return null 表示校验通过，否则返回错误消息
+     */
+    protected TLMsg validateModuleRef(HashMap<String, String> cfg) {
+        String sameClassAs = cfg.get(MODULE_SameClassAs);
+        String classfile = cfg.get(MODULE_CLASSFILE);
+        if (sameClassAs != null && !sameClassAs.isEmpty()) {
+            if (moduleFactory.getModuleConfig(sameClassAs) == null)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "sameClassAs 模块未注册: " + sameClassAs);
+        } else if (classfile != null && !classfile.isEmpty()) {
+            if (classfile.contains(".")) {
+                if (moduleFactory.myClassforName(classfile) == null)
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "类不存在: " + classfile);
+            } else {
+                if (moduleFactory.getModuleConfig(classfile) == null)
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "sameClassAs 模块未注册: " + classfile);
+            }
+        }
+        return null;
+    }
+
     //创建非单例模块 ,不工厂注册
     protected Object getMyModule(String moduleName) {
         return getModule( moduleName,moduleName,false,true,null);
