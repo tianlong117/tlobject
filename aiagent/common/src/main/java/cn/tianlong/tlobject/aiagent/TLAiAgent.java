@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 创建日期：2026/7/4
  * 作者:tianlong
  */
-public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
+public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAgentCapable {
 
     // ======================== 配置字段 ========================
 
@@ -1277,7 +1277,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
             } else {
                 refCfg.put(MODULE_SameClassAs, classfile);
             }
-            TLMsg err = validateModuleRef(refCfg);
+            TLMsg err = validateModuleRef(refCfg, TLBaseSkill.class);
             if (err != null) return err;
             TLBaseModule module = (TLBaseModule) getNewModule(skillModuleName, classfile, skillParams);
             if (module ==null)
@@ -1429,8 +1429,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString {
         // 与 initAgents 走同一套 getMyModule 机制。默认值由调用方在 cfg 里备好。
         HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG, new HashMap<>()));
         try {
-            // 前置校验
-            TLMsg err = validateModuleRef(cfg);
+            // 前置校验（含类型检查）
+            TLMsg err = validateModuleRef(cfg, IAgentCapable.class);
             if (err != null) return err;
             modulesClass.put(agentName, cfg);
             modulesParams.put(agentName, cfg);

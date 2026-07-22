@@ -49,7 +49,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 创建日期：2026/7/16
  * 作者:tianlong
  */
-public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
+public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, IAgentCapable {
 
     /** 成员名列表（自身配置 <agents> 名单顺序；运行时 registerAgent 追加），不含监理 */
     protected String[] memberNames;
@@ -270,6 +270,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString {
         }
         HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG, new HashMap<>()));
         try {
+            // 前置校验（含类型检查）
+            TLMsg err = validateModuleRef(cfg, IAgentCapable.class);
+            if (err != null) return err;
             if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
             if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
             modulesClass.put(agentName, cfg);

@@ -23,7 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 创建日期：2026/7/7
  * 作者:tianlong
  */
-public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString {
+public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IAgentCapable {
 
     // ======================== 配置字段 ========================
 

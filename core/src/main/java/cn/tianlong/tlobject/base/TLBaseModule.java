@@ -1767,6 +1767,44 @@ public abstract class TLBaseModule extends TLBaseObject {
         return null;
     }
 
+    /**
+     * 模块引用校验（带类型检查）。先做存在性检查，再验证类是否是指定类型的子类。
+     *
+     * @param cfg          模块配置（含 classfile 或 sameClassAs）
+     * @param expectedType 期望的父类/接口，null 表示只做存在性检查
+     * @return 校验失败返回 {RESULT:false, error:"..."}，通过返回 null
+     */
+    protected TLMsg validateModuleRef(HashMap<String, String> cfg, Class<?> expectedType) {
+        TLMsg err = validateModuleRef(cfg);
+        if (err != null) return err;
+        if (expectedType == null) return null;
+
+        String classfile = cfg.get(MODULE_CLASSFILE);
+        String sameClassAs = cfg.get(MODULE_SameClassAs);
+        Class<?> clazz = null;
+        String className = null;
+
+        if (classfile != null && !classfile.isEmpty() && classfile.contains(".")) {
+            className = classfile;
+            clazz = moduleFactory.myClassforName(classfile);
+        } else if (sameClassAs != null && !sameClassAs.isEmpty()) {
+            HashMap<String, String> refCfg = moduleFactory.getModuleConfig(sameClassAs);
+            if (refCfg != null) {
+                String refClassfile = refCfg.get(MODULE_CLASSFILE);
+                if (refClassfile != null && refClassfile.contains(".")) {
+                    className = refClassfile;
+                    clazz = moduleFactory.myClassforName(refClassfile);
+                }
+            }
+        }
+
+        if (clazz != null && !expectedType.isAssignableFrom(clazz)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "类 " + className + " 不是 " + expectedType.getSimpleName() + " 类型");
+        }
+        return null;
+    }
+
     //创建非单例模块 ,不工厂注册
     protected Object getMyModule(String moduleName) {
         return getModule( moduleName,moduleName,false,true,null);
