@@ -25,6 +25,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
 
     private final Object bufferLock = new Object();
     private StringBuilder streamBuffer = new StringBuilder();
+    private StringBuilder reasoningBuffer = new StringBuilder();
     private CountDownLatch streamLatch;
     private volatile boolean streamDone = false;
     private volatile String streamError = null;
@@ -68,6 +69,9 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
             if (msg.containsParam(AI_P_CHUNK)) {
                 streamBuffer.append(msg.getStringParam(AI_P_CHUNK, ""));
             }
+            if (msg.containsParam(AI_P_REASONING_CHUNK)) {
+                reasoningBuffer.append(msg.getStringParam(AI_P_REASONING_CHUNK, ""));
+            }
             if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
                 onStreamDone(fromWho, msg);
             }
@@ -108,7 +112,8 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
                     .setParam("content", streamBuffer.toString())
                     .setParam("length", streamBuffer.length())
                     .setParam("streamDone", streamDone)
-                    .setParam(AI_P_STREAMERROR, streamError);
+                    .setParam(AI_P_STREAMERROR, streamError)
+                    .setParam(AI_P_REASONING, reasoningBuffer.toString());
         }
     }
 
@@ -133,6 +138,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
                         .setParam("content", streamBuffer.toString())
                         .setParam("streamDone", streamDone)
                         .setParam(AI_P_STREAMERROR, streamError)
+                        .setParam(AI_P_REASONING, reasoningBuffer.toString())
                         .setParam("timedOut", !completed);
             }
         } catch (InterruptedException e) {
@@ -147,6 +153,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     private void resetStreamState() {
         synchronized (bufferLock) {
             streamBuffer = new StringBuilder();
+            reasoningBuffer = new StringBuilder();
             streamDone = false;
             streamError = null;
         }
@@ -156,6 +163,11 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     public String getContent() {
         synchronized (bufferLock) {
             return streamBuffer.toString();
+        }
+    }
+    public String getReasoning() {
+        synchronized (bufferLock) {
+            return reasoningBuffer.toString();
         }
     }
     public boolean isStreamDone() { return streamDone; }

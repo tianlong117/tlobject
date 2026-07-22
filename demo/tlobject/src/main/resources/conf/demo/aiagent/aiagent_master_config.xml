@@ -16,6 +16,25 @@
         <outputGuard value="outputGuard"/>
         <enableCheckpoint value="true"/>
         <checkProviderOnStartup value="true"/>
+
+        <!-- ===== 推理/思考链 (ReAct) 参数 =====
+             reasoningMode: 推理模式选择
+               - off    (默认) 不处理推理，省token。什么也不做
+               - prompt 在system prompt中注入💭引导，LLM输出思考文本再调用工具
+                        通用方案，适用GPT-4、Qwen等无原生reasoning的模型
+               - native 解析LLM原生reasoning字段
+                        适用: DeepSeek V3.1+/V4/R1 (reasoning_content) / Claude Fable5/Opus4 (thinking块)
+               - auto   自动判断: deepseek-v3/v4/r1 → native, claude-fable5/opus4 → native, 其余 → prompt
+             reasoningVisible: true/false  推理内容是否暴露给调用方（默认true）。
+               false时推理仍存入对话历史（供调试），但不在返回值中暴露
+             thinkingBudget: Claude Extended Thinking的token预算（默认4000，仅native/auto生效）
+             运行时切换: 控制台输入 /thinking off|prompt|native|auto
+             单次请求:   msg.setParam("reasoningMode", "native")
+             注意: 每个子Agent独立配置自己的reasoningMode，主Agent不自动传播
+        -->
+        <reasoningMode value="native"/>
+        <reasoningVisible value="true"/>
+        <thinkingBudget value="4000"/>
     </params>
 
     <providers>

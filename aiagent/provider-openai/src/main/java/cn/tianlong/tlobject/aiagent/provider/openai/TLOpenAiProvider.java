@@ -61,6 +61,9 @@ public class TLOpenAiProvider extends TLLlmProvider {
         // messages
         JsonArray msgs = new JsonArray();
         for (TLConversationHistory h : messages) {
+            // reasoning 是内部思考过程，不发给 API
+            if (h.getRole() == TLConversationHistory.Role.reasoning) continue;
+
             JsonObject m = new JsonObject();
             m.addProperty("role", h.getRole().name());
 
@@ -142,6 +145,17 @@ public class TLOpenAiProvider extends TLLlmProvider {
             }
         }
 
+        // DeepSeek V3.1+/V4 native reasoning（reasoningMode=native|auto）
+        String reasoningMode = msg.getStringParam(AI_P_REASONING_MODE, "off");
+        if ("native".equals(reasoningMode) || "auto".equals(reasoningMode)) {
+            JsonObject thinking = new JsonObject();
+            thinking.addProperty("type", "enabled");
+            body.add("thinking", thinking);
+            // reasoning_effort: high 质量最高但更慢，默认 medium
+            String effort = msg.getStringParam("reasoningEffort", "medium");
+            body.addProperty("reasoning_effort", effort);
+        }
+
         return body.toString();
     }
 
@@ -177,6 +191,11 @@ public class TLOpenAiProvider extends TLLlmProvider {
             // 解析文本内容
             if (message.has("content") && !message.get("content").isJsonNull()) {
                 result.setParam(AI_P_RESPONSE, message.get("content").getAsString());
+            }
+
+            // 解析 reasoning_content (DeepSeek R1/V3.1/V4 原生推理)
+            if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) {
+                result.setParam(AI_P_REASONING, message.get("reasoning_content").getAsString());
             }
 
             // 解析tool_calls
@@ -380,6 +399,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
         private final String sessionId;
         private final TLMsg originalMsg;
         private final StringBuilder contentBuilder = new StringBuilder();
+        private final StringBuilder reasoningBuilder = new StringBuilder();
         private final List<TLToolCall> accumulatedToolCalls = new ArrayList<>();
 
         public StreamCallback(String resultFor, String resultAction, String sessionId, TLMsg originalMsg) {
@@ -439,6 +459,9 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                     .setParam(AI_P_STREAMDONE, true)
                                     .setParam(AI_P_RESPONSE, contentBuilder.toString())
                                     .setParam(AI_P_SESSIONID, sessionId);
+                            if (reasoningBuilder.length() > 0) {
+                                doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());
+                            }
                             if (!accumulatedToolCalls.isEmpty()) {
                                 doneMsg.setParam(AI_P_TOOLCALLS, accumulatedToolCalls);
                                 doneMsg.setParam("hasToolCalls", true);
@@ -463,6 +486,17 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                             .setParam(AI_P_CHUNK, text)
                                             .setParam(AI_P_SESSIONID, sessionId);
                                     putMsg(resultFor, chunkMsg);
+                                }
+
+                                // 推理思考块 (DeepSeek R1/V3.1/V4 reasoning_content)
+                                if (delta != null && delta.has("reasoning_content") && !delta.get("reasoning_content").isJsonNull()) {
+                                    String reasoningText = delta.get("reasoning_content").getAsString();
+                                    reasoningBuilder.append(reasoningText);
+                                    TLMsg reasoningChunkMsg = createMsg()
+                                            .setAction(resultAction)
+                                            .setParam(AI_P_REASONING_CHUNK, reasoningText)
+                                            .setParam(AI_P_SESSIONID, sessionId);
+                                    putMsg(resultFor, reasoningChunkMsg);
                                 }
 
                                 // tool_calls块（流式累积）

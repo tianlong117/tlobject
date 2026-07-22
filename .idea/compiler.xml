@@ -70,41 +70,41 @@
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
-      <module name="tlobject-aiagent-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-aiagent-memory-store" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-aiagent-provider-claude" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-aiagent-provider-openai" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-aiagent-skill-builtin" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-all" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-app-webmanager" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-cache-caffeine" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-cache-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-cache-ehcache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-cache-filecache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-connectpoolofdb-c3p0" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-connectpoolofdb-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-connectpoolofdb-hikaricp" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-connectpoolofdb-sqlite" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-core" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-crontab" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-database" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-demo-tlobject" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-demo-web" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-execl" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-log-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-log-slf4j" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-client" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-proxy" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-server" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-server-distributedserver" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-server-jetty" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-server-tomcat" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-network-server-websocket" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-redis" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-servletutils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
-      <module name="tlobject-utils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17/lib/rt.jar;C:/Program Files/Java/jdk-17/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-memory-store" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-provider-claude" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-provider-openai" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-aiagent-skill-builtin" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-all" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-app-webmanager" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-caffeine" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-ehcache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-cache-filecache" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-c3p0" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-hikaricp" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-connectpoolofdb-sqlite" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-core" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-crontab" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-database" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-demo-tlobject" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-demo-web" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-execl" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-log-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-log-slf4j" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-client" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-common" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-proxy" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-distributedserver" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-jetty" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-tomcat" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-network-server-websocket" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-redis" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-servletutils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
+      <module name="tlobject-utils" options="-bootclasspath &quot;C:/Program Files/Java/jdk-17.0.1/lib/rt.jar;C:/Program Files/Java/jdk-17.0.1/lib/jce.jar&quot;" />
     </option>
   </component>
 </project>

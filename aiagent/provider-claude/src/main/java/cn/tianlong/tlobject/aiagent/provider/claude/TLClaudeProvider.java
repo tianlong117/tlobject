@@ -87,6 +87,9 @@ public class TLClaudeProvider extends TLLlmProvider {
         String systemMsg = null;
         JsonArray msgsArray = new JsonArray();
         for (TLConversationHistory h : messages) {
+            // reasoning 是内部思考过程，不发给 API
+            if (h.getRole() == TLConversationHistory.Role.reasoning) continue;
+
             if (h.getRole() == TLConversationHistory.Role.system) {
                 systemMsg = h.getContent();
                 continue;
@@ -174,6 +177,29 @@ public class TLClaudeProvider extends TLLlmProvider {
             }
         }
 
+        // thinking (Claude Extended Thinking)
+        // - reasoningMode=native|auto 时显式开启
+        // - Claude Fable 5 / Opus 4 强制要求 thinking 参数（API 硬约束），即使 off 也发最小 budget
+        String reasoningMode = msg.getStringParam(AI_P_REASONING_MODE, "off");
+        String model = getEffectiveModel(msg);
+        boolean isThinkingModel = model != null && (model.contains("fable-5") || model.contains("opus-4"));
+        boolean shouldEnableThinking = "native".equals(reasoningMode) || "auto".equals(reasoningMode) || isThinkingModel;
+
+        if (shouldEnableThinking) {
+            JsonObject thinking = new JsonObject();
+            thinking.addProperty("type", "enabled");
+            int budget = msg.getIntParam(AI_P_THINKING_BUDGET, 4000);
+            if (!"native".equals(reasoningMode) && !"auto".equals(reasoningMode)) {
+                // 模型硬约束：off/prompt 模式下也发最小 budget
+                budget = Math.min(budget, 1024);
+            }
+            thinking.addProperty("budget_tokens", budget);
+            body.add("thinking", thinking);
+            // Claude thinking 与 temperature/top_p 冲突，移除
+            body.remove("temperature");
+            body.remove("top_p");
+        }
+
         return body.toString();
     }
 
@@ -200,6 +226,7 @@ public class TLClaudeProvider extends TLLlmProvider {
             // 解析content blocks
             JsonArray content = json.getAsJsonArray("content");
             StringBuilder textContent = new StringBuilder();
+            StringBuilder reasoningContent = new StringBuilder();
             List<TLToolCall> toolCalls = new ArrayList<>();
 
             if (content != null) {
@@ -219,8 +246,20 @@ public class TLClaudeProvider extends TLLlmProvider {
                         Map<String, Object> args = gson.fromJson(input, Map.class);
                         tc.setArguments(args);
                         toolCalls.add(tc);
+                    } else if ("thinking".equals(type)) {
+                        if (blockObj.has("thinking") && !blockObj.get("thinking").isJsonNull()) {
+                            reasoningContent.append(blockObj.get("thinking").getAsString());
+                        }
+                    } else if ("redacted_thinking".equals(type)) {
+                        if (blockObj.has("data") && !blockObj.get("data").isJsonNull()) {
+                            reasoningContent.append(blockObj.get("data").getAsString());
+                        }
                     }
                 }
+            }
+
+            if (reasoningContent.length() > 0) {
+                result.setParam(AI_P_REASONING, reasoningContent.toString());
             }
 
             result.setParam(AI_P_RESPONSE, textContent.toString());
@@ -314,6 +353,7 @@ public class TLClaudeProvider extends TLLlmProvider {
         private final String sessionId;
         private final TLMsg originalMsg;
         private final StringBuilder contentBuilder = new StringBuilder();
+        private final StringBuilder reasoningBuilder = new StringBuilder();
         private final List<TLToolCall> accumulatedToolCalls = new ArrayList<>();
         private final Map<Integer, StringBuilder> toolUseInputBuilders = new LinkedHashMap<>();
 
@@ -366,7 +406,12 @@ public class TLClaudeProvider extends TLLlmProvider {
                                         break;
                                     }
                                     String blockType = contentBlock.get("type").getAsString();
-                                    if ("tool_use".equals(blockType)) {
+                                    if ("thinking".equals(blockType)) {
+                                        // thinking 块开始，后续 thinking_delta 追加内容
+                                        if (contentBlock.has("thinking") && !contentBlock.get("thinking").isJsonNull()) {
+                                            reasoningBuilder.append(contentBlock.get("thinking").getAsString());
+                                        }
+                                    } else if ("tool_use".equals(blockType)) {
                                         int index = chunk.has("index") ? chunk.get("index").getAsInt() : accumulatedToolCalls.size();
                                         TLToolCall tc = new TLToolCall();
                                         tc.setId(contentBlock.get("id").getAsString());
@@ -386,7 +431,20 @@ public class TLClaudeProvider extends TLLlmProvider {
                                         break;
                                     }
                                     String deltaType = delta.get("type").getAsString();
-                                    if ("text_delta".equals(deltaType)) {
+                                    if ("thinking_delta".equals(deltaType)) {
+                                        String thinkingText = delta.get("thinking").getAsString();
+                                        reasoningBuilder.append(thinkingText);
+                                        TLMsg reasoningChunkMsg = createMsg()
+                                                .setAction(resultAction)
+                                                .setParam(AI_P_REASONING_CHUNK, thinkingText)
+                                                .setParam(AI_P_SESSIONID, sessionId);
+                                        putMsg(resultFor, reasoningChunkMsg);
+                                    } else if ("signature_delta".equals(deltaType)) {
+                                        // signature 是 Claude 思考块的签名，不需要展示给用户
+                                        if (delta.has("signature")) {
+                                            reasoningBuilder.append(delta.get("signature").getAsString());
+                                        }
+                                    } else if ("text_delta".equals(deltaType)) {
                                         String text = delta.get("text").getAsString();
                                         contentBuilder.append(text);
                                         TLMsg chunkMsg = createMsg()
@@ -427,6 +485,10 @@ public class TLClaudeProvider extends TLLlmProvider {
                                             .setParam(AI_P_STREAMDONE, true)
                                             .setParam(AI_P_RESPONSE, contentBuilder.toString())
                                             .setParam(AI_P_SESSIONID, sessionId);
+
+                                    if (reasoningBuilder.length() > 0) {
+                                        doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());
+                                    }
 
                                     // 过滤掉null的tool call
                                     List<TLToolCall> validToolCalls = new ArrayList<>();

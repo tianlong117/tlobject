@@ -20,6 +20,23 @@
         <defaultMaxTokens value="4096"/>
         <defaultMemoryTopK value="50"/>
 
+        <!-- ===== 推理/思考链 (ReAct) 参数 =====
+             reasoningMode: 推理模式选择
+               - off    (默认) 不处理推理，省token
+               - prompt 在system prompt中注入💭引导指令，LLM输出思考文本再调用工具
+                        （通用方案，适用GPT-4、Qwen等无原生reasoning的模型）
+               - native 解析LLM原生reasoning字段
+                        （DeepSeek V3.1+/V4/R1的reasoning_content、Claude Fable5/Opus4的thinking块）
+               - auto   自动判断：deepseek-v3/v4/r1 → native，claude-fable5/opus4 → native，其余 → prompt
+             reasoningVisible: true/false  推理内容是否暴露给调用方（默认true）
+             thinkingBudget: Claude Extended Thinking的token预算（仅native/auto模式生效，默认4000）
+             运行时切换: /thinking off|prompt|native|auto
+             单次请求覆盖: msg.setParam("reasoningMode", "prompt")
+        -->
+        <reasoningMode value="off"/>
+        <reasoningVisible value="true"/>
+        <thinkingBudget value="4000"/>
+
         <!-- 包名前缀（用于简写classfile） -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>

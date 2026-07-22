@@ -77,6 +77,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 记忆召回默认条数（contains 粗筛后注入上下文，LLM 自行判断相关性） */
     protected int defaultMemoryTopK = 50;
 
+    // ======================== 推理/思考链 (ReAct) ========================
+
+    /** 推理模式：off | prompt | native | auto */
+    protected String reasoningMode = "off";
+    /** 推理内容是否暴露给调用方（capture 后仍可控制可见性） */
+    protected boolean reasoningVisible = true;
+    /** Claude Extended Thinking token 预算（仅 native 模式生效） */
+    protected int thinkingBudget = 4000;
+
     // ======================== Agent管理（主控模式） ========================
 
     /** 从XML <agents> 解析出的子Agent配置 */
@@ -108,6 +117,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 当前线程正在执行的 doChat 的根会话 ID（ThreadLocal，供 spawn 点透传给子 agent） */
     private final ThreadLocal<String> currentRootSessionId = new ThreadLocal<>();
+
+    /** 流式回调转发目标: sessionId → [forwardTarget, forwardAction]（供 onStreamResult 查表转发 chunk/结果给最终调用方） */
+    private final Map<String, String[]> streamForwardMap = new ConcurrentHashMap<>();
 
     /** LLM 可调用的预定义消息列表（从 XML msgTools 段解析） */
     protected List<TLMsg> msgTools;
@@ -212,6 +224,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 sessionStorePath = params.get("sessionStorePath");
             if (params.get("checkProviderOnStartup") != null)
                 checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
+            // 推理/思考链参数
+            if (params.get("reasoningMode") != null)
+                reasoningMode = params.get("reasoningMode");
+            if (params.get("reasoningVisible") != null)
+                reasoningVisible = "true".equals(params.get("reasoningVisible"));
+            if (params.get("thinkingBudget") != null) {
+                try { thinkingBudget = Integer.parseInt(params.get("thinkingBudget")); }
+                catch (NumberFormatException ignored) {}
+            }
         }
 
         // 把 providers/agents/skills/memoryStores 注入 modulesClass + modulesParams
@@ -651,12 +672,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
         int maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
 
+        // 推理模式：请求级覆盖 > 全局默认
+        String effectiveReasoningMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
+        boolean effectiveReasoningVisible = msg.parseBoolean(AI_P_REASONING_VISIBLE, reasoningVisible);
+        if ("auto".equals(effectiveReasoningMode)) {
+            effectiveReasoningMode = resolveAutoMode(model);
+        }
+
         if (userMessage.isEmpty()) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Error: missing userMessage");
         }
 
-        putLog("Chat start: sessionId=" + sessionId + " stream=" + stream, LogLevel.DEBUG);
+        putLog("Chat start: sessionId=" + sessionId + " stream=" + stream
+                + " reasoningMode=" + effectiveReasoningMode, LogLevel.DEBUG);
         // 取消标志：每次 chat 开始复位；/stop 经 stopChat() 置 true
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
                 cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean());
@@ -736,16 +765,51 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             List<TLFunctionDefinition> toolDefs = getFunctionDefinitions();
 
+            // ==== prompt 模式：注入 💭 推理引导到 system prompt ====
+            if ("prompt".equals(effectiveReasoningMode) && toolDefs != null && !toolDefs.isEmpty()) {
+                String reasoningPrompt = "\n\n## 推理规则\n"
+                        + "当需要调用工具时，请先用 💭 开头写一行简短推理，说明你为什么要调用这个工具。\n"
+                        + "格式: 💭 <一句话推理>\n"
+                        + "然后正常调用工具。不需要在最终回复中保留 💭 内容。";
+                boolean injected = false;
+                for (TLConversationHistory h : history) {
+                    if (h.getRole() == TLConversationHistory.Role.system && h.getContent() != null) {
+                        h.setContent(h.getContent() + reasoningPrompt);
+                        injected = true;
+                        break;
+                    }
+                }
+                if (!injected) {
+                    history.add(0, new TLConversationHistory(TLConversationHistory.Role.system, reasoningPrompt));
+                }
+            }
+
+            // ==== reasoning 累积（供最终返回） ====
+            StringBuilder allReasoning = new StringBuilder();
+
             // ==== LLM请求 ====
             String finalResponse;
 
             if (stream) {
                 // 流式: 单次请求，无tool-call循环
+                // 推理参数透传
+                if (!"off".equals(effectiveReasoningMode)) {
+                    // 流式参数将在 doStreamCall 构建消息时注入
+                }
                 finalResponse = doStreamCall(history, toolDefs, sessionId, model);
                 if (cancelled.get()) {
                     aborted = true;
                 } else if (finalResponse != null) {
                     history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                }
+                // 收集流式推理内容
+                TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
+                        ? (TLBaseModule) getModule("streamCallback") : null;
+                if (cb != null) {
+                    String streamReasoning = ((TLStreamCallback) cb).getReasoning();
+                    if (streamReasoning != null && !streamReasoning.isEmpty()) {
+                        allReasoning.append(streamReasoning);
+                    }
                 }
             } else {
                 // 非流式: tool-call循环
@@ -768,6 +832,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     if (msg.containsParam(AI_P_RESPONSEFORMAT)) {
                         llmMsg.setParam(AI_P_RESPONSEFORMAT, msg.getParam(AI_P_RESPONSEFORMAT));
                     }
+                    // 推理参数透传给 Provider
+                    if (!"off".equals(effectiveReasoningMode)) {
+                        llmMsg.setParam(AI_P_REASONING_MODE, effectiveReasoningMode);
+                        llmMsg.setParam(AI_P_THINKING_BUDGET, msg.getIntParam(AI_P_THINKING_BUDGET, thinkingBudget));
+                    }
 
                     TLMsg llmResponse = putMsg(llmProvider, llmMsg);
                     // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
@@ -785,6 +854,34 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     turn[0] += llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
                     turn[1] += llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
                     turn[2] += llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
+
+                    // ==== 提取推理内容 ====
+                    String reasoningText = null;
+                    if (!"off".equals(effectiveReasoningMode)) {
+                        // 路线 B：原生 reasoning（Provider 已解析）
+                        if (llmResponse.containsParam(AI_P_REASONING)) {
+                            reasoningText = llmResponse.getStringParam(AI_P_REASONING, "");
+                        }
+                        // 路线 A：解析 💭 前缀（prompt 模式）
+                        if ("prompt".equals(effectiveReasoningMode) && reasoningText == null) {
+                            String respText = llmResponse.getStringParam(AI_P_RESPONSE, "");
+                            if (respText != null && respText.startsWith("💭")) {
+                                int endIdx = respText.indexOf('\n');
+                                if (endIdx > 0) {
+                                    reasoningText = respText.substring(0, endIdx).trim();
+                                    // 移除 💭 前缀，保留纯净回复
+                                    String cleanResponse = respText.substring(endIdx).trim();
+                                    llmResponse.setParam(AI_P_RESPONSE, cleanResponse);
+                                }
+                            }
+                        }
+                        if (reasoningText != null && !reasoningText.isEmpty()) {
+                            history.add(TLConversationHistory.createReasoning(reasoningText));
+                            allReasoning.append(reasoningText).append("\n");
+                            putLog("Reasoning captured: " + reasoningText.substring(0, Math.min(80, reasoningText.length())),
+                                    LogLevel.DEBUG);
+                        }
+                    }
 
                     boolean hasToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
                     List<TLToolCall> toolCalls = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
@@ -876,6 +973,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) acc[1])
                     .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2]);
             if (truncated) ret.setParam(AI_P_TRUNCATED, true);
+            // 推理内容：仅当开启且 visible 时暴露
+            if (!"off".equals(effectiveReasoningMode) && effectiveReasoningVisible
+                    && allReasoning.length() > 0) {
+                ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
+            }
             return ret;
 
         } catch (Exception e) {
@@ -914,6 +1016,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(llmProvider, sm);
 
         TLMsg wr = putMsg(cb, createMsg().setAction(STREAM_WAITFORSTREAM).setParam("timeout", 120));
+        // 提取流式 reasoning 内容
+        if (wr.containsParam(AI_P_REASONING)) {
+            String streamReasoning = wr.getStringParam(AI_P_REASONING, "");
+            if (!streamReasoning.isEmpty()) {
+                history.add(TLConversationHistory.createReasoning(streamReasoning));
+            }
+        }
         return wr.getStringParam("content", null);
     }
 
@@ -925,14 +1034,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected TLMsg chatStream(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
+        // 最终回调目标（显示层）
         String resultFor = msg.getStringParam(RESULTFOR,
                 fromWho instanceof String ? (String) fromWho : "caller");
         String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
+        // 流式转发目标：onStreamResult 将 chunk/完成信号转发到此
+        String fwdTarget = msg.getStringParam("_streamResultFor", resultFor);
+        String fwdAction = msg.getStringParam("_streamResultAction", resultAction);
+
+        // 保存转发目标，供 onStreamResult 查表
+        if (!fwdTarget.equals(getName())) {
+            streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
+        }
 
         if (llmProvider == null) {
-            TLMsg errMsg = createMsg().setAction(resultAction)
+            TLMsg errMsg = createMsg().setAction(fwdAction)
                     .setParam(AI_P_STREAMERROR, "No LLM provider configured");
-            putMsg(resultFor, errMsg);
+            putMsg(fwdTarget, errMsg);
             return null;
         }
 
@@ -941,14 +1059,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
         List<TLFunctionDefinition> toolDefs = getFunctionDefinitions();
 
-        // 直接让Provider回调到最终目标
+        // 回调目标设为本 agent（走 onStreamResult），最终调用方通过 _streamResultFor 指定
         TLMsg streamMsg = createMsg()
                 .setAction(LLM_COMPLETIONSTREAM)
                 .setParam(AI_P_MESSAGEHISTORY, history)
                 .setParam(AI_P_FUNCTIONDEFS, toolDefs)
                 .setParam(AI_P_SESSIONID, sessionId)
-                .setParam(RESULTFOR, resultFor)
-                .setParam(RESULTACTION, resultAction);
+                .setParam(RESULTFOR, getName())
+                .setParam(RESULTACTION, "onStreamResult");
 
         if (msg.containsParam(AI_P_MODEL))
             streamMsg.setParam(AI_P_MODEL, msg.getParam(AI_P_MODEL));
@@ -966,11 +1084,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     @SuppressWarnings("unchecked")
     protected TLMsg onStreamResult(Object fromWho, TLMsg msg) {
-        String resultFor = msg.getStringParam("_streamResultFor", "caller");
-        String resultAction = msg.getStringParam("_streamResultAction", "onStreamChunk");
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        // 查表获取转发目标（chatStream 存、此处取；若调用方未设则 fallback 到 msg 参数）
+        String[] fwd = streamForwardMap.get(sessionId);
+        String resultFor = fwd != null ? fwd[0]
+                : msg.getStringParam("_streamResultFor", "caller");
+        String resultAction = fwd != null ? fwd[1]
+                : msg.getStringParam("_streamResultAction", "onStreamChunk");
 
-        // 转发chunk或完成信号给原始调用者
+        // 转发chunk或完成信号给最终调用方（TLChatConsole 等）
         if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
             String streamedText = msg.getStringParam(AI_P_RESPONSE, "");
             boolean hasToolCalls = msg.parseBoolean("hasToolCalls", false);
@@ -1056,16 +1178,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
                     }
 
-                    // 转发最终完成信号
+                    // 先发送非流式续段的文本 chunk（流式部分已在之前逐块转发）
+                    if (finalResponse != null && !finalResponse.isEmpty()) {
+                        TLMsg contChunk = createMsg()
+                                .setAction(resultAction)
+                                .setParam(AI_P_CHUNK, finalResponse)
+                                .setParam(AI_P_SESSIONID, sessionId);
+                        putMsg(resultFor, contChunk);
+                    }
+                    // 再发送完成信号
                     TLMsg doneMsg = createMsg()
                             .setAction(resultAction)
                             .setParam(AI_P_STREAMDONE, true)
-                            .setParam(AI_P_RESPONSE, streamedText + finalResponse)
                             .setParam(AI_P_SESSIONID, sessionId);
                     putMsg(resultFor, doneMsg);
 
                 } catch (Exception e) {
                     putLog("Stream tool call continuation error: " + e.toString(), LogLevel.ERROR);
+                    streamForwardMap.remove(sessionId);
                     TLMsg errMsg = createMsg()
                             .setAction(resultAction)
                             .setParam(AI_P_STREAMERROR, "Tool call processing error: " + e.getMessage());
@@ -1076,15 +1206,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 TLMsg doneMsg = createMsg()
                         .setAction(resultAction)
                         .setParam(AI_P_STREAMDONE, true)
-                        .setParam(AI_P_RESPONSE, streamedText)
                         .setParam(AI_P_SESSIONID, sessionId);
                 putMsg(resultFor, doneMsg);
             }
+            streamForwardMap.remove(sessionId);
         } else if (msg.containsParam(AI_P_STREAMERROR)) {
             TLMsg errMsg = createMsg()
                     .setAction(resultAction)
                     .setParam(AI_P_STREAMERROR, msg.getParam(AI_P_STREAMERROR));
             putMsg(resultFor, errMsg);
+            streamForwardMap.remove(sessionId);
         } else if (msg.containsParam(AI_P_CHUNK)) {
             // 转发chunk
             TLMsg chunkMsg = createMsg()
@@ -2235,6 +2366,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return packageName + name;
         }
         return name;
+    }
+
+    // ======================== 推理模式自动判断 ========================
+
+    /**
+     * auto 模式：根据模型名自动判断走原生 reasoning 还是 prompt 引导。
+     * @return "native" 或 "prompt"
+     */
+    protected String resolveAutoMode(String model) {
+        if (model == null) return "prompt";
+        String m = model.toLowerCase();
+        // DeepSeek-R1 / Reasoner / V3.1+ / V4+ (支持原生 reasoning_content)
+        if (m.contains("r1") || m.contains("reasoner")) return "native";
+        if ((m.contains("v3") || m.contains("v4") || m.contains("v5")) && m.contains("deepseek"))
+            return "native";
+        // Claude Extended Thinking 模型
+        if (m.contains("fable-5") || m.contains("opus-4")) return "native";
+        // OpenAI o-series
+        if (m.contains("o1") || m.contains("o3") || m.contains("o4")) return "native";
+        // 其余模型走 prompt 引导
+        return "prompt";
     }
 
     // ======================== Provider 启动检查 ========================

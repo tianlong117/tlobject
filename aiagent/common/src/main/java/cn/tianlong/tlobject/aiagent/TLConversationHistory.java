@@ -16,7 +16,7 @@ public class TLConversationHistory implements Serializable {
     private static final long serialVersionUID = 7352549231086429889L;
 
     public enum Role {
-        system, user, assistant, tool
+        system, user, assistant, tool, reasoning
     }
 
     private Role role;
@@ -26,6 +26,8 @@ public class TLConversationHistory implements Serializable {
     private String name;
     private long timestamp;
     private Map<String, Object> metadata;
+    /** 推理/思考内容（ReAct thought chain） */
+    private String reasoningContent;
 
     public TLConversationHistory() {
         this.timestamp = System.currentTimeMillis();
@@ -54,6 +56,16 @@ public class TLConversationHistory implements Serializable {
         this.content = content;
     }
 
+    /**
+     * 构造推理/思考条目（ReAct thought chain）
+     */
+    public static TLConversationHistory createReasoning(String reasoningContent) {
+        TLConversationHistory h = new TLConversationHistory();
+        h.role = Role.reasoning;
+        h.reasoningContent = reasoningContent;
+        return h;
+    }
+
     public Role getRole() { return role; }
     public void setRole(Role role) { this.role = role; }
 
@@ -74,6 +86,9 @@ public class TLConversationHistory implements Serializable {
 
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+
+    public String getReasoningContent() { return reasoningContent; }
+    public void setReasoningContent(String reasoningContent) { this.reasoningContent = reasoningContent; }
 
     public boolean isAssistantWithToolCalls() {
         return role == Role.assistant && toolCalls != null && !toolCalls.isEmpty();

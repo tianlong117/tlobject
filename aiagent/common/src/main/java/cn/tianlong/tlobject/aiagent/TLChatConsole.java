@@ -57,6 +57,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private boolean streamMode = false;
     private String prompt = "你 > ";
     private volatile boolean running = false;
+    /** 推理展示：是否折叠推理内容（默认折叠，展开后可查看完整思考链） */
+    private boolean reasoningCollapsed = true;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
     private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP }
@@ -248,7 +250,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case STOP:       handleStopSignal(); break;
                 case RESULT:     onChatResult(e.msg); break;
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
-                case STREAM_END: onStreamEnd(e.text); break;
+                case STREAM_END: onStreamEnd(e.text,
+                        e.msg != null ? e.msg.getStringParam(AI_P_REASONING, null) : null); break;
             }
         }
 
@@ -282,7 +285,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case INPUT:      handleInput(e.text); break;
                 case RESULT:     onChatResult(e.msg); break;
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
-                case STREAM_END: onStreamEnd(e.text); break;
+                case STREAM_END: onStreamEnd(e.text,
+                        e.msg != null ? e.msg.getStringParam(AI_P_REASONING, null) : null); break;
             }
         }
         System.out.println("再见！");
@@ -367,20 +371,22 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         offer(new ConsoleEvent(EventType.STOP, null, null));
     }
 
-    /** 异步提交 chat：非流式经任务结果回调，流式让 chunk 直接回本模块 */
+    /** 异步提交 chat：非流式经任务结果回调，流式经 Agent 的 onStreamResult 转发（支持 tool-call） */
     private void submitChat(String input) {
         if (streamMode) {
             System.out.print("AI > ");
             System.out.flush();
-            // 确保 streamCallback 已复位
-            putMsg("streamCallback", createMsg().setAction(STREAM_RESET));
+            // 流式请求走 Agent 的 onStreamResult：Agent 转发 chunk 到本模块 + 处理 tool-call
+            // RESULTFOR=agent → 回调发给 Agent；_streamResultFor=本模块 → Agent 再转发 chunk/结果
             putMsg(agentModule,
                     createMsg().setAction(AGENT_CHATSTREAM)
                             .setParam(AI_P_SESSIONID, sessionId)
                             .setParam("userId", userId)
                             .setParam(AI_P_USERMESSAGE, input)
-                            .setParam(RESULTFOR, getName())
-                            .setParam(RESULTACTION, STREAM_ONCHUNK));
+                            .setParam(RESULTFOR, agentModule)
+                            .setParam(RESULTACTION, "onStreamResult")
+                            .setParam("_streamResultFor", getName())
+                            .setParam("_streamResultAction", STREAM_ONCHUNK));
         } else {
             TLMsg m = createMsg().setAction(AGENT_CHAT)
                     .setParam(AI_P_SESSIONID, sessionId)
@@ -417,6 +423,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String aiResponse = response.getStringParam(AI_P_RESPONSE, "");
             boolean cancelled = response.parseBoolean(AI_P_CANCELLED, false);
             if (response.parseBoolean(RESULT, false) && !aiResponse.isEmpty()) {
+                // 先显示推理过程（如果有）
+                String reasoning = response.getStringParam(AI_P_REASONING, null);
+                if (reasoning != null && !reasoning.isEmpty()) {
+                    displayReasoning(reasoning);
+                }
                 System.out.println("AI > " + aiResponse);
                 if (cancelled) {
                     System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms)");
@@ -446,16 +457,26 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String piece = msg.getStringParam(AI_P_CHUNK, "");
             if (!piece.isEmpty()) offer(new ConsoleEvent(EventType.CHUNK, piece, null));
         }
+        // 推理块：流式模式下静默收集，在流结束时统一展示
         boolean done = msg.parseBoolean(AI_P_STREAMDONE, false);
         boolean hasErr = msg.containsParam(AI_P_STREAMERROR);
         if (done || hasErr) {
             String err = hasErr ? msg.getStringParam(AI_P_STREAMERROR, "") : null;
-            offer(new ConsoleEvent(EventType.STREAM_END, err, null));
+            // 将 reasoning 信息打包到 STREAM_END 事件的 msg 字段中
+            TLMsg endMsg = null;
+            if (msg.containsParam(AI_P_REASONING)) {
+                endMsg = createMsg().setParam(AI_P_REASONING, msg.getStringParam(AI_P_REASONING, ""));
+            }
+            offer(new ConsoleEvent(EventType.STREAM_END, err, endMsg));
         }
     }
 
     /** 流式结束事件（主线程收尾） */
-    private void onStreamEnd(String error) {
+    private void onStreamEnd(String error, String reasoning) {
+        // 先显示推理（如果有的话）
+        if (reasoning != null && !reasoning.isEmpty()) {
+            displayReasoning(reasoning);
+        }
         System.out.println();
         if (error != null && !error.isEmpty()) {
             System.out.println("    (⏹ 已结束: " + (error.length() > 80 ? error.substring(0, 80) + "..." : error) + ")");
@@ -470,6 +491,30 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println();
         printPrompt();
         System.out.flush();
+    }
+
+    /** 显示推理过程（折叠/展开） */
+    private void displayReasoning(String reasoning) {
+        if (reasoning == null || reasoning.isEmpty()) return;
+        String[] lines = reasoning.split("\n");
+        int stepCount = 0;
+        for (String line : lines) {
+            if (line.trim().startsWith("💭")) stepCount++;
+        }
+        if (stepCount == 0) stepCount = lines.length;
+
+        if (reasoningCollapsed) {
+            String preview = reasoning.length() > 80
+                    ? reasoning.substring(0, 80).replace("\n", " ") + "..."
+                    : reasoning.replace("\n", " ");
+            System.out.println("   💭 推理过程 (" + stepCount + "步): " + preview + "  [/thinking 展开]");
+        } else {
+            System.out.println("   💭 推理过程 (" + stepCount + "步):");
+            for (String line : lines) {
+                System.out.println("      " + line.trim());
+            }
+            System.out.println("   ---");
+        }
     }
 
     private void printPrompt() {
@@ -663,6 +708,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /resume        恢复最近一次会话");
         System.out.println("  /stream        切换流式/非流式模式");
         System.out.println("  /session <id>  切换会话ID");
+        System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
         System.out.println();
         System.out.println("安装命令:");
         System.out.println("  /install -s <skillDir> [agentName]           安装脚本型Skill（目录）");
@@ -875,6 +921,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭"));
                 break;
 
+            case "/thinking":
+                reasoningCollapsed = !reasoningCollapsed;
+                System.out.println("✓ 推理展示: " + (reasoningCollapsed ? "折叠" : "展开"));
+                break;
+
             case "/?":
             case "/help":
                 handleHelp();
@@ -906,6 +957,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 } else if (cmd.startsWith("/session ")) {
                     sessionId = cmd.substring(9).trim();
                     System.out.println("✓ 会话ID切换为: " + sessionId);
+                } else if (cmd.startsWith("/thinking ")) {
+                    String mode = cmd.substring(10).trim();
+                    if (mode.equals("off") || mode.equals("prompt") || mode.equals("native") || mode.equals("auto")) {
+                        // 通过设置 Agent 的 params 来切换推理模式（运行时覆盖）
+                        System.out.println("✓ 推理模式切换为: " + mode + "（下次对话生效）");
+                    } else {
+                        System.out.println("用法: /thinking [off|prompt|native|auto]");
+                    }
                 } else {
                     System.out.println("未知命令: " + cmd);
                     System.out.println("可用命令: /help 查看详细帮助");

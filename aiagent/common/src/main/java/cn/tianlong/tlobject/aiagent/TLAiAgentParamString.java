@@ -221,6 +221,20 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_DEFAULTSKILLPACKAGENAME = "defaultSkillPackageName";
     String AI_P_DEFAULTMEMORYPACKAGENAME = "defaultMemoryPackageName";
 
+    // 推理/思考链 (ReAct)
+    /** 推理模式：off | prompt | native | auto */
+    String AI_P_REASONING_MODE = "reasoningMode";
+    /** 推理内容是否暴露给调用方 */
+    String AI_P_REASONING_VISIBLE = "reasoningVisible";
+    /** Claude Extended Thinking token预算 */
+    String AI_P_THINKING_BUDGET = "thinkingBudget";
+    /** 推理文本内容 */
+    String AI_P_REASONING = "reasoning";
+    /** 流式推理块 */
+    String AI_P_REASONING_CHUNK = "reasoningChunk";
+    /** 结构化推理步骤列表 */
+    String AI_P_REASONING_STEPS = "reasoningSteps";
+
     // Agent管理
     String AI_P_AGENTNAME = "agentName";
     String AI_P_AGENTDESCRIPTION = "agentDescription";
