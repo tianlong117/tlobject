@@ -724,6 +724,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /agents [ownerName]    列出已注册的Agent");
         System.out.println("  /skills [ownerName]    列出已注册的Skill");
         System.out.println("  /help                  显示此帮助");
+        System.out.println();
+        System.out.println("重载命令:");
+        System.out.println("  /reload -s <全路径>        重载脚本Skill  (a:b:skillDir)");
+        System.out.println("  /reload -a <全路径>        重载Agent      (a:b:d)");
+        System.out.println("  /reload -bs <全路径>       重载Java BaseSkill (a:b:mySkill)");
     }
 
     // ======================== 新统一命令处理器 ========================
@@ -862,6 +867,137 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("      /uninstall -a <name> [parent]  (卸载Agent)");
     }
 
+    private void printReloadUsage() {
+        System.out.println("用法: /reload -s <全路径>  (重载脚本Skill，如 aiagent:mySkillDir)");
+        System.out.println("      /reload -a <全路径>  (重载Agent，如 a:b:d)");
+        System.out.println("      /reload -bs <全路径> (重载Java BaseSkill，如 a:b:mySkill)");
+    }
+
+    // ======================== /reload 命令 ========================
+
+    private void handleReload(String cmd) {
+        String[] parts = cmd.split("\\s+");
+        if (parts.length < 2) {
+            printReloadUsage();
+            return;
+        }
+        switch (parts[1]) {
+            case "-s":
+                if (parts.length < 3) {
+                    System.out.println("用法: /reload -s <全路径>  例: /reload -s aiagent:mySkillDir");
+                    return;
+                }
+                reloadScriptSkill(parts[2]);
+                break;
+            case "-a":
+                if (parts.length < 3) {
+                    System.out.println("用法: /reload -a <全路径>  例: /reload -a a:b:d");
+                    return;
+                }
+                reloadAgent(parts[2]);
+                break;
+            case "-bs":
+                if (parts.length < 3) {
+                    System.out.println("用法: /reload -bs <全路径>  例: /reload -bs a:b:mySkill");
+                    return;
+                }
+                reloadBaseSkill(parts[2]);
+                break;
+            default:
+                System.out.println("未知flag: " + parts[1] + "，可用: -s (脚本Skill), -a (Agent), -bs (JavaSkill)");
+                break;
+        }
+    }
+
+    private void reloadScriptSkill(String path) {
+        Object[] resolved = resolveByPath(path);
+        if (resolved == null) { System.out.println("✗ 路径解析失败: " + path); return; }
+        TLBaseModule parent = (TLBaseModule) resolved[0];
+        String skillDir = (String) resolved[1];
+
+        TLMsg msg = createMsg()
+                .setAction(AGENT_RELOADSKILL)
+                .setParam("skillDir", skillDir);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(parent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ Skill 已重载: " + path + " (parent=" + parent.getName() + ")");
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
+            System.out.println("✗ 重载失败: " + err);
+        }
+    }
+
+    private void reloadAgent(String path) {
+        Object[] resolved = resolveByPath(path);
+        if (resolved == null) { System.out.println("✗ 路径解析失败: " + path); return; }
+        TLBaseModule parent = (TLBaseModule) resolved[0];
+        String agentName = (String) resolved[1];
+
+        TLMsg msg = createMsg()
+                .setAction(AGENT_RELOADAGENT)
+                .setParam(AI_P_AGENTNAME, agentName);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(parent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ Agent 已重载: " + path + " (parent=" + parent.getName() + ")");
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
+            System.out.println("✗ 重载失败: " + err);
+        }
+    }
+
+    private void reloadBaseSkill(String path) {
+        Object[] resolved = resolveByPath(path);
+        if (resolved == null) { System.out.println("✗ 路径解析失败: " + path); return; }
+        TLBaseModule parent = (TLBaseModule) resolved[0];
+        String skillName = (String) resolved[1];
+
+        TLMsg msg = createMsg()
+                .setAction(AGENT_RELOADSKILL)
+                .setParam(AI_P_SKILLNAME, skillName);
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(parent, msg);
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            System.out.println("✓ BaseSkill 已重载: " + path + " (parent=" + parent.getName() + ")");
+        } else {
+            String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
+            System.out.println("✗ 重载失败: " + err);
+        }
+    }
+
+    // ======================== 全路径解析 ========================
+
+    /** 冒号全路径 "a:b:d" → [直接父agent, 目标名]。单段时父=master */
+    private Object[] resolveByPath(String path) {
+        if (path == null || path.isEmpty()) return null;
+        String[] segs = path.split(":");
+        if (segs.length == 0) return null;
+        String targetName = segs[segs.length - 1];
+        TLBaseModule parent;
+        if (segs.length == 1) {
+            parent = findAgentInstance(agentModule);
+        } else {
+            parent = findAgentInstance(segs[0]);
+            for (int i = 1; parent != null && i < segs.length - 1; i++) {
+                parent = findChildAgent(parent, segs[i]);
+            }
+        }
+        if (parent == null) return null;
+        return new Object[]{parent, targetName};
+    }
+
+    /** 在父 agent 的子中查找（通过 registry 查 ownerName:childName） */
+    private TLBaseModule findChildAgent(TLBaseModule parent, String childName) {
+        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
+                .setParam(REGISTRY_P_KEY, parent.getName() + ":" + childName));
+        if (result != null) {
+            Object inst = result.getParam(INSTANCE);
+            if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
+        }
+        return null;
+    }
+
     private boolean handleCommand(String cmd) {
         switch (cmd.toLowerCase()) {
             case "/exit":
@@ -937,6 +1073,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case "/uninstall":
                 printUninstallUsage();
                 break;
+            case "/reload":
+                printReloadUsage();
+                break;
 
             case "/agents":
             case "/skills":
@@ -950,6 +1089,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     handleInstall(cmd);
                 } else if (cmd.startsWith("/uninstall ")) {
                     handleUninstall(cmd);
+                } else if (cmd.startsWith("/reload ")) {
+                    handleReload(cmd);
                 } else if (cmd.startsWith("/agents ")) {
                     handleListModules(cmd);
                 } else if (cmd.startsWith("/skills ")) {

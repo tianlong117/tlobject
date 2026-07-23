@@ -670,7 +670,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             returnMsg = checkMsgId(msgId, fromWho, msg);
         else {
             TLMsg preResult =null ;
-            if(beforeMsgTable  !=null && !beforeMsgTable.isEmpty() && msg.parseBoolean(IGNOREBEFORE,false) == false)
+            if(beforeMsgTable  !=null && !beforeMsgTable.isEmpty() && (boolean) msg.getSystemParam(IGNOREBEFORE,false) == false)
             {
                 returnMsg =doBeforMsgTable( action, msg);
                 preResult= (TLMsg) returnMsg.getSystemParam(PRERESULT);

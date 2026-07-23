@@ -34,6 +34,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_HOTLOADSKILL = "hotLoadSkill";
     /** 热卸载skill */
     String AGENT_HOTUNLOADSKILL = "hotUnloadSkill";
+    /** 重载Skill（重新构建已有skill） */
+    String AGENT_RELOADSKILL = "reloadSkill";
     /** 注册skill模块 */
     String AGENT_REGISTERSKILL = "registerSkill";
     /** 注销skill模块 */
@@ -44,6 +46,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_REGISTERAGENT = "registerAgent";
     /** 注销子Agent */
     String AGENT_UNREGISTERAGENT = "unregisterAgent";
+    /** 重载子Agent（重新构建已有agent） */
+    String AGENT_RELOADAGENT = "reloadAgent";
     /** 列出所有已注册子Agent */
     String AGENT_LISTAGENTS = "listAgents";
     /** 获取Agent描述（XML description + md frontmatter 已合并；master 生成 delegate_to 描述时向子 agent 发此消息，未实现则回落配置 description） */
