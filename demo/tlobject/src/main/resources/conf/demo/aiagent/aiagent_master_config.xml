@@ -186,8 +186,9 @@
     </beforeMsgTable>
     <afterMsgTable>
         <action name="chat" >
+            <!--  dmsg 为方便的注释掉 ，dmsg不解析为msg   -->
             <dmsg action="clearAndForward" destination="checkpoint"  />
-            <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
+            <dmsg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
         </action>
     </afterMsgTable>
 

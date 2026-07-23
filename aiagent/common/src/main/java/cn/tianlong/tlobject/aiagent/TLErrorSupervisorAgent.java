@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.aiagent;
 
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -111,8 +112,8 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
         }
 
         // 配在谁的 afterMsgTable 里，fromWho 就是谁
-        String targetAgent = fromWho instanceof TLBaseModule
-                ? ((TLBaseModule) fromWho).getName() : null;
+        String targetAgentName= fromWho instanceof IObject
+                ? ((IObject) fromWho).getName() : null;
         // maxReviewRounds 从 afterMsgTable 的 <msg> 属性读取
         int maxReviewRounds = 1;
         String maxRoundsStr = msg.getStringParam("maxReviewRounds", null);
@@ -125,7 +126,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "");
 
-        if (targetAgent == null) {
+        if (targetAgentName == null) {
             putLog("reviewChat: cannot determine target agent, pass through", LogLevel.WARN);
             return chatResult;
         }
@@ -133,7 +134,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
             putLog("reviewChat: empty response, pass through", LogLevel.DEBUG);
             return chatResult;
         }
-
+        IObject targetAgent = (IObject) fromWho;
         for (int round = 0; round <= maxReviewRounds; round++) {
             // 1. 用自己的 LLM 审查——直接发 chat 给自己
             String reviewPrompt = buildReviewPrompt(userMessage, response);
@@ -193,7 +194,9 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
      * 审查标准和输出格式在监管 agent 自己的 defaultSystemMessage 中定义。
      */
     private String buildReviewPrompt(String userMessage, String response) {
-        return "请审查以下 Agent 回答是否合格。\n\n"
+        return "请审查以下 Agent 回答是否合格，并**严格按 JSON 格式输出**，不要包含任何其他内容。\n\n"
+                + "输出格式：\n"
+                + "{\"pass\": true或false, \"suggestion\": \"如果不合格，给出具体修改建议；如果合格，填无\"}\n\n"
                 + "用户请求：\n" + userMessage + "\n\n"
                 + "Agent 回答：\n" + response;
     }
@@ -211,21 +214,21 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
     /**
      * 宽容解析审查 JSON，判断是否通过。
      * 截取首个 '{' 到末个 '}'（剥掉可能的 ```json 围栏），
-     * 取 "pass" 字段。解析失败默认 true（不阻塞正常流程）。
+     * 取 "pass" 字段。解析失败默认 false（安全优先，不可解析视为不合格）。
      */
     private boolean isPass(String verdict) {
-        if (verdict == null || verdict.isEmpty()) return true;
+        if (verdict == null || verdict.isEmpty()) return false;
         try {
             int start = verdict.indexOf('{');
             int end = verdict.lastIndexOf('}');
-            if (start < 0 || end <= start) return true;
+            if (start < 0 || end <= start) return false;
             com.google.gson.JsonObject obj =
                     gson.fromJson(verdict.substring(start, end + 1), com.google.gson.JsonObject.class);
-            if (obj == null || !obj.has("pass")) return true;
+            if (obj == null || !obj.has("pass")) return false;
             return obj.get("pass").getAsBoolean();
         } catch (Exception e) {
-            putLog("isPass parse error, default pass: " + e.toString(), LogLevel.DEBUG);
-            return true;
+            putLog("isPass parse error, default not pass: " + e.toString(), LogLevel.DEBUG);
+            return false;
         }
     }
 

@@ -693,7 +693,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                     usePreReturnMsg(nextMsg ,returnMsg) ;
                     returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
                 }
-                if (afterMsgTable !=null && !afterMsgTable.isEmpty() && msg.parseBoolean(IGNOREAFTER,false) == false && ifDoNextMsg(returnMsg))
+                if (afterMsgTable !=null && !afterMsgTable.isEmpty() &&  (boolean) msg.getSystemParam(IGNOREAFTER,false)== false && ifDoNextMsg(returnMsg))
                      returnMsg = doAfterMsgTable(action, msg, returnMsg);
             } else
                 {

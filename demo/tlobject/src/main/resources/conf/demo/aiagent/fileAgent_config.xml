@@ -46,4 +46,9 @@
                      storagePath="./data/fileAgent_memory"
                      maxCacheEntries="10000"/>
     </memoryStores>
+    <afterMsgTable>
+        <action name="chat" >
+            <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
+        </action>
+    </afterMsgTable>
 </moduleConfig>
