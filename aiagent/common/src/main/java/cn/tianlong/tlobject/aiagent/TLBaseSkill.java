@@ -79,8 +79,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
      * 加载 SKILL.md 并注入 skillDescription。
      * 查找顺序：
      * 1. XML 显式配置 skillMd 路径
-     * 2. classpath 同 package 下 {skillName}.md
-     * 3. classpath 同 package 下 SKILL.md
+     * 2. 配置目录下 skillmd/ 文件夹：{configDir}skillmd/{skillName}.md
+     * 3. classpath 同 package 下 {skillName}.md
      * 子类可覆盖以扩展发现路径（如 TLScriptExecutionSkill 额外查找脚本目录）。
      */
     protected void loadSkillMd() {
@@ -91,16 +91,15 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
             content = readFileOrResource(skillMdPath);
         }
 
-        // 2. classpath 同 package 下 {skillName}.md
+        // 2. 配置目录下 skillmd/ 文件夹：{skillName}.md（借鉴 TLAiAgent.loadAgentMd 的 {configDir}md/ 模式）
+        if (content == null && moduleFactory != null) {
+            content = readFileOrResource(moduleFactory.getConfigDir() + "skillmd/" + skillName + ".md");
+        }
+
+        // 3. classpath 同 package 下 {skillName}.md
         if (content == null) {
             String pkgPath = this.getClass().getPackage().getName().replace('.', '/');
             content = readClasspathResource(pkgPath + "/" + skillName + ".md");
-        }
-
-        // 3. classpath 同 package 下 SKILL.md
-        if (content == null) {
-            String pkgPath = this.getClass().getPackage().getName().replace('.', '/');
-            content = readClasspathResource(pkgPath + "/SKILL.md");
         }
 
         if (content == null || content.trim().isEmpty()) return;

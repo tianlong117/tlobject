@@ -138,7 +138,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     }
 
     /**
-     * 扩展 SKILL.md 发现：在 allowedScriptDir 父目录查找。
+     * 扩展 SKILL.md 发现：在 allowedScriptDir 父目录查找 {skillName}.md。
      * 脚本 skill 通常不放在 classpath 中，需要在部署目录查找。
      */
     @Override
@@ -149,16 +149,9 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                 java.nio.file.Path dir = java.nio.file.Paths.get(resolveScriptDir());
                 java.nio.file.Path parent = dir.getParent();
                 if (parent != null) {
-                    // {skillName}.md 优先
                     java.nio.file.Path namedMd = parent.resolve(skillName + ".md");
                     if (java.nio.file.Files.exists(namedMd)) {
                         skillMdPath = namedMd.toString();
-                    } else {
-                        // 兜底 SKILL.md
-                        java.nio.file.Path skillMd = parent.resolve("SKILL.md");
-                        if (java.nio.file.Files.exists(skillMd)) {
-                            skillMdPath = skillMd.toString();
-                        }
                     }
                 }
             } catch (Exception ignored) {}

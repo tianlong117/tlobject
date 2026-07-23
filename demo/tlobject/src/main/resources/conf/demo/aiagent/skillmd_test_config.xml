@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+        <skillName value="skillmd_test"/>
+        <enabled value="true"/>
+    </params>
+</moduleConfig>

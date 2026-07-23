@@ -120,7 +120,13 @@
                description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
 
     </agents>
-
+    <skills>
+        <skill name="liantongyun" allowedScriptDir="skills/liantongyun/scripts" interpreter="python" maxExecutionTime="120" sameClassAs="scriptExecutionSkill" skillName="script_execution" statup="true"/>
+        <skill name="skillmd_test"
+               classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
+               configfile="skillmd_test_config.xml"
+               statup="true"/>
+    </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 
          两种形态：
