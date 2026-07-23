@@ -55,5 +55,8 @@
         <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
         <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
+
+        <!-- 获取监管Agent -->
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
     </factoryBoot>
 </moduleConfig>

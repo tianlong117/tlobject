@@ -134,6 +134,17 @@
     </beforeMsgTable>
     <!-- afterMsgTable 会覆盖chat()的返回值，记忆保存改在chat()内部直接调用 -->
 
+    <!-- ===== afterMsgTable: 输出监管 ===== -->
+    <!--
+        配了 errorSupervisor 才会监管，不配/注释掉即关闭，零开销。
+        maxReviewRounds 控制最大修正轮次（默认 1）。
+    -->
+    <afterMsgTable>
+        <action name="chat">
+            <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
+        </action>
+    </afterMsgTable>
+
     <!-- ===== msgTools: LLM 可调用的预定义消息 ===== -->
     <msgTools>
         <msg msgid="getServerStatus"

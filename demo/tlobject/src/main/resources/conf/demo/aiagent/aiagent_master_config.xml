@@ -185,8 +185,9 @@
         </action>
     </beforeMsgTable>
     <afterMsgTable>
-        <action  value="chat" >
-            <dmsg   action="clearAndForward" destination="checkpoint"  />
+        <action name="chat" >
+            <dmsg action="clearAndForward" destination="checkpoint"  />
+            <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
         </action>
     </afterMsgTable>
 

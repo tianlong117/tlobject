@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== Error Supervisor Agent 配置 =====
+         标准 Agent，有自己的 Provider、Skill、子Agent。
+         通过目标 agent 的 afterMsgTable 钩入 chat 返回结果，
+         审查输出质量，发现未解决的错误时自动触发修正循环。
+
+         不配 afterMsgTable = 不监管，完全零开销。
+    -->
+
+    <params>
+        <defaultLlmProvider value="openAiProvider"/>
+
+        <!-- 审查标准和输出格式在自己的 systemMessage 中定义 -->
+        <defaultSystemMessage value="你是输出质量监管员。审查 Agent 的回答质量。&#10;&#10;审查标准：&#10;1. Agent 是否完成了用户的请求？未完成 → 不合格&#10;2. 回答中是否有未解决的错误信息（如 File not found、Connection refused、HTTP request failed）？有 → 不合格&#10;3. 遇到错误是否尝试了替代方案？直接放弃 → 不合格&#10;&#10;只输出 JSON（不要任何其他文字）：&#10;- 合格：{&quot;pass&quot;:true}&#10;- 不合格：{&quot;pass&quot;:false,&quot;issue&quot;:&quot;问题描述&quot;,&quot;suggestion&quot;:&quot;修正建议&quot;}"/>
+
+        <!-- 修正提示模板（支持 {{userMessage}} {{response}} {{suggestion}} 变量替换） -->
+        <correctionPromptTemplate value="你之前的回答存在问题，请修正。&#10;&#10;原始请求：{{userMessage}}&#10;&#10;你的回答：{{response}}&#10;&#10;审查意见：{{suggestion}}&#10;&#10;请根据审查意见重新处理。如果确实无法完成，请诚实告知用户原因。"/>
+    </params>
+
+    <!-- Provider：可独立配置 apiKey/apiBaseUrl/model，用便宜模型降成本 -->
+    <providers>
+        <provider name="openAiProvider"
+                  sameClassAs="openAiProvider"
+                  statup="true"
+                  apiKey="sk-your-api-key"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-flash"
+                  connTimeOut="30"
+                  readTimeOut="120"/>
+    </providers>
+
+    <!-- Skills（可选）：监管时可调用的辅助 skill -->
+    <!--
+    <skills>
+        <skill name="errorCategorizer"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLErrorCategorizerSkill"
+               statup="false"
+               skillName="error_categorizer"
+               skillDescription="分类错误类型：timeout/connection/not_found/permission/unknown"/>
+    </skills>
+    -->
+
+    <!-- 子 Agent（可选）：专业审查员 -->
+    <!--
+    <agents>
+        <agent name="securityReviewer"
+               sameClassAs="aiagent"
+               statup="false"
+               description="安全审查专家，检查 Agent 输出中的安全风险"/>
+    </agents>
+    -->
+</moduleConfig>

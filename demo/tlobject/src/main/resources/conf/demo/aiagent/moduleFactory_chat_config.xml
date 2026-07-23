@@ -31,5 +31,6 @@
         <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
     </factoryBoot>
 </moduleConfig>
