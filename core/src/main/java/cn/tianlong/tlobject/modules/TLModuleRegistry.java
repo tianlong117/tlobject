@@ -69,9 +69,31 @@ public class TLModuleRegistry extends TLBaseModule {
     private TLMsg doUnregister(TLMsg msg) {
         String key = msg.getStringParam(REGISTRY_P_KEY, null);
         if (key == null || key.isEmpty()) return null;
-        registry.remove(key);
+        HashMap<String, Object> removed = registry.remove(key);
+        if (removed != null) {
+            String removedName = (String) removed.get(MODULENAME);
+            if (removedName != null) {
+                cascadeRemove(removedName);
+            }
+        }
         putLog(key + " unregistered", LogLevel.DEBUG, REGISTRY_UNREGISTER);
         return createMsg().setParam(RESULT, true);
+    }
+
+    /** 递归删除 ownerName 的所有子孙条目 */
+    private void cascadeRemove(String ownerName) {
+        List<String> children = new ArrayList<>();
+        for (Map.Entry<String, HashMap<String, Object>> e : registry.entrySet()) {
+            if (ownerName.equals(e.getValue().get(REGISTRY_P_OWNERNAME))) {
+                children.add(e.getKey());
+            }
+        }
+        for (String childKey : children) {
+            HashMap<String, Object> child = registry.remove(childKey);
+            String childName = child != null ? (String) child.get(MODULENAME) : null;
+            putLog(childKey + " cascade unregistered (owner " + ownerName + " removed)", LogLevel.DEBUG);
+            if (childName != null) cascadeRemove(childName);
+        }
     }
 
     private TLMsg doList(TLMsg msg) {

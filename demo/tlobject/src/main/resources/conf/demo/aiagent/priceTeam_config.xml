@@ -29,7 +29,7 @@
 
     <agents>
         <agent name="hamburgerAgent" sameClassAs="aiagent"/>
-        <!--agent name="pizzaAgent" sameClassAs="aiagent"/-->
+        <agent name="pizzaAgent" sameClassAs="aiagent"/>
         <agent name="priceReviewer" sameClassAs="aiagent" role="supervisor"/>
     </agents>
 </moduleConfig>

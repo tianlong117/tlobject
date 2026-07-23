@@ -1695,7 +1695,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
     }
 
-    /** 重载子 Agent：先递归清理旧 agent 在 registry 中的子树 → getNewModule 新建 → 覆盖引用 */
+    /** 重载子 Agent：清理 registry（级联自动删子孙）→ 重建 → 覆盖引用 */
     protected synchronized TLMsg reloadAgent(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
         if (agentName.isEmpty()) {
@@ -1705,62 +1705,31 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return createMsg().setParam(RESULT, false).setParam("error", "agent not found: " + agentName);
         }
 
-        TLBaseModule oldAgent = subAgents.get(agentName);
+        // 1. 重新解析 XML（置 null 强制 setConfig 新建 TLModuleConfig，确保磁盘修改生效）
+        mconfig = null;
+        configure();
 
-        // 0. 递归清理旧 agent 在 registry 中的整个子树
-        unregisterAgentSubtree(agentName, oldAgent);
+        // 2. 注销旧 agent（registry 级联删除其所有子孙，为新实例清空注册槽）
         String selfKey = getName() + ":" + agentName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, selfKey));
 
-        // 1. 重新解析 XML（刷新 modulesClass/modulesParams，确保磁盘修改生效）
-        configure();
-
-        // 2. 先建新（旧实例仍在运行，零空窗）
+        // 3. 建新（启动时 initAgents/initSkills 自动注册自身及子孙到 registry）
         TLBaseModule newModule = (TLBaseModule) getNewModule(agentName);
         if (newModule == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + agentName);
         }
 
-        // 2. 切：覆盖旧引用
+        // 4. 切：覆盖旧引用
         subAgents.put(agentName, newModule);
         modules.put(agentName, newModule);
 
-        // 3. 新 agent 自己注册（initAgents 中已 registerToRegistry，但 getNewModule 不调 initAgents 里的
-        //    registerToRegistry——initAgents 在 runStartMsg 期间运行，getNewModule 走 init+start 也会触发。
-        //    为防止遗漏，显式注册一次）
+        // 5. 注册新 agent
         registerToRegistry(agentName, newModule, "agent");
 
         invalidateToolDefs();
         putLog("Reloaded agent: " + agentName, LogLevel.INFO);
         return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
-    }
-
-    /** 递归注销 agent 及其子树中所有模块的 registry 条目 */
-    private void unregisterAgentSubtree(String ownerName, TLBaseModule module) {
-        if (!(module instanceof TLAiAgent)) return;
-        TLAiAgent agent = (TLAiAgent) module;
-
-        // 注销该 agent 的所有 skill
-        if (agent.skills != null) {
-            for (TLBaseSkill skill : agent.skills.values()) {
-                String key = ownerName + ":" + skill.getName();
-                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                        .setParam(REGISTRY_P_KEY, key));
-            }
-        }
-
-        // 递归注销所有子 agent（及它们的子树）
-        if (agent.subAgents != null) {
-            for (Map.Entry<String, TLBaseModule> entry : agent.subAgents.entrySet()) {
-                String childName = entry.getKey();
-                TLBaseModule child = entry.getValue();
-                String key = ownerName + ":" + childName;
-                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                        .setParam(REGISTRY_P_KEY, key));
-                unregisterAgentSubtree(childName, child);
-            }
-        }
     }
 
     protected TLMsg listAgents(Object fromWho, TLMsg msg) {
