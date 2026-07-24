@@ -1343,8 +1343,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (modulesClass != null) modulesClass.remove(moduleName);
         if (modulesParams != null) modulesParams.remove(moduleName);
 
-        // 从 registry 注销
-        String key = getName() + ":" + moduleName;
+        // 从 registry 注销（用家族名字）
+        String key = getFamilyName() + ":" + moduleName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, key));
 
@@ -1414,7 +1414,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         modules.put(moduleName, newModule);
 
         // 全局 registry 更新
-        String registryKey = getName() + ":" + moduleName;
+        String registryKey = getFamilyName() + ":" + moduleName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, registryKey));
         registerToRegistry(moduleName, newModule, "skill");
@@ -1528,6 +1528,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 if (modulesClass != null) modulesClass.remove(moduleName);
                 if (modulesParams != null) modulesParams.remove(moduleName);
                 invalidateToolDefs();
+                // 从 registry 注销
+                String registryKey = getFamilyName() + ":" + skillName;
+                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                        .setParam(REGISTRY_P_KEY, registryKey));
                 // 持久化：从 XML 配置文件删除
                 boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
                 if (persist && configFile != null) {
@@ -1600,13 +1604,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 向全局 moduleRegistry 注册子模块，key=ownerName:moduleName。
+     * 向全局 moduleRegistry 注册子模块，以家族名字为 key。
      * registry 未配置时静默跳过（IGNOREMODULEISNULL）。
      */
     private void registerToRegistry(String subName, Object module, String moduleType) {
         if (module == null) return;
+        String familyName = module instanceof TLBaseModule
+                ? ((TLBaseModule) module).getFamilyName() : getName() + ":" + subName;
         TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
-                .setParam(REGISTRY_P_KEY, getName() + ":" + subName)
+                .setParam(REGISTRY_P_KEY, familyName)
                 .setParam(MODULENAME, subName)
                 .setParam(REGISTRY_P_OWNERNAME, getName())
                 .setParam(REGISTRY_P_TYPE, moduleType)
@@ -1680,6 +1686,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (subAgents.isEmpty()) isMaster = false;
             if (removed != null) invalidateToolDefs();
 
+            // 从 registry 注销（级联删除其所有子孙）
+            String registryKey = getFamilyName() + ":" + agentName;
+            putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                    .setParam(REGISTRY_P_KEY, registryKey));
+
             // 持久化：从配置文件删除
             boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
             if (persist && configFile != null) {
@@ -1710,7 +1721,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         configure();
 
         // 2. 注销旧 agent（registry 级联删除其所有子孙，为新实例清空注册槽）
-        String selfKey = getName() + ":" + agentName;
+        String selfKey = getFamilyName() + ":" + agentName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, selfKey));
 

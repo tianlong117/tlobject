@@ -6,8 +6,10 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -56,13 +58,29 @@ public class TLModuleRegistry extends TLBaseModule {
         String key = msg.getStringParam(REGISTRY_P_KEY, null);
         if (key == null || key.isEmpty()) return null;
 
+        Object instance = msg.getParam(INSTANCE);
+        String moduleName = msg.getStringParam(MODULENAME, null);
+        String ownerName = msg.getStringParam(REGISTRY_P_OWNERNAME, null);
+
         HashMap<String, Object> info = new HashMap<>();
-        info.put(MODULENAME, msg.getStringParam(MODULENAME, null));
-        info.put(INSTANCE, msg.getParam(INSTANCE));
-        info.put(REGISTRY_P_OWNERNAME, msg.getStringParam(REGISTRY_P_OWNERNAME, null));
+        info.put(MODULENAME, moduleName);
+        info.put(INSTANCE, instance);
+        info.put(REGISTRY_P_OWNERNAME, ownerName);
         info.put(REGISTRY_P_TYPE, msg.getStringParam(REGISTRY_P_TYPE, null));
+
+        // 从模块实例获取家族名字
+        String familyName = null;
+        if (instance instanceof TLBaseModule) {
+            familyName = ((TLBaseModule) instance).getFamilyName();
+        }
+        info.put(REGISTRY_P_FAMILYNAME, familyName);
+
         registry.put(key, info);
-        putLog(key + " registered", LogLevel.DEBUG, REGISTRY_REGISTER);
+        // 同时以家族名字为 key 注册，支持按完整路径查找
+        if (familyName != null && !familyName.isEmpty() && !familyName.equals(key)) {
+            registry.put(familyName, info);
+        }
+        putLog(key + " registered (familyName=" + familyName + ")", LogLevel.DEBUG, REGISTRY_REGISTER);
         return createMsg().setParam(RESULT, true);
     }
 
@@ -71,6 +89,16 @@ public class TLModuleRegistry extends TLBaseModule {
         if (key == null || key.isEmpty()) return null;
         HashMap<String, Object> removed = registry.remove(key);
         if (removed != null) {
+            // 收集并删除所有指向同一 info map 的 key（短名 + 家族名字）
+            List<String> keysToRemove = new ArrayList<>();
+            for (Map.Entry<String, HashMap<String, Object>> e : registry.entrySet()) {
+                if (e.getValue() == removed) {
+                    keysToRemove.add(e.getKey());
+                }
+            }
+            for (String k : keysToRemove) {
+                registry.remove(k);
+            }
             String removedName = (String) removed.get(MODULENAME);
             if (removedName != null) {
                 cascadeRemove(removedName);
@@ -80,7 +108,7 @@ public class TLModuleRegistry extends TLBaseModule {
         return createMsg().setParam(RESULT, true);
     }
 
-    /** 递归删除 ownerName 的所有子孙条目 */
+    /** 递归删除 ownerName 的所有子孙条目（含家族名字 key） */
     private void cascadeRemove(String ownerName) {
         List<String> children = new ArrayList<>();
         for (Map.Entry<String, HashMap<String, Object>> e : registry.entrySet()) {
@@ -90,9 +118,21 @@ public class TLModuleRegistry extends TLBaseModule {
         }
         for (String childKey : children) {
             HashMap<String, Object> child = registry.remove(childKey);
-            String childName = child != null ? (String) child.get(MODULENAME) : null;
-            putLog(childKey + " cascade unregistered (owner " + ownerName + " removed)", LogLevel.DEBUG);
-            if (childName != null) cascadeRemove(childName);
+            if (child != null) {
+                // 删除所有指向同一 info map 的 alternate key（家族名字等）
+                List<String> altKeys = new ArrayList<>();
+                for (Map.Entry<String, HashMap<String, Object>> e : registry.entrySet()) {
+                    if (e.getValue() == child) {
+                        altKeys.add(e.getKey());
+                    }
+                }
+                for (String altKey : altKeys) {
+                    registry.remove(altKey);
+                }
+                String childName = (String) child.get(MODULENAME);
+                putLog(childKey + " cascade unregistered (owner " + ownerName + " removed)", LogLevel.DEBUG);
+                if (childName != null) cascadeRemove(childName);
+            }
         }
     }
 
@@ -100,7 +140,9 @@ public class TLModuleRegistry extends TLBaseModule {
         String ownerName = msg.getStringParam(REGISTRY_P_OWNERNAME, null);
         String moduleType = msg.getStringParam(REGISTRY_P_TYPE, null);
         List<Map<String, Object>> result = new ArrayList<>();
+        Set<HashMap<String, Object>> seen = new HashSet<>();  // 去重：短 key 和 familyName key 指向同一 map
         for (Map.Entry<String, HashMap<String, Object>> entry : registry.entrySet()) {
+            if (!seen.add(entry.getValue())) continue;  // 已见过的 info map 跳过
             if (ownerName != null) {
                 String entryOwner = (String) entry.getValue().get(REGISTRY_P_OWNERNAME);
                 if (!ownerName.equals(entryOwner)) continue;

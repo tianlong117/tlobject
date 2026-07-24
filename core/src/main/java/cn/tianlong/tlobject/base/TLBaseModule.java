@@ -55,6 +55,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected LogLevel defaultLoglevel = LogLevel.INFO;     //默认日志级别
     protected List<String> logTags;       // 日志输出控制，允许日志输出的日志标签，分号分割，设置后只有定义的标签输出日志
     protected List<String> nologTags;     //日志输出控制，禁止日志输出的标签，分号分割
+    protected String familyName;           // 家族名字，如 "app:b:d"，唯一标识模块在层级中的位置
     protected boolean ifExceptionHandle = true;   //发生异常时是否处理 ，默认处理，否则继续运行
     protected String exceptionHandler;     //异常处理模块，如果设置则由该模块处理异常，否则由工厂处理 。返回如果为空，则程序停止
     protected Boolean ifDoMsgTransfer =false;   //对于其他目的的msg是否执行msgTransfer ，默认不执行
@@ -65,6 +66,7 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     public TLBaseModule(String name) {
         this.name = name;
+        this.familyName = name;  // 默认等于短名，子模块由工厂通过 cparams 覆盖
         modules.put(name, this);
         startTime =System.currentTimeMillis();
     }
@@ -95,6 +97,11 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
     public TLObjectFactory getFactory() {
         return moduleFactory;
+    }
+
+    /** 获取家族名字（如 "app:b:d"），唯一标识模块在层级中的位置 */
+    public String getFamilyName() {
+        return familyName != null ? familyName : name;
     }
 
     public String getConfigFile() {
@@ -450,6 +457,10 @@ public abstract class TLBaseModule extends TLBaseObject {
             logTags =TLDataUtils.splitStrToList(logTagsStr,FENHAO) ;
             String nologTagsStr = params.get("nologtags");
             nologTags =TLDataUtils.splitStrToList(nologTagsStr,FENHAO) ;
+            // 家族名字，由工厂创建时通过 cparams 传入；未传入则保持构造默认值（= name）
+            if (params.get("familyName") != null) {
+                this.familyName = params.get("familyName");
+            }
         }
     }
 

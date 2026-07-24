@@ -253,8 +253,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      */
     private void registerToRegistry(String subName, Object module, String moduleType) {
         if (module == null) return;
+        String familyName = module instanceof TLBaseModule
+                ? ((TLBaseModule) module).getFamilyName() : getName() + ":" + subName;
         TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
-                .setParam(REGISTRY_P_KEY, getName() + ":" + subName)
+                .setParam(REGISTRY_P_KEY, familyName)
                 .setParam(MODULENAME, subName)
                 .setParam(REGISTRY_P_OWNERNAME, getName())
                 .setParam(REGISTRY_P_TYPE, moduleType)

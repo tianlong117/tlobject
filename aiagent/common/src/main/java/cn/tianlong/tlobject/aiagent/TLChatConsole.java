@@ -581,15 +581,16 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /** /install skillDir [agentName] — 向指定 agent 热加载脚本 skill */
-    /** 从 moduleRegistry 查找 agent 实例，找不到返回 null */
-    private TLBaseModule findAgentInstance(String agentName) {
+    /** 从 moduleRegistry 查找 agent 实例，找不到返回 null。优先按家族名精确查找，fallback 按短名遍历。 */
+    private TLBaseModule findAgentInstance(String name) {
+        // 1. 优先按 key 精确查找（支持家族名如 app:aiagent）
         TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
-                .setParam(REGISTRY_P_KEY, agentName + ":" + agentName));
+                .setParam(REGISTRY_P_KEY, name));
         if (result != null) {
             Object inst = result.getParam(INSTANCE);
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
         }
-        // fallback: 遍历 registry list 找匹配的 agent
+        // 2. Fallback: 按短名遍历
         TLMsg listResult = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_LIST)
                 .setParam(REGISTRY_P_TYPE, "agent"));
         if (listResult != null) {
@@ -597,7 +598,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (list != null) {
                 for (Object item : list) {
                     java.util.Map<?, ?> m = (java.util.Map<?, ?>) item;
-                    if (agentName.equals(m.get(MODULENAME))) {
+                    if (name.equals(m.get(MODULENAME))) {
                         return (TLBaseModule) m.get(INSTANCE);
                     }
                 }
@@ -627,17 +628,28 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /** 卸载脚本 Skill */
+    /** 卸载脚本 Skill。skillDir 可以是短名或家族名 */
     private void uninstallScriptSkill(String skillDir, String targetAgent) {
-        TLBaseModule agent = findAgentInstance(targetAgent);
+        TLBaseModule agent;
+        String shortName;
+        if (skillDir.contains(":")) {
+            Object[] resolved = resolveByPath(skillDir);
+            if (resolved == null) { System.out.println("✗ 路径解析失败: " + skillDir); return; }
+            agent = (TLBaseModule) resolved[0];
+            shortName = (String) resolved[1];
+        } else {
+            agent = findAgentInstance(targetAgent);
+            shortName = skillDir;
+        }
         if (agent == null) {
-            System.out.println("✗ Agent 未找到: " + targetAgent);
+            System.out.println("✗ Agent 未找到: " + (skillDir.contains(":") ? skillDir : targetAgent));
             return;
         }
-        TLMsg msg = createMsg().setAction(AGENT_HOTUNLOADSKILL).setParam("skillDir", skillDir);
+        TLMsg msg = createMsg().setAction(AGENT_HOTUNLOADSKILL).setParam("skillDir", shortName);
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         TLMsg result = putMsg(agent, msg);
         if (result != null && result.parseBoolean(RESULT, false)) {
-            System.out.println("✓ Skill 已卸载: " + skillDir + " ← " + targetAgent);
+            System.out.println("✓ Skill 已卸载: " + shortName + " ← " + agent.getFamilyName());
         } else {
             String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
             System.out.println("✗ 卸载失败: " + err);
@@ -673,20 +685,34 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** 卸载 Agent */
+    /** 卸载 Agent。agentName 可以是短名或家族名 */
     private void uninstallAgent(String agentName, String targetAgent) {
-        TLBaseModule parent = findAgentInstance(targetAgent);
+        TLBaseModule parent;
+        String shortName;
+        // 家族名：直接解析出父和目标
+        if (agentName.contains(":")) {
+            Object[] resolved = resolveByPath(agentName);
+            if (resolved == null) {
+                System.out.println("✗ 路径解析失败: " + agentName);
+                return;
+            }
+            parent = (TLBaseModule) resolved[0];
+            shortName = (String) resolved[1];
+        } else {
+            parent = findAgentInstance(targetAgent);
+            shortName = agentName;
+        }
         if (parent == null) {
-            System.out.println("✗ Agent 未找到: " + targetAgent);
+            System.out.println("✗ Agent 未找到: " + (agentName.contains(":") ? agentName : targetAgent));
             return;
         }
         TLMsg msg = createMsg().setAction(AGENT_UNREGISTERAGENT)
-                .setParam(AI_P_AGENTNAME, agentName)
+                .setParam(AI_P_AGENTNAME, shortName)
                 .setParam(HOTLOAD_P_PERSIST, "true");
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         TLMsg result = putMsg(parent, msg);
         if (result != null && result.parseBoolean(RESULT, false)) {
-            System.out.println("✓ Agent 已卸载: " + agentName + " ← " + targetAgent);
+            System.out.println("✓ Agent 已卸载: " + shortName + " ← " + parent.getFamilyName());
         } else {
             String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
             System.out.println("✗ 卸载失败: " + err);
@@ -711,14 +737,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
         System.out.println();
         System.out.println("安装命令:");
-        System.out.println("  /install -s <skillDir> [agentName]           安装脚本型Skill（目录）");
-        System.out.println("  /install -a <name> <classRef> [parent]       安装Agent");
-        System.out.println("  /install -bs <skillName> <classFile> [agent] 安装Java BaseSkill");
+        System.out.println("  /install -s <skillDir> [家族名]              安装脚本型Skill（目录）");
+        System.out.println("  /install -a <name> <classRef> [家族名]       安装Agent");
+        System.out.println("  /install -bs <skillName> <classFile> [家族名] 安装Java BaseSkill");
         System.out.println();
         System.out.println("卸载命令:");
-        System.out.println("  /uninstall -s <skillDir> [agentName]         卸载脚本Skill");
-        System.out.println("  /uninstall -bs <skillName> [agentName]       卸载Java BaseSkill");
-        System.out.println("  /uninstall -a <name> [parent]                卸载Agent");
+        System.out.println("  /uninstall -s <skillDir> [家族名]            卸载脚本Skill");
+        System.out.println("  /uninstall -bs <skillName> [家族名]          卸载Java BaseSkill");
+        System.out.println("  /uninstall -a <name> [家族名]                卸载Agent");
         System.out.println();
         System.out.println("查询命令:");
         System.out.println("  /agents [ownerName]    列出已注册的Agent");
@@ -726,9 +752,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /help                  显示此帮助");
         System.out.println();
         System.out.println("重载命令:");
-        System.out.println("  /reload -s <全路径>        重载脚本Skill  (a:b:skillDir)");
-        System.out.println("  /reload -a <全路径>        重载Agent      (a:b:d)");
-        System.out.println("  /reload -bs <全路径>       重载Java BaseSkill (a:b:mySkill)");
+        System.out.println("  /reload -s <家族名>        重载脚本Skill  (例如 app:skillDir)");
+        System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
+        System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
     }
 
     // ======================== 新统一命令处理器 ========================
@@ -743,25 +769,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         String flag = parts[1];
         switch (flag) {
             case "-s":
-                // /install -s <skillDir> [agentName]
+                // /install -s <skillDir> [家族名]
                 if (parts.length < 3) {
-                    System.out.println("用法: /install -s <skillDir> [agentName]");
+                    System.out.println("用法: /install -s <skillDir> [家族名]");
                     return;
                 }
                 installScriptSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
                 break;
             case "-a":
-                // /install -a <agentName> <classFile|sameClassAs> [parentAgent]
+                // /install -a <agentName> <classFile|sameClassAs> [家族名]
                 if (parts.length < 4) {
-                    System.out.println("用法: /install -a <agentName> <classFile|sameClassAs> [parentAgent]");
+                    System.out.println("用法: /install -a <agentName> <classFile|sameClassAs> [家族名]");
                     return;
                 }
                 installAgent(parts[2], parts[3], parts.length > 4 ? parts[4] : agentModule);
                 break;
             case "-bs":
-                // /install -bs <skillName> <classFile> [agentName]
+                // /install -bs <skillName> <classFile> [家族名]
                 if (parts.length < 4) {
-                    System.out.println("用法: /install -bs <skillName> <classFile> [agentName]");
+                    System.out.println("用法: /install -bs <skillName> <classFile> [家族名]");
                     System.out.println("  例: /install -bs mySkill cn.tianlong.java.demo.aiagent.skills.MyDemoSkill");
                     return;
                 }
@@ -783,25 +809,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         String flag = parts[1];
         switch (flag) {
             case "-s":
-                // /uninstall -s <skillDir> [agentName]
+                // /uninstall -s <skillDir> [家族名]
                 if (parts.length < 3) {
-                    System.out.println("用法: /uninstall -s <skillDir> [agentName]");
+                    System.out.println("用法: /uninstall -s <skillDir> [家族名]");
                     return;
                 }
                 uninstallScriptSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
                 break;
             case "-bs":
-                // /uninstall -bs <skillName> [agentName]
+                // /uninstall -bs <skillName> [家族名]
                 if (parts.length < 3) {
-                    System.out.println("用法: /uninstall -bs <skillName> [agentName]");
+                    System.out.println("用法: /uninstall -bs <skillName> [家族名]");
                     return;
                 }
                 uninstallBaseSkill(parts[2], parts.length > 3 ? parts[3] : agentModule);
                 break;
             case "-a":
-                // /uninstall -a <agentName> [parentAgent]
+                // /uninstall -a <agentName> [家族名]
                 if (parts.length < 3) {
-                    System.out.println("用法: /uninstall -a <agentName> [parentAgent]");
+                    System.out.println("用法: /uninstall -a <agentName> [家族名]");
                     return;
                 }
                 uninstallAgent(parts[2], parts.length > 3 ? parts[3] : agentModule);
@@ -834,21 +860,31 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** 卸载 Java BaseSkill（/uninstall -bs） */
+    /** 卸载 Java BaseSkill（/uninstall -bs）。skillName 可以是短名或家族名 */
     private void uninstallBaseSkill(String skillName, String targetAgent) {
-        TLBaseModule agent = findAgentInstance(targetAgent);
+        TLBaseModule agent;
+        String shortName;
+        if (skillName.contains(":")) {
+            Object[] resolved = resolveByPath(skillName);
+            if (resolved == null) { System.out.println("✗ 路径解析失败: " + skillName); return; }
+            agent = (TLBaseModule) resolved[0];
+            shortName = (String) resolved[1];
+        } else {
+            agent = findAgentInstance(targetAgent);
+            shortName = skillName;
+        }
         if (agent == null) {
-            System.out.println("✗ Agent 未找到: " + targetAgent);
+            System.out.println("✗ Agent 未找到: " + (skillName.contains(":") ? skillName : targetAgent));
             return;
         }
         TLMsg msg = createMsg()
                 .setAction(AGENT_UNREGISTERSKILL)
-                .setParam(AI_P_SKILLNAME, skillName)
+                .setParam(AI_P_SKILLNAME, shortName)
                 .setParam(HOTLOAD_P_PERSIST, "true");
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         TLMsg result = putMsg(agent, msg);
         if (result != null && result.parseBoolean(RESULT, false)) {
-            System.out.println("✓ JavaSkill已卸载: " + skillName + " ← " + targetAgent);
+            System.out.println("✓ JavaSkill已卸载: " + shortName + " ← " + agent.getFamilyName());
         } else {
             String err = result != null ? result.getStringParam("error", "未知错误") : "agent 无响应";
             System.out.println("✗ 卸载失败: " + err);
@@ -856,21 +892,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     private void printInstallUsage() {
-        System.out.println("用法: /install -s <skillDir> [agentName]  (安装脚本Skill)");
-        System.out.println("      /install -a <name> <classRef> [parent]  (安装Agent)");
-        System.out.println("      /install -bs <skillName> <classFile> [agentName]  (安装JavaSkill)");
+        System.out.println("用法: /install -s <skillDir> [家族名]  (安装脚本Skill)");
+        System.out.println("      /install -a <name> <classRef> [家族名]  (安装Agent)");
+        System.out.println("      /install -bs <skillName> <classFile> [家族名]  (安装JavaSkill)");
     }
 
     private void printUninstallUsage() {
-        System.out.println("用法: /uninstall -s <skillDir> [agentName]  (卸载脚本Skill)");
-        System.out.println("      /uninstall -bs <skillName> [agentName]  (卸载JavaSkill)");
-        System.out.println("      /uninstall -a <name> [parent]  (卸载Agent)");
+        System.out.println("用法: /uninstall -s <skillDir> [家族名]  (卸载脚本Skill)");
+        System.out.println("      /uninstall -bs <skillName> [家族名]  (卸载JavaSkill)");
+        System.out.println("      /uninstall -a <name> [家族名]  (卸载Agent)");
     }
 
     private void printReloadUsage() {
-        System.out.println("用法: /reload -s <全路径>  (重载脚本Skill，如 aiagent:mySkillDir)");
-        System.out.println("      /reload -a <全路径>  (重载Agent，如 a:b:d)");
-        System.out.println("      /reload -bs <全路径> (重载Java BaseSkill，如 a:b:mySkill)");
+        System.out.println("用法: /reload -s <家族名>  (重载脚本Skill，如 aiagent:mySkillDir)");
+        System.out.println("      /reload -a <家族名>  (重载Agent，如 app:myAgent)");
+        System.out.println("      /reload -bs <家族名> (重载Java BaseSkill，如 aiagent:mySkill)");
     }
 
     // ======================== /reload 命令 ========================
@@ -884,21 +920,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         switch (parts[1]) {
             case "-s":
                 if (parts.length < 3) {
-                    System.out.println("用法: /reload -s <全路径>  例: /reload -s aiagent:mySkillDir");
+                    System.out.println("用法: /reload -s <家族名>  例: /reload -s aiagent:mySkillDir");
                     return;
                 }
                 reloadScriptSkill(parts[2]);
                 break;
             case "-a":
                 if (parts.length < 3) {
-                    System.out.println("用法: /reload -a <全路径>  例: /reload -a a:b:d");
+                    System.out.println("用法: /reload -a <家族名>  例: /reload -a app:myAgent");
                     return;
                 }
                 reloadAgent(parts[2]);
                 break;
             case "-bs":
                 if (parts.length < 3) {
-                    System.out.println("用法: /reload -bs <全路径>  例: /reload -bs a:b:mySkill");
+                    System.out.println("用法: /reload -bs <家族名>  例: /reload -bs aiagent:mySkill");
                     return;
                 }
                 reloadBaseSkill(parts[2]);
@@ -966,34 +1002,36 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    // ======================== 全路径解析 ========================
+    // ======================== 家族名解析 ========================
 
-    /** 冒号全路径 "a:b:d" → [直接父agent, 目标名]。单段时父=master */
+    /** 家族名 "moduleFactory:aiagent:myAgent" → [直接父实例, 目标短名]。单段时父=master */
     private Object[] resolveByPath(String path) {
         if (path == null || path.isEmpty()) return null;
-        String[] segs = path.split(":");
-        if (segs.length == 0) return null;
-        String targetName = segs[segs.length - 1];
-        TLBaseModule parent;
-        if (segs.length == 1) {
-            parent = findAgentInstance(agentModule);
-        } else {
-            parent = findAgentInstance(segs[0]);
-            for (int i = 1; parent != null && i < segs.length - 1; i++) {
-                parent = findChildAgent(parent, segs[i]);
-            }
+        int lastColon = path.lastIndexOf(':');
+        // 单段：父=master agent
+        if (lastColon < 0) {
+            TLBaseModule parent = findAgentInstance(agentModule);
+            if (parent == null) return null;
+            return new Object[]{parent, path};
         }
+        String targetName = path.substring(lastColon + 1);
+        String parentPath = path.substring(0, lastColon);
+        TLBaseModule parent = lookupByFamilyName(parentPath);
         if (parent == null) return null;
         return new Object[]{parent, targetName};
     }
 
-    /** 在父 agent 的子中查找（通过 registry 查 ownerName:childName） */
-    private TLBaseModule findChildAgent(TLBaseModule parent, String childName) {
+    /** 按家族名从 registry 直接查找模块实例 */
+    private TLBaseModule lookupByFamilyName(String familyName) {
         TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
-                .setParam(REGISTRY_P_KEY, parent.getName() + ":" + childName));
+                .setParam(REGISTRY_P_KEY, familyName));
         if (result != null) {
             Object inst = result.getParam(INSTANCE);
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
+        }
+        // 工厂根节点可能未注册到 registry，直接匹配
+        if (moduleFactory != null && familyName.equals(moduleFactory.getFamilyName())) {
+            return moduleFactory;
         }
         return null;
     }

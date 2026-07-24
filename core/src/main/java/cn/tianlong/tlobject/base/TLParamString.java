@@ -82,6 +82,7 @@ public interface TLParamString {
     final String REGISTRY_P_KEY = "key";
     final String REGISTRY_P_OWNERNAME = "ownerName";
     final String REGISTRY_P_TYPE = "moduleType";
+    final String REGISTRY_P_FAMILYNAME = "familyName";
     final String FACTORY_R_MODULEINSTANCE = "instance";
     final String FACTORY_P_MODULENAME = "moduleName";
     final String FACTORY_P_NEWMODULENAME = "newModuleName";
