@@ -135,6 +135,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 会话检查点文件存储路径 */
     protected String sessionStorePath = "./data/session_store/";
 
+    /** 审批模块引用（null = 未启用审批） */
+    protected volatile IObject approvalModule;
+    /** 审批模块名（从 XML params 读取） */
+    protected String approvalModuleName;
+
     /** JSON 序列化（复用 Gson，aiagent 已依赖） */
     protected com.google.gson.Gson gson;
 
@@ -224,6 +229,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 sessionStorePath = params.get("sessionStorePath");
             if (params.get("checkProviderOnStartup") != null)
                 checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
+            if (params.get("approvalModule") != null)
+                approvalModuleName = params.get("approvalModule");
             // 推理/思考链参数
             if (params.get("reasoningMode") != null)
                 reasoningMode = params.get("reasoningMode");
@@ -328,11 +335,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         super.runStartMsg();
         // 3.5 将本 Agent 自身注册到全局 registry（供 /install 等命令查找）
         registerToRegistry(name, this, "agent");
-        // 4. 启动后自动续跑 mid-loop 断点（state=checkpoint，异常退出留下的）。
-        // L1 完成态会话不在启动时全量装载——doChat 每轮本就 loadSessionCheckpoint 文件优先，
-        // resumeSession/findLatestSession 也按需读文件，启动全量恢复是冗余且随文件数无限膨胀
-        if (enableCheckpoint) {
-            autoResumeCheckpoints();
+        // 4. 启动时不再自动续跑 mid-loop 断点，仅打印日志提示。
+        // 断点恢复改为控制台启动后提示用户确认（/resume），避免自动恢复占用线程池导致控制台不可用。
+        // 仅主 agent 检查断点——子 agent 是工具，不产生独立会话断点。
+        if (isMaster && enableCheckpoint) {
+            logIncompleteCheckpoints();
         }
     }
 
@@ -556,6 +563,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "findLatestSession":
                 returnMsg = findLatestSession(fromWho, msg);
                 break;
+            case "findIncompleteCheckpoints":
+                returnMsg = findIncompleteCheckpoints(fromWho, msg);
+                break;
             case AGENT_SAVEMEMORY:
                 returnMsg = saveAgentMemory(fromWho, msg);
                 break;
@@ -718,7 +728,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
 
             // ==== 断点恢复检查 ====
-            boolean resume = msg.parseBoolean("resume", enableCheckpoint);
+            boolean resume = msg.parseBoolean("resume", false);
             TLMsg checkpoint = resume ? loadSessionCheckpoint(sessionId) : null;
             List<TLConversationHistory> history;
             int iteration = 0;
@@ -727,6 +737,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
             boolean aborted = false;   // 是否被 /stop 协作式中断
             boolean clarified = false; // 是否调用了 request_clarification 工具
+            boolean pendingApproval = false; // 是否需要人工审批
+            boolean rejected = false;       // 审批是否被拒绝
 
             if (checkpoint != null && SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", ""))) {
                 // L2: 从 mid-loop 断点恢复，跳过预处理
@@ -739,6 +751,59 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 resumedFromCheckpoint = true;
                 putLog("Resumed from checkpoint: sessionId=" + sessionId + " iter=" + iteration
                         + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
+            } else if (checkpoint != null
+                    && SESSION_STATE_PENDING_APPROVAL.equals(checkpoint.getStringParam("state", ""))) {
+                // ==== pending_approval 断点恢复 ====
+                history = (List<TLConversationHistory>) checkpoint.getParam("history");
+                iteration = checkpoint.getIntParam("iteration", 0);
+                if (checkpoint.containsParam("model"))
+                    model = checkpoint.getStringParam("model", model);
+                temperature = checkpoint.getDoubleParam("temperature", temperature);
+                maxTokens = checkpoint.getIntParam("maxTokens", maxTokens);
+                resumedFromCheckpoint = true;
+
+                // 从断点取出待审批的 tool call
+                TLToolCall savedTc = checkpoint.containsParam("pendingToolCall")
+                        ? (TLToolCall) checkpoint.getParam("pendingToolCall") : null;
+                String savedApprovalId = checkpoint.getStringParam(AI_P_APPROVAL_ID, "");
+
+                // 从 caller msg 获取审批决策
+                String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "pending");
+                if ("approved".equals(decision) && savedTc != null) {
+                    // 用户批准 → 执行工具（可能带修改后的参数）
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> modifiedArgs =
+                            msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null);
+                    if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
+                        savedTc.setArguments(modifiedArgs);
+                    }
+                    // 重建 assistant 消息（带 tool calls）
+                    java.util.List<TLToolCall> singleTc = new java.util.ArrayList<>();
+                    singleTc.add(savedTc);
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.assistant, singleTc));
+                    // 执行工具（此时 checkApprovalGate 不再拦截，因为审批已完成）
+                    TLMsg tr = executeToolCall(savedTc, fromWho, sessionId);
+                    history.add(new TLConversationHistory(savedTc.getId(),
+                            savedTc.getFunctionName(),
+                            tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
+                    putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
+                            LogLevel.INFO);
+
+                } else if ("rejected".equals(decision)) {
+                    // 用户拒绝 → 注入拒绝消息
+                    String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.user,
+                            "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
+                    putLog("Approval resumed: rejected → reason=" + reason, LogLevel.INFO);
+
+                } else {
+                    // 仍 pending → 错误状态（不应到达），返回错误
+                    putLog("Approval still pending on resume: approvalId=" + savedApprovalId, LogLevel.WARN);
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_RESPONSE, "审批请求仍在等待中，approvalId=" + savedApprovalId);
+                }
             } else {
                 // 正常流程 / L1 恢复
                 if (checkpoint != null && SESSION_STATE_COMPLETED.equals(checkpoint.getStringParam("state", ""))) {
@@ -908,6 +973,40 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     for (TLToolCall tc : toolCalls) {
                         if (cancelled.get()) { aborted = true; break; }
                         TLMsg tr = executeToolCall(tc, fromWho, sessionId);
+                        if (tr == null) {
+                            putLog("executeToolCall returned null for " + tc.getFunctionName(), LogLevel.ERROR);
+                            tr = createMsg().setParam(RESULT, false)
+                                    .setParam(AI_P_SKILLOUTPUT, "Internal error: null result for " + tc.getFunctionName());
+                        }
+
+                        // 审批门禁返回 pending/rejected
+                        String approvalState = tr.getStringParam(AI_P_APPROVAL_STATE, "");
+                        if ("pending".equals(approvalState)) {
+                            // 回滚 assistant 消息（工具未执行）
+                            history.remove(history.size() - 1);
+                            pendingApproval = true;
+                            finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
+                            // 保存 pending_approval 断点
+                            if (enableCheckpoint) {
+                                persistSessionWithApproval(sessionId, history,
+                                        SESSION_STATE_PENDING_APPROVAL, iteration, model,
+                                        temperature, maxTokens, userMessage, tc,
+                                        tr.getStringParam(AI_P_APPROVAL_ID, ""));
+                            }
+                            break;
+                        }
+                        if ("rejected".equals(approvalState)) {
+                            // 审批被拒绝：回滚 assistant 消息，注入拒绝通知，直接结束
+                            history.remove(history.size() - 1);
+                            history.add(new TLConversationHistory(
+                                    TLConversationHistory.Role.user,
+                                    "（操作已被用户拒绝：" + tr.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝")
+                                            + "。不要重试此操作。）"));
+                            rejected = true;
+                            finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
+                            break;
+                        }
+
                         history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
                                 tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
                         // request_clarification：LLM 主动要求用户确认 → 提前结束循环
@@ -918,7 +1017,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             break;
                         }
                     }
-                    if (aborted || clarified) break;
+                    if (aborted || clarified || pendingApproval || rejected) break;
                     // L2 checkpoint: 每轮工具调用后保存断点
                     if (enableCheckpoint) {
                         persistSession(sessionId, history, SESSION_STATE_CHECKPOINT,
@@ -1848,6 +1947,74 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
+    /**
+     * 公共方法：扫描 sessionStorePath 下 state=checkpoint 的断点文件，
+     * 返回已加载的 checkpoint TLMsg 列表（按文件修改时间降序）。
+     * 复用 loadSessionCheckpoint 已有的加载+过滤逻辑。
+     */
+    private java.util.List<TLMsg> listIncompleteCheckpoints() {
+        java.util.List<TLMsg> result = new java.util.ArrayList<>();
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists() || !dir.isDirectory()) return result;
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null) return result;
+
+            // 按修改时间降序排列
+            java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+
+            for (java.io.File f : files) {
+                try {
+                    TLMsg checkpoint = loadSessionCheckpoint(
+                            f.getName().substring(0, f.getName().length() - 5));
+                    if (checkpoint == null) continue;
+                    if (!SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", "")))
+                        continue;
+                    checkpoint.setParam("_fileTime", f.lastModified());
+                    result.add(checkpoint);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception e) {
+            putLog("listIncompleteCheckpoints error: " + e.toString(), LogLevel.WARN);
+        }
+        return result;
+    }
+
+    /**
+     * 查找最近一个未完成的检查点（state=checkpoint），供控制台启动时检测并提示用户。
+     * 返回 sessionId / userMessage / savedAt / iteration。
+     */
+    protected TLMsg findIncompleteCheckpoints(Object fromWho, TLMsg msg) {
+        java.util.List<TLMsg> list = listIncompleteCheckpoints();
+        if (list.isEmpty()) {
+            return createMsg().setParam(RESULT, false);
+        }
+        TLMsg latest = list.get(0);
+        return createMsg()
+                .setParam(RESULT, true)
+                .setParam("sessionId", latest.getStringParam("sessionId", ""))
+                .setParam("userMessage", latest.getStringParam("userMessage", ""))
+                .setParam("savedAt", latest.getLongParam("_fileTime", 0L))
+                .setParam("iteration", latest.getIntParam("iteration", 0));
+    }
+
+    /**
+     * 启动时日志打印未完成检查点信息（不自动恢复）。
+     */
+    protected void logIncompleteCheckpoints() {
+        java.util.List<TLMsg> list = listIncompleteCheckpoints();
+        if (list.isEmpty()) {
+            putLog("无未完成断点", LogLevel.DEBUG);
+            return;
+        }
+        for (TLMsg cp : list) {
+            putLog("发现未完成断点: " + cp.getStringParam("sessionId", "")
+                    + " (userMsg=" + cp.getStringParam("userMessage", "")
+                    + "), 控制台启动后将提示 /resume", LogLevel.INFO);
+        }
+    }
+
     protected TLMsg setSystemMsg(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String systemMsg = msg.getStringParam(AI_P_SYSTEMMESSAGE, "");
@@ -2033,6 +2200,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 "当缺少必要信息无法完成任务时调用此工具请求用户确认。不要猜测或编造信息。",
                 Map.of("question", Map.of("type", "string", "description", "需要用户确认的具体问题"))));
 
+
         // 始终包含自身的skills（主控也可以有自己的skill）
         for (TLBaseSkill skill : skills.values()) {
             if (skill.isEnabled()) {
@@ -2166,6 +2334,61 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
+     * 审批门禁：在执行工具前发送审批请求到审批模块。
+     *
+     * @return null 表示放行（无需审批或已批准）；非 null 表示被拦截（pending/rejected），调用方应在 doChat 循环中处理
+     */
+    private TLMsg checkApprovalGate(TLToolCall tc, String sessionId) {
+        // 延迟解析审批模块（首次使用才查工厂，避免循环依赖）
+        if (approvalModule == null && approvalModuleName != null && !approvalModuleName.isEmpty()) {
+            synchronized (this) {
+                if (approvalModule == null) {
+                    Object m = moduleFactory != null ? moduleFactory.getModule(approvalModuleName) : null;
+                    // 也尝试本地 modules（子模块或 getMyModule 创建的私有实例）
+                    if (m == null && modules != null) m = modules.get(approvalModuleName);
+                    if (m instanceof IObject) {
+                        approvalModule = (IObject) m;
+                        putLog("Approval module resolved: " + approvalModuleName, LogLevel.INFO);
+                    } else {
+                        putLog("Approval module not found: " + approvalModuleName + " → approval disabled", LogLevel.WARN);
+                        approvalModuleName = null; // 标记已尝试，不再重复查找
+                        return null;
+                    }
+                }
+            }
+        }
+        if (approvalModule == null) return null;
+
+        // 去掉 delegate_to_ 前缀，让审批模块看到真实的 agent/skill 名
+        String checkName = tc.getFunctionName();
+        if (checkName.startsWith("delegate_to_")) {
+            checkName = checkName.substring("delegate_to_".length());
+        }
+
+        try {
+            TLMsg result = putMsg(approvalModule,
+                    createMsg().setAction(APPROVAL_REQUEST)
+                            .setParam("toolName", checkName)
+                            .setParam("toolArgs", tc.getArguments() instanceof java.util.Map
+                                    ? new java.util.LinkedHashMap<>((java.util.Map<?, ?>) tc.getArguments())
+                                    : new java.util.LinkedHashMap<>())
+                            .setParam(AI_P_SESSIONID, sessionId)
+                            .setParam("toolCallId", tc.getId()));
+
+            if (result == null) return null;
+
+            String state = result.getStringParam(AI_P_APPROVAL_STATE, "");
+            if ("approved".equals(state)) {
+                return null;
+            }
+            return result;
+        } catch (Exception e) {
+            putLog("checkApprovalGate error: " + e.toString() + " → bypassing approval", LogLevel.ERROR);
+            return null; // 出错时放行，安全优先（不阻塞正常功能）
+        }
+    }
+
+    /**
      * 执行单个tool call。
      * 主控模式：路由到子Agent（delegate_to_xxx）；
      * 独立模式：路由到对应skill。
@@ -2185,6 +2408,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_NEEDSCLARIFICATION, true)
                     .setParam(AI_P_CLARIFICATIONQUESTION, question)
                     .setParam(AI_P_SKILLOUTPUT, "⚠️ 需要确认: " + question);
+        }
+
+        // 审批门禁：发送审批请求到审批模块（无需审批/已批准时返回 null）
+        TLMsg approvalResult = checkApprovalGate(tc, sessionId);
+        if (approvalResult != null) {
+            return approvalResult;  // pending 或 rejected
         }
 
         // 主控模式：子 agent 贡献的工具路由（查路由表 → 发 callTool 消息，不研判类型）
@@ -2598,6 +2827,39 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
+     * 保存 pending_approval 状态断点（附带待审批的 tool call 和 approvalId）。
+     */
+    protected void persistSessionWithApproval(String sessionId, List<TLConversationHistory> history,
+                                               String state, int iteration, String model,
+                                               double temperature, int maxTokens, String userMessage,
+                                               TLToolCall pendingTc, String approvalId) {
+        if (!enableCheckpoint) return;
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists()) dir.mkdirs();
+
+            java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
+            data.put("sessionId", sessionId);
+            data.put("state", state);
+            data.put("iteration", iteration);
+            data.put("model", model);
+            data.put("temperature", temperature);
+            data.put("maxTokens", maxTokens);
+            data.put("userMessage", userMessage);
+            data.put("history", history);
+            data.put("pendingToolCall", pendingTc);
+            data.put(AI_P_APPROVAL_ID, approvalId != null ? approvalId : "");
+            data.put("savedAt", System.currentTimeMillis());
+
+            String json = gson.toJson(data);
+            java.io.File file = new java.io.File(dir, sessionId + ".json");
+            java.nio.file.Files.write(file.toPath(), json.getBytes("UTF-8"));
+        } catch (Exception e) {
+            putLog("persistSessionWithApproval failed: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /**
      * 加载会话检查点文件，返回 TLMsg 包含所有保存的字段。
      * @return null 表示文件不存在或加载失败
      */
@@ -2628,6 +2890,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history.add(h);
             }
             result.setParam("history", history);
+
+            // 反序列化 pending_approval 信息
+            if (obj.has("pendingToolCall") && !obj.get("pendingToolCall").isJsonNull()) {
+                result.setParam("pendingToolCall",
+                        gson.fromJson(obj.get("pendingToolCall"), TLToolCall.class));
+            }
+            if (obj.has(AI_P_APPROVAL_ID)) {
+                result.setParam(AI_P_APPROVAL_ID,
+                        obj.get(AI_P_APPROVAL_ID).getAsString());
+            }
+
             return result;
         } catch (Exception e) {
             putLog("loadSessionCheckpoint failed for " + sessionId + ": " + e.toString(), LogLevel.WARN);

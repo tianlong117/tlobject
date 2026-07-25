@@ -30,5 +30,7 @@
         <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
         <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"
                 configfile="CLASSPATH/conf/demo/aiagent/errorSupervisor_config.xml"/>
+        <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"
+                configfile="CLASSPATH/conf/demo/aiagent/approvalGate_config.xml"/>
     </modules>
 </moduleConfig>

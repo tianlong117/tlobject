@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== HITL 人工审批模块配置 =====
+         此模块为全局单例，所有 Agent 共享同一套审批规则。
+         各 Agent 通过各自 config 中的 <approvalModule value="approvalGate"/> 启用。
+
+         规则格式: "tool:op, tool:op, tool"（逗号分隔）
+           tool:op → 该工具的指定操作需审批
+           tool    → 该工具的所有操作都需审批（无冒号）
+
+         操作名提取逻辑（见 TLApprovalModule.extractOperation）:
+           file_operation → args.operation (read/write/delete/list/exists)
+           http_request   → args.method (GET/POST/PUT/DELETE)
+           code_execution → 无操作参数，命中即审批
+           script_execution → 无操作参数，命中即审批
+    -->
+    <params>
+        <!-- 当前审批规则:
+             - file_operation:delete → 删除文件必须审批
+             - file_operation:write  → 写入文件必须审批
+             - file_operation:read/list/exists → 自动放行 -->
+        <approvalRules value="file_operation:delete, file_operation:write"/>
+
+        <!-- 审查人实现类（全限定名）
+             ConsoleReviewer: 控制台同步阻塞，System.console().readLine() 等用户输入
+                             输入格式: approve:ID  或  reject:ID:原因 -->
+        <reviewerClass value="cn.tianlong.tlobject.aiagent.approval.ConsoleReviewer"/>
+
+        <!-- 审查人策略: sync=同步阻塞(控制台), async=异步回调(Web审批) -->
+        <reviewerStrategy value="sync"/>
+
+        <!-- 审批超时（毫秒），默认 300000 = 5 分钟 -->
+        <approvalTimeoutMs value="300000"/>
+    </params>
+</moduleConfig>

@@ -285,6 +285,38 @@ public interface TLAiAgentParamString extends TLParamString {
     String SESSION_STATE_CHECKPOINT = "checkpoint";
     /** 会话状态：已完成 */
     String SESSION_STATE_COMPLETED = "completed";
+    /** 会话状态：等待人工审批 */
+    String SESSION_STATE_PENDING_APPROVAL = "pending_approval";
+    /** 查找未完成的检查点会话（state=checkpoint） */
+    String FIND_INCOMPLETE_CHECKPOINTS = "findIncompleteCheckpoints";
+
+    // ======================== HITL 审批机制 ========================
+    /** 审批模块名 */
+    String M_APPROVALMODULE = "approvalModule";
+    /** 审批请求 */
+    String APPROVAL_REQUEST = "approvalRequest";
+    /** 审批批准 */
+    String APPROVAL_APPROVE = "approvalApprove";
+    /** 审批拒绝 */
+    String APPROVAL_REJECT = "approvalReject";
+    /** 查询审批状态 */
+    String APPROVAL_QUERY = "approvalQuery";
+    /** 审批状态：pending/approved/rejected/expired */
+    String AI_P_APPROVAL_STATE = "_approvalState";
+    /** 审批 ID（UUID 短码） */
+    String AI_P_APPROVAL_ID = "approvalId";
+    /** 待审批的工具名 */
+    String AI_P_APPROVAL_TOOLNAME = "approvalToolName";
+    /** 待审批的工具参数 */
+    String AI_P_APPROVAL_TOOLARGS = "approvalToolArguments";
+    /** 审批决策：approved / rejected */
+    String AI_P_APPROVAL_DECISION = "approvalDecision";
+    /** 拒绝原因 */
+    String AI_P_APPROVAL_REJECTREASON = "approvalRejectReason";
+    /** 用户修改后的参数 */
+    String AI_P_APPROVAL_MODIFIEDARGS = "approvalModifiedArguments";
+    /** 内建工具：LLM 主动请求人工审批 */
+    String AGENT_REQUIREAPPROVAL = "require_approval";
 
     // ======================== Stream Callback 动作 ========================
     /** 流式块到达 */

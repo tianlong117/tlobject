@@ -58,5 +58,8 @@
 
         <!-- 获取监管Agent -->
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
+
+        <!-- 获取审批模块（可选，启用审批时解注） -->
+        <!-- <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/> -->
     </factoryBoot>
 </moduleConfig>

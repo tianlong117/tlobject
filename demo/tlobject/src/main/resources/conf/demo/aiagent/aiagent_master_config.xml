@@ -17,6 +17,12 @@
         <enableCheckpoint value="true"/>
         <checkProviderOnStartup value="true"/>
 
+        <!-- ===== HITL 审批机制 =====
+             approvalModule: 审批模块名（空字符串 = 不启用，改为 "approvalGate" 启用）
+             审批规则和审查人配置见 approvalGate_config.xml
+        -->
+        <approvalModule value=""/>
+
         <!-- ===== 推理/思考链 (ReAct) 参数 =====
              reasoningMode: 推理模式选择
                - off    (默认) 不处理推理，省token。什么也不做

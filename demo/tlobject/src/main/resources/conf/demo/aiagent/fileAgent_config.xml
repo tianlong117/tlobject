@@ -7,6 +7,8 @@
         <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <!-- HITL 审批 -->
+        <approvalModule value="approvalGate"/>
     </params>
     <!--providers>
         <provider name="openAiProvider"
@@ -48,7 +50,7 @@
     </memoryStores>
     <afterMsgTable>
         <action name="chat" >
-            <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
+            <dmsg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
         </action>
     </afterMsgTable>
 </moduleConfig>

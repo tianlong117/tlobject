@@ -55,6 +55,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private String agentModule = "aiagent";
     private String userId = "console_user";
     private String sessionId = "chat_" + System.currentTimeMillis();
+    /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
+    private String pendingCheckpointSessionId = null;
+    private String pendingCheckpointUserMessage = null;
     private boolean streamMode = false;
     private String prompt = "你 > ";
     private volatile boolean running = false;
@@ -79,6 +82,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         COMMAND_REGISTRY.put("/install", "安装Skill/Agent");
         COMMAND_REGISTRY.put("/uninstall", "卸载Skill/Agent");
         COMMAND_REGISTRY.put("/reload", "重载Skill/Agent");
+        COMMAND_REGISTRY.put("/approve", "审批操作: /approve approve:ID 或 reject:ID:原因");
     }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
@@ -147,6 +151,34 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("╚══════════════════════════════════╝\n");
 
         printSkills();
+
+        // 检测启动前未正常结束的断点会话，提示用户是否继续
+        try {
+            TLMsg incompleteResult = putMsg(agentModule, createMsg()
+                    .setAction(FIND_INCOMPLETE_CHECKPOINTS));
+            if (incompleteResult != null && incompleteResult.parseBoolean(RESULT, false)) {
+                pendingCheckpointSessionId = incompleteResult.getStringParam("sessionId", null);
+                pendingCheckpointUserMessage = incompleteResult.getStringParam("userMessage", "");
+                long savedAt = incompleteResult.getLongParam("savedAt", 0L);
+                int iteration = incompleteResult.getIntParam("iteration", 0);
+                String timeStr = savedAt > 0
+                        ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                            .format(new java.util.Date(savedAt))
+                        : "未知";
+                System.out.println();
+                System.out.println("⚠═══════════════════════════════════");
+                System.out.println("  检测到上次未正常结束的会话:");
+                System.out.println("  会话ID:   " + pendingCheckpointSessionId);
+                System.out.println("  用户消息: " + pendingCheckpointUserMessage);
+                System.out.println("  中断时间: " + timeStr + " (第 " + iteration + " 轮)");
+                System.out.println("  输入 /resume 继续执行，或直接输入新消息开始新对话");
+                System.out.println("═══════════════════════════════════");
+                System.out.println();
+            }
+        } catch (Exception e) {
+            System.out.println("（检查断点失败: " + e.getMessage() + "）");
+        }
+
         System.out.println("\nAI Agent 就绪，开始对话吧！（ESC 中断，/exit 退出）\n");
 
         running = true;
@@ -363,6 +395,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (busy) {
             if (input.equalsIgnoreCase("/stop")) {
                 sendStop();
+            } else if (input.toLowerCase().startsWith("/approve")) {
+                handleApproveCommand(input);
             } else if (!input.isEmpty()) {
                 System.out.println("⏳ 运行中，按 ESC 或输入 /stop 可中断当前对话");
             }
@@ -374,7 +408,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (input.isEmpty()) { printPrompt(); System.out.flush(); return; }
 
         if (input.startsWith("/")) {
-            if (handleCommand(input)) { running = false; return; }
+            // /approve 带参数时走审批命令处理（非 busy 状态也支持，例如审批异步请求）
+            if (input.toLowerCase().startsWith("/approve") && input.length() > "/approve".length()) {
+                handleApproveCommand(input);
+            } else if (handleCommand(input)) { running = false; return; }
             printPrompt();
             System.out.flush();
             return;
@@ -442,6 +479,49 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // 2) 主 agent 直接 stopChat（不带 cascade），确保 cancelLlm 生效
         putMsg(agentModule, createMsg().setAction(AGENT_STOPCHAT)
                 .setParam(AI_P_SESSIONID, sessionId));
+    }
+
+    /**
+     * 处理 /approve 命令，将审批决策发给审批模块。
+     * 格式: /approve approve:ID  或  /approve reject:ID:原因
+     */
+    private void handleApproveCommand(String input) {
+        // 去掉 "/approve " 前缀（不区分大小写）
+        String payload = input.substring("/approve".length()).trim();
+        if (payload.isEmpty()) {
+            System.out.println("格式: /approve approve:ID  或  /approve reject:ID:原因");
+            return;
+        }
+
+        if (payload.startsWith("approve:")) {
+            String[] parts = payload.substring("approve:".length()).split(":", 2);
+            String approvalId = parts[0].trim();
+            java.util.Map<String, Object> modifiedArgs = null;
+            if (parts.length > 1 && !parts[1].trim().isEmpty()) {
+                try {
+                    modifiedArgs = new com.google.gson.Gson().fromJson(parts[1].trim(), java.util.Map.class);
+                } catch (Exception ignored) {}
+            }
+            TLMsg approveMsg = createMsg().setAction(APPROVAL_APPROVE)
+                    .setParam("approvalId", approvalId);
+            if (modifiedArgs != null) {
+                approveMsg.setParam("approvalModifiedArguments", modifiedArgs);
+            }
+            putMsg("approvalGate", approveMsg);
+            System.out.println("✓ 已批准: " + approvalId);
+
+        } else if (payload.startsWith("reject:")) {
+            String[] parts = payload.substring("reject:".length()).split(":", 2);
+            String approvalId = parts[0].trim();
+            String reason = parts.length > 1 ? parts[1].trim() : "用户拒绝";
+            putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+                    .setParam("approvalId", approvalId)
+                    .setParam("approvalRejectReason", reason));
+            System.out.println("✗ 已拒绝: " + approvalId + " (" + reason + ")");
+
+        } else {
+            System.out.println("未知审批操作: " + payload + "  (可用: approve:ID, reject:ID:原因)");
+        }
     }
 
     /** 非流式结果事件（主线程打印） */
@@ -1122,6 +1202,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("当前没有运行中的对话");
                 break;
 
+            case "/approve":
+                System.out.println("当前没有等待审批的操作");
+                break;
+
             case "/clear":
                 putMsg(agentModule, createMsg()
                         .setAction(AGENT_CLEARCONTEXT)
@@ -1130,6 +1214,34 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             case "/resume":
+                // 优先处理 mid-loop 断点恢复（启动时检测到的未完成会话）
+                if (pendingCheckpointSessionId != null) {
+                    String resumeSid = pendingCheckpointSessionId;
+                    String resumeMsg2 = pendingCheckpointUserMessage;
+                    pendingCheckpointSessionId = null;
+                    pendingCheckpointUserMessage = null;
+                    sessionId = resumeSid;
+                    // 走和普通 chat 相同的异步回调模式：putMsgNoWait + onChatDone
+                    TLMsg m = createMsg()
+                            .setAction(AGENT_CHAT)
+                            .setParam(AI_P_SESSIONID, resumeSid)
+                            .setParam("userId", userId)
+                            .setParam(AI_P_USERMESSAGE, resumeMsg2)
+                            .setParam("resume", true);
+                    m.setSystemParam(TASKRESULTFOR, this);
+                    m.setSystemParam(TASKRESULTACTION, "onChatDone");
+                    IObject target = (IObject) getModule(agentModule);
+                    if (target != null) {
+                        busy = true;
+                        currentStart = System.currentTimeMillis();
+                        putMsgNoWait(target, m);
+                        System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
+                    } else {
+                        System.out.println("✗ 找不到 Agent 模块: " + agentModule);
+                    }
+                    break;
+                }
+                // 原有逻辑：恢复已完成的会话上下文
                 TLMsg latestResult = putMsg(agentModule, createMsg().setAction("findLatestSession"));
                 String latestId = latestResult.getStringParam("sessionId", null);
                 if (latestId == null || latestId.equals(sessionId)) {

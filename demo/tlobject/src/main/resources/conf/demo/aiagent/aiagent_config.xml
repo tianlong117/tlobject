@@ -42,6 +42,13 @@
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <!-- 默认长期记忆模块 -->
         <defaultMemoryStore value="dbMemory"/>
+
+        <!-- ===== HITL 审批机制 =====
+             approvalModule: 审批模块名（不配或配空字符串 = 不启用审批）
+             审批规则和审查人配置见 approvalGate_config.xml
+             设为 "approvalGate" 启用审批
+        -->
+        <approvalModule value=""/>
     </params>
 
     <!-- ===== LLM Providers ===== -->
