@@ -289,6 +289,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String SESSION_STATE_PENDING_APPROVAL = "pending_approval";
     /** 查找未完成的检查点会话（state=checkpoint） */
     String FIND_INCOMPLETE_CHECKPOINTS = "findIncompleteCheckpoints";
+    /** 列出所有历史会话 */
+    String LIST_SESSIONS = "listSessions";
 
     // ======================== HITL 审批机制 ========================
     /** 审批模块名 */

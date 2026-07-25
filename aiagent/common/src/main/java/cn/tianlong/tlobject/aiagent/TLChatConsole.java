@@ -83,6 +83,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         COMMAND_REGISTRY.put("/uninstall", "卸载Skill/Agent");
         COMMAND_REGISTRY.put("/reload", "重载Skill/Agent");
         COMMAND_REGISTRY.put("/approve", "审批操作: /approve approve:ID 或 reject:ID:原因");
+        COMMAND_REGISTRY.put("/sessions", "列出所有历史会话");
+        COMMAND_REGISTRY.put("/continue", "继续历史会话: /continue [id]");
     }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
@@ -624,6 +626,96 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
+    /** 列出所有历史会话 */
+    private void listAllSessions() {
+        TLMsg result = putMsg(agentModule, createMsg().setAction(LIST_SESSIONS));
+        if (result == null || !result.parseBoolean(RESULT, false)) {
+            System.out.println("✗ 无法获取会话列表");
+            return;
+        }
+        java.util.List<?> sessions = result.getListParam("sessions", null);
+        if (sessions == null || sessions.isEmpty()) {
+            System.out.println("（无历史会话）");
+            return;
+        }
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm");
+        System.out.println();
+        int i = 1;
+        for (Object obj : sessions) {
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> s = (java.util.Map<String, Object>) obj;
+            String sid = s.get("sessionId") != null ? s.get("sessionId").toString() : "?";
+            String state = s.get("state") != null ? s.get("state").toString() : "?";
+            String userMsg = s.get("userMessage") != null ? s.get("userMessage").toString() : "";
+            long savedAt = 0;
+            if (s.get("savedAt") instanceof Long) savedAt = (Long) s.get("savedAt");
+            int count = 0;
+            if (s.get("count") instanceof Integer) count = (Integer) s.get("count");
+            String timeStr = savedAt > 0 ? sdf.format(new java.util.Date(savedAt)) : "未知";
+            // 截断过长的用户消息
+            String preview = userMsg.length() > 40 ? userMsg.substring(0, 40) + "..." : userMsg;
+            String marker = sid.equals(sessionId) ? " ← 当前" : "";
+            String stateTag = "completed".equals(state) ? "" : " [" + state + "]";
+            System.out.println("  " + i + ". " + sid + "  " + timeStr + "  \"" + preview
+                    + "\"  " + count + "条" + stateTag + marker);
+            i++;
+        }
+        System.out.println();
+        System.out.println("使用 /continue <id> 继续某个会话，或 /continue 恢复最近会话");
+    }
+
+    /** 继续历史会话：加载历史到 aiContext 并切换 sessionId */
+    private void continueSession(String cmd) {
+        String targetId;
+        if (cmd.length() > "/continue".length()) {
+            // /continue <id>
+            targetId = cmd.substring("/continue".length()).trim();
+        } else {
+            // /continue → 找最近一个（排除当前）
+            TLMsg latestResult = putMsg(agentModule, createMsg()
+                    .setAction("findLatestSession")
+                    .setParam(AI_P_SESSIONID, sessionId));
+            targetId = latestResult.getStringParam("sessionId", null);
+            if (targetId == null) {
+                System.out.println("✗ 没有可恢复的之前会话");
+                return;
+            }
+        }
+
+        // 加载会话历史到 aiContext
+        TLMsg resumeResult = putMsg(agentModule, createMsg()
+                .setAction("resumeSession")
+                .setParam(AI_P_SESSIONID, targetId));
+        if (resumeResult == null || !resumeResult.parseBoolean(RESULT, false)) {
+            String err = resumeResult != null ? resumeResult.getStringParam("error", "未知") : "无响应";
+            System.out.println("✗ 恢复失败: " + err);
+            return;
+        }
+
+        int count = resumeResult.getIntParam("count", 0);
+        sessionId = targetId;
+        System.out.println("✓ 已恢复会话 " + targetId + " (" + count + " 条历史)，继续聊吧");
+
+        // 打印历史记录
+        TLMsg ctxResult = putMsg(agentModule, createMsg()
+                .setAction(AGENT_GETCONTEXT)
+                .setParam(AI_P_SESSIONID, sessionId));
+        java.util.List<?> history = (java.util.List<?>) ctxResult.getListParam(AI_P_MESSAGEHISTORY, null);
+        if (history != null) {
+            for (Object h : history) {
+                if (h instanceof cn.tianlong.tlobject.aiagent.TLConversationHistory) {
+                    cn.tianlong.tlobject.aiagent.TLConversationHistory msg
+                            = (cn.tianlong.tlobject.aiagent.TLConversationHistory) h;
+                    String role = msg.getRole().name().toLowerCase();
+                    String content = msg.getContent();
+                    if (!"system".equals(role) && content != null) {
+                        System.out.println((role.equals("user") ? "你" : "AI") + " > " + content);
+                    }
+                }
+            }
+        }
+    }
+
     private void printPrompt() {
         System.out.print(prompt);
     }
@@ -880,7 +972,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /stop          中断当前正在运行的对话");
         System.out.println("  ESC            快捷中断（效果同 /stop）");
         System.out.println("  /clear         清除当前会话上下文");
-        System.out.println("  /resume        恢复最近一次会话");
+        System.out.println("  /resume        恢复未完成的 mid-loop 断点会话");
+        System.out.println("  /continue [id] 继续某个历史会话（不带 id 则恢复最近）");
+        System.out.println("  /sessions      列出所有历史会话");
         System.out.println("  /stream        切换流式/非流式模式");
         System.out.println("  /session <id>  切换会话ID");
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
@@ -1277,6 +1371,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
                 break;
 
+            case "/sessions":
+                listAllSessions();
+                break;
+
+            case "/continue":
+                continueSession(cmd);
+                break;
+
             case "/stream":
                 streamMode = !streamMode;
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭"));
@@ -1323,6 +1425,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 } else if (cmd.startsWith("/session ")) {
                     sessionId = cmd.substring(9).trim();
                     System.out.println("✓ 会话ID切换为: " + sessionId);
+                } else if (cmd.startsWith("/continue ")) {
+                    continueSession(cmd);
                 } else if (cmd.startsWith("/thinking ")) {
                     String mode = cmd.substring(10).trim();
                     if (mode.equals("off") || mode.equals("prompt") || mode.equals("native") || mode.equals("auto")) {

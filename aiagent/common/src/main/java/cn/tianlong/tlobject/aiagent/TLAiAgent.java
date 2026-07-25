@@ -566,6 +566,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "findIncompleteCheckpoints":
                 returnMsg = findIncompleteCheckpoints(fromWho, msg);
                 break;
+            case "listSessions":
+                returnMsg = listSessions(fromWho, msg);
+                break;
             case AGENT_SAVEMEMORY:
                 returnMsg = saveAgentMemory(fromWho, msg);
                 break;
@@ -1997,6 +2000,47 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam("userMessage", latest.getStringParam("userMessage", ""))
                 .setParam("savedAt", latest.getLongParam("_fileTime", 0L))
                 .setParam("iteration", latest.getIntParam("iteration", 0));
+    }
+
+    /**
+     * 列出所有历史会话，含已完成和未完成的，按修改时间降序。
+     * 返回 sessions 列表，每个元素含 sessionId / state / userMessage / savedAt / count。
+     */
+    protected TLMsg listSessions(Object fromWho, TLMsg msg) {
+        java.util.List<java.util.Map<String, Object>> sessions = new java.util.ArrayList<>();
+        try {
+            java.io.File dir = new java.io.File(sessionStorePath);
+            if (!dir.exists() || !dir.isDirectory()) {
+                return createMsg().setParam(RESULT, true).setParam("sessions", sessions);
+            }
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null || files.length == 0) {
+                return createMsg().setParam(RESULT, true).setParam("sessions", sessions);
+            }
+
+            // 按修改时间降序
+            java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+
+            for (java.io.File f : files) {
+                try {
+                    TLMsg cp = loadSessionCheckpoint(
+                            f.getName().substring(0, f.getName().length() - 5));
+                    if (cp == null) continue;
+                    java.util.LinkedHashMap<String, Object> info = new java.util.LinkedHashMap<>();
+                    info.put("sessionId", cp.getStringParam("sessionId", ""));
+                    info.put("state", cp.getStringParam("state", ""));
+                    info.put("userMessage", cp.getStringParam("userMessage", ""));
+                    info.put("savedAt", f.lastModified());
+                    java.util.List<?> history = (java.util.List<?>) cp.getParam("history");
+                    info.put("count", history != null ? history.size() : 0);
+                    sessions.add(info);
+                } catch (Exception ignored) {
+                }
+            }
+        } catch (Exception e) {
+            putLog("listSessions error: " + e.toString(), LogLevel.WARN);
+        }
+        return createMsg().setParam(RESULT, true).setParam("sessions", sessions);
     }
 
     /**
