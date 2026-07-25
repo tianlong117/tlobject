@@ -258,9 +258,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
                 .setParam(REGISTRY_P_KEY, familyName)
                 .setParam(MODULENAME, subName)
-                .setParam(REGISTRY_P_OWNERNAME, getName())
-                .setParam(REGISTRY_P_TYPE, moduleType)
                 .setParam(INSTANCE, module);
+        // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         putMsg(DEFAULTMODULEREGISTRY, msg);
     }

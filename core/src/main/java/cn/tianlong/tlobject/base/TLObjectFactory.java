@@ -719,7 +719,7 @@ public class TLObjectFactory extends TLBaseModule {
                 cparams.putAll(paramsInMsg);       //添加 执行msg里面的参数
         }
         // 计算家族名字：父的 familyName + ":" + 新模块名，通过 cparams 传入
-        if (fromWho instanceof TLBaseModule) {
+        if (fromWho instanceof TLBaseModule && fromWho != this) {
             String parentFamilyName = ((TLBaseModule) fromWho).getFamilyName();
             if (parentFamilyName != null && !parentFamilyName.isEmpty()) {
                 cparams.put("familyName", parentFamilyName + ":" + newModuleName);

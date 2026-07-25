@@ -1614,9 +1614,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         TLMsg msg = createMsg().setAction(REGISTRY_REGISTER)
                 .setParam(REGISTRY_P_KEY, familyName)
                 .setParam(MODULENAME, subName)
-                .setParam(REGISTRY_P_OWNERNAME, getName())
-                .setParam(REGISTRY_P_TYPE, moduleType)
                 .setParam(INSTANCE, module);
+        // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         putMsg(DEFAULTMODULEREGISTRY, msg);
     }
@@ -1628,6 +1627,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
         if (agentName.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+        }
+        // 防御性校验：agentName 不能包含 ':' 或 '.'（会被误用作 moduleName 导致崩溃）
+        if (agentName.contains(":") || agentName.contains(".")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "Agent 名称不允许包含 ':' 或 '.'：" + agentName);
         }
         // 注册消息只带 agentName + 一个装好该 agent 全部参数的 cfg map，直接注入，
         // 与 initAgents 走同一套 getMyModule 机制。默认值由调用方在 cfg 里备好。

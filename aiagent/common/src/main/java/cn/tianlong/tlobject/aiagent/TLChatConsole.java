@@ -44,6 +44,7 @@ import java.util.concurrent.TimeUnit;
  *   /stream  — 切换流式/非流式模式
  *   /session <id> — 切换会话ID
  *   ESC      — 快捷中断（效果同 /stop）
+ *   Tab      — 命令自动补全（输入 / 后按 Tab 显示匹配命令及解释）
  *   Ctrl+C   — 退出
  *
  * @author tianlong
@@ -59,6 +60,26 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private volatile boolean running = false;
     /** 推理展示：是否折叠推理内容（默认折叠，展开后可查看完整思考链） */
     private boolean reasoningCollapsed = true;
+
+    /** 命令注册表：命令名 → 描述，用于 Tab 补全和帮助提示 */
+    private static final java.util.LinkedHashMap<String, String> COMMAND_REGISTRY = new java.util.LinkedHashMap<>();
+    static {
+        COMMAND_REGISTRY.put("/exit", "退出控制台");
+        COMMAND_REGISTRY.put("/quit", "退出控制台");
+        COMMAND_REGISTRY.put("/stop", "中断当前对话");
+        COMMAND_REGISTRY.put("/clear", "清除会话上下文");
+        COMMAND_REGISTRY.put("/resume", "恢复最近会话");
+        COMMAND_REGISTRY.put("/stream", "切换流式/非流式");
+        COMMAND_REGISTRY.put("/session", "切换会话ID");
+        COMMAND_REGISTRY.put("/thinking", "切换推理折叠/展开");
+        COMMAND_REGISTRY.put("/help", "显示帮助信息");
+        COMMAND_REGISTRY.put("/?", "显示帮助信息");
+        COMMAND_REGISTRY.put("/agents", "列出已注册Agent");
+        COMMAND_REGISTRY.put("/skills", "列出已注册Skill");
+        COMMAND_REGISTRY.put("/install", "安装Skill/Agent");
+        COMMAND_REGISTRY.put("/uninstall", "卸载Skill/Agent");
+        COMMAND_REGISTRY.put("/reload", "重载Skill/Agent");
+    }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
     private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP }
@@ -216,8 +237,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         continue;
                     }
 
-                    // 可打印字符 / Tab：回显并积累
-                    if (ch >= 32 || ch == '\t') {
+                    // Tab：命令补全
+                    if (ch == '\t') {
+                        handleTabComplete(line);
+                        continue;
+                    }
+
+                    // 可打印字符：回显并积累
+                    if (ch >= 32) {
                         line.append((char) ch);
                         System.out.print((char) ch);
                         System.out.flush();
@@ -521,6 +548,60 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.print(prompt);
     }
 
+    /**
+     * Tab 命令补全（由读取线程调用，直接操作终端）。
+     * 当前输入以 / 开头时，匹配命令注册表并自动补全或展示候选项。
+     */
+    private void handleTabComplete(StringBuilder line) {
+        String current = line.toString();
+        if (current.isEmpty() || !current.startsWith("/")) return;
+
+        String prefix = current.toLowerCase();
+        java.util.List<java.util.Map.Entry<String, String>> matches = new java.util.ArrayList<>();
+        for (java.util.Map.Entry<String, String> e : COMMAND_REGISTRY.entrySet()) {
+            if (e.getKey().toLowerCase().startsWith(prefix)) {
+                matches.add(e);
+            }
+        }
+
+        if (matches.isEmpty()) return;
+
+        if (matches.size() == 1) {
+            // 唯一匹配 → 自动补全
+            String full = matches.get(0).getKey();
+            if (full.equals(current)) return;  // 已完整，不操作
+            String suffix = full.substring(current.length());
+            line.setLength(0);
+            line.append(full);
+            System.out.print(suffix);
+            System.out.flush();
+        } else {
+            // 多项匹配 → 展示列表，含命令解释
+            System.out.print("\r\n");
+            int maxLen = 0;
+            for (java.util.Map.Entry<String, String> m : matches) {
+                if (m.getKey().length() > maxLen) maxLen = m.getKey().length();
+            }
+            for (java.util.Map.Entry<String, String> m : matches) {
+                System.out.print("  " + padRight(m.getKey(), maxLen + 2) + m.getValue() + "\r\n");
+            }
+            // 重新显示提示符和当前输入
+            System.out.print("\r\n");
+            System.out.print(prompt);
+            System.out.print(current);
+            System.out.flush();
+        }
+    }
+
+    /** 右填充空格至指定长度 */
+    private static String padRight(String s, int n) {
+        if (s.length() >= n) return s;
+        StringBuilder sb = new StringBuilder(n);
+        sb.append(s);
+        for (int i = s.length(); i < n; i++) sb.append(' ');
+        return sb.toString();
+    }
+
     private void offer(ConsoleEvent e) {
         try {
             eventQueue.put(e);
@@ -544,17 +625,16 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** /agents [/skills] [ownerName] — 从 moduleRegistry 列出模块 */
+    /** /agents [/skills] [ownerFamilyName] — 从 moduleRegistry 列出模块，应用层按类型过滤 */
     private void handleListModules(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
         String action = parts[0];           // "/agents" or "/skills"
-        String ownerName = parts.length > 1 ? parts[1].trim() : null;
-        String moduleType = action.equals("/agents") ? "agent" : "skill";
+        String ownerFamilyName = parts.length > 1 ? parts[1].trim() : null;
+        boolean listAgents = action.equals("/agents");
 
-        TLMsg listMsg = createMsg().setAction(REGISTRY_LIST)
-                .setParam(REGISTRY_P_TYPE, moduleType);
-        if (ownerName != null && !ownerName.isEmpty())
-            listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
+        TLMsg listMsg = createMsg().setAction(REGISTRY_LIST);
+        if (ownerFamilyName != null && !ownerFamilyName.isEmpty())
+            listMsg.setParam(REGISTRY_P_OWNERNAME, ownerFamilyName);
 
         TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
         if (result == null) {
@@ -568,41 +648,30 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             System.out.println("(无)");
             return;
         }
-        String label = moduleType.equals("agent") ? "Agent" : "Skill";
-        System.out.println(label + " (" + modules.size() + "):");
+        // 应用层按实例类型过滤
+        String label = listAgents ? "Agent" : "Skill";
+        java.util.List<java.util.Map<String, Object>> filtered = new java.util.ArrayList<>();
         for (java.util.Map<String, Object> m : modules) {
-            String key = (String) m.get(REGISTRY_P_KEY);
-            String modName = (String) m.get(MODULENAME);
-            String owner = (String) m.get(REGISTRY_P_OWNERNAME);
             Object inst = m.get(INSTANCE);
-            String clazz = inst != null ? inst.getClass().getSimpleName() : "?";
-            System.out.println("  " + key + "  [" + clazz + "]  owner=" + owner);
+            boolean match = listAgents ? (inst instanceof IAgentCapable) : (inst instanceof TLBaseSkill);
+            if (match) filtered.add(m);
+        }
+        System.out.println(label + " (" + filtered.size() + "):");
+        for (java.util.Map<String, Object> m : filtered) {
+            String key = (String) m.get(REGISTRY_P_KEY);
+            String clazz = m.get(INSTANCE) != null ? m.get(INSTANCE).getClass().getSimpleName() : "?";
+            System.out.println("  " + key + "  [" + clazz + "]");
         }
     }
 
     /** /install skillDir [agentName] — 向指定 agent 热加载脚本 skill */
-    /** 从 moduleRegistry 查找 agent 实例，找不到返回 null。优先按家族名精确查找，fallback 按短名遍历。 */
-    private TLBaseModule findAgentInstance(String name) {
-        // 1. 优先按 key 精确查找（支持家族名如 app:aiagent）
+    /** 从 moduleRegistry 按家族名精确查找 agent 实例，找不到返回 null。 */
+    private TLBaseModule findAgentInstance(String familyName) {
         TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
-                .setParam(REGISTRY_P_KEY, name));
+                .setParam(REGISTRY_P_KEY, familyName));
         if (result != null) {
             Object inst = result.getParam(INSTANCE);
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
-        }
-        // 2. Fallback: 按短名遍历
-        TLMsg listResult = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_LIST)
-                .setParam(REGISTRY_P_TYPE, "agent"));
-        if (listResult != null) {
-            java.util.List<?> list = (java.util.List<?>) listResult.getParam(RESULT);
-            if (list != null) {
-                for (Object item : list) {
-                    java.util.Map<?, ?> m = (java.util.Map<?, ?>) item;
-                    if (name.equals(m.get(MODULENAME))) {
-                        return (TLBaseModule) m.get(INSTANCE);
-                    }
-                }
-            }
         }
         return null;
     }
@@ -782,6 +851,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("用法: /install -a <agentName> <classFile|sameClassAs> [家族名]");
                     return;
                 }
+                if (parts[2].contains(":") || parts[2].contains(".")) {
+                    System.out.println("✗ Agent 名称不能包含 ':' 或 '.'，请使用短名。");
+                    System.out.println("  家族名（target）请放在最后参数。");
+                    System.out.println("  例: /install -a priceTeam aiagent " + agentModule);
+                    return;
+                }
                 installAgent(parts[2], parts[3], parts.length > 4 ? parts[4] : agentModule);
                 break;
             case "-bs":
@@ -789,6 +864,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (parts.length < 4) {
                     System.out.println("用法: /install -bs <skillName> <classFile> [家族名]");
                     System.out.println("  例: /install -bs mySkill cn.tianlong.java.demo.aiagent.skills.MyDemoSkill");
+                    return;
+                }
+                if (parts[2].contains(":") || parts[2].contains(".")) {
+                    System.out.println("✗ Skill 名称不能包含 ':' 或 '.'，请使用短名。");
                     return;
                 }
                 installBaseSkill(parts[2], parts[3], parts.length > 4 ? parts[4] : agentModule);
@@ -1021,17 +1100,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         return new Object[]{parent, targetName};
     }
 
-    /** 按家族名从 registry 直接查找模块实例 */
+    /** 按家族名从 registry 精确查找模块实例。工厂根节点需自行注册到 registry。 */
     private TLBaseModule lookupByFamilyName(String familyName) {
         TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
                 .setParam(REGISTRY_P_KEY, familyName));
         if (result != null) {
             Object inst = result.getParam(INSTANCE);
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
-        }
-        // 工厂根节点可能未注册到 registry，直接匹配
-        if (moduleFactory != null && familyName.equals(moduleFactory.getFamilyName())) {
-            return moduleFactory;
         }
         return null;
     }
@@ -1146,7 +1221,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     }
                 } else {
                     System.out.println("未知命令: " + cmd);
-                    System.out.println("可用命令: /help 查看详细帮助");
+                    // 前缀模糊匹配相近命令
+                    String prefix = cmd.toLowerCase();
+                    java.util.List<String> suggestions = new java.util.ArrayList<>();
+                    java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+                    for (String c : COMMAND_REGISTRY.keySet()) {
+                        if (c.toLowerCase().startsWith(prefix) && seen.add(c)) {
+                            suggestions.add(c);
+                        }
+                    }
+                    if (!suggestions.isEmpty()) {
+                        System.out.println("相近命令: " + String.join(", ", suggestions));
+                    }
+                    System.out.println("输入 /help 查看所有命令");
                 }
                 break;
         }
