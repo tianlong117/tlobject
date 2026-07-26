@@ -1,3 +1,6 @@
+# IDE
+.idea/
+
 #忽视的目录
 target
 demofilecache
@@ -5,7 +8,6 @@ demofilecache
 /out
 /data
 
-/idea
 #忽视类文件
 *.class
 
@@ -16,8 +18,13 @@ demofilecache
 *.rar
 *.tar.gz
 
+# OS
+.lock
+
+# temp scripts
+baidu_*.py
+oss.py
+2026/
+
 !.gitignore
 !okhttputils-2_6_2.jar
-workspace.xml
-.lock
-./.idea/workspace.xml
