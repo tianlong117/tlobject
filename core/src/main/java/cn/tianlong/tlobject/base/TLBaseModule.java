@@ -1533,18 +1533,28 @@ public abstract class TLBaseModule extends TLBaseObject {
             resultMsgList.add(j,null);
         }
         try {
-            boolean completed = latch.await(waitTime, TimeUnit.MILLISECONDS);
+            latch.await(waitTime, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        // 收集所有已完成任务的结果
+        // 分别收集完成和未完成的任务
+        List<TLMsg> completedMsgList = new ArrayList<>();
+        List<TLMsg> uncompletedMsgList = new ArrayList<>();
         for (int i = 0; i < msgNumber; i++) {
             ThreadTask task = threadTaskList.get(i);
             if (task != null && task.isThreadOver()) {
                 resultMsgList.set(i, task.getResult());
+                completedMsgList.add(msgList.get(i));
+            } else {
+                // 未完成（超时）或提交失败（task==null），都放入未完成列表
+                // 保留原始 msg，调用方可以直接用这个列表重试
+                uncompletedMsgList.add(msgList.get(i));
             }
         }
-        return createMsg().setParam(RESULT,resultMsgList);
+        return createMsg()
+                .setParam(RESULT, resultMsgList)
+                .setParam(COMPLETEDMSGLIST, completedMsgList)
+                .setParam(UNCOMPLETEDMSGLIST, uncompletedMsgList);
     }
 
     /**

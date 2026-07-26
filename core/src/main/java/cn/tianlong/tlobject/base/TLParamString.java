@@ -163,6 +163,8 @@ public interface TLParamString {
     final String IFTASKRESULT = "iftaskResult";
     final String TASKRESULT = "taskResult";
     final String TASKRESULTTIMEOUT = "taskResultTimeout";
+    final String COMPLETEDMSGLIST = "completedMsgList";
+    final String UNCOMPLETEDMSGLIST = "uncompletedMsgList";
     final String TASKRESULTACTION = "taskResultAction";
     final String TASKRESULTMSG = "taskResultMsg";
     final String TASKRESESSIONDATA= "taskSessionData";
