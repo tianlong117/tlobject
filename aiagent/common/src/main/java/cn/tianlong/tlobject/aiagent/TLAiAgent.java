@@ -164,6 +164,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         myConfig config = new myConfig(configFile, moduleFactory.getConfigDir());
         mconfig = config;
         super.setConfig();
+        // super.setConfig() 可能会用 TLModuleConfig 覆盖 mconfig（自动配置），
+        // 如果没配 configFile 且 autoConfig 失败，mconfig 会是 null/TLModuleConfig。
+        // 这里始终从我们自己的 myConfig 取 providers/msgTools（可能为空，但不会崩）
         providersConfig = config.getProviders();
         msgTools = config.getMsgTools();
         return config;
@@ -244,14 +247,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 把 providers/agents/skills/memoryStores 注入 modulesClass + modulesParams
         // 必须放在 setModuleParams() 而非 setConfig()，因为 initProperty() 会覆盖
-        myConfig config = (myConfig) mconfig;
-        if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-        if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
-        String namespace = params != null ? params.get("agentNamespace") : null;
-        injectConfigs(config.getProviders(), namespace, false);
-        injectConfigs(config.getAgents(), namespace, false);
-        injectConfigs(config.getSkills(), namespace, false);
-        injectConfigs(config.getMemoryStores(), namespace, true);
+        // 没有配置文件时（mconfig 非 myConfig 实例）跳过——作为子模块从父级继承 provider 等
+        if (mconfig instanceof myConfig) {
+            myConfig config = (myConfig) mconfig;
+            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
+            String namespace = params != null ? params.get("agentNamespace") : null;
+            injectConfigs(config.getProviders(), namespace, false);
+            injectConfigs(config.getAgents(), namespace, false);
+            injectConfigs(config.getSkills(), namespace, false);
+            injectConfigs(config.getMemoryStores(), namespace, true);
+        }
 
         // 自动加载本 Agent 的 md 文件（须在最后：依赖 contextModuleName 和 modulesParams 已就位）
         loadAgentMd();
@@ -405,8 +411,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 框架自动根据classfile解析类名，无需手动addPackage。
      */
     protected void initSkills() {
+        if (!(mconfig instanceof myConfig)) return;
         myConfig config = (myConfig) mconfig;
-        if (config == null || config.getSkills() == null) return;
+        if (config.getSkills() == null) return;
 
         HashMap<String, HashMap<String, String>> skillConfigs = config.getSkills();
         for (String skillName : skillConfigs.keySet()) {
@@ -436,8 +443,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     @SuppressWarnings("unchecked")
     protected void initMemoryStores() {
+        if (!(mconfig instanceof myConfig)) return;
         myConfig config = (myConfig) mconfig;
-        if (config == null || config.getMemoryStores() == null) return;
+        if (config.getMemoryStores() == null) return;
 
         HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
         for (String storeName : memoryConfigs.keySet()) {
@@ -478,8 +486,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 框架自动加载 {agentName}_config.xml 作为配置文件。
      */
     protected void initAgents() {
+        if (!(mconfig instanceof myConfig)) return;
         myConfig config = (myConfig) mconfig;
-        if (config == null) return;
         agentsConfig = config.getAgents();
         System.out.println("=== [initAgents] configFile=" + configFile
                 + " agentsConfig=" + (agentsConfig != null ? agentsConfig.size() + " entries" : "null") + " ===");
@@ -2863,7 +2871,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             data.put("savedAt", System.currentTimeMillis());
 
             String json = gson.toJson(data);
-            java.io.File file = new java.io.File(dir, sessionId + ".json");
+            java.io.File file = new java.io.File(dir, sanitizeFileName(sessionId) + ".json");
             java.nio.file.Files.write(file.toPath(), json.getBytes("UTF-8"));
         } catch (Exception e) {
             putLog("persistSession failed: " + e.toString(), LogLevel.WARN);
@@ -2896,11 +2904,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             data.put("savedAt", System.currentTimeMillis());
 
             String json = gson.toJson(data);
-            java.io.File file = new java.io.File(dir, sessionId + ".json");
+            java.io.File file = new java.io.File(dir, sanitizeFileName(sessionId) + ".json");
             java.nio.file.Files.write(file.toPath(), json.getBytes("UTF-8"));
         } catch (Exception e) {
             putLog("persistSessionWithApproval failed: " + e.toString(), LogLevel.WARN);
         }
+    }
+
+    /** 将 sessionId 中的 Windows 非法文件名字符替换为下划线 */
+    private static String sanitizeFileName(String sessionId) {
+        if (sessionId == null) return "null";
+        return sessionId.replaceAll("[\\\\/:*?\"<>|]", "_");
     }
 
     /**
@@ -2911,7 +2925,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected TLMsg loadSessionCheckpoint(String sessionId) {
         if (!enableCheckpoint || sessionId == null) return null;
         try {
-            java.io.File file = new java.io.File(sessionStorePath, sessionId + ".json");
+            java.io.File file = new java.io.File(sessionStorePath, sanitizeFileName(sessionId) + ".json");
             if (!file.exists()) return null;
 
             String json = new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
@@ -2957,7 +2971,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     protected void deleteSessionFile(String sessionId) {
         try {
-            java.io.File file = new java.io.File(sessionStorePath, sessionId + ".json");
+            java.io.File file = new java.io.File(sessionStorePath, sanitizeFileName(sessionId) + ".json");
             if (file.exists()) file.delete();
         } catch (Exception e) {
             putLog("deleteSessionFile failed: " + e.toString(), LogLevel.WARN);

@@ -292,6 +292,16 @@ public interface TLAiAgentParamString extends TLParamString {
     /** 列出所有历史会话 */
     String LIST_SESSIONS = "listSessions";
 
+    // ======================== 工作流编排 ========================
+    /** 工作流模块名 */
+    String M_WORKFLOW = "agentWorkflow";
+    /** 执行工作流 */
+    String WORKFLOW_EXECUTE = "doWorkflow";
+    /** 工作流输入 */
+    String WORKFLOW_INPUT = "workflowInput";
+    /** 工作流输出 */
+    String WORKFLOW_OUTPUT = "workflowOutput";
+
     // ======================== HITL 审批机制 ========================
     /** 审批模块名 */
     String M_APPROVALMODULE = "approvalModule";

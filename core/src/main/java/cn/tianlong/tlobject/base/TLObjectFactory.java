@@ -397,7 +397,7 @@ public class TLObjectFactory extends TLBaseModule {
     }
     private TLMsg getModuleParam(Object fromWho, TLMsg msg) {
         String moduleName = (String) msg.getParam(MODULENAME);
-        HashMap<String, String> moduleParamMap =getModuleParam( moduleName);
+        HashMap<String, String> moduleParamMap =getModuleParam(moduleName, (HashMap<String, String>) null);
         return createMsg().setArgs(moduleParamMap);
     }
 
@@ -707,10 +707,10 @@ public class TLObjectFactory extends TLBaseModule {
                 return getModule(moduleFactory, msg);
             }
         }
-        HashMap<String, String> cparams = getModuleParam(moduleName);
+        HashMap<String, String> cparams = getModuleParam(moduleName,moduleConfig);
         if(!moduleName.equals(newModuleName))
         {
-            HashMap<String,String> newModuleParams = getModuleParam(newModuleName);
+            HashMap<String,String> newModuleParams = getModuleParam(newModuleName,moduleConfig);
             cparams.putAll(newModuleParams);
         }
         if (!msg.isNull(MODULE_PARAMS)) {
@@ -779,8 +779,9 @@ public class TLObjectFactory extends TLBaseModule {
         return modulesClass != null ? modulesClass.get(moduleName) : null;
     }
 
-    public   HashMap<String, String> getModuleParam(String moduleName){
-        HashMap<String, String> moduleConfig = modulesClass.get(moduleName);
+    public   HashMap<String, String> getModuleParam(String moduleName,HashMap<String, String> moduleConfig){
+        if (moduleConfig == null)
+            moduleConfig = modulesClass.get(moduleName);
         HashMap<String, String> cparams = new HashMap<>();
         cparams.put("applicationId",applicationId);
         if (commonParams != null && !commonParams.isEmpty())   //添加commonParams里面公共参数

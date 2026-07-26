@@ -84,6 +84,9 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             case "testAgentDelegate":
                 returnMsg = testAgentDelegate(fromWho, msg);
                 break;
+            case "testWorkflow":
+                returnMsg = testWorkflow(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -148,9 +151,13 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
 
             TLMsg r8 = testClearContext(fromWho, null);
             if (r8.parseBoolean(RESULT, false)) passed++; else failed++;
+
+            // 场景11: DAG工作流
+            TLMsg r11 = testWorkflow(fromWho, null);
+            if (r11.parseBoolean(RESULT, false)) passed++; else failed++;
         } else {
-            log("[TEST] 场景2/3/4/7/8 已跳过 (需要LLM Provider)");
-            skipped += 5;
+            log("[TEST] 场景2/3/4/7/8/11 已跳过 (需要LLM Provider)");
+            skipped += 6;
         }
 
         log("===== AI Agent Framework Demo Tests End =====");
@@ -696,6 +703,80 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             log("[TEST] 场景10: FAIL - 异常: " + e.toString());
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
+    }
+
+    // ======================== 场景11: DAG工作流编排 ========================
+
+    @SuppressWarnings("unchecked")
+    protected TLMsg testWorkflow(Object fromWho, TLMsg msg) {
+        log("[TEST] 场景11: DAG工作流编排 (扇出→并行→汇聚) -- 开始");
+
+        try {
+            // 编程式构建工作流 DAG: input(fanout) → 两个并行的 agent 节点 → merge(join)
+            Map<String, Map<String, String>> nodes = new LinkedHashMap<>();
+            Map<String, String> inputNode = new LinkedHashMap<>();
+            inputNode.put("type", "FANOUT");
+            nodes.put("input", inputNode);
+
+            Map<String, String> nodeA = new LinkedHashMap<>();
+            nodeA.put("type", "AGENT");
+            nodeA.put("module", M_AIAGENT);
+            nodeA.put("action", AGENT_CHAT);
+            nodeA.put("systemMessage", "你是一个浪漫主义诗人，请用简洁优美的语言回答。");
+            nodeA.put("temperature", "0.9");
+            nodes.put("poetA", nodeA);
+
+            Map<String, String> nodeB = new LinkedHashMap<>();
+            nodeB.put("type", "AGENT");
+            nodeB.put("module", M_AIAGENT);
+            nodeB.put("action", AGENT_CHAT);
+            nodeB.put("systemMessage", "你是一个现实主义诗人，请用朴实深刻的语言回答。");
+            nodeB.put("temperature", "0.7");
+            nodes.put("poetB", nodeB);
+
+            Map<String, String> mergeNode = new LinkedHashMap<>();
+            mergeNode.put("type", "JOIN");
+            nodes.put("merge", mergeNode);
+
+            List<Map<String, String>> edges = new ArrayList<>();
+            edges.add(edge("input", "poetA", null));
+            edges.add(edge("input", "poetB", null));
+            edges.add(edge("poetA", "merge", null));
+            edges.add(edge("poetB", "merge", null));
+
+            TLMsg result = putMsg("demoWorkflow", createMsg()
+                    .setAction(WORKFLOW_EXECUTE)
+                    .setParam("nodes", nodes)
+                    .setParam("edges", edges)
+                    .setParam("userMessage",
+                            "请用一句话回答即可，不要多余解释：1+1等于几？"));
+
+            boolean ok = result.parseBoolean(RESULT, false);
+            int completed = result.getIntParam("completedNodes", 0);
+            int failed = result.getIntParam("failedNodes", 0);
+            String resp = result.getStringParam(AI_P_RESPONSE, "");
+
+            log("[TEST] 场景11: ok=" + ok + " completed=" + completed
+                    + " failed=" + failed);
+            log("[TEST] 场景11: Response="
+                    + (resp.length() > 200 ? resp.substring(0, 200) + "..." : resp));
+
+            boolean passed = ok && completed >= 2 && failed == 0;
+            log("[TEST] 场景11: " + (passed ? "PASS" : "FAIL"));
+            return createMsg().setParam(RESULT, passed);
+        } catch (Exception e) {
+            log("[TEST] 场景11: FAIL - 异常: " + e);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(EXCEPTION, e.getMessage());
+        }
+    }
+
+    private Map<String, String> edge(String from, String to, String condition) {
+        Map<String, String> e = new LinkedHashMap<>();
+        e.put("from", from);
+        e.put("to", to);
+        if (condition != null) e.put("condition", condition);
+        return e;
     }
 
     // ======================== 内部方法 ========================

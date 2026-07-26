@@ -24,6 +24,10 @@
         <!-- 主控Agent（独立模块名，避免递归） -->
         <module name="aiagent_master" sameClassAs="aiagent"  configfile="aiagent_master_config.xml"/>
         <module name="outputGuard" classfile="cn.tianlong.tlobject.aiagent.TLOutputGuard"/>
+        <!-- DAG工作流模块 -->
+        <module name="demoWorkflow"
+                classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
+                configfile="demoWorkflow_config.xml"/>
     </modules>
     <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
@@ -33,6 +37,5 @@
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
-
     </factoryBoot>
 </moduleConfig>

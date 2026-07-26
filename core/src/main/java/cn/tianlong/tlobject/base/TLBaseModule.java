@@ -1071,7 +1071,7 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     protected TLMsg reloadConfig(Object fromWho, TLMsg msg) {
         preReConfig();
-        HashMap<String, String> cparams =moduleFactory.getModuleParam(name);
+        HashMap<String, String> cparams =moduleFactory.getModuleParam(name, (HashMap<String, String>) null);
         params.putAll(cparams);
         configure();
         reload();

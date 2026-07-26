@@ -33,6 +33,11 @@
                 configfile="CLASSPATH/conf/demo/aiagent/aiagent_demo_config.xml"
                 singleton="true"/>
 
+        <!-- DAG工作流模块 -->
+        <module name="demoWorkflow"
+                classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
+                configfile="CLASSPATH/conf/demo/aiagent/demoWorkflow_config.xml"/>
+
     </modules>
 
     <!-- ===== 工厂启动序列 ===== -->
@@ -51,8 +56,9 @@
         <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
         <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
 
-        <!-- 获取Demo测试模块和回调模块 -->
+        <!-- 获取Demo测试模块和工作流模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
         <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
 

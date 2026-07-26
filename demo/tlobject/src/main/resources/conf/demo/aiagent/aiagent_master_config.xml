@@ -120,6 +120,12 @@
                statup="true"
                description="食品询价组，依次询问汉堡和披萨价格。当用户同时要买汉堡和披萨时使用此Agent。"/>
 
+        <agent name="poemWorkflow"
+               sameClassAs="agentWorkflow"
+               statup="true"
+               configfile="demoWorkflow_config.xml"
+               description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。"/>
+
         <agent name="dbAgent"
                sameClassAs="aiagent"
                statup="false"

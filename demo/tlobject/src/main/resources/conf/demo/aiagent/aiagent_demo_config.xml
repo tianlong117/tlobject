@@ -42,6 +42,9 @@
         <msgid name="test10">
             <msg action="testAgentDelegate" destination="aiAgentDemo"/>
         </msgid>
+        <msgid name="test11">
+            <msg action="testWorkflow" destination="aiAgentDemo"/>
+        </msgid>
     </msgTable>
 
     <!-- ===== 启动时自动执行全部测试 ===== -->
