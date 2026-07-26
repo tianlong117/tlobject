@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================
+  DAG Planner 配置说明
+  ============================================================
+
+  TLDagPlanner 是 LLM 驱动的任务规划器。输入自然语言需求，
+  LLM 自动分解子任务 → 识别依赖 → 编排 DAG → 生成 MD 文件。
+
+  一、核心流程：
+    用户需求 → doPlan()
+      ├─ ① 精确缓存匹配（hash）
+      ├─ ② 语义缓存匹配（轻量 LLM）
+      └─ ③ 完整 LLM 规划 → 生成 MD → 执行
+
+  二、可用"砖块"来源（优先级从高到低）：
+    1. <availableAgents> 配置白名单（主要来源，防止乱拿）
+    2. discoverFromRegistry="true" 时，从 aiagent 注册表补充发现
+    3. 内置节点类型：agent / fanout / join / condition
+
+  三、LLM 规划策略：
+    将白名单 agent/skill + 内置节点类型 告诉 LLM，
+    LLM 据此决定：哪些任务分配给哪个 agent，如何编排 DAG。
+  ============================================================
+-->
+<moduleConfig>
+    <params>
+        <!-- LLM Provider（默认复用 openAiProvider，支持 agent借用格式 agent:provider） -->
+        <plannerProvider value="aiagent_master:openAiProvider"/>
+
+        <!-- 规划用模型（空则用 provider 默认） -->
+        <plannerModel value=""/>
+
+        <!-- 语义匹配用轻量模型（空则同 plannerModel） -->
+        <plannerModelLight value=""/>
+
+        <!-- MD 文件输出目录 -->
+        <planOutputDir value="data/dag_plans/"/>
+
+        <!-- 规划 generation 参数 -->
+        <planTemperature value="0.3"/>
+        <planMaxTokens value="4096"/>
+
+        <!-- 工作流执行模块名（生成 MD 后交给谁执行） -->
+        <workflowModule value="agentWorkflow"/>
+
+        <!-- 是否从注册表动态发现 Agent（补充白名单）：true=补充, false=只用白名单 -->
+        <discoverFromRegistry value="false"/>
+    </params>
+
+    <!--
+      ============================================================
+      可用 Agent 白名单（主要来源）
+      ============================================================
+      LLM 规划时只能使用这里声明的 Agent。
+      每个 agent 的属性会被 LLM 写入 MD 节点定义中，因此必须完整：
+      - name: 模块名（必填，对应工厂中的单例模块名）
+      - description: 能力描述（必填，LLM 据此选择用哪个 Agent）
+      - sameClassAs: 如需创建私有实例则填模板模块名（可选）
+      - 子元素 <param>: 节点的默认参数（会写入 MD）
+    -->
+    <availableAgents>
+        <!-- 通用 AI Agent（必留） -->
+        <agent name="aiagent"
+                description="通用 AI 大模型 Agent，可分析、写作、推理、编码等任意文本任务。">
+            <param name="systemMessage" value="你是一个有用的AI助手"/>
+            <param name="temperature" value="0.7"/>
+        </agent>
+
+        <!-- 示例：业务 Agent（按需配置） -->
+        <!--
+        <agent name="hamburgerAgent"
+                description="汉堡售卖Agent，负责处理汉堡订单，单价2元。">
+            <param name="systemMessage" value="你是汉堡店店员，处理汉堡订单。汉堡单价2元。"/>
+            <param name="temperature" value="0.5"/>
+        </agent>
+        -->
+    </availableAgents>
+
+    <!--
+      ============================================================
+      可用 Skill 白名单（工具）
+      ============================================================
+    -->
+    <availableSkills>
+        <skill name="httpRequestSkill"
+                description="HTTP 请求工具：GET/POST 网络请求"/>
+        <skill name="fileOperationSkill"
+                description="文件操作工具：读写文件"/>
+        <skill name="codeExecutionSkill"
+                description="代码执行工具：运行 Java/Python 代码"/>
+    </availableSkills>
+
+    <!--
+      ============================================================
+      规划系统提示词模板（可选，覆盖内置默认）
+      ============================================================
+      运行时会在后面拼接 {Agent白名单} + {Skill白名单} + {用户需求}。
+    -->
+    <!--
+    <basePlanningPrompt><![CDATA[
+        你是一个任务规划专家。请根据用户需求分解子任务并编排为 DAG。
+        遵循以下原则：
+        1. 最大化并行度——无依赖的任务并行执行
+        2. 使用 fanout 分发到多个 agent，使用 join 汇聚结果
+        3. 每个 agent 节点必须设置合适的 systemMessage 和 temperature
+        4. 确保 DAG 无循环
+    ]]></basePlanningPrompt>
+    -->
+</moduleConfig>

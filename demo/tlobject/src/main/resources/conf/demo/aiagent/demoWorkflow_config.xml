@@ -44,7 +44,7 @@
                 systemMessage="你是一个浪漫主义诗人，请用简洁优美的语言回应用户。"
                 temperature="0.9"/>
         <module name="poetB" sameClassAs="aiagent"
-                defaultLlmProvider="aiagent_master:openAiProvider"
+                defaultLlmProvider="aiagent:openAiProvider"
                 systemMessage="你是一个现实主义诗人，请用朴实深刻的语言回应用户。"
                 temperature="0.7"/>
     </modules>

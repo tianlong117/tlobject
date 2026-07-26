@@ -38,6 +38,12 @@
                 classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 configfile="CLASSPATH/conf/demo/aiagent/demoWorkflow_config.xml"/>
 
+        <!-- DAG Planner（LLM驱动的工作流规划） -->
+        <module name="dagPlanner"
+                classfile="cn.tianlong.tlobject.aiagent.workflow.TLDagPlanner"
+                configfile="CLASSPATH/conf/demo/aiagent/dagPlanner_config.xml"
+                singleton="false"/>
+
     </modules>
 
     <!-- ===== 工厂启动序列 ===== -->
@@ -59,6 +65,7 @@
         <!-- 获取Demo测试模块和工作流模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="dagPlanner"/>
         <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
 

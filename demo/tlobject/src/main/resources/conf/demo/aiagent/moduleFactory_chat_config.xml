@@ -29,13 +29,16 @@
                 classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 configfile="demoWorkflow_config.xml"/>
     </modules>
-    <factoryBoot>
+    <factoryBoot>threadPool
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
-        <msg action="getModule"  moduleName="database" usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="database"      usePreReturnMsg="false" />
         <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="dagPlanner"/>
     </factoryBoot>
 </moduleConfig>

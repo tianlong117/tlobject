@@ -1629,7 +1629,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                 msg.setSystemParam(TASKRESULTFOR, taskResultFor);
             }
         }
-        if (TLDataUtils.parseBoolean(msg.getSystemParam(INTHREADPOOL),false)==false) {
+        if (TLDataUtils.parseBoolean(msg.getSystemParam(INTHREADPOOL),true)==false) {
             msg.removeSystemParam(INTHREADPOOL);
             return super.putMsgNoWait(toWho, msg);
         }
