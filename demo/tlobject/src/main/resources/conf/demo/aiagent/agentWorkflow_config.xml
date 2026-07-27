@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ============================================================
+  DAG 工作流 Demo 配置说明
+  ============================================================
+
+  标准框架配置格式：<moduleConfig> 为根，<params>/<modules> 为标准段，
+  <nodes>/<edges> 为工作流自定义段（由 TLAgentWorkflow.myConfig 解析）。
+
+  一、DAG 工作流核心思想：
+    大任务拆成多个小任务（节点），用有向边声明依赖关系。
+    引擎自动推导执行顺序——无依赖的并行跑，有依赖的等前置完成。
+
+  二、节点类型：
+    agent     - 调用自有模块（id = <modules> 中定义的模块名）
+    condition - 条件分支，根据上游产出表达式判断走哪条边
+    fanout    - 扇出，一份输入复制给所有下游
+    join      - 汇聚，等待上游全部完成后合并产出
+
+  三、模块定义（标准 <modules> 段）：
+    工作流节点的模块自包含，不依赖工厂级单例。
+    初始化时 getMyModule 创建私有实例（与 TLAgentGroup 创建成员同模式）。
+
+  四、执行流程（本配置）：
+    input(fanout) ─┬─→ poetA ─┬─→ merge(join) → 返回结果
+                   └─→ poetB ─┘
+
+  五、作为子Agent使用（在主Agent配置中声明，非本文件）：
+    <agent name="poemWorkflow" sameClassAs="agentWorkflow"
+           configfile="demoWorkflow_config.xml"
+           description="诗歌创作工作流，两个不同风格诗人并行创作后汇总"/>
+  ============================================================
+-->
+<moduleConfig>
+    <params>
+        <param name="maxParallel" value="5"/>
+        <param name="description" value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
+    </params>
+
+    <!-- 工作流自有的私有模块——每个节点一个独立实例 -->
+    <modules>
+        <module name="poetA" sameClassAs="aiagent"
+                defaultLlmProvider="aiagent_master:openAiProvider"
+                systemMessage="你是一个浪漫主义诗人，请用简洁优美的语言回应用户。"
+                temperature="0.9"/>
+        <module name="poetB" sameClassAs="aiagent"
+                defaultLlmProvider="aiagent:openAiProvider"
+                systemMessage="你是一个现实主义诗人，请用朴实深刻的语言回应用户。"
+                temperature="0.7"/>
+    </modules>
+
+
+</moduleConfig>

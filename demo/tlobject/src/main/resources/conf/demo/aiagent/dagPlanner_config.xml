@@ -47,7 +47,10 @@
         <!-- 是否从注册表动态发现 Agent（补充白名单）：true=补充, false=只用白名单 -->
         <discoverFromRegistry value="false"/>
     </params>
-
+    <modules>
+        <!-- DAG工作流模块 -->
+        <module name="agentWorkflow"  sameClassAs="AgentWorkflow"/>
+    </modules>
     <!--
       ============================================================
       可用 Agent 白名单（主要来源）

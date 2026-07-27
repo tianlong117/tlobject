@@ -35,6 +35,7 @@ public class TLWorkflowContext {
 
     /** 写入节点产出 */
     public void putOutput(String nodeId, TLMsg output) {
+        if (output == null) output = new TLMsg();
         nodeOutputs.put(nodeId, output);
     }
 
@@ -57,11 +58,13 @@ public class TLWorkflowContext {
 
     /** 写入节点状态 */
     public void putStatus(String nodeId, String status) {
-        nodeStatus.put(nodeId, status);
+        if (nodeId == null) return;
+        nodeStatus.put(nodeId, status != null ? status : "");
     }
 
     /** 写入节点耗时 */
     public void putDuration(String nodeId, long durationMs) {
+        if (nodeId == null) return;
         nodeDuration.put(nodeId, durationMs);
     }
 

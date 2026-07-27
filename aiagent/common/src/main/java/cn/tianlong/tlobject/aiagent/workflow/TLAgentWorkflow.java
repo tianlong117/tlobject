@@ -249,6 +249,35 @@ public class TLAgentWorkflow extends TLBaseModule
             }
         }
 
+        // 为动态节点创建私有模块实例（静态节点由 initNodeModules 在启动时处理）
+        for (TLWorkflowNode node : workflowNodes.values()) {
+            if (node.getType() != TLWorkflowNodeType.AGENT) continue;
+            String nid = node.getId();
+            if (getMyModule(nid) != null) continue; // 已存在（静态配置或之前创建过）
+
+            if (node.getSameClassAs() != null) {
+                HashMap<String, String> nodeParams = new HashMap<>(node.getParams());
+                Object inst = getNewModule(nid, node.getSameClassAs(), nodeParams);
+                if (inst != null) {
+                    putLog("Workflow dynamic node [" + nid + "] created (sameClassAs="
+                            + node.getSameClassAs() + ")", LogLevel.DEBUG);
+                } else {
+                    putLog("Workflow dynamic node [" + nid + "] create failed (sameClassAs="
+                            + node.getSameClassAs() + ")", LogLevel.ERROR);
+                }
+            } else if (node.getClassfile() != null) {
+                Object inst = getModuleByClass(nid, node.getClassfile());
+                if (inst != null) {
+                    putLog("Workflow dynamic node [" + nid + "] created (classfile="
+                            + node.getClassfile() + ")", LogLevel.DEBUG);
+                } else {
+                    putLog("Workflow dynamic node [" + nid + "] create failed (classfile="
+                            + node.getClassfile() + ")", LogLevel.ERROR);
+                }
+            }
+            // 无 sameClassAs 无 classfile：使用 module 字段指向工厂单例，runAgentNode 回退分支处理
+        }
+
         // 构建上下文并执行
         TLWorkflowContext context = new TLWorkflowContext(input);
         TLWorkflowEngine engine = new TLWorkflowEngine(workflowNodes, workflowEdges, context, this);

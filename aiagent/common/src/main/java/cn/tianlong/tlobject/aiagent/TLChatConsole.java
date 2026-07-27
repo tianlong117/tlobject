@@ -1221,7 +1221,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // --run <名称>
         if (args.startsWith("--run ")) {
             String planName = args.substring(6).trim();
-            executeMdPlan(planName + ".md");
+            // 如果传入的已经是路径（含 / 或 \），直接用；否则加默认目录前缀
+            String mdFile = planName.contains("/") || planName.contains("\\")
+                    ? planName : "data/dag_plans/" + planName;
+            if (!mdFile.endsWith(".md")) mdFile += ".md";
+            executeMdPlan(mdFile);
             return;
         }
 
