@@ -138,6 +138,10 @@
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"
                statup="true"/>
+        <skill name="dagPlanner"
+               sameClassAs="dagPlanner"
+               statup="true"
+               skillDescription="将复杂任务需求分解为子任务并编排为DAG工作流。接受自然语言需求描述，返回结构化的执行计划（MD文件+节点列表+边列表）。适用场景：多步骤、多Agent协作的复杂任务。"/>
     </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 

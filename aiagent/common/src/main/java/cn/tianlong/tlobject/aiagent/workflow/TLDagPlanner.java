@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.workflow;
 
 import cn.tianlong.tlobject.aiagent.IAgentCapable;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLBaseSkill;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.aiagent.TLMdFileLoader;
 import cn.tianlong.tlobject.base.IObject;
@@ -31,8 +32,8 @@ import java.util.*;
  * @author tianlong
  * @since 2026/7/26
  */
-public class TLDagPlanner extends TLBaseModule
-        implements TLAiAgentParamString, IAgentCapable {
+public class TLDagPlanner extends TLBaseSkill
+        implements IAgentCapable {
 
     /** LLM Provider 模块名（默认 openAiProvider） */
     private String plannerProvider = "openAiProvider";
@@ -84,6 +85,36 @@ public class TLDagPlanner extends TLBaseModule
 
     @Override
     protected void setModuleParams() {
+        // 先调用 TLBaseSkill.setModuleParams() 加载 skillName/skillDescription/parameterSchema
+        super.setModuleParams();
+        // skillName 由 super 默认设为 name（即模块名 "dagPlanner"），无需硬编码
+
+        // skill 描述（XML 未配置时用默认值）
+        if (skillDescription == null || skillDescription.isEmpty())
+            skillDescription = "将复杂任务需求分解为子任务并编排为DAG工作流。"
+                    + "接受自然语言需求描述，返回结构化的执行计划（MD文件+节点列表+边列表）。"
+                    + "适用场景：用户需求涉及多步骤、多Agent协作的复杂任务。";
+
+        // 参数 schema（XML 未配置时用默认值）
+        if (parameterSchema == null || parameterSchema.isEmpty()) {
+            parameterSchema = new LinkedHashMap<>();
+            Map<String, Object> reqProp = new LinkedHashMap<>();
+            reqProp.put("type", "string");
+            reqProp.put("description", "任务需求描述（自然语言）");
+            reqProp.put("required", true);
+            parameterSchema.put("requirement", reqProp);
+
+            Map<String, Object> nameProp = new LinkedHashMap<>();
+            nameProp.put("type", "string");
+            nameProp.put("description", "计划名称（可选，不指定则自动生成）");
+            parameterSchema.put("planName", nameProp);
+
+            Map<String, Object> forceProp = new LinkedHashMap<>();
+            forceProp.put("type", "boolean");
+            forceProp.put("description", "是否强制重新生成，跳过缓存（可选，默认false）");
+            parameterSchema.put("forceRegenerate", forceProp);
+        }
+
         // 优先从 this.params 读，fallback 到 mconfig.params
         Map<String, String> p = (params != null && !params.isEmpty()) ? params
                 : (mconfig != null ? mconfig.getParams() : null);
@@ -198,11 +229,78 @@ public class TLDagPlanner extends TLBaseModule
         }
     }
 
+    // ======================== Skill 接口实现 ========================
+
+    /**
+     * 实现 TLBaseSkill.execute()——处理 SKILL_EXECUTE 消息。
+     * 从 AI_P_SKILLINPUT 中提取参数，转换为 doPlan() 所需的 TLMsg 格式，
+     * 执行后将结果格式化为 AI_P_SKILLOUTPUT 返回给 LLM。
+     */
     @Override
-    protected TLBaseModule init() { return this; }
+    @SuppressWarnings("unchecked")
+    protected TLMsg execute(Object fromWho, TLMsg msg) {
+        Map<String, Object> input = msg.getMapParam(AI_P_SKILLINPUT, new LinkedHashMap<>());
+
+        // 转换为 doPlan 期望的 TLMsg 格式
+        TLMsg planMsg = createMsg();
+        if (input.containsKey("requirement")) {
+            planMsg.setParam(DAGPLAN_REQUIREMENT, input.get("requirement").toString());
+        }
+        if (input.containsKey("planName")) {
+            planMsg.setParam(DAGPLAN_PLANNAME, input.get("planName").toString());
+        }
+        if (input.containsKey("forceRegenerate")) {
+            Object fr = input.get("forceRegenerate");
+            boolean v = fr instanceof Boolean ? (Boolean) fr
+                    : Boolean.parseBoolean(String.valueOf(fr));
+            planMsg.setParam(DAGPLAN_FORCE_REGENERATE, v);
+        }
+
+        // 执行规划
+        TLMsg result = doPlan(planMsg);
+
+        // 格式化为 skill 输出
+        boolean ok = result.parseBoolean(RESULT, false);
+        TLMsg ret = createMsg().setParam(RESULT, ok);
+        if (ok) {
+            String mdFile = result.getStringParam(DAGPLAN_MDFILE, "");
+            String planName = result.getStringParam(DAGPLAN_PLANNAME, "");
+            String fromCache = result.getStringParam(DAGPLAN_FROMCACHE, "false");
+            int nodeCount = result.getParam("nodeCount") != null
+                    ? ((Number) result.getParam("nodeCount")).intValue() : 0;
+            int edgeCount = result.getParam("edgeCount") != null
+                    ? ((Number) result.getParam("edgeCount")).intValue() : 0;
+            String desc = result.getStringParam("description", "");
+
+            StringBuilder output = new StringBuilder();
+            output.append("计划生成成功！\n");
+            output.append("- 计划名: ").append(planName).append("\n");
+            output.append("- MD 文件: ").append(mdFile).append("\n");
+            output.append("- 节点数: ").append(nodeCount).append(", 边数: ").append(edgeCount).append("\n");
+            output.append("- 来源: ").append(fromCache.equals("false") ? "LLM生成"
+                    : (fromCache + " 缓存命中")).append("\n");
+            if (!desc.isEmpty()) output.append("- 描述: ").append(desc).append("\n");
+
+            ret.setParam(AI_P_SKILLOUTPUT, output.toString());
+            // 额外透传结构化数据，供后续 workflow 执行
+            ret.setParam(DAGPLAN_MDFILE, mdFile);
+            ret.setParam(DAGPLAN_PLANNAME, planName);
+            ret.setParam("nodeCount", nodeCount);
+            ret.setParam("edgeCount", edgeCount);
+        } else {
+            ret.setParam(AI_P_SKILLOUTPUT,
+                    "计划生成失败: " + result.getStringParam("error", "unknown error"));
+        }
+        return ret;
+    }
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        // 先让 TLBaseSkill 处理 SKILL_GETINFO / SKILL_EXECUTE / SKILL_VALIDATE
+        TLMsg skillResult = super.checkMsgAction(fromWho, msg);
+        if (skillResult != null) return skillResult;
+
+        // 处理 DAG Planner 自身的 action
         switch (msg.getAction()) {
             case DAGPLAN_DOPLAN:
                 return doPlan(msg);
