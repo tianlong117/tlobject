@@ -103,7 +103,7 @@
         <agent name="fileAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="文件处理专家，负责文件的读写、目录操作等。注意：不执行脚本，如需运行.py/.sh等脚本请用codeAgent。当用户请求涉及文件操作（读、写、列表、删除）时使用此Agent。"/>
+               description="文件处理专家，负责文件的读写、目录操作等。注意：不能执行脚本。如需先写脚本再执行，流程为 fileAgent 把脚本写入 skills 目录 → 再委托 codeAgent 执行。当用户请求涉及文件操作（读、写、列表、删除）时使用此Agent。"/>
 
          <!--agent name="cloudRevenueAgent"
                sameClassAs="aiagent"
@@ -112,8 +112,9 @@
 
         <agent name="codeAgent"
                sameClassAs="aiagent"
+               configfile="codeAgent_config.xml"
                statup="true"
-               description="代码执行专家，可执行内联代码或运行.py/.sh等脚本文件。当用户要求运行脚本、执行代码、计算、数据处理时使用此Agent。"/>
+               description="代码执行专家，内置 code_execution（内联代码）和 script_execution（脚本文件）。注意：没有 file_operation，不能创建或写入文件。如需先写脚本文件再执行，流程为：主Agent用 file_operation 把脚本写入 skills 目录 → 再委托 codeAgent 执行。当用户要求运行代码、执行脚本、数据处理时使用此Agent。"/>
 
         <agent name="priceTeam"
                sameClassAs="agentGroup"

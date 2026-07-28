@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 评测用例目录 -->
+        <evalCaseDir value="conf/demo/aiagent/evals/cases/"/>
+
+        <!-- 报告输出目录 -->
+        <reportOutputDir value="data/evals/reports/"/>
+
+        <!-- 目标 Agent 模块名 -->
+        <targetAgent value="aiagent_master"/>
+
+        <!-- LLM-as-Judge 使用的 Provider -->
+        <judgeProvider value="myopenAiProvider"/>
+
+        <!-- 上下文模块（用于提取 tool calls） -->
+        <contextModule value="aiContext"/>
+    </params>
+</moduleConfig>

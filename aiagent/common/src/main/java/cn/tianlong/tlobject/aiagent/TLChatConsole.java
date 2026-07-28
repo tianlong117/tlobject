@@ -85,6 +85,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         COMMAND_REGISTRY.put("/approve", "审批操作: /approve approve:ID 或 reject:ID:原因");
         COMMAND_REGISTRY.put("/sessions", "列出所有历史会话");
         COMMAND_REGISTRY.put("/continue", "继续历史会话: /continue [id]");
+        COMMAND_REGISTRY.put("/eval", "Agent评测: /eval suite|list|quick|run <id>");
     }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
@@ -797,6 +798,59 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
+    /** /eval [suite|list|quick|run <id>] — Agent 评测 */
+    private void handleEval(String cmd) {
+        String[] parts = cmd.split("\\s+", 2);
+        String subCmd = parts.length > 1 ? parts[1].trim() : "";
+
+        if (subCmd.isEmpty() || subCmd.equals("help")) {
+            System.out.println("用法:");
+            System.out.println("  /eval suite    运行全部用例");
+            System.out.println("  /eval list     列出可用用例");
+            System.out.println("  /eval quick    快速自检（内置用例）");
+            System.out.println("  /eval run <id>  运行指定用例");
+            return;
+        }
+
+        TLMsg result;
+        if (subCmd.equals("suite")) {
+            System.out.println("⏳ 正在运行全部评测用例...");
+            result = putMsg("evals", createMsg().setAction("runEvalSuite"));
+        } else if (subCmd.equals("list")) {
+            result = putMsg("evals", createMsg().setAction("listEvalCases"));
+        } else if (subCmd.equals("quick")) {
+            System.out.println("⏳ 正在运行快速评测...");
+            result = putMsg("evals", createMsg().setAction("runQuickEval"));
+        } else if (subCmd.startsWith("run ")) {
+            String caseId = subCmd.substring(4).trim();
+            if (caseId.isEmpty()) {
+                System.out.println("✗ 请指定用例ID: /eval run <id>");
+                return;
+            }
+            System.out.println("⏳ 正在运行用例: " + caseId + " ...");
+            result = putMsg("evals", createMsg().setAction("runEvalByName")
+                    .setParam("caseId", caseId));
+        } else {
+            System.out.println("✗ 未知子命令: " + subCmd);
+            System.out.println("用法: /eval suite|list|quick|run <id>");
+            return;
+        }
+
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            int passed = result.getIntParam("passed", 0);
+            int failed = result.getIntParam("failed", 0);
+            int total = result.getIntParam("total", passed + failed);
+            double passRate = 0;
+            try { passRate = Double.parseDouble(result.getStringParam("passRate", "0")); } catch (Exception ignored) {}
+            System.out.println(String.format("✓ 评测完成: %d/%d 通过 (%.1f%%)",
+                    passed, total, passRate * 100));
+            String reportPath = result.getStringParam("reportPath", "");
+            if (!reportPath.isEmpty()) System.out.println("  报告: " + reportPath);
+        } else if (result != null) {
+            System.out.println("✗ 评测执行出错: " + result.getStringParam("error", "未知错误"));
+        }
+    }
+
     /** /agents [/skills] [ownerFamilyName] — 从 moduleRegistry 列出模块，应用层按类型过滤 */
     private void handleListModules(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
@@ -998,6 +1052,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /reload -s <家族名>        重载脚本Skill  (例如 app:skillDir)");
         System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
         System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
+        System.out.println();
+        System.out.println("评测命令:");
+        System.out.println("  /eval suite             运行全部评测用例");
+        System.out.println("  /eval list              列出可用评测用例");
+        System.out.println("  /eval quick             快速自检");
+        System.out.println("  /eval run <id>          运行指定用例");
         System.out.println();
     }
 
@@ -1411,7 +1471,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             default:
-                if (cmd.startsWith("/?") || cmd.startsWith("/help ")) {
+                if (cmd.startsWith("/eval")) {
+                    handleEval(cmd);
+                } else if (cmd.startsWith("/?") || cmd.startsWith("/help ")) {
                     handleHelp();
                 } else if (cmd.startsWith("/install ")) {
                     handleInstall(cmd);

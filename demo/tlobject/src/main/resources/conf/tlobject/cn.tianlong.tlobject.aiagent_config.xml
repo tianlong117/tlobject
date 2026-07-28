@@ -36,5 +36,7 @@
                 configfile="CLASSPATH/conf/demo/aiagent/errorSupervisor_config.xml"/>
         <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"
                 configfile="CLASSPATH/conf/demo/aiagent/approvalGate_config.xml"/>
+        <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"
+                configfile="CLASSPATH/conf/demo/aiagent/evals_config.xml"/>
     </modules>
 </moduleConfig>

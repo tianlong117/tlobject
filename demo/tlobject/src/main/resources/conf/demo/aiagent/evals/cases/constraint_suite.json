@@ -1,0 +1,34 @@
+[
+  {
+    "id": "suite-constraint-001",
+    "name": "约束检查-回复长度和迭代",
+    "input": "请说'Hello, World!'，不要其他内容。",
+    "judges": [
+      {
+        "type": "constraint",
+        "config": {
+          "minResponseLength": 5,
+          "maxResponseLength": 100,
+          "maxIterations": 2,
+          "mustContain": "Hello",
+          "mustNotContain": "抱歉"
+        }
+      }
+    ]
+  },
+  {
+    "id": "suite-constraint-002",
+    "name": "约束检查-禁止工具调用",
+    "input": "今天是星期几？请直接回答，不要使用工具。",
+    "judges": [
+      {
+        "type": "constraint",
+        "config": {
+          "maxIterations": 1,
+          "mustNotCallTools": ["http_request"],
+          "minResponseLength": 2
+        }
+      }
+    ]
+  }
+]

@@ -67,5 +67,8 @@
 
         <!-- 获取审批模块（可选，启用审批时解注） -->
         <!-- <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/> -->
+
+        <!-- 获取评测模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="evals"/>
     </factoryBoot>
 </moduleConfig>

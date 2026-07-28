@@ -26,13 +26,21 @@
         <module name="outputGuard" classfile="cn.tianlong.tlobject.aiagent.TLOutputGuard"/>
         <!-- DAG工作流模块 -->
         <module name="demoWorkflow"
-                classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
+                 sameClassAs="agentWorkflow"
                 configfile="demoWorkflow_config.xml"/>
+        <module name="myopenAiProvider" sameClassAs="openAiProvider"
+                statup="true"
+                apiKey="sk-your-api-key"
+                apiBaseUrl="https://api.deepseek.com"
+                defaultModel="deepseek-v4-pro"
+                connTimeOut="30"
+                readTimeOut="120"/>
     </modules>
     <factoryBoot>threadPool
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
         <msg action="getModule" destination="moduleFactory" moduleName="database"      usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
