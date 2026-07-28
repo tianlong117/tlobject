@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!--
+        TLPlanTaskSkill 配置 —— 任务分解 Skill
+
+        plannerProvider: LLM Provider
+          - "agentName:providerName" → 从指定 agent 借用（推荐）
+          - "providerName" → 从工厂直接获取
+    -->
+    <params>
+        <!-- 从 master agent 借用 openAiProvider（与 DAG Planner 同模式） -->
+        <plannerProvider value="aiagent_master:openAiProvider"/>
+        <!-- 规划 temperature：0.3 保持分解稳定性 -->
+        <planTemperature value="0.3"/>
+        <!-- 规划最大 token：2048 足够 3-7 项清单 -->
+        <planMaxTokens value="2048"/>
+    </params>
+</moduleConfig>

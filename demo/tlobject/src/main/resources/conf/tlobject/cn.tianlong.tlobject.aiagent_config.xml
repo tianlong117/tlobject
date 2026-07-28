@@ -21,6 +21,8 @@
         <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
         <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 singleton="false"/>
+        <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLPlanTaskSkill"
+                singleton="false"/>
         <module name="dagPlanner" classfile="cn.tianlong.tlobject.aiagent.workflow.TLDagPlanner"
                 singleton="false"/>
         <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"

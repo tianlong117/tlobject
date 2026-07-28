@@ -304,6 +304,10 @@ public interface TLAiAgentParamString extends TLParamString {
     /** 工作流输出 */
     String WORKFLOW_OUTPUT = "workflowOutput";
 
+    // ======================== Plan Task ========================
+    /** 任务分解 Skill 模块名 */
+    String M_PLANTASK = "planTask";
+
     // ======================== DAG Planner ========================
     /** DAG 规划器模块名 */
     String M_DAGPLANNER = "dagPlanner";

@@ -142,6 +142,10 @@
                sameClassAs="dagPlanner"
                statup="true"
                skillDescription="将复杂任务需求分解为子任务并编排为DAG工作流。接受自然语言需求描述，返回结构化的执行计划（MD文件+节点列表+边列表）。适用场景：多步骤、多Agent协作的复杂任务。"/>
+        <skill name="planTask"
+               sameClassAs="planTask"
+               statup="true"
+               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。先调用此技能规划，再按清单逐步执行并更新进度。适用于多步骤、需多种工具协作的复杂任务。"/>
     </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 
@@ -204,7 +208,7 @@
         <action name="chat" >
             <!--  dmsg 为方便的注释掉 ，dmsg不解析为msg   -->
             <dmsg action="clearAndForward" destination="checkpoint"  />
-            <dmsg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
+            <!--msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/-->
         </action>
     </afterMsgTable>
 
@@ -213,7 +217,20 @@
 
 当你缺少必要信息无法完成任务时，调用 request_clarification 工具请求用户确认，不要猜测。
 
-如果子 agent 的返回结果中包含「请求确认」字眼，你应该向用户转达确认问题，拿到回复后重新委托给子 agent。"/>
+如果子 agent 的返回结果中包含「请求确认」字眼，你应该向用户转达确认问题，拿到回复后重新委托给子 agent。
+
+## 复杂任务处理规则（强制）
+
+**任何需要 2 步及以上工具调用才能完成的任务，必须遵循以下流程，不得跳过：**
+
+1. **第一步必须是 plan_task**：收到复杂任务后，第一个工具调用必须是 plan_task。将任务分解为 3-7 项子任务清单。不得在调用 plan_task 之前执行任何其他工具或委托子 agent。
+2. **按清单逐步执行**：拿到清单后按顺序逐项执行，每完成一项在对话中展示进度（[ ] → [~] → [x]）
+3. **失败标记**：某步失败时标记 [✗]，分析原因后调整计划继续
+4. **最终汇总**：全部完成后做简要总结
+
+判断标准：如果完成任务需要调用 2 个或以上工具（包括 delegate_to_*、skill、msgTool），就是复杂任务，必须先调 plan_task。
+
+仅当任务确实只需单步完成（如纯知识问答、简单计算、单次查询）时，可跳过 plan_task 直接回答。"/>
     </modulesParams>
 
 </moduleConfig>
