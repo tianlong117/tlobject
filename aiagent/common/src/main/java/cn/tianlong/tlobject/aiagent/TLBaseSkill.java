@@ -29,6 +29,9 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
     /** SKILL.md 路径（显式配置或自动发现） */
     protected String skillMdPath;
 
+    /** SKILL.md 的正文内容（frontmatter 之后），供子类复用（如规划提示词） */
+    protected String skillMdBody;
+
     /** 是否启用 */
     protected boolean enabled = true;
 
@@ -79,8 +82,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
      * 加载 SKILL.md 并注入 skillDescription。
      * 查找顺序：
      * 1. XML 显式配置 skillMd 路径
-     * 2. 配置目录下 skillmd/ 文件夹：{configDir}skillmd/{skillName}.md
-     * 3. classpath 同 package 下 {skillName}.md
+     * 2. 配置目录下 md/ 文件夹：{configDir}md/{name}.md（与 Agent 统一）
+     * 3. classpath 同 package 下 {name}.md
      * 子类可覆盖以扩展发现路径（如 TLScriptExecutionSkill 额外查找脚本目录）。
      */
     protected void loadSkillMd() {
@@ -91,15 +94,15 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
             content = readFileOrResource(skillMdPath);
         }
 
-        // 2. 配置目录下 skillmd/ 文件夹：{skillName}.md（借鉴 TLAiAgent.loadAgentMd 的 {configDir}md/ 模式）
+        // 2. 配置目录下 md/ 文件夹：{name}.md（与 TLAiAgent.loadAgentMd 同目录）
         if (content == null && moduleFactory != null) {
-            content = readFileOrResource(moduleFactory.getConfigDir() + "skillmd/" + skillName + ".md");
+            content = readFileOrResource(moduleFactory.getConfigDir() + "md/" + name + ".md");
         }
 
-        // 3. classpath 同 package 下 {skillName}.md
+        // 3. classpath 同 package 下 {name}.md
         if (content == null) {
             String pkgPath = this.getClass().getPackage().getName().replace('.', '/');
-            content = readClasspathResource(pkgPath + "/" + skillName + ".md");
+            content = readClasspathResource(pkgPath + "/" + name + ".md");
         }
 
         if (content == null || content.trim().isEmpty()) return;
@@ -107,6 +110,9 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
         // 解析 YAML frontmatter
         String fmDescription = TLMdFileLoader.parseFrontmatterDescription(content);
         String body = TLMdFileLoader.parseBody(content);
+
+        // 缓存正文供子类复用（如 TLPlanTaskSkill 的规划提示词）
+        this.skillMdBody = body;
 
         // frontmatter description 与已有 skillDescription 合并
         if (fmDescription != null && !fmDescription.isEmpty()) {

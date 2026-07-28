@@ -9,9 +9,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * 测试 skillmd 自动发现——从 {configDir}skillmd/{skillName}.md 加载 skill 描述。
+ * 测试 Skill MD 自动发现——从 {configDir}md/{name}.md 加载 skill 描述。
  * 函数名: skillmd_test
- * 功能: 简单 echo，验证框架自动从配置目录 skillmd/ 文件夹加载 md 文件。
+ * 功能: 简单 echo，验证框架自动从配置目录 md/ 文件夹加载 md 文件（与 Agent 统一）。
  *
  * 输入参数:
  *   - message: 要回显的消息文本（必填）
@@ -42,7 +42,7 @@ public class TLSkillMdTestSkill extends TLBaseSkill {
         if (skillName == null || skillName.isEmpty()) {
             skillName = "skillmd_test";
         }
-        // 不设置 skillDescription —— 全部由 loadSkillMd() 从 skillmd/ 自动发现注入
+        // 不设置 skillDescription —— 全部由 loadSkillMd() 从 md/ 自动发现注入
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();

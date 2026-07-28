@@ -85,7 +85,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         COMMAND_REGISTRY.put("/approve", "审批操作: /approve approve:ID 或 reject:ID:原因");
         COMMAND_REGISTRY.put("/sessions", "列出所有历史会话");
         COMMAND_REGISTRY.put("/continue", "继续历史会话: /continue [id]");
-        COMMAND_REGISTRY.put("/plan", "LLM规划并执行DAG工作流: /plan <需求>");
     }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
@@ -1000,11 +999,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
         System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
         System.out.println();
-        System.out.println("工作流命令:");
-        System.out.println("  /plan <需求>               LLM规划并执行DAG工作流");
-        System.out.println("  /plan -f <需求>            强制重新规划");
-        System.out.println("  /plan --run <名称>         执行已有计划");
-        System.out.println("  /plan --list               列出所有已保存计划");
     }
 
     // ======================== 新统一命令处理器 ========================
@@ -1167,177 +1161,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("用法: /reload -s <家族名>  (重载脚本Skill，如 aiagent:mySkillDir)");
         System.out.println("      /reload -a <家族名>  (重载Agent，如 app:myAgent)");
         System.out.println("      /reload -bs <家族名> (重载Java BaseSkill，如 aiagent:mySkill)");
-    }
-
-    private void printPlanUsage() {
-        System.out.println("用法: /plan <需求描述>            规划→保存MD→直接执行");
-        System.out.println("      /plan -n <名称> <需求>      指定计划名");
-        System.out.println("      /plan -f <需求>             强制重新生成MD");
-        System.out.println("      /plan --run <名称>          直接执行已有计划");
-        System.out.println("      /plan --list                列出所有已保存计划");
-        System.out.println("      /plan --show <名称>         查看计划内容");
-    }
-
-    // ======================== /plan 命令 ========================
-
-    /**
-     * /plan 命令处理。支持子命令：
-     *   /plan <需求>              — 两层缓存 → 规划 → 确认 → 执行
-     *   /plan -n <名称> <需求>    — 指定计划名称
-     *   /plan -f <需求>           — 强制重新规划
-     *   /plan -y <需求>           — 跳过确认，直接执行
-     *   /plan --run <名称>        — 纯执行已有计划
-     *   /plan --list              — 列出所有计划
-     *   /plan --show <名称>       — 查看计划内容
-     */
-    private void handlePlan(String cmd) {
-        String args = cmd.substring(5).trim(); // 去掉 "/plan"
-
-        // --list
-        if (args.equals("--list")) {
-            TLMsg result = putMsg(M_DAGPLANNER, createMsg().setAction(DAGPLAN_LISTPLANS));
-            if (result != null && result.parseBoolean(RESULT, false)) {
-                System.out.println(result.getStringParam(AI_P_RESPONSE, "No plans."));
-            } else {
-                System.out.println("✗ 获取计划列表失败");
-            }
-            return;
-        }
-
-        // --show <名称>
-        if (args.startsWith("--show ")) {
-            String planName = args.substring(7).trim();
-            TLMsg result = putMsg(M_DAGPLANNER,
-                    createMsg().setAction(DAGPLAN_SHOWPLAN)
-                            .setParam(DAGPLAN_PLANNAME, planName));
-            if (result != null && result.parseBoolean(RESULT, false)) {
-                System.out.println(result.getStringParam(AI_P_RESPONSE, ""));
-            } else {
-                System.out.println("✗ 计划不存在: " + planName);
-            }
-            return;
-        }
-
-        // --run <名称>
-        if (args.startsWith("--run ")) {
-            String planName = args.substring(6).trim();
-            // 如果传入的已经是路径（含 / 或 \），直接用；否则加默认目录前缀
-            String mdFile = planName.contains("/") || planName.contains("\\")
-                    ? planName : "data/dag_plans/" + planName;
-            if (!mdFile.endsWith(".md")) mdFile += ".md";
-            executeMdPlan(mdFile);
-            return;
-        }
-
-        // 解析普通规划请求
-        String planName = null;
-        boolean forceRegenerate = false;
-        String requirement = args;
-
-        if (args.startsWith("-n ")) {
-            // /plan -n <名称> <需求>
-            String[] parts = args.split("\\s+", 4);
-            if (parts.length < 4) {
-                System.out.println("用法: /plan -n <名称> <需求>");
-                return;
-            }
-            planName = parts[2];
-            requirement = parts[3];
-        } else if (args.startsWith("-f ")) {
-            forceRegenerate = true;
-            requirement = args.substring(3).trim();
-        }
-
-        if (requirement.isEmpty()) {
-            printPlanUsage();
-            return;
-        }
-
-        // ① 调 dagPlanner.doPlan
-        System.out.println("⏳ 规划中...");
-        TLMsg planMsg = createMsg().setAction(DAGPLAN_DOPLAN)
-                .setParam(DAGPLAN_REQUIREMENT, requirement);
-        if (planName != null) {
-            planMsg.setParam(DAGPLAN_PLANNAME, planName);
-        }
-        if (forceRegenerate) {
-            planMsg.setParam(DAGPLAN_FORCE_REGENERATE, "true");
-        }
-        TLMsg planResult = putMsg(M_DAGPLANNER, planMsg);
-
-        if (planResult == null || !planResult.parseBoolean(RESULT, false)) {
-            String err = planResult != null
-                    ? planResult.getStringParam("error", "unknown error")
-                    : "null response";
-            System.out.println("✗ 规划失败: " + err);
-            return;
-        }
-
-        String mdFile = planResult.getStringParam(DAGPLAN_MDFILE, "");
-        String fromCache = planResult.getStringParam(DAGPLAN_FROMCACHE, "false");
-        int nodeCount = planResult.getIntParam("nodeCount", 0);
-        int edgeCount = planResult.getIntParam("edgeCount", 0);
-        String desc = planResult.getStringParam("description", "");
-
-        // ② 打印摘要
-        String cacheLabel = "exact".equals(fromCache) ? " (精确缓存命中)"
-                : "semantic".equals(fromCache) ? " (语义匹配命中)" : "";
-        System.out.println();
-        System.out.println("📋 计划: " + mdFile + cacheLabel);
-        System.out.println("   节点: " + nodeCount + " | 边: " + edgeCount);
-        if (!desc.isEmpty()) {
-            System.out.println("   描述: " + desc);
-        }
-        System.out.println();
-
-        // ③ 直接执行（plan → 执行一气呵成，失败可重新规划）
-        // ④ 执行
-        String wfModule = planResult.getStringParam("workflowModule", M_WORKFLOW);
-        executeMdPlan(mdFile, wfModule);
-    }
-
-    /**
-     * 执行 MD 计划文件。
-     */
-    private void executeMdPlan(String mdFile) {
-        executeMdPlan(mdFile, M_WORKFLOW);
-    }
-
-    private void executeMdPlan(String mdFile, String workflowModule) {
-        System.out.println("🚀 开始执行工作流: " + mdFile + " [module=" + workflowModule + "]");
-        long t0 = System.currentTimeMillis();
-
-        TLMsg execResult = putMsg(workflowModule,
-                createMsg().setAction(WORKFLOW_EXECUTE_MD)
-                        .setParam(DAGPLAN_MDFILE, mdFile));
-
-        long elapsed = System.currentTimeMillis() - t0;
-
-        if (execResult == null || !execResult.parseBoolean(RESULT, false)) {
-            String err = execResult != null
-                    ? execResult.getStringParam("error",
-                            execResult.getStringParam("message", "unknown error"))
-                    : "null response";
-            System.out.println("✗ 执行失败: " + err);
-            return;
-        }
-
-        int completed = execResult.getIntParam("completedNodes", 0);
-        int failed = execResult.getIntParam("failedNodes", 0);
-        int skipped = execResult.getIntParam("skippedNodes", 0);
-        String summary = execResult.getStringParam(AI_P_RESPONSE, "");
-
-        System.out.println();
-        System.out.println("✅ 执行完成! 耗时 " + (elapsed / 1000.0) + "s");
-        System.out.println("   完成: " + completed + " | 失败: " + failed
-                + (skipped > 0 ? " | 跳过: " + skipped : ""));
-
-        if (!summary.isEmpty()) {
-            System.out.println();
-            System.out.println("━━━ 输出结果 ━━━");
-            System.out.println(summary);
-            System.out.println("━━━━━━━━━━━━━━━━");
-        }
     }
 
     // ======================== /reload 命令 ========================
@@ -1557,10 +1380,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 continueSession(cmd);
                 break;
 
-            case "/plan":
-                printPlanUsage();
-                break;
-
             case "/stream":
                 streamMode = !streamMode;
                 System.out.println("✓ 流式模式: " + (streamMode ? "开启" : "关闭"));
@@ -1609,8 +1428,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("✓ 会话ID切换为: " + sessionId);
                 } else if (cmd.startsWith("/continue ")) {
                     continueSession(cmd);
-                } else if (cmd.startsWith("/plan ")) {
-                    handlePlan(cmd);
                 } else if (cmd.startsWith("/thinking ")) {
                     String mode = cmd.substring(10).trim();
                     if (mode.equals("off") || mode.equals("prompt") || mode.equals("native") || mode.equals("auto")) {

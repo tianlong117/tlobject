@@ -23,8 +23,6 @@
                 singleton="false"/>
         <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLPlanTaskSkill"
                 singleton="false"/>
-        <module name="dagPlanner" classfile="cn.tianlong.tlobject.aiagent.workflow.TLDagPlanner"
-                singleton="false"/>
         <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
                 singleton="true"/>
         <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
@@ -38,7 +36,5 @@
                 configfile="CLASSPATH/conf/demo/aiagent/errorSupervisor_config.xml"/>
         <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"
                 configfile="CLASSPATH/conf/demo/aiagent/approvalGate_config.xml"/>
-        <module name="dagPlanner" classfile="cn.tianlong.tlobject.aiagent.workflow.TLDagPlanner"
-                singleton="false"/>
     </modules>
 </moduleConfig>

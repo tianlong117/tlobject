@@ -39,6 +39,5 @@
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="dagPlanner"/>
     </factoryBoot>
 </moduleConfig>

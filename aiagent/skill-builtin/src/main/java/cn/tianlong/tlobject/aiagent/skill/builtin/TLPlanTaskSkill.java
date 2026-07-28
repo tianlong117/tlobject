@@ -3,7 +3,7 @@ package cn.tianlong.tlobject.aiagent.skill.builtin;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
-import cn.tianlong.tlobject.aiagent.TLMdFileLoader;
+
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -23,11 +23,11 @@ import java.util.Map;
 /**
  * 任务分解 Skill —— 将复杂需求拆解为可执行的子任务清单。
  *
- * 与 TLDagPlanner 的关键区别：
+ * 关键特点：
  * - 输出是纯文本 checklist，不是 DAG/YAML/MD 文件
  * - 不缓存（计划存在于对话上下文中）
  * - 不执行 workflow（agent 在 ReAct 循环中逐项执行清单）
- * - 轻量：单次 LLM 调用，~170 行 vs DAG Planner 的 1100 行
+ * - 轻量：单次 LLM 调用，~170 行
  *
  * @author tianlong
  * @since 2026/7/28
@@ -61,8 +61,7 @@ public class TLPlanTaskSkill extends TLBaseSkill {
 
     @Override
     protected void setModuleParams() {
-        // skillName 设为 LLM 友好的名称（带下划线），需在 super 之前设置
-        // 否则 loadSkillMd() 会用模块名 "planTask" 找不到 skillmd/plan_task.md
+        // skillName 设为 LLM 友好的名称（带下划线），便于 LLM 识别为函数名
         if (skillName == null || skillName.isEmpty())
             skillName = "plan_task";
         super.setModuleParams();
@@ -150,25 +149,19 @@ public class TLPlanTaskSkill extends TLBaseSkill {
     }
 
     /**
-     * 加载规划提示词 md 文件。
-     * 查找顺序：{configDir}md/{name}.md → classpath
+     * 加载规划提示词。由 loadSkillMd() 从 md/{name}.md 缓存到 skillMdBody，
+     * 此处直接复用，无需重复读文件。
      */
     protected void loadPlannerMd() {
         if (basePlanningPrompt != null && !basePlanningPrompt.trim().isEmpty()) return;
 
-        String content = TLMdFileLoader.readFileOrResource(
-                moduleFactory.getConfigDir() + "md/" + name + ".md", this.getClass());
-        if (content == null || content.trim().isEmpty()) {
+        if (skillMdBody != null && !skillMdBody.trim().isEmpty()) {
+            basePlanningPrompt = skillMdBody;
+            putLog("PlanTaskSkill [" + name + "] prompt from skillMdBody ("
+                    + skillMdBody.length() + " chars)", LogLevel.DEBUG);
+        } else {
             putLog("PlanTaskSkill [" + name + "] no md prompt found, using built-in default",
                     LogLevel.DEBUG);
-            return;
-        }
-
-        String body = TLMdFileLoader.parseBody(content);
-        if (body != null && !body.isEmpty()) {
-            basePlanningPrompt = body;
-            putLog("PlanTaskSkill [" + name + "] prompt loaded from md ("
-                    + body.length() + " chars)", LogLevel.DEBUG);
         }
     }
 

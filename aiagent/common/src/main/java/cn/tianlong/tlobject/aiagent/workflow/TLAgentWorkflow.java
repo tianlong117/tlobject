@@ -122,8 +122,6 @@ public class TLAgentWorkflow extends TLBaseModule
         switch (msg.getAction()) {
             case WORKFLOW_EXECUTE:
                 return doWorkflow(msg);
-            case WORKFLOW_EXECUTE_MD:
-                return doWorkflowMd(msg);
             case AGENT_CHAT:
                 // 作为子agent被master委托调用，userMessage → workflow input
                 return doWorkflow(msg);
@@ -180,49 +178,6 @@ public class TLAgentWorkflow extends TLBaseModule
         input.addArgs(msg.getArgs());
 
         return executeWorkflow(workflowNodes, workflowEdges, input);
-    }
-
-    /**
-     * 从 MD 文件执行工作流。
-     * msg 参数：
-     * - mdFile: MD 文件路径（与 mdContent 二选一）
-     * - mdContent: MD 内容字符串（与 mdFile 二选一，用于不落盘的场景）
-     * - workflowInput / userMessage: 初始输入（覆盖 MD 中的默认值）
-     */
-    private TLMsg doWorkflowMd(TLMsg msg) {
-        String mdFile = msg.getStringParam(DAGPLAN_MDFILE, "");
-        String mdContent = msg.getStringParam(DAGPLAN_MDCONTENT, "");
-
-        TLParsedDag dag = null;
-        if (!mdContent.isEmpty()) {
-            dag = TLDagPlanner.parseMdContent(mdContent);
-        } else if (!mdFile.isEmpty()) {
-            dag = TLDagPlanner.parseMdFile(mdFile);
-        }
-
-        if (dag == null || dag.getNodes().isEmpty()) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "Failed to parse MD file or no nodes found"
-                            + (mdFile.isEmpty() ? "" : ": " + mdFile));
-        }
-
-        putLog("Workflow [" + name + "] loading from MD: "
-                + dag.getNodeCount() + " nodes, " + dag.getEdgeCount() + " edges",
-                LogLevel.INFO);
-
-        // 构建输入：msg 中的 userMessage 优先，否则用 MD 中的 description
-        TLMsg input = createMsg();
-        String userMessage = msg.getStringParam("userMessage",
-                msg.getStringParam(WORKFLOW_INPUT, ""));
-        if (userMessage.isEmpty() && dag.getDescription() != null) {
-            userMessage = dag.getDescription();
-        }
-        if (!userMessage.isEmpty()) {
-            input.setParam("userMessage", userMessage);
-        }
-        input.addArgs(msg.getArgs());
-
-        return executeWorkflow(dag.getNodes(), dag.getEdges(), input);
     }
 
     /**

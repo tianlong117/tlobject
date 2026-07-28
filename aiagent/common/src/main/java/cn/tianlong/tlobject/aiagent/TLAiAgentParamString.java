@@ -297,8 +297,6 @@ public interface TLAiAgentParamString extends TLParamString {
     String M_WORKFLOW = "agentWorkflow";
     /** 执行工作流 */
     String WORKFLOW_EXECUTE = "doWorkflow";
-    /** 从 MD 文件执行工作流 */
-    String WORKFLOW_EXECUTE_MD = "doWorkflowMd";
     /** 工作流输入 */
     String WORKFLOW_INPUT = "workflowInput";
     /** 工作流输出 */
@@ -307,28 +305,6 @@ public interface TLAiAgentParamString extends TLParamString {
     // ======================== Plan Task ========================
     /** 任务分解 Skill 模块名 */
     String M_PLANTASK = "planTask";
-
-    // ======================== DAG Planner ========================
-    /** DAG 规划器模块名 */
-    String M_DAGPLANNER = "dagPlanner";
-    /** 执行规划（含两层缓存匹配） */
-    String DAGPLAN_DOPLAN = "doPlan";
-    /** 列出所有已保存计划 */
-    String DAGPLAN_LISTPLANS = "listPlans";
-    /** 查看指定计划内容 */
-    String DAGPLAN_SHOWPLAN = "showPlan";
-    /** MD 文件路径参数 */
-    String DAGPLAN_MDFILE = "mdFile";
-    /** MD 内容参数（直接传入，不读文件） */
-    String DAGPLAN_MDCONTENT = "mdContent";
-    /** 计划名称参数 */
-    String DAGPLAN_PLANNAME = "planName";
-    /** 用户需求文本参数 */
-    String DAGPLAN_REQUIREMENT = "requirement";
-    /** 强制重新生成标志 */
-    String DAGPLAN_FORCE_REGENERATE = "forceRegenerate";
-    /** 缓存命中方式：exact | semantic | false */
-    String DAGPLAN_FROMCACHE = "fromCache";
 
     // ======================== HITL 审批机制 ========================
     /** 审批模块名 */
