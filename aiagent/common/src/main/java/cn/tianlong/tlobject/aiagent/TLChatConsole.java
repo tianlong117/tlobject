@@ -85,7 +85,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         COMMAND_REGISTRY.put("/approve", "审批操作: /approve approve:ID 或 reject:ID:原因");
         COMMAND_REGISTRY.put("/sessions", "列出所有历史会话");
         COMMAND_REGISTRY.put("/continue", "继续历史会话: /continue [id]");
-        COMMAND_REGISTRY.put("/eval", "Agent评测: /eval suite|list|quick|run <id>");
+        COMMAND_REGISTRY.put("/eval", "Agent评测: /eval suite|list|quick|run <id>|cascade [agent]");
     }
 
     // ======================== 事件循环状态（仅主线程访问） ========================
@@ -798,17 +798,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** /eval [suite|list|quick|run <id>] — Agent 评测 */
+    /** /eval [suite|list|quick|run <id>|cascade [agent]] — Agent 评测 */
     private void handleEval(String cmd) {
         String[] parts = cmd.split("\\s+", 2);
         String subCmd = parts.length > 1 ? parts[1].trim() : "";
 
         if (subCmd.isEmpty() || subCmd.equals("help")) {
             System.out.println("用法:");
-            System.out.println("  /eval suite    运行全部用例");
-            System.out.println("  /eval list     列出可用用例");
-            System.out.println("  /eval quick    快速自检（内置用例）");
-            System.out.println("  /eval run <id>  运行指定用例");
+            System.out.println("  /eval suite              运行全部用例");
+            System.out.println("  /eval list               列出可用用例");
+            System.out.println("  /eval quick              快速自检（内置用例）");
+            System.out.println("  /eval run <id>           运行指定用例");
+            System.out.println("  /eval cascade [agent]    级联评测（发现子模块自动生成用例）");
             return;
         }
 
@@ -830,9 +831,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             System.out.println("⏳ 正在运行用例: " + caseId + " ...");
             result = putMsg("evals", createMsg().setAction("runEvalByName")
                     .setParam("caseId", caseId));
+        } else if (subCmd.equals("cascade") || subCmd.startsWith("cascade ")) {
+            String agentName = subCmd.length() > 7 ? subCmd.substring(8).trim() : "";
+            if (agentName.isEmpty()) {
+                System.out.println("⏳ 正在级联评测（使用默认目标Agent）...");
+            } else {
+                System.out.println("⏳ 正在级联评测: " + agentName + " ...");
+            }
+            TLMsg cascadeMsg = createMsg().setAction("runEvalCascade");
+            if (!agentName.isEmpty()) cascadeMsg.setParam("rootAgent", agentName);
+            result = putMsg("evals", cascadeMsg);
         } else {
             System.out.println("✗ 未知子命令: " + subCmd);
-            System.out.println("用法: /eval suite|list|quick|run <id>");
+            System.out.println("用法: /eval suite|list|quick|run <id>|cascade [agent]");
             return;
         }
 
@@ -840,8 +851,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             int passed = result.getIntParam("passed", 0);
             int failed = result.getIntParam("failed", 0);
             int total = result.getIntParam("total", passed + failed);
-            double passRate = 0;
-            try { passRate = Double.parseDouble(result.getStringParam("passRate", "0")); } catch (Exception ignored) {}
+            double passRate = result.getDoubleParam("passRate", 0.0);
             System.out.println(String.format("✓ 评测完成: %d/%d 通过 (%.1f%%)",
                     passed, total, passRate * 100));
             String reportPath = result.getStringParam("reportPath", "");
@@ -1058,6 +1068,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /eval list              列出可用评测用例");
         System.out.println("  /eval quick             快速自检");
         System.out.println("  /eval run <id>          运行指定用例");
+        System.out.println("  /eval cascade [agent]   级联评测（发现子Agent/Skill自");
         System.out.println();
     }
 

@@ -17,8 +17,14 @@ public class TLEvalCase {
     /** 用例名称（人类可读） */
     public String name;
 
-    /** 用户输入消息 */
-    public String input;
+    /** 用户输入。agent_chat 模式为字符串消息，skill_execute 模式为 JSON 对象（参数 Map） */
+    public Object input;
+
+    /** 用例级目标模块名，覆盖 evals_config.xml 中的全局 targetAgent（可选）。为 null 时使用全局配置 */
+    public String targetAgent;
+
+    /** 调用类型：agent_chat（默认，发 AGENT_CHAT 消息）| skill_execute（发 SKILL_EXECUTE 消息） */
+    public String callType;
 
     /** 期望的最终输出文本（exact_match 评判用） */
     public String expectedOutput;
@@ -40,8 +46,17 @@ public class TLEvalCase {
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
-    public String getInput() { return input; }
+    public String getTargetAgent() { return targetAgent; }
+    public void setTargetAgent(String targetAgent) { this.targetAgent = targetAgent; }
+
+    public String getCallType() { return callType; }
+    public void setCallType(String callType) { this.callType = callType; }
+
+    public String getInput() { return input != null ? input.toString() : null; }
     public void setInput(String input) { this.input = input; }
+    /** 获取原始 input 对象（skill_execute 模式用于获取参数 Map） */
+    public Object getInputRaw() { return input; }
+    public void setInputRaw(Object input) { this.input = input; }
 
     public String getExpectedOutput() { return expectedOutput; }
     public void setExpectedOutput(String expectedOutput) { this.expectedOutput = expectedOutput; }

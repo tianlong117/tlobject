@@ -12,6 +12,8 @@ import java.util.List;
 public class TLEvalRunResult {
     public String caseId;
     public String caseName;
+    public String targetAgent;
+    public String callType;
     public String response;
     public boolean cancelled;
     public int iterations;
@@ -33,6 +35,10 @@ public class TLEvalRunResult {
     public void setCaseId(String caseId) { this.caseId = caseId; }
     public String getCaseName() { return caseName; }
     public void setCaseName(String caseName) { this.caseName = caseName; }
+    public String getTargetAgent() { return targetAgent; }
+    public void setTargetAgent(String targetAgent) { this.targetAgent = targetAgent; }
+    public String getCallType() { return callType; }
+    public void setCallType(String callType) { this.callType = callType; }
     public String getResponse() { return response; }
     public void setResponse(String response) { this.response = response; }
     public boolean isCancelled() { return cancelled; }

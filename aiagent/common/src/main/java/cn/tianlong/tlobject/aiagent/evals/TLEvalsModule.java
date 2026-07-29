@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.evals;
 
 import cn.tianlong.tlobject.aiagent.*;
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -69,6 +70,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             case "runEvalByName":  returnMsg = runEvalByName(fromWho, msg); break;
             case "listEvalCases":  returnMsg = listEvalCases(fromWho, msg); break;
             case "runQuickEval":   returnMsg = runQuickEval(fromWho, msg); break;
+            case "runEvalCascade": returnMsg = runEvalCascade(fromWho, msg); break;
             default: break;
         }
         return returnMsg;
@@ -213,12 +215,210 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 .setParam("response", r.response);
     }
 
+    // ======================== 级联评测 ========================
+
+    /** 级联目标：familyName + 调用类型 + 简称 */
+    private static class CascadeTarget {
+        final String familyName;
+        final String callType;
+        final String shortName;
+        CascadeTarget(String familyName, String callType, String shortName) {
+            this.familyName = familyName;
+            this.callType = callType;
+            this.shortName = shortName;
+        }
+    }
+
+    /**
+     * 级联评测：自动发现指定 Agent 的所有子模块（子 Agent + Skill），
+     * 为每个目标自动生成基础用例并逐一评测，生成合并报告。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg runEvalCascade(Object fromWho, TLMsg msg) {
+        String rootAgent = msg.getStringParam("rootAgent", targetAgent);
+
+        // 1. 收集所有目标：根 Agent + 子模块
+        List<CascadeTarget> targets = new ArrayList<>();
+        targets.add(new CascadeTarget(rootAgent, "agent_chat", rootAgent));
+
+        try {
+            TLMsg listResult = putMsg(DEFAULTMODULEREGISTRY,
+                    createMsg().setAction(REGISTRY_LIST)
+                            .setSystemParam(IGNOREMODULEISNULL, true)
+                            .setParam(REGISTRY_P_OWNERNAME, rootAgent));
+            if (listResult != null) {
+                List<Map<String, Object>> children = (List<Map<String, Object>>) listResult.getParam(RESULT);
+                if (children != null) {
+                    for (Map<String, Object> child : children) {
+                        String familyName = (String) child.get(REGISTRY_P_KEY);
+                        Object instance = child.get(INSTANCE);
+                        if (familyName == null) continue;
+
+                        // 仅评测 Agent 和 Skill，跳过 Provider/Context/Memory 等
+                        boolean isSkill = instance instanceof TLBaseSkill;
+                        boolean isAgent = instance instanceof IAgentCapable;
+                        if (!isSkill && !isAgent) {
+                            putLog("跳过非Agent/Skill模块: " + familyName, LogLevel.DEBUG);
+                            continue;
+                        }
+
+                        String shortName = familyName.contains(":")
+                                ? familyName.substring(familyName.lastIndexOf(':') + 1) : familyName;
+                        String callType = isSkill ? "skill_execute" : "agent_chat";
+                        targets.add(new CascadeTarget(familyName, callType, shortName));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            putLog("发现子模块失败: " + e.toString(), LogLevel.DEBUG);
+        }
+
+        if (targets.size() <= 1) {
+            putLog("未发现子模块，仅评测根 Agent: " + rootAgent, LogLevel.INFO);
+        }
+
+        // 2. 预扫描手写用例，按 targetAgent 建索引
+        Map<String, List<TLEvalCase>> caseIndex = new HashMap<>();
+        try {
+            List<TLEvalCase> allCases = scanCaseFiles(new File(evalCaseDir));
+            for (TLEvalCase c : allCases) {
+                String key = (c.targetAgent != null && !c.targetAgent.isEmpty())
+                        ? c.targetAgent : this.targetAgent;
+                caseIndex.computeIfAbsent(key, k -> new ArrayList<>()).add(c);
+            }
+        } catch (Exception e) {
+            putLog("预扫描用例失败: " + e.toString(), LogLevel.DEBUG);
+        }
+
+        // 3. 逐目标执行：优先手写用例，无则自动生成
+        int manualCount = 0;
+        for (CascadeTarget ct : targets) {
+            List<TLEvalCase> manualCases = caseIndex.get(ct.familyName);
+            if (manualCases != null && !manualCases.isEmpty()) manualCount++;
+        }
+        putLog(String.format("========== 级联评测 %d 个目标（%d 有手写用例）==========",
+                targets.size(), manualCount), LogLevel.INFO);
+
+        List<TLEvalRunResult> allResults = new ArrayList<>();
+        int idx = 0;
+        for (CascadeTarget ct : targets) {
+            List<TLEvalCase> manualCases = caseIndex.get(ct.familyName);
+            if (manualCases != null && !manualCases.isEmpty()) {
+                // 使用手写用例（可能多条）
+                for (TLEvalCase mc : manualCases) {
+                    idx++;
+                    putLog(String.format("[%d] %s/%s — 手写用例: %s",
+                            idx, ct.shortName, ct.familyName, mc.name), LogLevel.INFO);
+                    TLEvalRunResult r = runSingleCase(mc);
+                    allResults.add(r);
+                    printCaseResult(r);
+                }
+            } else {
+                // 无手写用例，自动生成冒烟测试
+                idx++;
+                putLog(String.format("[%d] %s (%s, %s) — 自动生成",
+                        idx, ct.shortName, ct.familyName, ct.callType), LogLevel.INFO);
+                TLEvalCase autoCase = generateCascadeCase(ct);
+                TLEvalRunResult r = runSingleCase(autoCase);
+                allResults.add(r);
+                printCaseResult(r);
+            }
+        }
+
+        // 4. 生成合并报告
+        TLEvalReport report = buildReport(allResults);
+        String reportPath = saveReport(report);
+        printSummary(report);
+        putLog("级联报告已保存: " + reportPath, LogLevel.INFO);
+
+        return createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+                .setParam("total", report.summary.total)
+                .setParam("passed", report.summary.passed)
+                .setParam("failed", report.summary.failed)
+                .setParam("passRate", report.summary.passRate);
+    }
+
+    /** 为级联目标自动生成基础评测用例（轻量冒烟测试） */
+    private TLEvalCase generateCascadeCase(CascadeTarget ct) {
+        TLEvalCase c = new TLEvalCase();
+        c.id = "cascade-" + ct.familyName.replace(':', '-');
+        c.name = "级联-" + ct.shortName;
+        c.targetAgent = ct.familyName;
+        c.callType = ct.callType;
+
+        if ("skill_execute".equals(ct.callType)) {
+            c.input = new LinkedHashMap<>();  // 空参数，Skill 自行处理
+        } else {
+            c.input = "你好，请用一句话介绍你自己。";
+        }
+
+        JudgeConfig constraintConfig = new JudgeConfig();
+        constraintConfig.type = "constraint";
+        Map<String, Object> cMap = new LinkedHashMap<>();
+        cMap.put("minResponseLength", 1);
+        cMap.put("maxIterations", 5);
+        cMap.put("maxLatencyMs", 30000);
+        constraintConfig.config = cMap;
+        c.judges = Collections.singletonList(constraintConfig);
+
+        return c;
+    }
+
     // ======================== 单用例执行 ========================
 
     protected TLEvalRunResult runSingleCase(TLEvalCase evalCase) {
+        // 用例级 targetAgent 覆盖全局配置
+        String targetModule = (evalCase.targetAgent != null && !evalCase.targetAgent.isEmpty())
+                ? evalCase.targetAgent : this.targetAgent;
+        String callType = (evalCase.callType != null && !evalCase.callType.isEmpty())
+                ? evalCase.callType : "agent_chat";
+
+        // skill_execute 模式：直接调用 Skill
+        if ("skill_execute".equals(callType)) {
+            return runSkillCase(evalCase, targetModule, callType);
+        }
+
+        // agent_chat 模式（默认）：发送 AGENT_CHAT
+        return runAgentChatCase(evalCase, targetModule, callType);
+    }
+
+    /**
+     * 解析目标模块。
+     * 先尝试从全局 moduleRegistry 按 familyName 获取实例（如 "aiagent_master:researchAgent"），
+     * 未找到则返回模块名字符串（由 putMsg 按正常工厂流程查找）。
+     */
+    private Object resolveTarget(String targetName) {
+        TLMsg getResult = putMsg(DEFAULTMODULEREGISTRY,
+                createMsg().setAction(REGISTRY_GET)
+                        .setSystemParam(IGNOREMODULEISNULL, true)
+                        .setParam(REGISTRY_P_KEY, targetName));
+        if (getResult != null) {
+            Object instance = getResult.getParam(INSTANCE);
+            if (instance instanceof IObject) {
+                putLog("通过注册表解析目标: " + targetName, LogLevel.DEBUG);
+                return instance;
+            }
+        }
+        // 回退：当作工厂注册的普通模块名
+        return targetName;
+    }
+
+    /** 向目标模块发送消息：实例引用优先（注册表解析），否则按名称查找 */
+    private TLMsg sendToTarget(String targetName, TLMsg msg) {
+        Object target = resolveTarget(targetName);
+        if (target instanceof IObject) {
+            return putMsg((IObject) target, msg);
+        }
+        return putMsg(targetName, msg);
+    }
+
+    /** agent_chat 模式：向目标 Agent 发送 AGENT_CHAT 消息 */
+    private TLEvalRunResult runAgentChatCase(TLEvalCase evalCase, String targetModule, String callType) {
         TLEvalRunResult result = new TLEvalRunResult();
         result.caseId = evalCase.id;
         result.caseName = evalCase.name;
+        result.targetAgent = targetModule;
+        result.callType = callType;
 
         String sessionId = "eval_" + evalCase.id + "_" + System.currentTimeMillis();
         long startTime = System.currentTimeMillis();
@@ -227,9 +427,9 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
                     .setParam(AI_P_SESSIONID, sessionId)
-                    .setParam(AI_P_USERMESSAGE, evalCase.input);
+                    .setParam(AI_P_USERMESSAGE, evalCase.getInput());
 
-            TLMsg response = putMsg(targetAgent, chatMsg);
+            TLMsg response = sendToTarget(targetModule, chatMsg);
             result.latencyMs = System.currentTimeMillis() - startTime;
 
             if (response == null) {
@@ -269,6 +469,73 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                         .setParam(AI_P_SESSIONID, sessionId));
             } catch (Exception ignored) {}
         }
+        return result;
+    }
+
+    /** skill_execute 模式：直接向 Skill 模块发送 SKILL_EXECUTE 消息 */
+    @SuppressWarnings("unchecked")
+    private TLEvalRunResult runSkillCase(TLEvalCase evalCase, String targetModule, String callType) {
+        TLEvalRunResult result = new TLEvalRunResult();
+        result.caseId = evalCase.id;
+        result.caseName = evalCase.name;
+        result.targetAgent = targetModule;
+        result.callType = callType;
+        result.iterations = 0;
+        result.toolCalls = new ArrayList<>();
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // 解析 input 为 skill 参数 Map
+            Map<String, Object> skillInput;
+            Object rawInput = evalCase.getInputRaw();
+            if (rawInput instanceof Map) {
+                skillInput = (Map<String, Object>) rawInput;
+            } else if (rawInput instanceof String) {
+                String inputStr = (String) rawInput;
+                try {
+                    Map parsed = gson.fromJson(inputStr, Map.class);
+                    skillInput = parsed != null ? parsed : new LinkedHashMap<>();
+                } catch (Exception e) {
+                    skillInput = new LinkedHashMap<>();
+                    skillInput.put("input", inputStr);
+                }
+            } else {
+                skillInput = new LinkedHashMap<>();
+            }
+
+            TLMsg skillMsg = createMsg()
+                    .setAction(SKILL_EXECUTE)
+                    .setParam(AI_P_SKILLINPUT, skillInput);
+
+            TLMsg response = sendToTarget(targetModule, skillMsg);
+            result.latencyMs = System.currentTimeMillis() - startTime;
+
+            if (response == null) {
+                result.error = "Skill 返回 null";
+                result.response = "";
+                runAllJudges(evalCase, result);
+                return result;
+            }
+
+            // 提取 skill 输出
+            Object skillOutput = response.getParam(AI_P_SKILLOUTPUT);
+            result.response = skillOutput != null ? skillOutput.toString() : "";
+
+            boolean success = response.parseBoolean(RESULT, false);
+            if (!success && result.response.isEmpty()) {
+                result.error = "Skill 执行返回失败";
+            }
+
+            runAllJudges(evalCase, result);
+
+        } catch (Exception e) {
+            result.latencyMs = System.currentTimeMillis() - startTime;
+            result.error = e.toString();
+            result.response = "";
+            try { runAllJudges(evalCase, result); } catch (Exception ignored) {}
+        }
+        // skill_execute 无 session，不需要清理
         return result;
     }
 

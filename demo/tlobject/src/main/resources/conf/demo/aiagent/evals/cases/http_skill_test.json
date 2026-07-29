@@ -1,0 +1,17 @@
+{
+  "id": "test-http-skill-001",
+  "name": "测试httpRequestSkill-百度首页",
+  "targetAgent": "aiagent_master:httpRequestSkill",
+  "callType": "skill_execute",
+  "input": { "url": "https://www.baidu.com", "method": "GET" },
+  "judges": [
+    { "type": "constraint",
+      "config": {
+        "minResponseLength": 100,
+        "maxLatencyMs": 10000,
+        "mustContain": ["百度", "html"],
+        "mustNotContain": ["错误", "失败", "超时"]
+      }
+    }
+  ]
+}
