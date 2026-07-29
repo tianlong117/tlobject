@@ -23,6 +23,8 @@
                 singleton="false"/>
         <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLPlanTaskSkill"
                 singleton="false"/>
+        <module name="skillInstallerSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLSkillInstallerSkill"
+                singleton="true"/>
         <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
                 singleton="true"/>
         <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"

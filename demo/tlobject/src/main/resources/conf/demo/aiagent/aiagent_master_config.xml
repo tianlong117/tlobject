@@ -143,6 +143,11 @@
                sameClassAs="planTask"
                statup="true"
                skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。先调用此技能规划，再按清单逐步执行并更新进度。适用于多步骤、需多种工具协作的复杂任务。"/>
+        <skill name="skillInstallerSkill"
+               sameClassAs="skillInstallerSkill"
+               statup="true"
+               skillName="install_skill"
+               skillDescription="将脚本文件安装为可复用的 AI Agent Skill。当用户想把某个脚本（Python/Shell/JS等）安装为 Skill 时使用。"/>
     </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 
