@@ -901,6 +901,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // 非流式: tool-call循环
                 finalResponse = null;
                 while (iteration < maxToolCallIterations) {
+                    ThreadTask.checkPauseHere();
                     if (cancelled.get()) { aborted = true; break; }
                     iteration++;
                     // L2 checkpoint: 每次迭代前保存（覆盖 LLM 直接返回 / 中途中断等所有场景）
@@ -991,6 +992,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     history.add(aMsg);
 
                     for (TLToolCall tc : toolCalls) {
+                        ThreadTask.checkPauseHere();
                         if (cancelled.get()) { aborted = true; break; }
                         TLMsg tr = executeToolCall(tc, fromWho, sessionId);
                         if (tr == null) {

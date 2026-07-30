@@ -105,6 +105,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private boolean drainInput = false;  // STOP 后忽略残留 INPUT（ESC 前已入队的行，主线程标记）
     private long currentStart = 0L;      // 当前对话开始时间戳
     private Thread readerThread;
+    /** 当前异步任务的 ThreadTask 引用，用于暂停/恢复/取消 */
+    private ThreadTask currentTask;
+    /** 是否已暂停 */
+    private boolean paused = false;
+    /** 上次 ESC 时间戳，用于双击检测 */
+    private long lastEscTime = 0;
+    /** 双击 ESC 窗口 ms */
+    private static final long DOUBLE_ESC_WINDOW = 500;
 
     public TLChatConsole() { super(); }
     public TLChatConsole(String name) { super(name); }
@@ -397,6 +405,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         if (busy) {
             if (input.equalsIgnoreCase("/stop")) {
+                if (paused && currentTask != null) {
+                    currentTask.cancelTask();
+                    paused = false;
+                }
                 sendStop();
             } else if (input.toLowerCase().startsWith("/approve")) {
                 handleApproveCommand(input);
@@ -425,11 +437,41 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         submitChat(input);
     }
 
-    /** ESC 中断信号（主线程） */
+    /**
+     * ESC 三段式（主线程）：
+     *   第1次 → 暂停；第2次(≤500ms) → 中断；第2次(>500ms) → 恢复
+     */
     private void handleStopSignal() {
-        if (busy) {
+        if (!busy) return;
+        long now = System.currentTimeMillis();
+
+        if (!paused) {
+            // 第一次 ESC → 暂停
+            if (currentTask != null) {
+                currentTask.pauseTask();
+            }
+            paused = true;
+            lastEscTime = now;
+            System.out.println();
+            System.out.print("⏸ 已暂停（再按 ESC 恢复，连按两下中断）");
+            System.out.flush();
+        } else if (now - lastEscTime <= DOUBLE_ESC_WINDOW) {
+            // 双击窗口内 → 中断
+            paused = false;
+            if (currentTask != null) {
+                currentTask.cancelTask();
+            }
             sendStop();
-            drainInput = true;   // 中断后吞掉已入队的残留 INPUT（ESC 前敲的字）
+            drainInput = true;
+        } else {
+            // 超时 → 恢复
+            if (currentTask != null) {
+                currentTask.resumeTask();
+            }
+            paused = false;
+            System.out.println();
+            System.out.print("▶ 已恢复");
+            System.out.flush();
         }
     }
 
@@ -463,7 +505,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             m.setSystemParam(TASKRESULTACTION, "onChatDone");
             IObject target = (IObject) getModule(agentModule);
             if (target != null) {
-                putMsgNoWait(target, m);
+                TLMsg taskResult = putMsgNoWait(target, m);
+                currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
             } else {
                 System.out.println("AI > [错误] 找不到 Agent 模块: " + agentModule);
                 busy = false;
@@ -574,6 +617,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             }
         }
         busy = false;
+        currentTask = null;
+        paused = false;
         System.out.println();
         printPrompt();
         System.out.flush();
@@ -633,6 +678,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + cacheInfo + ")");
         }
         busy = false;
+        currentTask = null;
+        paused = false;
         System.out.println();
         printPrompt();
         System.out.flush();
@@ -1435,7 +1482,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     if (target != null) {
                         busy = true;
                         currentStart = System.currentTimeMillis();
-                        putMsgNoWait(target, m);
+                        TLMsg taskResult = putMsgNoWait(target, m);
+                        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
                         System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
                     } else {
                         System.out.println("✗ 找不到 Agent 模块: " + agentModule);
