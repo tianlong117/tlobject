@@ -176,6 +176,24 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_COMPLETIONTOKENS_TOTAL = "completionTokensTotal";
     String AI_P_TOTALTOKENS_TOTAL = "totalTokensTotal";
 
+    // Prompt Caching
+    /** 启用 prompt caching（默认 true），请求级参数可覆盖 Provider 级配置 */
+    String AI_P_ENABLEPROMPTCACHING = "enablePromptCaching";
+    /** Anthropic prompt-caching beta 版本头值 */
+    String AI_P_PROMPTCACHINGBETA = "promptCachingBeta";
+    /** 缓存写入 tokens（Anthropic: cache_creation_input_tokens） */
+    String AI_P_CACHECREATIONTOKENS = "cacheCreationTokens";
+    /** 缓存命中 tokens（DeepSeek: prompt_cache_hit_tokens, Anthropic: cache_read_input_tokens） */
+    String AI_P_CACHEHITTOKENS = "cacheHitTokens";
+    /** 缓存未命中 tokens（DeepSeek: prompt_cache_miss_tokens） */
+    String AI_P_CACHEMISSTOKENS = "cacheMissTokens";
+    /** 会话累计缓存写入 tokens */
+    String AI_P_CACHECREATIONTOKENS_TOTAL = "cacheCreationTokensTotal";
+    /** 会话累计缓存命中 tokens */
+    String AI_P_CACHEHITTOKENS_TOTAL = "cacheHitTokensTotal";
+    /** 会话累计缓存未命中 tokens */
+    String AI_P_CACHEMISSTOKENS_TOTAL = "cacheMissTokensTotal";
+
     // Skill
     String AI_P_SKILLNAME = "skillName";
     String AI_P_SKILLDESCRIPTION = "skillDescription";

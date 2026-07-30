@@ -549,7 +549,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String tokenInfo = tt > 0
                             ? "，tokens 输入 " + pt + "/输出 " + ct + "/合计 " + tt + "，会话累计 " + accTotal
                             : "";
-                    System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + ")");
+                    // 缓存统计
+                    int cacheHit = response.getIntParam(AI_P_CACHEHITTOKENS, 0);
+                    int cacheMiss = response.getIntParam(AI_P_CACHEMISSTOKENS, 0);
+                    int cacheCreate = response.getIntParam(AI_P_CACHECREATIONTOKENS, 0);
+                    StringBuilder cacheInfo = new StringBuilder();
+                    long cacheTotal = cacheHit + cacheMiss;
+                    if (cacheTotal > 0) {
+                        cacheInfo.append(" | 缓存: 命中 ").append(cacheHit)
+                                .append("/未命中 ").append(cacheMiss)
+                                .append(" (").append(String.format("%.0f%%", 100.0 * cacheHit / cacheTotal)).append(")");
+                    } else if (cacheCreate > 0) {
+                        cacheInfo.append(" | 缓存: 写入 ").append(cacheCreate);
+                    } else {
+                        cacheInfo.append(" | 缓存: —");  // 等待服务端返回缓存数据
+                    }
+                    if (cacheCreate > 0 && cacheTotal > 0) {
+                        cacheInfo.append(" 写入 ").append(cacheCreate);
+                    }
+                    System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + cacheInfo + ")");
                 }
             } else {
                 System.out.println("AI > [错误] " + (aiResponse.isEmpty() ? "空响应" : aiResponse));
@@ -595,7 +613,24 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .setParam(AI_P_SESSIONID, sessionId));
             int accTotal = usage != null ? usage.getIntParam(AI_P_TOTALTOKENS_TOTAL, 0) : 0;
             String tokenInfo = accTotal > 0 ? "，会话累计 tokens " + accTotal : "";
-            System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + ")");
+            // 缓存统计
+            TLMsg cacheStats = putMsg(agentModule, createMsg().setAction("getPromptCacheStats")
+                    .setParam(AI_P_SESSIONID, sessionId));
+            StringBuilder cacheInfo = new StringBuilder();
+            if (cacheStats != null && cacheStats.parseBoolean(RESULT, false)) {
+                int ch = cacheStats.getIntParam(AI_P_CACHEHITTOKENS_TOTAL, 0);
+                int cm = cacheStats.getIntParam(AI_P_CACHEMISSTOKENS_TOTAL, 0);
+                long cacheTotal = ch + cm;
+                if (cacheTotal > 0) {
+                    cacheInfo.append(" | 缓存: ").append(cacheStats.getStringParam("cacheHitRate", "0%"))
+                            .append(" (命中").append(ch).append("/未命中").append(cm).append(")");
+                } else {
+                    cacheInfo.append(" | 缓存: —");
+                }
+            } else {
+                cacheInfo.append(" | 缓存: —");
+            }
+            System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + cacheInfo + ")");
         }
         busy = false;
         System.out.println();

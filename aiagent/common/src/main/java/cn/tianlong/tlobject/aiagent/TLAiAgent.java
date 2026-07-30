@@ -599,6 +599,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case AGENT_GETTOKENUSAGE:
                 returnMsg = getTokenUsage(fromWho, msg);
                 break;
+            case "getPromptCacheStats":
+                returnMsg = getPromptCacheStats(fromWho, msg);
+                break;
             case AGENT_SETSKILLENABLED:
                 returnMsg = setSkillEnabled(fromWho, msg);
                 break;
@@ -745,6 +748,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             int iteration = 0;
             boolean resumedFromCheckpoint = false;
             long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
+            long[] cacheTurn = {0, 0, 0}; // 本次 chat 的缓存统计 {cacheCreation, cacheHit, cacheMiss}
             boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
             boolean aborted = false;   // 是否被 /stop 协作式中断
             boolean clarified = false; // 是否调用了 request_clarification 工具
@@ -937,6 +941,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     turn[1] += llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
                     turn[2] += llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
 
+                    // 缓存统计累加
+                    cacheTurn[0] += llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
+                    cacheTurn[1] += llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
+                    cacheTurn[2] += llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+
                     // ==== 提取推理内容 ====
                     String reasoningText = null;
                     if (!"off".equals(effectiveReasoningMode)) {
@@ -1087,7 +1096,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
                     .setParam(AI_P_PROMPTTOKENS_TOTAL, (int) acc[0])
                     .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) acc[1])
-                    .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2]);
+                    .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2])
+                    // 缓存统计（本次 chat）
+                    .setParam(AI_P_CACHECREATIONTOKENS, (int) cacheTurn[0])
+                    .setParam(AI_P_CACHEHITTOKENS, (int) cacheTurn[1])
+                    .setParam(AI_P_CACHEMISSTOKENS, (int) cacheTurn[2]);
+            // 会话累计缓存统计（从 Provider 读取快照）
+            if (llmProvider != null) {
+                long[] sessionCache = llmProvider.getSessionCacheStats(sessionId);
+                ret.setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) sessionCache[0]);
+                ret.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) sessionCache[1]);
+                ret.setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) sessionCache[2]);
+            }
             if (truncated) ret.setParam(AI_P_TRUNCATED, true);
             // 推理内容：仅当开启且 visible 时暴露
             if (!"off".equals(effectiveReasoningMode) && effectiveReasoningVisible
@@ -1902,6 +1922,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         TLMsg ctxMsg = createMsg()
                 .setAction(CONTEXT_CLEAR)
                 .setParam(AI_P_SESSIONID, sessionId);
+        // 清除缓存统计
+        if (llmProvider != null) {
+            llmProvider.clearSessionCacheStats(sessionId);
+        }
         return putMsg(contextModuleName, ctxMsg);
     }
 
@@ -2842,6 +2866,26 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_PROMPTTOKENS_TOTAL, (int) a[0])
                 .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) a[1])
                 .setParam(AI_P_TOTALTOKENS_TOTAL, (int) a[2]);
+    }
+
+    /**
+     * 查询指定 session 的 prompt caching 统计。
+     * 返回累计 cache creation tokens、cache hit tokens、cache miss tokens 和命中率。
+     */
+    protected TLMsg getPromptCacheStats(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        if (llmProvider == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "No LLM Provider configured");
+        }
+        long[] stats = llmProvider.getSessionCacheStats(sessionId);
+        long totalHitMiss = stats[1] + stats[2];
+        double hitRate = totalHitMiss > 0 ? (100.0 * stats[1] / totalHitMiss) : 0.0;
+        return createMsg().setParam(RESULT, true)
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) stats[0])
+                .setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) stats[1])
+                .setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) stats[2])
+                .setParam("cacheHitRate", String.format("%.1f%%", hitRate));
     }
 
     // ======================== Session 持久化/断点恢复 ========================

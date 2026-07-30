@@ -7,10 +7,15 @@ Returns: JSON with ok=true/false + action-specific fields
 """
 import sys, json, argparse, base64, re, os
 
+def _output(obj):
+    """安全输出 JSON 到 stdout，绕过 Windows GBK 编码问题（子进程管道兼容）。"""
+    sys.stdout.buffer.write(json.dumps(obj, ensure_ascii=False).encode('utf-8') + b'\n')
+    sys.stdout.buffer.flush()
+
 try:
     from playwright.sync_api import sync_playwright, TimeoutError as PwTimeout
 except ImportError:
-    print(json.dumps({"ok": False, "error": "Playwright not installed. Run: pip install playwright && playwright install chromium"}))
+    _output({"ok": False, "error": "Playwright not installed. Run: pip install playwright && playwright install chromium"})
     sys.exit(1)
 
 # ---- browser lifecycle ----
@@ -44,10 +49,7 @@ def _get_text(max_len=5000):
         return ""
 
 def _screenshot_base64():
-    import io
-    buf = io.BytesIO()
-    _page.screenshot(path=buf, full_page=False)
-    return base64.b64encode(buf.getvalue()).decode()
+    return base64.b64encode(_page.screenshot(full_page=False)).decode()
 
 # ---- actions ----
 def navigate(url, **kwargs):
@@ -120,8 +122,8 @@ if __name__ == "__main__":
     try:
         action_args = {k: v for k, v in vars(args).items() if k != "action" and v}
         result = ACTIONS[args.action](**action_args)
-        print(json.dumps(result, ensure_ascii=False))
+        _output(result)
     except Exception as e:
-        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+        _output({"ok": False, "error": str(e)})
     finally:
         _cleanup()

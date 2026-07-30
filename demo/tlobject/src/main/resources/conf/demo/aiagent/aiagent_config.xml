@@ -37,6 +37,20 @@
         <reasoningVisible value="true"/>
         <thinkingBudget value="4000"/>
 
+        <!-- ===== Prompt Caching 参数 =====
+             enablePromptCaching: true(默认)=启用prompt caching，false=关闭
+               - Anthropic: 显式发送 cache_control 块 + anthropic-beta 头
+                 缓存 TTL 5分钟，每次命中刷新。写入 1.25x 计费，命中 0.125x。
+               - DeepSeek: 服务端硬盘缓存自动生效，前缀匹配，TTL 数小时~数天
+                 缓存构建耗时秒级，"尽力而为"不保证100%命中。
+                 返回 prompt_cache_hit_tokens / prompt_cache_miss_tokens。
+               - OpenAI: 服务端自动缓存，行为不透明。
+             运行时切换: /cache on|off (TODO)
+             单次请求覆盖: msg.setParam("enablePromptCaching", "false")
+             查询统计: putMsg(agent, createMsg().setAction("getPromptCacheStats").setParam("sessionId", "..."))
+             promptCachingBeta: Anthropic beta 头版本号（仅 Claude Provider 生效）
+        -->
+
         <!-- 包名前缀（用于简写classfile） -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
@@ -65,7 +79,8 @@
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-pro"
                   connTimeOut="30"
-                  readTimeOut="120"/>
+                  readTimeOut="120"
+                  enablePromptCaching="true"/>
 
         <!--
             Claude Provider (可选)
@@ -78,7 +93,9 @@
                   apiBaseUrl="https://api.deepseek.com/anthropic"
                   defaultModel="deepseek-v4-pro"
                   connTimeOut="30"
-                  readTimeOut="120"/>
+                  readTimeOut="120"
+                  enablePromptCaching="true"
+                  promptCachingBeta="prompt-caching-2024-07-31"/>
     </providers>
 
     <!-- ===== Skills ===== -->

@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
 import okhttp3.*;
 
 import javax.net.ssl.*;
@@ -47,6 +49,16 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     protected String traceDir = "./data/traces";
     /** 每个 session 的调用计数器，用于给 trace 编号 */
     private final Map<String, AtomicInteger> callCounters = new ConcurrentHashMap<>();
+
+    // ======================== Prompt Caching ========================
+    /** 启用 prompt caching（默认 true）。
+     *  - Anthropic: 显式发送 cache_control + anthropic-beta 头
+     *  - DeepSeek/OpenAI: 服务器端自动缓存，仅解析 usage 统计 */
+    protected boolean enablePromptCaching = true;
+    /** Anthropic prompt-caching beta 版本头字段值 */
+    protected String promptCachingBeta = "prompt-caching-2024-07-31";
+    /** 会话级缓存统计: sessionId -> {cacheCreationTokens, cacheHitTokens, cacheMissTokens} */
+    private final Map<String, long[]> sessionCacheStats = new ConcurrentHashMap<>();
 
     public TLLlmProvider() {
         super();
@@ -97,6 +109,12 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             }
             if (params.get("traceDir") != null) {
                 traceDir = params.get("traceDir");
+            }
+            if (params.get("enablePromptCaching") != null) {
+                enablePromptCaching = Boolean.parseBoolean(params.get("enablePromptCaching"));
+            }
+            if (params.get("promptCachingBeta") != null) {
+                promptCachingBeta = params.get("promptCachingBeta");
             }
         }
     }
@@ -566,6 +584,70 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
 
     protected int getEffectiveMaxTokens(TLMsg msg) {
         return msg.getIntParam(AI_P_MAXTOKENS, 4096);
+    }
+
+    // ======================== Prompt Caching 工具方法 ========================
+
+    /**
+     * 获取单次请求的 prompt caching 开关状态。
+     * 请求级参数覆盖 > Provider 级配置（默认 true）。
+     */
+    protected boolean getEffectivePromptCaching(TLMsg msg) {
+        if (msg != null && msg.containsParam(AI_P_ENABLEPROMPTCACHING)) {
+            return msg.parseBoolean(AI_P_ENABLEPROMPTCACHING, true);
+        }
+        return enablePromptCaching;
+    }
+
+    /**
+     * 线程安全地累加会话级缓存统计并返回快照。
+     * @return new long[]{cacheCreationTokens, cacheHitTokens, cacheMissTokens}
+     */
+    protected long[] accumulateCacheStats(String sessionId, long creation, long hit, long miss) {
+        long[] stats = sessionCacheStats.computeIfAbsent(sessionId, k -> new long[3]);
+        synchronized (stats) {
+            stats[0] += creation;
+            stats[1] += hit;
+            stats[2] += miss;
+        }
+        return new long[]{stats[0], stats[1], stats[2]};
+    }
+
+    /** 获取指定 session 的累计缓存统计快照 */
+    public long[] getSessionCacheStats(String sessionId) {
+        long[] existing = sessionCacheStats.get(sessionId);
+        return existing != null ? new long[]{existing[0], existing[1], existing[2]} : new long[]{0L, 0L, 0L};
+    }
+
+    /** 清除指定 session 的缓存统计 */
+    public void clearSessionCacheStats(String sessionId) {
+        sessionCacheStats.remove(sessionId);
+    }
+
+    /**
+     * 为 JSON 数组的最后一个元素添加 cache_control: {"type": "ephemeral"}。
+     * 用于 Anthropic 的 system 内容块数组和 tools 数组设置缓存断点。
+     */
+    protected void addCacheControlToLast(JsonArray array) {
+        if (array == null || array.size() == 0) return;
+        JsonObject last = array.get(array.size() - 1).getAsJsonObject();
+        JsonObject cacheControl = new JsonObject();
+        cacheControl.addProperty("type", "ephemeral");
+        last.add("cache_control", cacheControl);
+    }
+
+    /** 记录缓存事件日志（debug mode 时输出） */
+    protected void logCacheEvent(String sessionId, long creationTokens, long hitTokens,
+                                  long missTokens, String model) {
+        if (!debugMode) return;
+        long[] totals = getSessionCacheStats(sessionId);
+        long totalHitMiss = hitTokens + missTokens;
+        double hitRate = totalHitMiss > 0 ? (100.0 * hitTokens / totalHitMiss) : 0.0;
+        putLog(String.format(
+                "[CACHE] session=%s model=%s created=%d hit=%d miss=%d hit_rate=%.1f%% total_created=%d total_hit=%d total_miss=%d",
+                sessionId, model, creationTokens, hitTokens, missTokens, hitRate,
+                totals[0], totals[1], totals[2]),
+                LogLevel.DEBUG);
     }
 
     // ======================== getters/setters ========================

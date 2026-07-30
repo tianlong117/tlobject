@@ -5,13 +5,18 @@ Invoked by TLScriptExecutionSkill via subprocess.
 Usage: python desktop_agent.py --action <action> [args...]
 Returns: JSON with ok=true/false + action-specific fields
 """
-import sys, json, argparse, base64, io
+import sys, json, argparse, base64
+
+def _output(obj):
+    """安全输出 JSON 到 stdout，绕过 Windows GBK 编码问题（子进程管道兼容）。"""
+    sys.stdout.buffer.write(json.dumps(obj, ensure_ascii=False).encode('utf-8') + b'\n')
+    sys.stdout.buffer.flush()
 
 try:
     import pyautogui
     import mss
 except ImportError:
-    print(json.dumps({"ok": False, "error": "pyautogui or mss not installed. Run: pip install pyautogui mss"}))
+    _output({"ok": False, "error": "pyautogui or mss not installed. Run: pip install pyautogui mss"})
     sys.exit(1)
 
 # safety: fail-safe enabled by default
@@ -80,6 +85,6 @@ if __name__ == "__main__":
     try:
         action_args = {k: v for k, v in vars(args).items() if k != "action" and v != 0}
         result = ACTIONS[args.action](**action_args)
-        print(json.dumps(result, ensure_ascii=False))
+        _output(result)
     except Exception as e:
-        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
+        _output({"ok": False, "error": str(e)})

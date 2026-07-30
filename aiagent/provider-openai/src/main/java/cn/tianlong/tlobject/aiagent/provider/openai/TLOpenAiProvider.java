@@ -156,6 +156,12 @@ public class TLOpenAiProvider extends TLLlmProvider {
             body.addProperty("reasoning_effort", effort);
         }
 
+        // 标记可缓存内容（DeepSeek/OpenAI 自动服务端缓存，无需客户端修改请求体）
+        if (getEffectivePromptCaching(msg) && debugMode) {
+            putLog("[CACHE] OpenAI/DeepSeek auto-caching: system prompt + tools prefix cacheable server-side",
+                    LogLevel.DEBUG);
+        }
+
         return body.toString();
     }
 
@@ -218,6 +224,20 @@ public class TLOpenAiProvider extends TLLlmProvider {
                         ? usage.get("completion_tokens").getAsInt() : 0);
                 result.setParam("totalTokens", usage.has("total_tokens")
                         ? usage.get("total_tokens").getAsInt() : 0);
+                // DeepSeek 硬盘缓存字段
+                if (usage.has("prompt_cache_hit_tokens")) {
+                    result.setParam(AI_P_CACHEHITTOKENS, usage.get("prompt_cache_hit_tokens").getAsLong());
+                }
+                if (usage.has("prompt_cache_miss_tokens")) {
+                    result.setParam(AI_P_CACHEMISSTOKENS, usage.get("prompt_cache_miss_tokens").getAsLong());
+                }
+                // OpenAI cached_tokens（prompt_tokens_details 子对象）
+                if (!result.containsParam(AI_P_CACHEHITTOKENS) && usage.has("prompt_tokens_details")) {
+                    JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
+                    if (details.has("cached_tokens")) {
+                        result.setParam(AI_P_CACHEHITTOKENS, details.get("cached_tokens").getAsLong());
+                    }
+                }
             }
 
             // 解析model和id
@@ -304,6 +324,17 @@ public class TLOpenAiProvider extends TLLlmProvider {
         // 解析响应
         String responseBody = httpResult.getStringParam(AI_P_RESPONSEBODY, "");
         TLMsg parsedResult = parseResponse(responseBody, msg);
+
+        // 累加并记录缓存统计
+        long cacheHit = parsedResult.getLongParam(AI_P_CACHEHITTOKENS, 0L);
+        long cacheMiss = parsedResult.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+        if (cacheHit > 0 || cacheMiss > 0) {
+            String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+            long[] totals = accumulateCacheStats(sid, 0, cacheHit, cacheMiss);
+            parsedResult.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) totals[1]);
+            parsedResult.setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) totals[2]);
+            logCacheEvent(sid, 0, cacheHit, cacheMiss, getEffectiveModel(msg));
+        }
 
         // 合并HTTP元信息
         parsedResult.setParam(AI_P_HTTPSTATUS, httpResult.getParam(AI_P_HTTPSTATUS));

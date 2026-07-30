@@ -55,6 +55,7 @@
                   statup="true"
                   debugMode="true"
                   traceDir="./data/traces"
+                  enablePromptCaching="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-flash"

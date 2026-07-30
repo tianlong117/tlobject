@@ -61,6 +61,10 @@ public class TLClaudeProvider extends TLLlmProvider {
             headers.put("x-api-key", apiKey);
         }
         headers.put("anthropic-version", ANTHROPIC_VERSION);
+        // Prompt caching beta 头（仅在配置启用时发送）
+        if (enablePromptCaching) {
+            headers.put("anthropic-beta", promptCachingBeta);
+        }
         return headers;
     }
 
@@ -142,7 +146,21 @@ public class TLClaudeProvider extends TLLlmProvider {
 
         // system (Anthropic分离的system prompt)
         if (systemMsg != null && !systemMsg.isEmpty()) {
-            body.addProperty("system", systemMsg);
+            boolean caching = getEffectivePromptCaching(msg);
+            if (caching) {
+                // 转换为内容块数组格式以支持 cache_control
+                JsonArray systemBlocks = new JsonArray();
+                JsonObject textBlock = new JsonObject();
+                textBlock.addProperty("type", "text");
+                textBlock.addProperty("text", systemMsg);
+                JsonObject cacheControl = new JsonObject();
+                cacheControl.addProperty("type", "ephemeral");
+                textBlock.add("cache_control", cacheControl);
+                systemBlocks.add(textBlock);
+                body.add("system", systemBlocks);
+            } else {
+                body.addProperty("system", systemMsg);
+            }
         }
 
         // tools
@@ -156,6 +174,10 @@ public class TLClaudeProvider extends TLLlmProvider {
                     t.add("input_schema", gson.toJsonTree(fd.getParameters()));
                 }
                 ts.add(t);
+            }
+            // 对最后一个 tool 添加 cache_control 断点（启用缓存时）
+            if (getEffectivePromptCaching(msg)) {
+                addCacheControlToLast(ts);
             }
             body.add("tools", ts);
         }
@@ -272,6 +294,11 @@ public class TLClaudeProvider extends TLLlmProvider {
                         ? usage.get("input_tokens").getAsInt() : 0);
                 result.setParam("completionTokens", usage.has("output_tokens")
                         ? usage.get("output_tokens").getAsInt() : 0);
+                // 缓存相关token（Anthropic prompt caching）
+                result.setParam(AI_P_CACHECREATIONTOKENS, usage.has("cache_creation_input_tokens")
+                        ? usage.get("cache_creation_input_tokens").getAsLong() : 0L);
+                result.setParam(AI_P_CACHEHITTOKENS, usage.has("cache_read_input_tokens")
+                        ? usage.get("cache_read_input_tokens").getAsLong() : 0L);
             }
 
             // 解析model和id
@@ -320,7 +347,20 @@ public class TLClaudeProvider extends TLLlmProvider {
         }
 
         String responseBody = httpResult.getStringParam(AI_P_RESPONSEBODY, "");
-        return parseResponse(responseBody, msg);
+        TLMsg parsedResult = parseResponse(responseBody, msg);
+
+        // 累加并记录缓存统计
+        long cacheCreated = parsedResult.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
+        long cacheHit = parsedResult.getLongParam(AI_P_CACHEHITTOKENS, 0L);
+        if (cacheCreated > 0 || cacheHit > 0) {
+            String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+            long[] totals = accumulateCacheStats(sid, cacheCreated, cacheHit, 0);
+            parsedResult.setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) totals[0]);
+            parsedResult.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) totals[1]);
+            logCacheEvent(sid, cacheCreated, cacheHit, 0, getEffectiveModel(msg));
+        }
+
+        return parsedResult;
     }
 
     @Override
@@ -356,6 +396,9 @@ public class TLClaudeProvider extends TLLlmProvider {
         private final StringBuilder reasoningBuilder = new StringBuilder();
         private final List<TLToolCall> accumulatedToolCalls = new ArrayList<>();
         private final Map<Integer, StringBuilder> toolUseInputBuilders = new LinkedHashMap<>();
+        /** 缓存统计（从 message_start 事件提取） */
+        private long cacheCreationTokens = 0;
+        private long cacheHitTokens = 0;
 
         public ClaudeStreamCallback(String resultFor, String resultAction, String sessionId, TLMsg originalMsg) {
             this.resultFor = resultFor;
@@ -421,6 +464,20 @@ public class TLClaudeProvider extends TLLlmProvider {
                                         }
                                         accumulatedToolCalls.set(index, tc);
                                         toolUseInputBuilders.put(index, new StringBuilder());
+                                    }
+                                    break;
+
+                                case "message_start":
+                                    // 从 message_start 事件提取 usage（含缓存统计）
+                                    JsonObject msgObj = chunk.getAsJsonObject("message");
+                                    if (msgObj != null && msgObj.has("usage")) {
+                                        JsonObject usageObj = msgObj.getAsJsonObject("usage");
+                                        if (usageObj.has("cache_creation_input_tokens")) {
+                                            cacheCreationTokens = usageObj.get("cache_creation_input_tokens").getAsLong();
+                                        }
+                                        if (usageObj.has("cache_read_input_tokens")) {
+                                            cacheHitTokens = usageObj.get("cache_read_input_tokens").getAsLong();
+                                        }
                                     }
                                     break;
 
@@ -498,6 +555,17 @@ public class TLClaudeProvider extends TLLlmProvider {
                                     if (!validToolCalls.isEmpty()) {
                                         doneMsg.setParam(AI_P_TOOLCALLS, validToolCalls);
                                         doneMsg.setParam("hasToolCalls", true);
+                                    }
+                                    // 附加缓存统计
+                                    if (cacheCreationTokens > 0 || cacheHitTokens > 0) {
+                                        doneMsg.setParam(AI_P_CACHECREATIONTOKENS, (int) cacheCreationTokens);
+                                        doneMsg.setParam(AI_P_CACHEHITTOKENS, (int) cacheHitTokens);
+                                        long[] totals = accumulateCacheStats(sessionId,
+                                                cacheCreationTokens, cacheHitTokens, 0);
+                                        doneMsg.setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) totals[0]);
+                                        doneMsg.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) totals[1]);
+                                        logCacheEvent(sessionId, cacheCreationTokens, cacheHitTokens,
+                                                0, originalMsg.getStringParam(AI_P_MODEL, defaultModel));
                                     }
                                     putMsg(resultFor, doneMsg);
                                     break;
