@@ -44,14 +44,28 @@
     </params>
 
     <providers>
+        <!-- ==== 带模型路由的 Provider ====
+             策略 hybrid = 规则优先 + 未命中时用 simpleModel 做元认知分类。
+             简单任务选 ddeepseek-v4-flash（便宜），复杂任务选 deepseek-v4-pro（强推理）。
+             切回无路由：classfile 改回 TLOpenAiProvider，删掉 strategy/delegateProvider/keywords 属性即可。
+        -->
         <provider name="openAiProvider"
-                  sameClassAs="openAiProvider"
+                  sameClassAs="routingProvider"
+                  delegateProvider="openAiProvider"
                   statup="true"
                   debugMode="true"
                   traceDir="./data/traces"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
-                  defaultModel="deepseek-v4-pro"/>
+                  defaultModel="deepseek-v4-flash"
+
+                  simpleModel="deepseek-v4-flash"
+                  simpleKeywords="你好,hello,hi,是什么,定义,解释,翻译,translate,谢谢,再见,笑话,天气"
+
+                  complexModel="deepseek-v4-pro"
+                  complexKeywords="写代码,编程,实现,debug,修复,重构,推理,分析原因,为什么,逻辑,计算,数学,写诗,创作,故事,多步骤,按计划,逐步"
+
+                  strategy="hybrid"/>
         <provider name="embeddingProvider"
                   sameClassAs="openAiProvider"
                   statup="true"
@@ -103,7 +117,7 @@
         <agent name="fileAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="文件处理专家，负责文件的读写、目录操作等。注意：不能执行脚本。如需先写脚本再执行，流程为 fileAgent 把脚本写入 skills 目录 → 再委托 codeAgent 执行。当用户请求涉及文件操作（读、写、列表、删除）时使用此Agent。"/>
+               description="文件操作专家，读写、列表、删除文件。仅用于本地文件操作任务。网页下载请用 browser，代码执行请用 codeAgent。"/>
 
          <!--agent name="cloudRevenueAgent"
                sameClassAs="aiagent"
@@ -114,7 +128,7 @@
                sameClassAs="aiagent"
                configfile="codeAgent_config.xml"
                statup="true"
-               description="代码执行专家，内置 code_execution（内联代码）和 script_execution（脚本文件）。注意：没有 file_operation，不能创建或写入文件。如需先写脚本文件再执行，流程为：主Agent用 file_operation 把脚本写入 skills 目录 → 再委托 codeAgent 执行。当用户要求运行代码、执行脚本、数据处理时使用此Agent。"/>
+               description="代码执行专家，执行 Python/JS 代码和脚本文件。仅用于需要写代码才能完成的计算/分析/算法任务。网页访问请用 browser，文件操作请用 fileAgent。"/>
 
         <agent name="priceTeam"
                sameClassAs="agentGroup"
@@ -134,7 +148,12 @@
 
     </agents>
     <skills>
-        <skill name="liantongyun" allowedScriptDir="skills/liantongyun/scripts" interpreter="python" maxExecutionTime="120" sameClassAs="scriptExecutionSkill" skillName="script_execution" statup="true"/>
+        <skill name="liantongyun"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               interpreter="python"
+               maxExecutionTime="120"
+               allowedScriptDir="skills/liantongyun/scripts"/>
         <skill name="skillmd_test"
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"
@@ -142,12 +161,33 @@
         <skill name="planTask"
                sameClassAs="planTask"
                statup="true"
-               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。先调用此技能规划，再按清单逐步执行并更新进度。适用于多步骤、需多种工具协作的复杂任务。"/>
+               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当用户需求涉及多步骤、且无法直接委托现有子Agent独立完成时使用（如未知流程编排）。如果子任务已有对应的Agent（如poemWorkflow写诗、priceTeam询价、fileAgent文件操作、codeAgent代码执行），请直接并行委托这些Agent，无需调用本技能。"/>
         <skill name="skillInstallerSkill"
                sameClassAs="skillInstallerSkill"
                statup="true"
                skillName="install_skill"
                skillDescription="将脚本文件安装为可复用的 AI Agent Skill。当用户想把某个脚本（Python/Shell/JS等）安装为 Skill 时使用。"/>
+
+        <!-- ===== Computer Use / GUI Agent (可选) =====
+             依赖: pip install playwright && playwright install chromium  (browser)
+                   pip install pyautogui mss                           (desktop)
+                   实际操作：
+                   pip install playwright pyautogui mss -i https://pypi.tuna.tsinghua.edu.cn/simple
+                   python -m playwright install chromium
+             启用: statup="true" -->
+        <skill name="browser"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               interpreter="python"
+               maxExecutionTime="60"
+               allowedScriptDir="skills/browser/scripts"
+               skillDescription="Browser automation via Playwright. Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. Start with navigate to open a page, then use click/type/extract as needed."/>
+        <skill name="desktop"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               interpreter="python"
+               maxExecutionTime="30"
+               allowedScriptDir="skills/desktop/scripts"/>
     </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 
@@ -221,18 +261,11 @@
 
 如果子 agent 的返回结果中包含「请求确认」字眼，你应该向用户转达确认问题，拿到回复后重新委托给子 agent。
 
-## 复杂任务处理规则（强制）
+## 复杂任务处理规则
 
-**任何需要 2 步及以上工具调用才能完成的任务，必须遵循以下流程，不得跳过：**
+如果任务只需单步完成（如纯知识问答、简单计算、单次查询），直接回答。
 
-1. **第一步必须是 plan_task**：收到复杂任务后，第一个工具调用必须是 plan_task。将任务分解为 3-7 项子任务清单。不得在调用 plan_task 之前执行任何其他工具或委托子 agent。
-2. **按清单逐步执行**：拿到清单后按顺序逐项执行，每完成一项在对话中展示进度（[ ] → [~] → [x]）
-3. **失败标记**：某步失败时标记 [✗]，分析原因后调整计划继续
-4. **最终汇总**：全部完成后做简要总结
-
-判断标准：如果完成任务需要调用 2 个或以上工具（包括 delegate_to_*、skill、msgTool），就是复杂任务，必须先调 plan_task。
-
-仅当任务确实只需单步完成（如纯知识问答、简单计算、单次查询）时，可跳过 plan_task 直接回答。"/>
+如果需要调用 2 个及以上工具（包括 delegate_to_*、skill、msgTool），应先判断：子任务是否已有现成的 Agent 可直接委托？有则直接并行委托。若子任务之间无现成 Agent 对应、需要编排未知流程，再使用任务规划工具进行分解，按清单逐步执行并更新进度。"/>
     </modulesParams>
 
 </moduleConfig>

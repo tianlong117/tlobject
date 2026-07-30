@@ -104,7 +104,7 @@
         <skill name="planTask"
                sameClassAs="planTask"
                statup="true"
-               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。先调用此技能规划，再按清单逐步执行并更新进度。适用于多步骤、需多种工具协作的复杂任务。"/>
+               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当任务涉及多步骤、且无法用单个现有Skill直接完成时使用。如果任务只需调用一个Skill即可完成，直接调用该Skill，无需规划。"/>
     </skills>
 
     <!-- ===== Memory Stores ===== -->

@@ -90,7 +90,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
         super.setModuleParams();
 
         if (skillName == null || skillName.isEmpty())
-            skillName = "script_execution";
+            skillName = name;  // 默认用模块名，避免多个脚本 skill 共用 "script_execution" 冲突
         if (skillDescription == null || skillDescription.isEmpty())
             skillDescription = "Execute an existing script file (.py, .sh, .js, etc.) and return its output. IMPORTANT: script_path must be a relative filename (e.g. 'process.py'), NOT a shell command.";
 

@@ -9,6 +9,8 @@
                 singleton="true"/>
         <module name="claudeProvider" classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
                 singleton="true"/>
+        <module name="routingProvider" classfile="cn.tianlong.tlobject.aiagent.TLRoutingProvider"
+                singleton="true"/>
         <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"

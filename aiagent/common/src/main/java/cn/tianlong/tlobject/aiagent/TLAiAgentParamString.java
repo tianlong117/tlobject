@@ -349,4 +349,13 @@ public interface TLAiAgentParamString extends TLParamString {
     String STREAM_RESET = "resetStream";
     /** 等待流完成 */
     String STREAM_WAITFORSTREAM = "waitForStream";
+
+    // ======================== Routing Provider ========================
+    /** 委托的真实 Provider 引用名（resolve from factory） */
+    String AI_P_DELEGATEPROVIDER = "delegateProvider";
+    /** 路由器策略：rule_only | hybrid | llm_judge */
+    String AI_P_ROUTER_STRATEGY = "strategy";
+    /** 路由器命中的 tier 名称（simple/complex/default） */
+    String AI_P_ROUTER_TIER = "routerTier";
 }
+

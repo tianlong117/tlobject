@@ -251,7 +251,7 @@ mvn exec:java -pl demo/tlobject
 
 ### 5.3 级联评测 `/eval cascade [agent]`
 
-**自动发现 + 自动生成 + 逐项评测**。指定一个 Agent，系统自动发现其在 `moduleRegistry` 中注册的所有子模块（子 Agent、Skill），为每个目标自动生成基础冒烟测试用例并逐一执行，输出合并报告。
+**自动发现 + 手写用例优先 + 自动兜底**。指定一个 Agent，系统自动发现其所有子模块，**优先匹配 `cases/` 目录中的手写用例，没有才自动生成冒烟测试**，最终输出合并报告。
 
 #### 执行流程
 
@@ -259,48 +259,52 @@ mvn exec:java -pl demo/tlobject
 /eval cascade aiagent_master
   │
   ├─ 1. 查询 moduleRegistry: REGISTRY_LIST ownerFamilyName="aiagent_master"
-  │     → [researchAgent, codeAgent, myGroup, planTask, httpRequestSkill, ...]
+  │     → 过滤：仅保留 IAgentCapable + TLBaseSkill 类型
   │
-  ├─ 2. 判断每个子模块类型:
-  │     instanceOf TLBaseSkill → callType = "skill_execute"
-  │     其他                    → callType = "agent_chat"
+  ├─ 2. 预扫描 cases/ 目录所有 JSON → 按 targetAgent 建索引
+  │     Map<familyName, List<TLEvalCase>>
   │
-  ├─ 3. 自动生成用例:
-  │     agent 类: input = "你好，请用一句话介绍你自己。"
-  │     skill 类: input = {} (空参数)
-  │     评判器: constraint (minResponseLength=1, maxIterations=5, maxLatencyMs=30000)
+  ├─ 3. 遍历每个目标:
+  │     ├─ caseIndex 有匹配 → 使用手写用例（可能多条）
+  │     └─ 没有匹配       → 自动生成冒烟用例
   │
-  ├─ 4. 逐一执行（根 Agent 优先，按发现顺序）
-  │
-  └─ 5. 输出合并报告
+  └─ 4. 合并报告
 ```
 
-#### 使用示例
+#### 用例匹配规则
 
+手写用例的 `targetAgent` 字段与模块的家族名精确匹配即被选用：
+
+```json
+{
+  "targetAgent": "aiagent_master:priceTeam",   // ← 匹配 priceTeam 模块
+  "callType": "agent_chat",
+  "input": "我要买一个汉堡",
+  "judges": [...]
+}
 ```
-> /eval cascade                    # 使用默认 targetAgent
-> /eval cascade aiagent_master     # 指定 Agent
+
+> **只需往 `cases/` 目录放 `.json` 文件**，`/eval cascade` 自动发现并匹配，无需额外配置。
 ```
 
 **输出示例**：
 ```
-========== 级联评测 7 个目标 ==========
-[1/7] aiagent_master (aiagent_master, agent_chat)
+========== 级联评测 8 个目标（2 有手写用例）==========
+[1] aiagent_master/aiagent_master — 自动生成
 [PASS] 级联-aiagent_master (...) | tokens=2116 iterations=1 latency=2177ms
-[2/7] researchAgent (aiagent_master:researchAgent, agent_chat)
-[PASS] 级联-researchAgent (...) | tokens=1850 iterations=1 latency=1520ms
-[3/7] planTask (aiagent_master:planTask, skill_execute)
-[PASS] 级联-planTask (...) | tokens=0 iterations=0 latency=3ms
-...
+[2] httpRequestSkill/aiagent_master:httpRequestSkill — 手写用例: 测试httpRequestSkill-百度首页
+[PASS] 测试httpRequestSkill-百度首页 | tokens=0 iterations=0 latency=234ms
+[PASS] 测试httpRequestSkill-百度首页 | tokens=0 iterations=0 latency=189ms (多条用例)
+[3] priceTeam/aiagent_master:priceTeam — 手写用例: 价格计算-单商品
+[PASS] 价格计算-单商品 | tokens=850 iterations=2 latency=3200ms
 
 ========== 评测报告 ==========
-总计: 7 | 通过: 6 | 失败: 1 | 通过率: 85.7%
-平均 Tokens: 1523 | 平均迭代次数: 0.7 | 平均延迟: 3105ms
---- 失败用例 ---
-  [FAIL] 级联-codeAgent (cascade-aiagent_master-codeAgent)
+总计: 8 | 通过: 7 | 失败: 1 | 通过率: 87.5%
 ==============================
 级联报告已保存: D:\...\data\evals\reports\eval_report_20260729_140000.json
 ```
+
+> 每个目标块开头显示 `— 手写用例` 或 `— 自动生成`，一目了然。
 
 #### 与其他命令的关系
 
