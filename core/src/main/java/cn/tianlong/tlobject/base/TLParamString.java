@@ -171,6 +171,11 @@ public interface TLParamString {
     final String TASKDELAYTIME = "taskDelayTime";
     final String TASKWAITTIME = "taskWaitTime";
     final String TASKMAINTHREAD = "taskMainThread";
+    /** 暂停/恢复任务 — action */
+    String TASK_PAUSE = "pauseTask";
+    String TASK_RESUME = "resumeTask";
+    /** 暂停锁对象 key */
+    String TASK_PAUSELOCK = "pauseLock";
     final String FIELDNAME = "fieldName";
     final String FIELDVALUE = "fieldValue";
     final String EXCEPTIONHANDLER_HANDLER = "exceptionHandler";
