@@ -35,6 +35,7 @@
                 singleton="true"/>
         <module name="agentMonitor" classfile="cn.tianlong.tlobject.aiagent.TLAgentMonitor" singleton="true"/>
         <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
+        <module name="agentService" classfile="cn.tianlong.tlobject.aiagent.TLAgentService" singleton="true"/>
         <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
         <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"
                 configfile="CLASSPATH/conf/demo/aiagent/errorSupervisor_config.xml"/>

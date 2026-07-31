@@ -23,7 +23,7 @@
     <appenders>
         <!-- 控制台输出（仅info及以上） -->
         <Console name="console" target="SYSTEM_OUT">
-            <PatternLayout pattern="${pattern}"/>
+            <PatternLayout pattern="${pattern}" charset="GBK"/>
             <ThresholdFilter level="info"/>
         </Console>
 
