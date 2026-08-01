@@ -37,24 +37,32 @@ public class TLSlf4jLog extends TLBaseLog {
     }
     @Override
     protected void setLog0(String content, LogLevel logLevel) {
-        switch (logLevel){
-            case TRACE:
-                logger.trace(content);
-                break;
-            case DEBUG:
-                logger.debug(content);
-                break;
-            case INFO:
-                logger.info(content);
-                break;
-            case WARN:
-                logger.warn(content);
-                break;
-            case ERROR:
-                logger.error(content);
-                break;
-            default:
-                logger.info(content);
+        // 保存并清除中断标志，防止调用者线程被中断时 log4j RollingFileManager 检测到并报错
+        boolean interrupted = Thread.interrupted();
+        try {
+            switch (logLevel){
+                case TRACE:
+                    logger.trace(content);
+                    break;
+                case DEBUG:
+                    logger.debug(content);
+                    break;
+                case INFO:
+                    logger.info(content);
+                    break;
+                case WARN:
+                    logger.warn(content);
+                    break;
+                case ERROR:
+                    logger.error(content);
+                    break;
+                default:
+                    logger.info(content);
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 }

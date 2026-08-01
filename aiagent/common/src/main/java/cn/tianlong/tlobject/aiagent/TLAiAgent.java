@@ -1054,6 +1054,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
             if (aborted) {
+                // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
+                Thread.interrupted();
                 if (enableCheckpoint) {
                     // 断点落成 COMPLETED，避免 /resume 捡到半截 tool-loop
                     persistSession(sessionId, history, SESSION_STATE_COMPLETED,
@@ -1121,6 +1123,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         } catch (Exception e) {
             // 中断/取消路径（如工具被 interrupt 后异常上抛）→ 当作中断，干净收尾
             if (cancelled.get() || e instanceof InterruptedException) {
+                // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
+                Thread.interrupted();
                 putLog("Chat aborted (exception path): sessionId=" + sessionId, LogLevel.INFO);
                 return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
                         .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId);
@@ -1134,7 +1138,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                     .setParam(AI_P_SESSIONID, sessionId));
             currentRootSessionId.remove();
-            Thread.interrupted();
+            // 清除中断标志（可能来自 worker.interrupt() 或 provider 回调），
+            // 防止返回 ThreadTask 后继续传播导致后续模块误抛 InterruptedException
+            while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
         }
     }
 

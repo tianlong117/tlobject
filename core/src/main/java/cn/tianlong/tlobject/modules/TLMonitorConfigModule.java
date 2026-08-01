@@ -101,9 +101,8 @@ public class TLMonitorConfigModule extends TLBaseModule {
                 }
                 checkModules();
             } catch (InterruptedException e) {
-        //        e.printStackTrace();
-                putLog("发生异常，监听配置文件模块重启",LogLevel.WARN,"exception1");
-                putLog(e,LogLevel.ERROR,"exception2");
+                putLog("config monitor interrupted, restarting",LogLevel.WARN,"exception1");
+                Thread.currentThread().interrupt();
                 init();
             }
         }

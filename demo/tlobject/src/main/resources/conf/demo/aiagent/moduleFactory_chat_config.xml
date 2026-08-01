@@ -7,12 +7,14 @@
     <params>
         <applicationId value="chatDemo"/>
         <ifLog value="true"/>
+        <logWait value="false" />
         <loglevel value="debug"/>
         <defaultLogModule value="log4j"/>
         <package value="cn.tianlong.java.demo.aiagent"/>
     </params>
     <commonParams>
         <ifLog value="true"/>
+        <logWait value="false" />
         <loglevel value="trace"/>
     </commonParams>
     <modulesParams>

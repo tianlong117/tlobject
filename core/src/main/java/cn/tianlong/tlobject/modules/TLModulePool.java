@@ -138,7 +138,7 @@ public   class TLModulePool extends TLBaseModule {
                     sleep(waitTime);
                     module= (IObject) modulePool.poll();
                 } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    Thread.currentThread().interrupt();
                 }
             }
         }

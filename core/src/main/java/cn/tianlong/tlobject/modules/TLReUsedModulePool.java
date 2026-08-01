@@ -249,7 +249,7 @@ public   class TLReUsedModulePool extends TLBaseModule {
             try {
                 sleep(waitPoolTime);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();
                 return true;
             }
             if (nowUserNumber >= maxUserNumber)

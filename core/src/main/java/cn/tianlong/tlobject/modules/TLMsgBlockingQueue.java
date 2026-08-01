@@ -93,7 +93,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
             putLog("take a queue",LogLevel.DEBUG,"take");
             return  qmsg;
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
             return null ;
         }
     }

@@ -108,8 +108,8 @@ public class TLSessionData extends TLBaseSessionData {
                 Thread.sleep(delay*1000);
                 checkSessionTime();
             } catch (InterruptedException e) {
-                putLog("发生异常，任务模块重启",LogLevel.WARN,"exception1");
-                putLog(e,LogLevel.ERROR,"exception2");
+                putLog("session check interrupted, restarting",LogLevel.WARN,"exception1");
+                Thread.currentThread().interrupt();
                 init();
             }
         }
