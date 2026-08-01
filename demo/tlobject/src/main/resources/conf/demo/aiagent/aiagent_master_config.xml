@@ -46,7 +46,7 @@
     <providers>
         <!-- ==== 带模型路由的 Provider ====
              策略 hybrid = 规则优先 + 未命中时用 simpleModel 做元认知分类。
-             简单任务选 ddeepseek-v4-flash（便宜），复杂任务选 deepseek-v4-pro（强推理）。
+             简单任务选 ddeepseek-v4-flash（便宜），复杂任务选 deepseek-v4-flash（强推理）。
              切回无路由：classfile 改回 TLOpenAiProvider，删掉 strategy/delegateProvider/keywords 属性即可。
         -->
         <provider name="openAiProvider"
@@ -63,7 +63,7 @@
                   simpleModel="deepseek-v4-flash"
                   simpleKeywords="你好,hello,hi,是什么,定义,解释,翻译,translate,谢谢,再见,笑话,天气"
 
-                  complexModel="deepseek-v4-pro"
+                  complexModel="deepseek-v4-flash"
                   complexKeywords="写代码,编程,实现,debug,修复,重构,推理,分析原因,为什么,逻辑,计算,数学,写诗,创作,故事,多步骤,按计划,逐步"
 
                   strategy="hybrid"/>

@@ -302,7 +302,10 @@ public class TLObjectFactory extends TLBaseModule {
         // 销毁当前工厂模块（各模块 destroy 会各自等待）
         destroyModule();
         try { Thread.sleep(200); } catch (InterruptedException e) {}
-        System.out.println("game is over,bye !");
+        System.out.println("****************************************************");
+        System.out.println("* When the power of love overcomes the love       *");
+        System.out.println("* of power, the world will know peace.            *");
+        System.out.println("****************************************************");
         System.exit(0);
     }
 
@@ -318,6 +321,10 @@ public class TLObjectFactory extends TLBaseModule {
         }
         destroyModule();
         try { Thread.sleep(200); } catch (InterruptedException e) {}
+        System.out.println("****************************************************");
+        System.out.println("* When the power of love overcomes the love       *");
+        System.out.println("* of power, the world will know peace.            *");
+        System.out.println("****************************************************");
         System.exit(status);
     }
 

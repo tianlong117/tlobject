@@ -9,6 +9,7 @@ import org.xmlpull.v1.XmlPullParser;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * AI Agent主控模块——智能体框架的核心编排器。
@@ -117,9 +118,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 当前线程正在执行的 doChat 的根会话 ID（ThreadLocal，供 spawn 点透传给子 agent） */
     private final ThreadLocal<String> currentRootSessionId = new ThreadLocal<>();
+    /** 当前 chat 的 userId（供 persistSession 写入断点文件，实现用户隔离） */
+    private final ThreadLocal<String> currentChatUserId = new ThreadLocal<>();
+
+    /** 用当前 chat 的 userId 或指定 userId 解析存储目录：{dataBasePath}{userId}/session_store/ */
+    private String getSessionStorePath() {
+        String uid = currentChatUserId.get();
+        if (uid == null || uid.isEmpty()) uid = "default";
+        return (dataBasePath.endsWith("/") ? dataBasePath : dataBasePath + "/") + uid + "/session_store/";
+    }
+    private String getSessionStorePath(String userId) {
+        String uid = (userId != null && !userId.isEmpty()) ? userId : "default";
+        return (dataBasePath.endsWith("/") ? dataBasePath : dataBasePath + "/") + uid + "/session_store/";
+    }
 
     /** 流式回调转发目标: sessionId → [forwardTarget, forwardAction]（供 onStreamResult 查表转发 chunk/结果给最终调用方） */
     private final Map<String, String[]> streamForwardMap = new ConcurrentHashMap<>();
+
+    /** 并行工具执行上下文: sessionId → 本轮并行执行状态（供 doToolExec 回调写入） */
+    private final Map<String, ParallelToolExec> toolExecs = new ConcurrentHashMap<>();
+    /** 会话级并行工具线程: sessionId → 活跃的工具 ThreadTask 列表（供 stopChat 取消） */
+    private final Map<String, List<ThreadTask>> toolTasksMap = new ConcurrentHashMap<>();
 
     /** LLM 可调用的预定义消息列表（从 XML msgTools 段解析） */
     protected List<TLMsg> msgTools;
@@ -132,8 +151,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 启动时检查 LLM Provider 是否可用（默认 false） */
     protected boolean checkProviderOnStartup = false;
 
-    /** 会话检查点文件存储路径 */
-    protected String sessionStorePath = "./data/session_store/";
+    /** 数据存储基础路径（各用户在此下建子目录） */
+    protected String dataBasePath = "./data/";
 
     /** 审批模块引用（null = 未启用审批） */
     protected volatile IObject approvalModule;
@@ -228,8 +247,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             if (params.get("enableCheckpoint") != null)
                 enableCheckpoint = "true".equals(params.get("enableCheckpoint"));
-            if (params.get("sessionStorePath") != null)
-                sessionStorePath = params.get("sessionStorePath");
+            if (params.get("dataBasePath") != null)
+                dataBasePath = params.get("dataBasePath");
+            else if (params.get("sessionStorePath") != null)
+                dataBasePath = params.get("sessionStorePath"); // 兼容旧配置
             if (params.get("checkProviderOnStartup") != null)
                 checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
             if (params.get("approvalModule") != null)
@@ -630,6 +651,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
                 break;
+            case "_toolExec":
+                returnMsg = doToolExec(fromWho, msg);
+                break;
             case AGENT_STOPCHAT:
                 returnMsg = stopChat(fromWho, msg);
                 break;
@@ -664,6 +688,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (worker != null) {
             worker.interrupt();
         }
+        // 4) 取消并行工具线程
+        List<ThreadTask> tts = toolTasksMap.remove(sid);
+        if (tts != null) {
+            // 也清理执行上下文，让未完成的工具直接 countDown
+            ParallelToolExec pte = toolExecs.remove(sid);
+            if (pte != null) {
+                while (pte.latch.getCount() > 0) pte.latch.countDown();
+            }
+            for (ThreadTask t : tts) { t.cancelTask(); t.interrupt(); }
+            putLog("stopChat cancelled " + tts.size() + " tool thread(s): sessionId=" + sid, LogLevel.INFO);
+        }
         putLog("stopChat requested: sessionId=" + sid + " cascade=" + cascade, LogLevel.INFO);
         return createMsg().setParam(RESULT, true).setParam(AI_P_SESSIONID, sid);
     }
@@ -697,6 +732,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 根会话 ID：控制台会话标识，在 spawn 子 agent 时透传，供监控模块级联停止
         String rootSid = msg.getStringParam("rootSessionId", sessionId);
         currentRootSessionId.set(rootSid);
+        currentChatUserId.set(msg.getStringParam("userId", sessionId));
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         String model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
         double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
@@ -743,7 +779,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             // ==== 断点恢复检查 ====
             boolean resume = msg.parseBoolean("resume", false);
-            TLMsg checkpoint = resume ? loadSessionCheckpoint(sessionId) : null;
+            TLMsg checkpoint = resume ? loadSessionCheckpoint(sessionId,
+                    msg.getStringParam("userId", null)) : null;
             List<TLConversationHistory> history;
             int iteration = 0;
             boolean resumedFromCheckpoint = false;
@@ -990,54 +1027,67 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     if (llmResponse.containsParam(AI_P_RESPONSE))
                         aMsg.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
                     history.add(aMsg);
+                    int aMsgIdx = history.size() - 1; // 记录位置，审批/拒绝时精确回滚
 
-                    for (TLToolCall tc : toolCalls) {
-                        ThreadTask.checkPauseHere();
-                        if (cancelled.get()) { aborted = true; break; }
-                        TLMsg tr = executeToolCall(tc, fromWho, sessionId);
-                        if (tr == null) {
-                            putLog("executeToolCall returned null for " + tc.getFunctionName(), LogLevel.ERROR);
-                            tr = createMsg().setParam(RESULT, false)
-                                    .setParam(AI_P_SKILLOUTPUT, "Internal error: null result for " + tc.getFunctionName());
+                    // ── 并行执行工具 ──
+                    // n≥1 一律走统一路径：fire 到独立 ThreadTask，结果缓存到 pte.results
+                    int n = toolCalls.size();
+                    CountDownLatch toolLatch = new CountDownLatch(n);
+                    ParallelToolExec pte = new ParallelToolExec(toolLatch, history);
+                    toolExecs.put(sessionId, pte);
+                    List<ThreadTask> tasks = new ArrayList<>(n);
+                    try {
+                        for (int i = 0; i < n; i++) {
+                            TLToolCall tc = toolCalls.get(i);
+                            TLMsg execMsg = createMsg().setAction("_toolExec")
+                                    .setParam("_tc", tc).setParam("_idx", i)
+                                    .setParam("_fromWho", fromWho)
+                                    .setParam(AI_P_SESSIONID, sessionId)
+                                    .setParam("rootSessionId", rootSid);
+                            TLMsg taskResult = putMsgNoWait(this, execMsg);
+                            ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+                            if (tt != null) tasks.add(tt);
                         }
-
-                        // 审批门禁返回 pending/rejected
-                        String approvalState = tr.getStringParam(AI_P_APPROVAL_STATE, "");
-                        if ("pending".equals(approvalState)) {
-                            // 回滚 assistant 消息（工具未执行）
-                            history.remove(history.size() - 1);
-                            pendingApproval = true;
-                            finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
-                            // 保存 pending_approval 断点
-                            if (enableCheckpoint) {
-                                persistSessionWithApproval(sessionId, history,
-                                        SESSION_STATE_PENDING_APPROVAL, iteration, model,
-                                        temperature, maxTokens, userMessage, tc,
-                                        tr.getStringParam(AI_P_APPROVAL_ID, ""));
-                            }
-                            break;
+                        toolTasksMap.put(sessionId, tasks);
+                        // 不限时等待（用户取消时 stopChat 会 interrupt + cancelTask 释放 latch）
+                        toolLatch.await();
+                        // 收敛特殊状态
+                        if (pte.aborted || cancelled.get()) { aborted = true; break; }
+                        if (pte.rejected || pte.pendingApproval || pte.clarified) {
+                            history.remove(aMsgIdx); // 精确回滚 assistant 消息
                         }
-                        if ("rejected".equals(approvalState)) {
-                            // 审批被拒绝：回滚 assistant 消息，注入拒绝通知，直接结束
-                            history.remove(history.size() - 1);
-                            history.add(new TLConversationHistory(
-                                    TLConversationHistory.Role.user,
-                                    "（操作已被用户拒绝：" + tr.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝")
-                                            + "。不要重试此操作。）"));
+                        if (pte.rejected) {
+                            history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                                    "（操作已被用户拒绝：" + pte.rejectReason + "。不要重试此操作。）"));
                             rejected = true;
-                            finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
+                            finalResponse = pte.finalResponse;
                             break;
                         }
-
-                        history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
-                                tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
-                        // request_clarification：LLM 主动要求用户确认 → 提前结束循环
-                        if (tr.parseBoolean(AI_P_NEEDSCLARIFICATION, false)) {
+                        if (pte.pendingApproval) {
+                            pendingApproval = true;
+                            finalResponse = pte.finalResponse;
+                            if (enableCheckpoint) persistSessionWithApproval(sessionId, history,
+                                    SESSION_STATE_PENDING_APPROVAL, iteration, model,
+                                    temperature, maxTokens, userMessage, pte.pendingTc,
+                                    pte.pendingApprovalId);
+                            break;
+                        }
+                        if (pte.clarified) {
                             clarified = true;
-                            finalResponse = tr.getStringParam(AI_P_CLARIFICATIONQUESTION, "")
-                                    + "\n\n请提供更多信息后重新提交。";
+                            finalResponse = pte.finalResponse;
                             break;
                         }
+                        // 全部正常：按顺序写入 history
+                        for (int i = 0; i < n; i++) {
+                            ToolResult r = pte.results.get(i);
+                            if (r != null) {
+                                history.add(new TLConversationHistory(r.tc.getId(), r.tc.getFunctionName(),
+                                        r.msg.getStringParam(AI_P_SKILLOUTPUT, r.msg.getStringParam("error", ""))));
+                            }
+                        }
+                    } finally {
+                        toolExecs.remove(sessionId);
+                        toolTasksMap.remove(sessionId);
                     }
                     if (aborted || clarified || pendingApproval || rejected) break;
                     // L2 checkpoint: 每轮工具调用后保存断点
@@ -1138,6 +1188,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                     .setParam(AI_P_SESSIONID, sessionId));
             currentRootSessionId.remove();
+            currentChatUserId.remove();
             // 清除中断标志（可能来自 worker.interrupt() 或 provider 回调），
             // 防止返回 ThreadTask 后继续传播导致后续模块误抛 InterruptedException
             while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
@@ -1255,12 +1306,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     }
                     history.add(aMsg);
 
-                    // 执行tool calls
-                    for (TLToolCall tc : toolCalls) {
-                        TLMsg tr = executeToolCall(tc, fromWho, sessionId);
-                        history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
-                                tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
-                    }
+                    // 并行执行tool calls
+                    executeToolsParallel(toolCalls, fromWho, sessionId, history);
 
                     // 非流式继续LLM循环（支持后续tool calls）
                     String finalResponse = null;
@@ -1300,11 +1347,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             aMsg2.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
                         history.add(aMsg2);
 
-                        for (TLToolCall tc : moreTCs) {
-                            TLMsg tr = executeToolCall(tc, fromWho, sessionId);
-                            history.add(new TLConversationHistory(tc.getId(), tc.getFunctionName(),
-                                    tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
-                        }
+                        executeToolsParallel(moreTCs, fromWho, sessionId, history);
                     }
                     if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
 
@@ -1687,16 +1730,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     protected TLMsg listSkills(Object fromWho, TLMsg msg) {
-        List<Map<String, Object>> skillInfos = new ArrayList<>();
+        List<String> skillNames = new ArrayList<>();
         for (TLBaseSkill skill : skills.values()) {
             if (!skill.isEnabled()) continue;
-            Map<String, Object> info = new LinkedHashMap<>();
-            info.put("name", skill.getSkillName());
-            info.put("description", skill.getSkillDescription());
-            info.put("moduleName", skill.getName());
-            skillInfos.add(info);
+            skillNames.add(skill.getSkillName());
         }
-        return createMsg().setParam(RESULT, true).setParam("skills", skillInfos);
+        return createMsg().setParam(RESULT, true).setParam("skills", skillNames);
     }
 
     /**
@@ -1940,7 +1979,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     @SuppressWarnings("unchecked")
     protected TLMsg resumeSession(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg checkpoint = loadSessionCheckpoint(sessionId);
+        String userId = msg.getStringParam("userId", null);
+        TLMsg checkpoint = loadSessionCheckpoint(sessionId, userId);
         if (checkpoint == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "No checkpoint found");
         }
@@ -1958,8 +1998,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     protected TLMsg findLatestSession(Object fromWho, TLMsg msg) {
+        String filterUserId = msg.getStringParam("userId", null);
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath(filterUserId));
             if (!dir.exists() || !dir.isDirectory()) {
                 return createMsg().setParam("sessionId", (String) null);
             }
@@ -1995,10 +2036,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 返回已加载的 checkpoint TLMsg 列表（按文件修改时间降序）。
      * 复用 loadSessionCheckpoint 已有的加载+过滤逻辑。
      */
-    private java.util.List<TLMsg> listIncompleteCheckpoints() {
+    private java.util.List<TLMsg> listIncompleteCheckpoints(String userId) {
         java.util.List<TLMsg> result = new java.util.ArrayList<>();
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath(userId));
             if (!dir.exists() || !dir.isDirectory()) return result;
             java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
             if (files == null) return result;
@@ -2009,7 +2050,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             for (java.io.File f : files) {
                 try {
                     TLMsg checkpoint = loadSessionCheckpoint(
-                            f.getName().substring(0, f.getName().length() - 5));
+                            f.getName().substring(0, f.getName().length() - 5), userId);
                     if (checkpoint == null) continue;
                     if (!SESSION_STATE_CHECKPOINT.equals(checkpoint.getStringParam("state", "")))
                         continue;
@@ -2029,7 +2070,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 返回 sessionId / userMessage / savedAt / iteration。
      */
     protected TLMsg findIncompleteCheckpoints(Object fromWho, TLMsg msg) {
-        java.util.List<TLMsg> list = listIncompleteCheckpoints();
+        String filterUserId = msg.getStringParam("userId", null);
+        java.util.List<TLMsg> list = listIncompleteCheckpoints(filterUserId);
         if (list.isEmpty()) {
             return createMsg().setParam(RESULT, false);
         }
@@ -2048,8 +2090,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     protected TLMsg listSessions(Object fromWho, TLMsg msg) {
         java.util.List<java.util.Map<String, Object>> sessions = new java.util.ArrayList<>();
+        String filterUserId = msg.getStringParam("userId", null);
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath(filterUserId));
             if (!dir.exists() || !dir.isDirectory()) {
                 return createMsg().setParam(RESULT, true).setParam("sessions", sessions);
             }
@@ -2064,7 +2107,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             for (java.io.File f : files) {
                 try {
                     TLMsg cp = loadSessionCheckpoint(
-                            f.getName().substring(0, f.getName().length() - 5));
+                            f.getName().substring(0, f.getName().length() - 5), filterUserId);
                     if (cp == null) continue;
                     java.util.LinkedHashMap<String, Object> info = new java.util.LinkedHashMap<>();
                     info.put("sessionId", cp.getStringParam("sessionId", ""));
@@ -2087,7 +2130,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 启动时日志打印未完成检查点信息（不自动恢复）。
      */
     protected void logIncompleteCheckpoints() {
-        java.util.List<TLMsg> list = listIncompleteCheckpoints();
+        java.util.List<TLMsg> list = listIncompleteCheckpoints(null);
         if (list.isEmpty()) {
             putLog("无未完成断点", LogLevel.DEBUG);
             return;
@@ -2470,6 +2513,111 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             putLog("checkApprovalGate error: " + e.toString() + " → bypassing approval", LogLevel.ERROR);
             return null; // 出错时放行，安全优先（不阻塞正常功能）
         }
+    }
+
+    /**
+     * 并行工具执行（无审批/clarify 处理的简单版，供 onStreamResult 等场景使用）。
+     * 单个工具直接同步执行，多个工具 fire 后 latch 等待全部完成。
+     */
+    @SuppressWarnings("unchecked")
+    private void executeToolsParallel(List<TLToolCall> toolCalls, Object fromWho,
+                                       String sessionId, List<TLConversationHistory> history) {
+        int n = toolCalls.size();
+        if (n == 0) return;
+        CountDownLatch latch = new CountDownLatch(n);
+        ParallelToolExec pte = new ParallelToolExec(latch, history);
+        toolExecs.put(sessionId, pte);
+        List<ThreadTask> tasks = new ArrayList<>(n);
+        try {
+            for (int i = 0; i < n; i++) {
+                TLToolCall tc = toolCalls.get(i);
+                // 流式路径：rootSessionId 即时序 sessionId（无级联场景）
+                String rootSid = currentRootSessionId.get();
+                TLMsg execMsg = createMsg().setAction("_toolExec")
+                        .setParam("_tc", tc).setParam("_idx", i)
+                        .setParam("_fromWho", fromWho)
+                        .setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("rootSessionId", rootSid != null ? rootSid : sessionId);
+                TLMsg taskResult = putMsgNoWait(this, execMsg);
+                ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+                if (tt != null) tasks.add(tt);
+            }
+            toolTasksMap.put(sessionId, tasks);
+            latch.await();
+            // 按顺序写入 history
+            for (int i = 0; i < n; i++) {
+                ToolResult r = pte.results.get(i);
+                if (r != null) {
+                    history.add(new TLConversationHistory(r.tc.getId(), r.tc.getFunctionName(),
+                            r.msg.getStringParam(AI_P_SKILLOUTPUT, r.msg.getStringParam("error", ""))));
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            toolExecs.remove(sessionId);
+            toolTasksMap.remove(sessionId);
+        }
+    }
+
+    /**
+     * 并行工具执行回调：在独立 ThreadTask 上执行单个 tool call，
+     * 结果缓存到 ParallelToolExec.results，主线程统一写入 history。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg doToolExec(Object fromWho, TLMsg msg) {
+        TLToolCall tc = (TLToolCall) msg.getParam("_tc");
+        Object originFromWho = msg.getParam("_fromWho");
+        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+        int idx = msg.getIntParam("_idx", -1);
+        String rootSid = msg.getStringParam("rootSessionId", sid);
+        ParallelToolExec pte = toolExecs.get(sid);
+        if (pte == null || tc == null) {
+            if (pte == null) return null; // 已被 stopChat 清理
+            return null;
+        }
+
+        // 透传 rootSessionId 到工具线程（ThreadLocal），保证子 agent spawn 时级联停止和监控链路不断
+        currentRootSessionId.set(rootSid);
+        try {
+            TLMsg tr;
+            try {
+                tr = executeToolCall(tc, originFromWho != null ? originFromWho : fromWho, sid);
+            } catch (Exception e) {
+                putLog("doToolExec exception: " + tc.getFunctionName() + " " + e.toString(), LogLevel.ERROR);
+                tr = createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Tool execution error: " + e.getMessage());
+            }
+            if (tr == null) {
+                tr = createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Internal error: null result for " + tc.getFunctionName());
+            }
+
+            // 审批门禁
+            String approvalState = tr.getStringParam(AI_P_APPROVAL_STATE, "");
+            if ("pending".equals(approvalState)) {
+                pte.pendingApproval = true;
+                pte.finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
+                pte.pendingTc = tc;
+                pte.pendingApprovalId = tr.getStringParam(AI_P_APPROVAL_ID, "");
+                pte.results.put(idx, new ToolResult(tc, tr));
+            } else if ("rejected".equals(approvalState)) {
+                pte.rejected = true;
+                pte.finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
+                pte.rejectReason = tr.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
+            } else if (tr.parseBoolean(AI_P_NEEDSCLARIFICATION, false)) {
+                pte.clarified = true;
+                pte.finalResponse = tr.getStringParam(AI_P_CLARIFICATIONQUESTION, "")
+                        + "\n\n请提供更多信息后重新提交。";
+            } else {
+                pte.results.put(idx, new ToolResult(tc, tr));
+            }
+        } finally {
+            // 保证 countDown（防止异常导致主线程死锁）+ 清理 ThreadLocal
+            pte.latch.countDown();
+            currentRootSessionId.remove();
+        }
+        return null;
     }
 
     /**
@@ -2908,7 +3056,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                    double temperature, int maxTokens, String userMessage) {
         if (!enableCheckpoint) return;
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath());
             if (!dir.exists()) dir.mkdirs();
 
             java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
@@ -2921,6 +3069,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             data.put("userMessage", userMessage);
             data.put("history", history);
             data.put("savedAt", System.currentTimeMillis());
+            data.put("userId", currentChatUserId.get() != null ? currentChatUserId.get() : "");
 
             String json = gson.toJson(data);
             java.io.File file = new java.io.File(dir, sanitizeFileName(sessionId) + ".json");
@@ -2939,7 +3088,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                                TLToolCall pendingTc, String approvalId) {
         if (!enableCheckpoint) return;
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath());
             if (!dir.exists()) dir.mkdirs();
 
             java.util.Map<String, Object> data = new java.util.LinkedHashMap<>();
@@ -2954,6 +3103,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             data.put("pendingToolCall", pendingTc);
             data.put(AI_P_APPROVAL_ID, approvalId != null ? approvalId : "");
             data.put("savedAt", System.currentTimeMillis());
+            data.put("userId", currentChatUserId.get() != null ? currentChatUserId.get() : "");
 
             String json = gson.toJson(data);
             java.io.File file = new java.io.File(dir, sanitizeFileName(sessionId) + ".json");
@@ -2975,9 +3125,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     @SuppressWarnings("unchecked")
     protected TLMsg loadSessionCheckpoint(String sessionId) {
+        String uid = currentChatUserId.get();
+        return loadSessionCheckpoint(sessionId, uid);
+    }
+
+    protected TLMsg loadSessionCheckpoint(String sessionId, String userId) {
         if (!enableCheckpoint || sessionId == null) return null;
         try {
-            java.io.File file = new java.io.File(sessionStorePath, sanitizeFileName(sessionId) + ".json");
+            String dir = getSessionStorePath(userId);
+            java.io.File file = new java.io.File(dir, sanitizeFileName(sessionId) + ".json");
             if (!file.exists()) return null;
 
             String json = new String(java.nio.file.Files.readAllBytes(file.toPath()), "UTF-8");
@@ -3023,7 +3179,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     protected void deleteSessionFile(String sessionId) {
         try {
-            java.io.File file = new java.io.File(sessionStorePath, sanitizeFileName(sessionId) + ".json");
+            java.io.File file = new java.io.File(getSessionStorePath(), sanitizeFileName(sessionId) + ".json");
             if (file.exists()) file.delete();
         } catch (Exception e) {
             putLog("deleteSessionFile failed: " + e.toString(), LogLevel.WARN);
@@ -3037,7 +3193,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected void autoResumeCheckpoints() {
         if (!enableCheckpoint) return;
         try {
-            java.io.File dir = new java.io.File(sessionStorePath);
+            java.io.File dir = new java.io.File(getSessionStorePath());
             if (!dir.exists() || !dir.isDirectory()) return;
             java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
             if (files == null) return;
@@ -3045,7 +3201,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             for (java.io.File f : files) {
                 try {
                     TLMsg checkpoint = loadSessionCheckpoint(
-                            f.getName().substring(0, f.getName().length() - 5));
+                            f.getName().substring(0, f.getName().length() - 5), null);
                     if (checkpoint == null) continue;
                     String state = checkpoint.getStringParam("state", "");
                     if (!SESSION_STATE_CHECKPOINT.equals(state)) continue;
@@ -3119,5 +3275,35 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 putLog("TLAiAgent config parse error: " + t.toString(), LogLevel.WARN);
             }
         }
+    }
+
+    // ======================== 内部类：并行工具执行上下文 ========================
+
+    /** 一轮并行工具执行的状态，主线程 latch.await() 等，doToolExec 回调写入 */
+    static class ParallelToolExec {
+        final CountDownLatch latch;
+        final List<TLConversationHistory> history;
+        /** idx → {tc, output, state}，doToolExec 写入，主线程统一处理 */
+        final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
+        volatile boolean pendingApproval = false;
+        volatile boolean rejected = false;
+        volatile boolean clarified = false;
+        volatile boolean aborted = false;
+        volatile String finalResponse;
+        volatile TLToolCall pendingTc;
+        volatile String pendingApprovalId;
+        volatile String rejectReason;
+
+        ParallelToolExec(CountDownLatch latch, List<TLConversationHistory> history) {
+            this.latch = latch;
+            this.history = history;
+        }
+    }
+
+    /** 单个并行工具的执行结果 */
+    static class ToolResult {
+        final TLToolCall tc;
+        final TLMsg msg;
+        ToolResult(TLToolCall tc, TLMsg msg) { this.tc = tc; this.msg = msg; }
     }
 }

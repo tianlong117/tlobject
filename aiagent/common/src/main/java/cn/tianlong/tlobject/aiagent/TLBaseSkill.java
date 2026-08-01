@@ -123,14 +123,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
             }
         }
 
-        // 正文追加（去重）
-        if (body != null && !body.isEmpty()) {
-            if (skillDescription == null || skillDescription.equals(name + " skill")) {
-                skillDescription = body;
-            } else if (!skillDescription.contains(body)) {
-                skillDescription = skillDescription + "\n\n" + body;
-            }
-        }
+        // 正文仅缓存为 skillMdBody，不追加到 skillDescription
+        // （skillDescription 会暴露给 LLM 的 function definitions 和 listSkills 返回值，不宜过长）
     }
 
     /** 尝试文件系统，回退到 classpath */

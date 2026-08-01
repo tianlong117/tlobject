@@ -60,6 +60,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 命令缓存：从 agentService 获取，用于 Tab 补全和帮助提示。key="/xxx", value=描述 */
     private LinkedHashMap<String, String> commandCache = new LinkedHashMap<>();
 
+    /** 输入历史：上下箭头翻阅，最多保留 200 条 */
+    private final java.util.LinkedList<String> inputHistory = new java.util.LinkedList<>();
+    /** 当前历史翻阅位置：-1 = 输新内容；0..size-1 = 历史条目 */
+    private int historyIndex = -1;
+    /** 翻阅前正在编辑的内容（用于"返回"时恢复） */
+    private String historyDraft = "";
+    private static final int MAX_HISTORY = 200;
+
     // ======================== 事件循环状态（仅主线程访问） ========================
     private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP }
 
@@ -95,6 +103,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (params != null) {
             if (params.get("agentModule") != null) agentModule = params.get("agentModule");
             if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
+            if (params.get("userId") != null) userId = params.get("userId");
             if (params.get("sessionId") != null) sessionId = params.get("sessionId");
             if (params.get("streamMode") != null) streamMode = "true".equals(params.get("streamMode"));
             if (params.get("prompt") != null) prompt = params.get("prompt");
@@ -105,6 +114,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         switch (msg.getAction()) {
             case "startChat":
+                // 命令行 -u 参数优先于配置/默认值
+                if (msg.containsParam("userId")) {
+                    String cmdUser = msg.getStringParam("userId", null);
+                    if (cmdUser != null && !cmdUser.isEmpty()) userId = cmdUser;
+                }
                 startConsole();
                 break;
             case "stopChat":
@@ -134,7 +148,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         // 检测断点会话
         try {
-            TLMsg incompleteResult = putMsg(serviceModule, createMsg().setAction("resume"));
+            TLMsg incompleteResult = putMsg(serviceModule, createMsg().setAction("resume")
+                    .setParam("userId", userId));
             if (incompleteResult != null && incompleteResult.parseBoolean("success", false)) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> data = (Map<String, Object>) incompleteResult.getParam("data");
@@ -162,6 +177,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             System.out.println("（检查断点失败: " + e.getMessage() + "）");
         }
 
+        prompt = "你(" + userId + ") > ";
         System.out.println("\nAI Agent 就绪，开始对话吧！（ESC 中断，/exit 退出）\n");
 
         running = true;
@@ -205,7 +221,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                             line.setLength(0);
                             sendStopSignal();
                         } else {
-                            consumeEscapeSequence(termReader);
+                            int terminator = consumeEscapeSequence(termReader);
+                            if (terminator == 'A') {
+                                // 上箭头：翻历史
+                                handleHistoryUp(line);
+                            } else if (terminator == 'B') {
+                                // 下箭头：翻历史
+                                handleHistoryDown(line);
+                            }
                         }
                         continue;
                     }
@@ -215,6 +238,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         }
                         String input = line.toString();
                         line.setLength(0);
+                        if (!input.isEmpty()) {
+                            addToHistory(input.trim());
+                        }
+                        historyIndex = -1;
                         System.out.println();
                         System.out.flush();
                         offer(new ConsoleEvent(EventType.INPUT, input, null));
@@ -320,13 +347,66 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             || c == 0x2014 || c == 0x2015;
     }
 
-    private void consumeEscapeSequence(NonBlockingReader reader) {
+    /** 消费 ESC 后续字节直到终止符，返回终止符。用于区分上/下/左/右等箭头键。 */
+    private int consumeEscapeSequence(NonBlockingReader reader) {
         try {
-            int b;
-            while ((b = reader.read(50)) >= 0) {
-                if (b >= 0x40 && b <= 0x7E) break;
+            int b = reader.read(50);
+            if (b < 0) return -1;
+            // CSI 序列 (ESC [)：跳过参数（数字/分号等 0x20-0x3F），直到终止符 0x40-0x7E
+            if (b == 0x5B /* '[' */ || b == 0x4F /* 'O' */) {
+                while ((b = reader.read(50)) >= 0) {
+                    if (b >= 0x40 && b <= 0x7E) return b;
+                }
             }
+            // 非 CSI 序列：当前字节即终止符（在 0x40-0x7E 范围）
+            if (b >= 0x40 && b <= 0x7E) return b;
         } catch (Exception ignore) {}
+        return -1;
+    }
+
+    /** 上箭头：翻之前的输入 */
+    private void handleHistoryUp(StringBuilder line) {
+        if (inputHistory.isEmpty()) return;
+        if (historyIndex == -1) {
+            historyDraft = line.toString(); // 保存当前草稿
+            historyIndex = inputHistory.size() - 1;
+        } else if (historyIndex > 0) {
+            historyIndex--;
+        }
+        replaceLine(line, inputHistory.get(historyIndex));
+    }
+
+    /** 下箭头：翻之后的输入，到底则恢复草稿 */
+    private void handleHistoryDown(StringBuilder line) {
+        if (historyIndex == -1) return;
+        if (historyIndex < inputHistory.size() - 1) {
+            historyIndex++;
+            replaceLine(line, inputHistory.get(historyIndex));
+        } else {
+            historyIndex = -1;
+            replaceLine(line, historyDraft);
+        }
+    }
+
+    /** 用新文本替换当前行显示和 line */
+    private void replaceLine(StringBuilder line, String newText) {
+        // 清除当前显示
+        for (int i = 0; i < line.length(); i++) {
+            System.out.print("\b \b");
+        }
+        // 设置新内容
+        line.setLength(0);
+        line.append(newText);
+        System.out.print(newText);
+        System.out.flush();
+    }
+
+    /** 加入历史（去相邻重复，限制长度） */
+    private void addToHistory(String input) {
+        if (inputHistory.isEmpty() || !inputHistory.getLast().equals(input)) {
+            inputHistory.addLast(input);
+            while (inputHistory.size() > MAX_HISTORY) inputHistory.removeFirst();
+        }
     }
 
     // ======================== 输入处理 ========================
@@ -347,6 +427,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     paused = false;
                 }
                 stopChat();
+                busy = false;
+                currentTask = null;
+                paused = false;
             } else if (input.toLowerCase().startsWith("/approve")) {
                 executeServiceCommand(parseCommand(input));
             } else if (!input.isEmpty()) {
@@ -467,15 +550,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     return null; // 特殊处理，不发到 agentService
                 }
                 // 无断点 → 恢复最近已完成的会话
-                msg.setAction("resume");
+                msg.setAction("resume").setParam("userId", userId);
                 break;
 
             case "sessions":
-                msg.setAction("sessions");
+                msg.setAction("sessions").setParam("userId", userId);
                 break;
 
             case "continue":
-                msg.setAction("continue");
+                msg.setAction("continue").setParam("userId", userId);
                 if (parts.length > 1) msg.setParam(AI_P_SESSIONID, parts[1]);
                 break;
 
@@ -1147,12 +1230,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 从 agentService 获取命令列表用于 Tab 补全 */
     @SuppressWarnings("unchecked")
     private void populateCommandCache() {
+        // 本地命令（不在 agentService 的 ACTION_REGISTRY 中，控制台自己处理）
+        commandCache.put("/exit", "退出控制台");
+        commandCache.put("/quit", "退出控制台");
+        commandCache.put("/stream", "切换流式/非流式模式");
+        commandCache.put("/thinking", "设置推理模式 (off|prompt|native|auto)");
+        commandCache.put("/help", "显示帮助信息");
+        commandCache.put("/?", "显示帮助信息");
+
         try {
             TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
             if (result != null && result.parseBoolean("success", false)) {
                 List<Map<String, String>> cmds = (List<Map<String, String>>) result.getParam("data");
                 if (cmds != null) {
-                    commandCache.clear();
                     for (Map<String, String> c : cmds) {
                         String action = c.get("action");
                         String desc = c.get("description");
@@ -1163,7 +1253,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
         } catch (Exception e) {
-            // 获取失败时 commandCache 为空，Tab 补全不可用但不影响核心功能
+            // 获取失败时本地命令仍可用
         }
     }
 
@@ -1173,14 +1263,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private void printSkills() {
         TLMsg result = putMsg(agentModule, createMsg().setAction(AGENT_LISTSKILLS));
         if (result != null) {
-            java.util.List<?> skills = result.getListParam("skills", java.util.List.of());
+            java.util.List<String> skills = (java.util.List<String>) result.getListParam("skills", java.util.List.of());
             if (skills.isEmpty()) {
                 System.out.println("⚠ 警告: 没有注册任何Skill！Tool Call功能不可用。");
             } else {
                 System.out.println("已注册的Skill (" + skills.size() + "个):");
-                for (Object s : skills) {
-                    Map<String, Object> info = (Map<String, Object>) s;
-                    System.out.println("  - " + info.get("name") + ": " + info.get("description"));
+                for (String name : skills) {
+                    System.out.println("  - " + name);
                 }
             }
         }

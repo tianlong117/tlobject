@@ -1,6 +1,7 @@
 package cn.tianlong.java.demo.aiagent;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 
@@ -20,10 +21,19 @@ public class AIStart extends TLAppStartUp implements TLAiAgentParamString {
         super(name);
     }
 
+    private String consoleUser = null;
+
     public static void main(String[] args) {
         String configPath = "/conf/demo/aiagent/";
         String factoryConfigPath = AIStart.class.getResource(configPath).getPath();
         System.setProperty("log4j.configurationFile", factoryConfigPath + "log4j2.xml");
+
+        String user = null;
+        for (int i = 0; i < args.length; i++) {
+            if ("-u".equals(args[i]) && i + 1 < args.length) {
+                user = args[++i];
+            }
+        }
 
         HashMap<String, String> argsMap = new HashMap<>();
         argsMap.put("appName", "aiStart");
@@ -31,12 +41,15 @@ public class AIStart extends TLAppStartUp implements TLAiAgentParamString {
         argsMap.put("factoryConfigFile", "moduleFactory_chat_config.xml");
 
         AIStart instance = new AIStart("aiStart");
+        instance.consoleUser = user;
         TLObjectFactory factory = instance.startup(argsMap);
         factory.shutdown();
     }
 
     @Override
     protected void run() {
-        putMsg("chatConsole", createMsg().setAction("startChat"));
+        TLMsg startMsg = createMsg().setAction("startChat");
+        if (consoleUser != null) startMsg.setParam("userId", consoleUser);
+        putMsg("chatConsole", startMsg);
     }
 }

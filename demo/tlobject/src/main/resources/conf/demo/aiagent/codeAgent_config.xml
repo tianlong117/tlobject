@@ -7,6 +7,7 @@
         <defaultLlmProvider value="openAiProvider"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <approvalModule value="approvalGate"/>
     </params>
 
     <providers>
@@ -15,7 +16,7 @@
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
-                  defaultModel="deepseek-v4-pro"/>
+                  defaultModel="deepseek-v4-flash"/>
     </providers>
 
     <skills>
@@ -37,7 +38,6 @@
                      sameClassAs="longTermMemory"
                      statup="true"
                      memoryType="longTerm"
-                     storagePath="./data/codeAgent_memory"
                      maxCacheEntries="10000"/>
     </memoryStores>
 </moduleConfig>

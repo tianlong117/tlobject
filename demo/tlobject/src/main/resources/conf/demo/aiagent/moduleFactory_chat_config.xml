@@ -35,7 +35,7 @@
                 statup="true"
                 apiKey="sk-your-api-key"
                 apiBaseUrl="https://api.deepseek.com"
-                defaultModel="deepseek-v4-pro"
+                defaultModel="deepseek-v4-flash"
                 connTimeOut="30"
                 readTimeOut="120"/>
     </modules>

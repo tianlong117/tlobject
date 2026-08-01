@@ -27,8 +27,8 @@ import java.util.stream.Collectors;
  */
 public class TLLongTermMemoryModule extends TLBaseMemory {
 
-    /** 存储目录路径 */
-    private String storagePath = "./data/longterm_memory";
+    /** 存储基础目录路径（各用户在此下建子目录） */
+    private String storagePath = "./data/";
 
     /** 内存缓存（减少磁盘读取） */
     private Map<String, TLMemoryEntry> cache;
@@ -47,6 +47,28 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
 
     /** 存储文件名——JSONL格式（每行一个JSON entry） */
     private static final String STORE_FILE = "memory_store.jsonl";
+
+    /** 获取 userId 专属的存储文件路径 */
+    private Path getUserStorePath(String userId) {
+        String uid = (userId != null && !userId.isEmpty()) ? userId : "default";
+        return Paths.get(storagePath, uid, "longterm_memory", STORE_FILE);
+    }
+
+    /** 扫描所有用户目录，返回已有的 store 文件列表 */
+    private java.util.List<Path> listAllStoreFiles() {
+        java.util.List<Path> files = new java.util.ArrayList<>();
+        try {
+            java.io.File base = Paths.get(storagePath).toFile();
+            if (!base.exists() || !base.isDirectory()) return files;
+            java.io.File[] userDirs = base.listFiles(java.io.File::isDirectory);
+            if (userDirs == null) return files;
+            for (java.io.File ud : userDirs) {
+                Path p = Paths.get(ud.getAbsolutePath(), "longterm_memory", STORE_FILE);
+                if (Files.exists(p)) files.add(p);
+            }
+        } catch (Exception ignored) {}
+        return files;
+    }
 
     /** compact阈值：dirty/deleted条目数超过此值时触发compact */
     private static final int COMPACT_THRESHOLD = 100;
@@ -357,33 +379,41 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
      * 从磁盘加载记忆（JSONL格式，每行一条记录）
      */
     protected synchronized void loadFromDisk() {
-        Path filePath = Paths.get(storagePath, STORE_FILE);
-        if (!Files.exists(filePath)) {
+        java.util.List<Path> storeFiles = listAllStoreFiles();
+        if (storeFiles.isEmpty()) {
             loaded = true;
             putLog("No existing memory store found, starting fresh.", LogLevel.DEBUG);
             return;
         }
+        int totalLoaded = 0;
+        for (Path filePath : storeFiles) {
+            totalLoaded += loadFromFile(filePath);
+        }
+        loaded = true;
+        putLog("Memory store loaded from " + storeFiles.size() + " user(s), " + totalLoaded + " entries total.", LogLevel.DEBUG);
+    }
 
+    /** 从单个文件加载记忆 */
+    private int loadFromFile(Path filePath) {
+        int count = 0;
         try (BufferedReader reader = Files.newBufferedReader(filePath, StandardCharsets.UTF_8)) {
             String line;
-            int loadedCount = 0;
             while ((line = reader.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
                 try {
                     TLMemoryEntry entry = gson.fromJson(line, TLMemoryEntry.class);
                     if (entry != null && !entry.isExpired() && entry.getKey() != null) {
                         cache.put(entry.getKey(), entry);
-                        loadedCount++;
+                        count++;
                     }
                 } catch (Exception e) {
                     putLog("Skip corrupted line in memory store: " + e.toString(), LogLevel.WARN);
                 }
             }
-            putLog("Loaded " + loadedCount + " memory entries from disk (JSONL).", LogLevel.DEBUG);
         } catch (IOException e) {
             putLog("Failed to load memory from disk: " + e.getMessage(), LogLevel.ERROR);
         }
-        loaded = true;
+        return count;
     }
 
     /**
@@ -417,29 +447,33 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     /**
      * 增量追加pending entries到JSONL文件
      */
+    /** 从 scopedKey 提取 userId（第一段） */
+    private String extractUserId(String scopedKey) {
+        if (scopedKey == null) return "default";
+        int idx = scopedKey.indexOf(':');
+        return idx > 0 ? scopedKey.substring(0, idx) : "default";
+    }
+
     protected synchronized void persistPending() {
         if (!loaded) return;
         if (pendingWrites.isEmpty()) return;
 
         try {
-            Path dirPath = Paths.get(storagePath);
-            if (!Files.exists(dirPath)) {
-                Files.createDirectories(dirPath);
-            }
-            Path filePath = dirPath.resolve(STORE_FILE);
-
-            List<String> lines = new ArrayList<>();
+            // 按 userId 分组
+            Map<String, List<String>> userLines = new LinkedHashMap<>();
             TLMemoryEntry entry;
             while ((entry = pendingWrites.poll()) != null) {
-                lines.add(gson.toJson(entry));
+                String uid = extractUserId(entry.getKey());
+                userLines.computeIfAbsent(uid, k -> new ArrayList<>()).add(gson.toJson(entry));
             }
 
-            if (!lines.isEmpty()) {
-                Files.write(filePath, lines, StandardCharsets.UTF_8,
+            for (Map.Entry<String, List<String>> e : userLines.entrySet()) {
+                Path filePath = getUserStorePath(e.getKey());
+                Files.createDirectories(filePath.getParent());
+                Files.write(filePath, e.getValue(), StandardCharsets.UTF_8,
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             }
 
-            // 如果删除条目过多，触发compact
             if (deletedKeys.size() >= COMPACT_THRESHOLD) {
                 compact();
             }
@@ -454,29 +488,30 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     protected synchronized void compact() {
         if (!loaded) return;
         try {
-            Path dirPath = Paths.get(storagePath);
-            if (!Files.exists(dirPath)) {
-                Files.createDirectories(dirPath);
-            }
-            Path filePath = dirPath.resolve(STORE_FILE);
-
             // 清理过期条目
             cache.values().removeIf(TLMemoryEntry::isExpired);
 
-            // 重写整个文件（只保留未删除的有效条目）
-            List<TLMemoryEntry> sorted = new ArrayList<>(cache.values());
-            sorted.sort((a, b) -> Long.compare(a.getCreatedAt(), b.getCreatedAt()));
-
-            List<String> lines = new ArrayList<>();
-            for (TLMemoryEntry e : sorted) {
-                lines.add(gson.toJson(e));
+            // 按 userId 分组，每个用户一个文件
+            Map<String, List<TLMemoryEntry>> userEntries = new LinkedHashMap<>();
+            for (TLMemoryEntry e : cache.values()) {
+                String uid = extractUserId(e.getKey());
+                userEntries.computeIfAbsent(uid, k -> new ArrayList<>()).add(e);
             }
 
-            Files.write(filePath, lines, StandardCharsets.UTF_8,
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            for (Map.Entry<String, List<TLMemoryEntry>> ue : userEntries.entrySet()) {
+                List<TLMemoryEntry> sorted = ue.getValue();
+                sorted.sort((a, b) -> Long.compare(a.getCreatedAt(), b.getCreatedAt()));
+                List<String> lines = new ArrayList<>();
+                for (TLMemoryEntry e : sorted) lines.add(gson.toJson(e));
+
+                Path filePath = getUserStorePath(ue.getKey());
+                Files.createDirectories(filePath.getParent());
+                Files.write(filePath, lines, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            }
 
             deletedKeys.clear();
-            putLog("Memory store compacted: " + sorted.size() + " entries", LogLevel.DEBUG);
+            putLog("Memory store compacted: " + cache.size() + " entries, " + userEntries.size() + " user(s)", LogLevel.DEBUG);
         } catch (IOException e) {
             putLog("Failed to compact memory: " + e.getMessage(), LogLevel.ERROR);
         }

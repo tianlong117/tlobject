@@ -16,7 +16,7 @@
                   statup="true"
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
-                  defaultModel="deepseek-v4-pro"/>
+                  defaultModel="deepseek-v4-flash"/>
     </providers-->
     <agents>
         <!-- MCP Agent 示例：本地文件系统工具集 -->
@@ -45,7 +45,6 @@
                      sameClassAs="longTermMemory"
                      statup="true"
                      memoryType="longTerm"
-                     storagePath="./data/fileAgent_memory"
                      maxCacheEntries="10000"/>
     </memoryStores>
     <afterMsgTable>

@@ -541,7 +541,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** 列出历史会话 */
     private TLMsg doListSessions(Object fromWho, TLMsg msg) {
-        TLMsg result = putMsg(targetAgent(msg), createMsg().setAction(LIST_SESSIONS));
+        TLMsg result = putMsg(targetAgent(msg), createMsg()
+                .setAction(LIST_SESSIONS)
+                .setParam("userId", msg.getStringParam("userId", null)));
         if (result == null || !result.parseBoolean(RESULT, false)) return fail("无法获取会话列表");
         java.util.List<?> sessions = result.getListParam("sessions", java.util.List.of());
         return ok("会话 (" + sessions.size() + ")", sessions);
@@ -568,13 +570,15 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         if (targetId == null || targetId.isEmpty()) {
             TLMsg latestResult = putMsg(agent, createMsg().setAction("findLatestSession")
-                    .setParam(AI_P_SESSIONID, msg.getStringParam("currentSessionId", "")));
+                    .setParam(AI_P_SESSIONID, msg.getStringParam("currentSessionId", ""))
+                    .setParam("userId", msg.getStringParam("userId", null)));
             targetId = latestResult.getStringParam("sessionId", null);
             if (targetId == null) return fail("没有可恢复的历史会话");
         }
 
         TLMsg resumeResult = putMsg(agent, createMsg().setAction("resumeSession")
-                .setParam(AI_P_SESSIONID, targetId));
+                .setParam(AI_P_SESSIONID, targetId)
+                .setParam("userId", msg.getStringParam("userId", null)));
         if (resumeResult == null || !resumeResult.parseBoolean(RESULT, false)) {
             String err = resumeResult != null ? resumeResult.getStringParam("error", "未知") : "无响应";
             return fail("恢复失败: " + err);
@@ -595,7 +599,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** 恢复断点会话 */
     private TLMsg doResume(Object fromWho, TLMsg msg) {
         String agent = targetAgent(msg);
-        TLMsg incompleteResult = putMsg(agent, createMsg().setAction(FIND_INCOMPLETE_CHECKPOINTS));
+        TLMsg incompleteResult = putMsg(agent, createMsg()
+                .setAction(FIND_INCOMPLETE_CHECKPOINTS)
+                .setParam("userId", msg.getStringParam("userId", null)));
         if (incompleteResult == null || !incompleteResult.parseBoolean(RESULT, false)) {
             return fail("没有可恢复的断点会话");
         }
