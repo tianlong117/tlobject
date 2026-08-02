@@ -156,6 +156,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (data != null) {
                     pendingCheckpointSessionId = (String) data.get("sessionId");
                     pendingCheckpointUserMessage = (String) data.get("userMessage");
+                    String checkpointAgent = (String) data.get("agentName");
                     long savedAt = data.get("savedAt") instanceof Long ? (Long) data.get("savedAt") : 0L;
                     int iteration = data.get("iteration") instanceof Integer ? (Integer) data.get("iteration") : 0;
                     String timeStr = savedAt > 0
@@ -165,6 +166,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println();
                     System.out.println("⚠═══════════════════════════════════");
                     System.out.println("  检测到上次未正常结束的会话:");
+                    System.out.println("  Agent:    " + (checkpointAgent != null ? checkpointAgent : "未知"));
                     System.out.println("  会话ID:   " + pendingCheckpointSessionId);
                     System.out.println("  用户消息: " + pendingCheckpointUserMessage);
                     System.out.println("  中断时间: " + timeStr + " (第 " + iteration + " 轮)");
@@ -522,7 +524,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case "resume":
                 // /resume → 恢复断点（非 busy 时）
                 if (pendingCheckpointSessionId != null) {
-                    // 有断点：启动异步 chat 恢复
+                    // 有断点：通过 agentService 异步恢复（agentService 向 SessionManager 加载数据后发给 Agent）
                     String resumeSid = pendingCheckpointSessionId;
                     String resumeMsg2 = pendingCheckpointUserMessage;
                     pendingCheckpointSessionId = null;
@@ -531,25 +533,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     busy = true;
                     currentStart = System.currentTimeMillis();
                     TLMsg m = createMsg()
-                            .setAction(AGENT_CHAT)
+                            .setAction("chat")
                             .setParam(AI_P_SESSIONID, resumeSid)
                             .setParam("userId", userId)
                             .setParam(AI_P_USERMESSAGE, resumeMsg2)
                             .setParam("resume", true);
                     m.setSystemParam(TASKRESULTFOR, this);
                     m.setSystemParam(TASKRESULTACTION, "onChatDone");
-                    IObject target = (IObject) getModule(agentModule);
+                    IObject target = (IObject) getModule(serviceModule);
                     if (target != null) {
                         TLMsg taskResult = putMsgNoWait(target, m);
                         currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
                         System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
                     } else {
-                        System.out.println("✗ 找不到 Agent 模块: " + agentModule);
+                        System.out.println("✗ 找不到 agentService 模块");
                         busy = false;
                     }
-                    return null; // 特殊处理，不发到 agentService
+                    return null;
                 }
-                // 无断点 → 恢复最近已完成的会话
+                // 无断点 → 通过 agentService 查询 SessionManager
                 msg.setAction("resume").setParam("userId", userId);
                 break;
 
@@ -893,6 +895,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         for (Object obj : sessions) {
             Map<String, Object> s = (Map<String, Object>) obj;
             String sid = s.get("sessionId") != null ? s.get("sessionId").toString() : "?";
+            String agent = s.get("agentName") != null ? s.get("agentName").toString() : "";
             String state = s.get("state") != null ? s.get("state").toString() : "?";
             String userMsg = s.get("userMessage") != null ? s.get("userMessage").toString() : "";
             long savedAt = 0;
@@ -903,7 +906,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String preview = userMsg.length() > 40 ? userMsg.substring(0, 40) + "..." : userMsg;
             String marker = sid.equals(sessionId) ? " ← 当前" : "";
             String stateTag = "completed".equals(state) ? "" : " [" + state + "]";
-            System.out.println("  " + i + ". " + sid + "  " + timeStr + "  \"" + preview
+            String agentTag = !agent.isEmpty() ? " [" + agent + "]" : "";
+            System.out.println("  " + i + ". " + sid + agentTag + "  " + timeStr + "  \"" + preview
                     + "\"  " + count + "条" + stateTag + marker);
             i++;
         }

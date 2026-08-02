@@ -48,6 +48,7 @@
         <!-- 获取AI Agent核心模块（触发初始化） -->
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="sessionManager"/>
 
         <!-- 获取内置模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>

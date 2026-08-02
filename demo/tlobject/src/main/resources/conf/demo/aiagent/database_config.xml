@@ -127,6 +127,10 @@
   `system_message` text,
   `created_at` bigint DEFAULT NULL,
   `last_active` bigint DEFAULT NULL,
+  `state` varchar(32) DEFAULT '',
+  `agent_name` varchar(255) DEFAULT '',
+  `user_message` varchar(1024) DEFAULT '',
+  `msg_count` int DEFAULT 0,
   `metadata` TEXT DEFAULT NULL,
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
@@ -156,6 +160,10 @@
   system_message TEXT,
   created_at INTEGER,
   last_active INTEGER,
+  state TEXT DEFAULT '',
+  agent_name TEXT DEFAULT '',
+  user_message TEXT DEFAULT '',
+  msg_count INTEGER DEFAULT 0,
   metadata TEXT
 );"/>
 
@@ -172,6 +180,51 @@
   expires_at INTEGER,
   metadata TEXT
 );"/>
+
+        <!-- 会话轮次记录表（SessionManager DB 后端） -->
+        <table name="aiSessionRounds" dbtable="ai_session_rounds" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_session_rounds (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id TEXT NOT NULL,
+  user_id TEXT,
+  agent_name TEXT,
+  round_id TEXT NOT NULL,
+  round_seq INTEGER,
+  state TEXT,
+  user_message TEXT,
+  model TEXT,
+  temperature REAL,
+  max_tokens INTEGER,
+  messages TEXT,
+  pending_tool_call TEXT,
+  approval_id TEXT,
+  created_at INTEGER,
+  UNIQUE(session_id, round_id)
+);"/>
+
+        <table name="aiSessionRounds_mysql" dbtable="ai_session_rounds" dbserver="dbserver1" statup="false"
+               ifCreate="create"
+               createSql="CREATE TABLE `ai_session_rounds` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `session_id` varchar(255) NOT NULL,
+  `user_id` varchar(255) DEFAULT '',
+  `agent_name` varchar(255) DEFAULT '',
+  `round_id` varchar(64) NOT NULL,
+  `round_seq` int DEFAULT 1,
+  `state` varchar(32) DEFAULT '',
+  `user_message` varchar(1024) DEFAULT '',
+  `model` varchar(64) DEFAULT '',
+  `temperature` double DEFAULT 0.7,
+  `max_tokens` int DEFAULT 4096,
+  `messages` mediumtext,
+  `pending_tool_call` text,
+  `approval_id` varchar(64) DEFAULT NULL,
+  `created_at` bigint DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_session_round` (`session_id`, `round_id`),
+  KEY `idx_session_id` (`session_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。

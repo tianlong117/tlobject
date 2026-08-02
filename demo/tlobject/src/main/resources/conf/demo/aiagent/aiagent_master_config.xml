@@ -5,16 +5,30 @@
     <!-- 子Agent的"tools" = delegate_to_fileAgent, delegate_to_dbAgent -->
 
     <params>
+        <!-- defaultLlmProvider: 默认LLM Provider模块名 -->
         <defaultLlmProvider value="openAiProvider"/>
+        <!-- maxToolCallIterations: LLM tool-call最大迭代轮次 -->
         <maxToolCallIterations value="10"/>
+        <!-- defaultTemperature: LLM采样温度 -->
         <defaultTemperature value="0.7"/>
+        <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
         <defaultMaxTokens value="4096"/>
+        <!-- defaultMemoryTopK: 记忆召回注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
+        <!-- defaultMemoryStore: 默认长期记忆模块名 -->
         <defaultMemoryStore value="dbMemory" />
+        <!-- defaultSkillPackageName: Skill类名简写默认包前缀 -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <!-- defaultMemoryPackageName: Memory类名简写默认包前缀 -->
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <!-- outputGuard: 输出监管模块名，校验LLM最终回复（不配=关闭） -->
         <outputGuard value="outputGuard"/>
+        <!-- enableCheckpoint: 会话断点通知开关。true=Agent向SessionManager发送sessionUpdated/chatFinished/chatAborted。
+             主Agent设true，子Agent默认false（不配即不通知）。SessionManager另有enableCheckpoint控制是否落盘。 -->
         <enableCheckpoint value="true"/>
+        <!-- sessionManagerName: 会话管理模块名 -->
+        <sessionManagerName value="dbSessionManager"/>
+        <!-- checkProviderOnStartup: 启动时验证LLM Provider连通性 -->
         <checkProviderOnStartup value="true"/>
 
         <!-- ===== HITL 审批机制 =====
@@ -38,8 +52,11 @@
              单次请求:   msg.setParam("reasoningMode", "native")
              注意: 每个子Agent独立配置自己的reasoningMode，主Agent不自动传播
         -->
+        <!-- reasoningMode: 推理模式 off|prompt|native|auto，详见上方注释 -->
         <reasoningMode value="native"/>
+        <!-- reasoningVisible: 推理内容是否暴露给调用方 -->
         <reasoningVisible value="true"/>
+        <!-- thinkingBudget: Claude Extended Thinking token预算（仅native/auto生效） -->
         <thinkingBudget value="4000"/>
     </params>
 

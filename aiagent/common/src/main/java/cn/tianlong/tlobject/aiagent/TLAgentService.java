@@ -29,6 +29,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     private String agentModule = "aiagent";
 
+    /** 会话管理模块名，默认 "sessionManager" */
+    private String sessionManagerName = "sessionManager";
+
     /** 所有可用 action 及其描述，供 UI 做帮助/补全 */
     private static final LinkedHashMap<String, String> ACTION_REGISTRY = new LinkedHashMap<>();
     static {
@@ -63,9 +66,19 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     @Override
     protected void setModuleParams() {
         super.setModuleParams();
-        if (params != null && params.get("agentModule") != null) {
-            agentModule = params.get("agentModule");
+        if (params != null) {
+            if (params.get("agentModule") != null) {
+                agentModule = params.get("agentModule");
+            }
+            if (params.get("sessionManager") != null) {
+                sessionManagerName = params.get("sessionManager");
+            }
         }
+    }
+
+    /** 获取会话管理模块名 */
+    private String targetSessionManager(TLMsg msg) {
+        return msg.getStringParam("sessionManager", sessionManagerName);
     }
 
     @Override
@@ -182,6 +195,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     // ======================== Chat ========================
 
     /** 阻塞式对话 */
+    @SuppressWarnings("unchecked")
     private TLMsg doChat(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
@@ -194,6 +208,29 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 .setParam("userId", userId)
                 .setParam(AI_P_USERMESSAGE, userMessage);
         if (resume) chatMsg.setParam("resume", true);
+
+        // resume=true: 从 SessionManager 预加载历史数据，注入到 Agent 消息中
+        if (resume) {
+            TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+                    .setAction("loadSession")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", userId));
+            if (loaded != null && loaded.parseBoolean(RESULT, false)) {
+                chatMsg.setParam("history", loaded.getParam("history"));
+                chatMsg.setParam("resumeModel", loaded.getStringParam("model", ""));
+                chatMsg.setParam("resumeRoundId", loaded.getStringParam("roundId", ""));
+                chatMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
+                chatMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
+                chatMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+                // 透传审批信息（若存在）
+                if (loaded.containsParam("pendingToolCall")) {
+                    chatMsg.setParam("pendingToolCall", loaded.getParam("pendingToolCall"));
+                }
+                if (loaded.containsParam(AI_P_APPROVAL_ID)) {
+                    chatMsg.setParam(AI_P_APPROVAL_ID, loaded.getStringParam(AI_P_APPROVAL_ID, ""));
+                }
+            }
+        }
 
         // 透传可选参数
         if (msg.containsParam(AI_P_MODEL)) chatMsg.setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, null));
@@ -230,6 +267,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     }
 
     /** 流式对话：请求发给 Agent，chunk 由 Agent 转发到 streamTarget */
+    @SuppressWarnings("unchecked")
     private TLMsg doChatStream(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
@@ -250,7 +288,22 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 .setParam(RESULTACTION, "onStreamResult")
                 .setParam("_streamResultFor", streamTarget)
                 .setParam("_streamResultAction", streamAction);
-        if (resume) streamMsg.setParam("resume", true);
+        if (resume) {
+            streamMsg.setParam("resume", true);
+            // 从 SessionManager 预加载历史数据
+            TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+                    .setAction("loadSession")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", userId));
+            if (loaded != null && loaded.parseBoolean(RESULT, false)) {
+                streamMsg.setParam("history", loaded.getParam("history"));
+                streamMsg.setParam("resumeModel", loaded.getStringParam("model", ""));
+                streamMsg.setParam("resumeRoundId", loaded.getStringParam("roundId", ""));
+                streamMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
+                streamMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
+                streamMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+            }
+        }
         if (msg.containsParam(AI_P_REASONING_MODE)) streamMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
 
         putMsg(agent, streamMsg);
@@ -539,10 +592,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return ok("Skill (" + filtered.size() + ")", filtered);
     }
 
-    /** 列出历史会话 */
+    /** 列出历史会话 → SessionManager */
     private TLMsg doListSessions(Object fromWho, TLMsg msg) {
-        TLMsg result = putMsg(targetAgent(msg), createMsg()
-                .setAction(LIST_SESSIONS)
+        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("listSessions")
                 .setParam("userId", msg.getStringParam("userId", null)));
         if (result == null || !result.parseBoolean(RESULT, false)) return fail("无法获取会话列表");
         java.util.List<?> sessions = result.getListParam("sessions", java.util.List.of());
@@ -563,32 +616,30 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     // ======================== 会话管理 ========================
 
-    /** 继续历史会话 */
+    /** 继续历史会话 → SessionManager */
     private TLMsg doContinueSession(Object fromWho, TLMsg msg) {
         String targetId = msg.getStringParam(AI_P_SESSIONID, null);
-        String agent = targetAgent(msg);
+        String userId = msg.getStringParam("userId", null);
 
-        if (targetId == null || targetId.isEmpty()) {
-            TLMsg latestResult = putMsg(agent, createMsg().setAction("findLatestSession")
-                    .setParam(AI_P_SESSIONID, msg.getStringParam("currentSessionId", ""))
-                    .setParam("userId", msg.getStringParam("userId", null)));
-            targetId = latestResult.getStringParam("sessionId", null);
-            if (targetId == null) return fail("没有可恢复的历史会话");
-        }
-
-        TLMsg resumeResult = putMsg(agent, createMsg().setAction("resumeSession")
-                .setParam(AI_P_SESSIONID, targetId)
-                .setParam("userId", msg.getStringParam("userId", null)));
-        if (resumeResult == null || !resumeResult.parseBoolean(RESULT, false)) {
-            String err = resumeResult != null ? resumeResult.getStringParam("error", "未知") : "无响应";
+        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("continueSession")
+                .setParam("sessionId", targetId)
+                .setParam("userId", userId)
+                .setParam("currentSessionId", msg.getStringParam("currentSessionId", "")));
+        if (result == null || !result.parseBoolean(RESULT, false)) {
+            String err = result != null ? result.getStringParam("error", "未知") : "无响应";
             return fail("恢复失败: " + err);
         }
 
-        int count = resumeResult.getIntParam("count", 0);
-        TLMsg ctxResult = putMsg(agent, createMsg().setAction(AGENT_GETCONTEXT)
-                .setParam(AI_P_SESSIONID, targetId));
-        java.util.List<?> history = ctxResult.getListParam(AI_P_MESSAGEHISTORY, java.util.List.of());
+        // 继续会话后，由 Agent 将历史加载到内部 context
+        targetId = result.getStringParam("sessionId", targetId);
+        java.util.List<?> history = result.getListParam("history", java.util.List.of());
+        putMsg(targetAgent(msg), createMsg()
+                .setAction("loadHistory")
+                .setParam(AI_P_SESSIONID, targetId)
+                .setParam(AI_P_MESSAGEHISTORY, history));
 
+        int count = result.getIntParam("count", 0);
         Map<String, Object> data = new HashMap<>();
         data.put("sessionId", targetId);
         data.put("count", count);
@@ -596,11 +647,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return ok("已恢复会话 " + targetId + " (" + count + " 条)", data);
     }
 
-    /** 恢复断点会话 */
+    /** 恢复断点会话 → SessionManager */
     private TLMsg doResume(Object fromWho, TLMsg msg) {
-        String agent = targetAgent(msg);
-        TLMsg incompleteResult = putMsg(agent, createMsg()
-                .setAction(FIND_INCOMPLETE_CHECKPOINTS)
+        TLMsg incompleteResult = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("findIncomplete")
                 .setParam("userId", msg.getStringParam("userId", null)));
         if (incompleteResult == null || !incompleteResult.parseBoolean(RESULT, false)) {
             return fail("没有可恢复的断点会话");
@@ -608,9 +658,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         Map<String, Object> data = new HashMap<>();
         data.put("sessionId", incompleteResult.getStringParam("sessionId", ""));
+        data.put("agentName", incompleteResult.getStringParam("agentName", ""));
         data.put("userMessage", incompleteResult.getStringParam("userMessage", ""));
         data.put("savedAt", incompleteResult.getLongParam("savedAt", 0L));
-        data.put("iteration", incompleteResult.getIntParam("iteration", 0));
+        data.put("iteration", incompleteResult.getIntParam("round", 0));
         return ok("找到断点会话", data);
     }
 

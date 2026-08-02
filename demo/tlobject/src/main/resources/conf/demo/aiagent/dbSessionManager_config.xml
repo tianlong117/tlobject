@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 是否启用断点保存/恢复（存入 ai_session_rounds 表） -->
+        <enableCheckpoint value="true"/>
+    </params>
+</moduleConfig>

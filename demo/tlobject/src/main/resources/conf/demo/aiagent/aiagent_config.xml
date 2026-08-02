@@ -2,22 +2,28 @@
 <moduleConfig>
     <!-- ===== AI Agent框架核心参数 ===== -->
     <params>
-        <!-- LLM Provider配置 -->
+        <!-- defaultLlmProvider: 默认LLM Provider模块名，对应<providers>中定义的name -->
         <defaultLlmProvider value="openAiProvider"/>
 
-        <!-- tool-call最大迭代次数 -->
+        <!-- maxToolCallIterations: LLM tool-call最大迭代轮次，防止无限循环 -->
         <maxToolCallIterations value="10"/>
 
-        <!-- 上下文最大历史轮次 -->
+        <!-- maxHistoryTurns: 上下文最大保留的历史对话轮次数 -->
         <maxHistoryTurns value="50"/>
 
-        <!-- 断点/恢复功能 -->
+        <!-- enableCheckpoint: 会话断点通知开关。true=Agent向SessionManager发送sessionUpdated/chatFinished/chatAborted。
+             主Agent设true，子Agent默认false（不配即不通知）。SessionManager另有enableCheckpoint控制是否落盘。 -->
         <enableCheckpoint value="true"/>
+        <!-- sessionManagerName: 会话管理模块名，Agent向它发通知；控制台通过它查询/恢复断点 -->
+        <sessionManagerName value="sessionManager"/>
+        <!-- checkProviderOnStartup: 启动时验证LLM Provider连通性，失败仅警告不阻塞 -->
         <checkProviderOnStartup value="true"/>
 
-        <!-- 默认参数 -->
+        <!-- defaultTemperature: LLM采样温度（0.0~2.0），越高越随机 -->
         <defaultTemperature value="0.7"/>
+        <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
         <defaultMaxTokens value="4096"/>
+        <!-- defaultMemoryTopK: 记忆召回时注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
 
         <!-- ===== 推理/思考链 (ReAct) 参数 =====
@@ -33,8 +39,11 @@
              运行时切换: /thinking off|prompt|native|auto
              单次请求覆盖: msg.setParam("reasoningMode", "prompt")
         -->
+        <!-- reasoningMode: 推理模式 off|prompt|native|auto，详见上方注释 -->
         <reasoningMode value="off"/>
+        <!-- reasoningVisible: 推理内容是否暴露给调用方 -->
         <reasoningVisible value="true"/>
+        <!-- thinkingBudget: Claude Extended Thinking token预算（仅native/auto生效） -->
         <thinkingBudget value="4000"/>
 
         <!-- ===== Prompt Caching 参数 =====
@@ -51,10 +60,11 @@
              promptCachingBeta: Anthropic beta 头版本号（仅 Claude Provider 生效）
         -->
 
-        <!-- 包名前缀（用于简写classfile） -->
+        <!-- defaultSkillPackageName: Skill 类名简写时的默认包名前缀 -->
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <!-- defaultMemoryPackageName: Memory 类名简写时的默认包名前缀 -->
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
-        <!-- 默认长期记忆模块 -->
+        <!-- defaultMemoryStore: 默认长期记忆模块名（dbMemory=数据库, longTermMemory=JSONL文件） -->
         <defaultMemoryStore value="dbMemory"/>
 
         <!-- ===== HITL 审批机制 =====

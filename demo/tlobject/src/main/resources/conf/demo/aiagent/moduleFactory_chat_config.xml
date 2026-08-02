@@ -18,8 +18,8 @@
         <loglevel value="trace"/>
     </commonParams>
     <modulesParams>
-        <module name="agentService" agentModule="aiagent_master" />
-        <module name="chatConsole" agentModule="aiagent_master" />
+        <module name="agentService" agentModule="aiagent_master" sessionManager="dbSessionManager" />
+        <module name="chatConsole" agentModule="aiagent_master" sessionManager="dbSessionManager" />
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
         <module name="outputGuard" rules="amountLimit:10000;forbiddenTerms:不要谈论政治;maxLength:3000"/>
     </modulesParams>
@@ -43,6 +43,7 @@
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
         <msg action="getModule" destination="moduleFactory" moduleName="database"      usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="dbSessionManager"/>
         <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="agentService"/>
         <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
