@@ -164,8 +164,11 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     protected java.util.Map<String, Object> findLatestMeta(String userId) {
         if (sessTable == null) return null;
         try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("user_id", userId != null ? userId : "");
             TLMsg result = putMsg(sessTable, createMsg().setAction(DB_QUERY)
-                    .setParam(DB_P_SQL, "select * from [table] order by last_active desc limit 1"));
+                    .setParam(DB_P_SQL, "select * from [table] where user_id=? order by last_active desc limit 1")
+                    .setParam(DB_P_PARAMS, p));
             java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
             if (rows == null || rows.isEmpty()) return null;
             return metaFromSessRow(rows.get(0));
@@ -180,8 +183,12 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         java.util.List<java.util.Map<String, Object>> sessions = new java.util.ArrayList<>();
         if (sessTable == null) return sessions;
         try {
+            String uid = userId != null ? userId : "";
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("user_id", uid);
             TLMsg result = putMsg(sessTable, createMsg().setAction(DB_QUERY)
-                    .setParam(DB_P_SQL, "select * from [table] order by last_active desc"));
+                    .setParam(DB_P_SQL, "select * from [table] where user_id=? order by last_active desc")
+                    .setParam(DB_P_PARAMS, p));
             java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
             if (rows == null) return sessions;
             for (java.util.Map<String, Object> row : rows) {

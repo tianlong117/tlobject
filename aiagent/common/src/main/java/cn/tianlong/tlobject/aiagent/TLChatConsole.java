@@ -45,7 +45,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private String agentModule = "aiagent";
     private String serviceModule = "agentService";
     private String userId = "console_user";
-    private String sessionId = "chat_" + System.currentTimeMillis();
+    private String sessionId;
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
     private String pendingCheckpointSessionId = null;
     private String pendingCheckpointUserMessage = null;
@@ -137,6 +137,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     // ======================== 事件循环 ========================
 
     private void startConsole() {
+        if (sessionId == null) sessionId = "chat_" + userId + "_" + System.currentTimeMillis();
         System.out.println("╔══════════════════════════════════╗");
         System.out.println("║   AI Agent 交互式 Chat          ║");
         System.out.println("║   输入消息开始对话，ESC 中断     ║");
