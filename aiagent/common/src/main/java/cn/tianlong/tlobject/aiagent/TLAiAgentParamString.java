@@ -292,6 +292,21 @@ public interface TLAiAgentParamString extends TLParamString {
     /** MCP Agent: 重新发现 tool */
     String MCP_REFRESHTOOLS = "refreshTools";
 
+    /** MCP 市场搜索 */
+    String MCP_SEARCH = "mcpSearch";
+    /** MCP 市场安装 */
+    String MCP_INSTALL = "mcpInstall";
+    /** 已安装 MCP Agent 列表 */
+    String MCP_LIST = "mcpList";
+    /** MCP Agent 卸载 */
+    String MCP_REMOVE = "mcpRemove";
+    /** MCP 包名（npm/pypi） */
+    String AI_P_MCPPACKAGE = "mcpPackage";
+    /** MCP 搜索关键词 */
+    String AI_P_MCPKEYWORD = "mcpKeyword";
+    /** MCP 安装额外参数 */
+    String AI_P_MCPEXTRAARGS = "mcpExtraArgs";
+
     // ======================== Session 持久化/断点恢复 ========================
     /** 保存会话到持久化存储 */
     String AGENT_SAVESESSION = "saveSession";

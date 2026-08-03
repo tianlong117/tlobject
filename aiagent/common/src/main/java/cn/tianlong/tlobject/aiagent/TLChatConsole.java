@@ -626,6 +626,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 parseEvalCommand(parts, msg);
                 break;
 
+            case "mcp":
+                msg = parseMcpCommand(parts);
+                if (msg == null) return null;
+                break;
+
             default:
                 System.out.println("未知命令: /" + cmd);
                 // 前缀匹配建议
@@ -761,6 +766,77 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
+    /**
+     * 解析 /mcp 命令。
+     * /mcp search [keyword]
+     * /mcp install &lt;package&gt; [agentName] [--args ...]
+     * /mcp list
+     * /mcp remove &lt;name&gt;
+     */
+    private TLMsg parseMcpCommand(String[] parts) {
+        TLMsg msg = createMsg();
+        if (parts.length < 2) {
+            System.out.println("用法: /mcp search [keyword]");
+            System.out.println("      /mcp install <package> [agentName] [--args ...]");
+            System.out.println("      /mcp list");
+            System.out.println("      /mcp remove <name>");
+            return null;
+        }
+        String subCmd = parts[1].toLowerCase();
+        switch (subCmd) {
+            case "search":
+                msg.setAction(MCP_SEARCH);
+                if (parts.length > 2) msg.setParam(AI_P_MCPKEYWORD, parts[2]);
+                break;
+            case "install":
+                if (parts.length < 3) {
+                    System.out.println("用法: /mcp install <package> [agentName] [--args ...]");
+                    return null;
+                }
+                msg.setAction(MCP_INSTALL);
+                parseMcpInstall(parts, msg);
+                break;
+            case "list":
+                msg.setAction(MCP_LIST);
+                break;
+            case "remove":
+                msg.setAction(MCP_REMOVE);
+                if (parts.length > 2) msg.setParam(AI_P_AGENTNAME, parts[2]);
+                break;
+            default:
+                System.out.println("未知 mcp 子命令: " + subCmd);
+                System.out.println("可用: search, install, list, remove");
+                return null;
+        }
+        return msg;
+    }
+
+    /**
+     * 解析 /mcp install &lt;package&gt; [agentName] [--args arg1 arg2 ...]
+     */
+    private void parseMcpInstall(String[] parts, TLMsg msg) {
+        msg.setParam(AI_P_MCPPACKAGE, parts[2]);
+        int argsFlagIdx = -1;
+        for (int i = 3; i < parts.length; i++) {
+            if ("--args".equals(parts[i])) {
+                argsFlagIdx = i;
+                break;
+            }
+            // 第一个非 flag 参数作为 agentName
+            if (!parts[i].startsWith("-") && i == 3) {
+                msg.setParam(AI_P_AGENTNAME, parts[i]);
+            }
+        }
+        if (argsFlagIdx >= 0 && argsFlagIdx + 1 < parts.length) {
+            StringBuilder extra = new StringBuilder();
+            for (int i = argsFlagIdx + 1; i < parts.length; i++) {
+                if (extra.length() > 0) extra.append(" ");
+                extra.append(parts[i]);
+            }
+            msg.setParam(AI_P_MCPEXTRAARGS, extra.toString());
+        }
+    }
+
     /** 发送命令到 agentService 并打印结果 */
     private void executeServiceCommand(TLMsg msg) {
         if (msg == null) return;
@@ -849,6 +925,16 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "reload":
                     System.out.println("✓ " + message);
                     break;
+                case "mcpSearch":
+                    printMcpSearchResult(data, message);
+                    break;
+                case "mcpList":
+                    printMcpListResult(data, message);
+                    break;
+                case "mcpInstall":
+                case "mcpRemove":
+                    System.out.println("✓ " + message);
+                    break;
                 default:
                     System.out.println("✓ " + message);
                     break;
@@ -882,6 +968,55 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 String clazz = m.get(INSTANCE) != null ? m.get(INSTANCE).getClass().getSimpleName() : "?";
                 System.out.println("  " + key + "  [" + clazz + "]");
             }
+        }
+    }
+
+    /** 打印 MCP 搜索结果 */
+    @SuppressWarnings("unchecked")
+    private void printMcpSearchResult(Object data, String message) {
+        System.out.println(message);
+        if (!(data instanceof List)) return;
+        List<?> list = (List<?>) data;
+        if (list.isEmpty()) { System.out.println("  (无结果)"); return; }
+        System.out.println("─".repeat(60));
+        int idx = 1;
+        for (Object obj : list) {
+            if (!(obj instanceof Map)) continue;
+            Map<String, Object> item = (Map<String, Object>) obj;
+            String pkg = (String) item.get("package");
+            String name = (String) item.get("name");
+            String desc = (String) item.get("description");
+            String cat = (String) item.get("category");
+            String runtime = (String) item.get("runtime");
+            String installCmd = (String) item.get("installCmd");
+            String env = (String) item.get("env");
+
+            System.out.printf("  %d. %s  [%s/%s]%n", idx++, name, runtime, cat);
+            if (desc != null && !desc.isEmpty()) {
+                System.out.println("     " + desc);
+            }
+            System.out.println("     包: " + pkg + "    安装: " + installCmd);
+            if (env != null) {
+                System.out.println("     环境变量: " + env);
+            }
+        }
+        System.out.println("─".repeat(60));
+    }
+
+    /** 打印已安装 MCP Agent 列表 */
+    @SuppressWarnings("unchecked")
+    private void printMcpListResult(Object data, String message) {
+        System.out.println(message);
+        if (!(data instanceof List)) return;
+        List<?> list = (List<?>) data;
+        if (list.isEmpty()) { System.out.println("  (无已安装的 MCP Agent)"); return; }
+        for (Object obj : list) {
+            if (!(obj instanceof Map)) continue;
+            Map<String, Object> item = (Map<String, Object>) obj;
+            System.out.printf("  %s  [%s]  %s%n",
+                    item.get("name"),
+                    (boolean) item.getOrDefault("initialized", false) ? "✓" : "✗",
+                    item.get("description"));
         }
     }
 
@@ -1242,6 +1377,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/thinking", "设置推理模式 (off|prompt|native|auto)");
         commandCache.put("/help", "显示帮助信息");
         commandCache.put("/?", "显示帮助信息");
+        commandCache.put("/mcp", "MCP 服务器市场 (search/install/list/remove)");
 
         try {
             TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
@@ -1324,5 +1460,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /eval quick             快速自检");
         System.out.println("  /eval run <id>          运行指定用例");
         System.out.println("  /eval cascade [agent]   级联评测");
+        System.out.println();
+        System.out.println("MCP 市场命令:");
+        System.out.println("  /mcp search [keyword]   搜索 MCP 服务器");
+        System.out.println("  /mcp install <package> [name] [--args ...]  安装 MCP 服务器");
+        System.out.println("  /mcp list               列出已安装的 MCP Agent");
+        System.out.println("  /mcp remove <name>      卸载 MCP Agent");
     }
 }

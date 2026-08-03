@@ -5,9 +5,12 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
+
+import cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent;
+import cn.tianlong.tlobject.aiagent.mcp.TLMcpRegistry;
+import cn.tianlong.tlobject.aiagent.mcp.TLMcpRegistryEntry;
+import cn.tianlong.tlobject.aiagent.mcp.TLMcpRuntime;
 
 /**
  * AI Agent 公共服务模块——各种 UI（控制台、WebUI 等）与 Agent 框架之间的中介层。
@@ -32,6 +35,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** 会话管理模块名，默认 "sessionManager" */
     private String sessionManagerName = "sessionManager";
 
+    /** MCP 市场注册表 */
+    private final TLMcpRegistry mcpRegistry = new TLMcpRegistry();
+
     /** 所有可用 action 及其描述，供 UI 做帮助/补全 */
     private static final LinkedHashMap<String, String> ACTION_REGISTRY = new LinkedHashMap<>();
     static {
@@ -54,6 +60,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("getCacheStats", "查询 Prompt 缓存统计");
         ACTION_REGISTRY.put("checkProvider", "检查 LLM Provider 可用性");
         ACTION_REGISTRY.put("listCommands", "列出所有可用命令");
+        ACTION_REGISTRY.put("mcpSearch", "搜索 MCP 服务器市场");
+        ACTION_REGISTRY.put("mcpInstall", "从市场安装 MCP 服务器");
+        ACTION_REGISTRY.put("mcpList", "列出已安装的 MCP Agent");
+        ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
     }
 
     public TLAgentService() { super(); }
@@ -116,6 +126,12 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "getTokenUsage":   return doGetTokenUsage(fromWho, msg);
             case "getCacheStats":   return doGetCacheStats(fromWho, msg);
             case "checkProvider":   return doCheckProvider(fromWho, msg);
+
+            // ── MCP 市场 ──
+            case "mcpSearch":       return doMcpSearch(fromWho, msg);
+            case "mcpInstall":      return doMcpInstall(fromWho, msg);
+            case "mcpList":         return doMcpList(fromWho, msg);
+            case "mcpRemove":       return doMcpRemove(fromWho, msg);
 
             // ── 运行时参数 ──
             case "setParam":        return doSetParam(fromWho, msg);
@@ -804,5 +820,184 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         putMsg(targetAgent(msg), createMsg().setAction(MODULE_SETPARAM)
                 .setParam(param, value));
         return ok(param + " = " + value);
+    }
+
+    // ======================== MCP 市场 ========================
+
+    /**
+     * /mcp search [keyword]
+     * 搜索 MCP 服务器注册表。
+     */
+    private TLMsg doMcpSearch(Object fromWho, TLMsg msg) {
+        String keyword = msg.getStringParam(AI_P_MCPKEYWORD, "");
+        List<TLMcpRegistryEntry> results;
+        if (keyword.isEmpty()) {
+            results = new ArrayList<>(mcpRegistry.listAll());
+        } else {
+            results = mcpRegistry.search(keyword);
+        }
+
+        List<Map<String, String>> display = new ArrayList<>();
+        for (TLMcpRegistryEntry e : results) {
+            Map<String, String> item = new LinkedHashMap<>();
+            item.put("package", e.getPackageName());
+            item.put("name", e.getDisplayName());
+            item.put("description", e.getDescription());
+            item.put("category", e.getCategory());
+            item.put("runtime", e.getRuntime());
+            item.put("installCmd", "/mcp install " + e.getPackageName());
+            if (e.getEnv() != null) item.put("env", e.getEnv());
+            display.add(item);
+        }
+        return ok("找到 " + display.size() + " 个 MCP 服务器", display);
+    }
+
+    /**
+     * /mcp install &lt;package&gt; [agentName] [--args ...]
+     * 一键安装 MCP 服务器。
+     */
+    private TLMsg doMcpInstall(Object fromWho, TLMsg msg) {
+        String packageName = msg.getStringParam(AI_P_MCPPACKAGE, null);
+        if (packageName == null || packageName.isEmpty()) {
+            return fail("package 参数必填，例如: /mcp install @modelcontextprotocol/server-filesystem");
+        }
+
+        String extraArgsStr = msg.getStringParam(AI_P_MCPEXTRAARGS, "");
+        String[] extraArgs = extraArgsStr.isEmpty() ? new String[0] : extraArgsStr.split("\\s+");
+
+        // Step 1: 从注册表解析包
+        TLMcpRegistryEntry entry = mcpRegistry.resolve(packageName, extraArgs);
+        if (entry == null) {
+            return fail("无法解析 MCP 包: " + packageName
+                    + "。请确认包名正确，或使用 /install -a 手动配置。");
+        }
+
+        // Step 1.5: 检测运行时是否可用
+        TLMcpRuntime.CheckResult check = TLMcpRuntime.checkCommand(entry.getCommand());
+        if (!check.available) {
+            return fail("MCP 运行时不可用: " + entry.getCommand() + "\n" + check.hint);
+        }
+        // 如果检测到了变体（如 npx → npx.cmd），使用实际可用的命令
+        String actualCommand = check.foundPath != null ? check.foundPath : entry.getCommand();
+
+        // Step 2: 自动生成 agentName（如未提供）
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (agentName.isEmpty()) {
+            agentName = deriveAgentName(packageName);
+        }
+
+        // Step 3: 构建 cfg map
+        HashMap<String, String> cfg = new HashMap<>();
+        cfg.put("sameClassAs", "mcpAgent");
+        cfg.put("type", AGENT_TYPE_MCP);
+        cfg.put("statup", "true");
+        cfg.put("transport", entry.getTransport());
+        cfg.put("command", actualCommand);
+
+        // 将 args 列表拼成空格分隔字符串（TLMcpAgent.setModuleParams 按 \\s+ 拆分）
+        StringBuilder argsBuilder = new StringBuilder();
+        for (String a : entry.getArgs()) {
+            if (argsBuilder.length() > 0) argsBuilder.append(" ");
+            argsBuilder.append(a);
+        }
+        cfg.put("args", argsBuilder.toString());
+
+        // 描述
+        String desc = entry.getDescription() != null ? entry.getDescription() : entry.getPackageName();
+        if (entry.getEnv() != null && !entry.getEnv().isEmpty()) {
+            desc += " [环境变量: " + entry.getEnv() + "]";
+        }
+        cfg.put("description", desc);
+
+        // Step 4: 委托给已有 installAgent()
+        String target = targetAgent(msg);
+        TLBaseModule parent = findAgentInstance(target);
+        if (parent == null) return fail("Agent 未找到: " + target);
+
+        TLMsg m = createMsg().setAction(AGENT_REGISTERAGENT)
+                .setParam(AI_P_AGENTNAME, agentName)
+                .setParam(AI_P_AGENTCONFIG, cfg)
+                .setParam(HOTLOAD_P_PERSIST, "true");
+        m.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg result = putMsg(parent, m);
+
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            String cmdPreview = entry.getCommand() + " " + String.join(" ", entry.getArgs());
+            StringBuilder out = new StringBuilder();
+            out.append("MCP Agent 已安装: ").append(agentName).append("\n");
+            out.append("  包: ").append(packageName).append("\n");
+            out.append("  命令: ").append(cmdPreview).append("\n");
+            out.append("  传输: ").append(entry.getTransport()).append("\n");
+            out.append("  来源: ").append(entry.getCategory());
+            if (entry.getEnv() != null) {
+                out.append("\n  注意: 请设置环境变量 ").append(entry.getEnv());
+            }
+            return ok(out.toString());
+        }
+        String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
+        return fail("MCP 安装失败: " + err);
+    }
+
+    /**
+     * /mcp list
+     * 列出所有 type=mcp 的已安装 Agent。
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doMcpList(Object fromWho, TLMsg msg) {
+        String ownerName = msg.getStringParam("filter", null);
+        TLMsg listMsg = createMsg().setAction(REGISTRY_LIST);
+        if (ownerName != null && !ownerName.isEmpty()) listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
+
+        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
+        if (result == null || !result.parseBoolean(RESULT, true)) {
+            return fail("无法获取已安装模块列表");
+        }
+        List<Map<String, Object>> modules = (List<Map<String, Object>>) result.getParam(RESULT);
+        if (modules == null) modules = java.util.List.of();
+
+        List<Map<String, Object>> mcpAgents = new ArrayList<>();
+        for (Map<String, Object> mod : modules) {
+            Object inst = mod.get(INSTANCE);
+            if (inst instanceof TLMcpAgent) {
+                TLMcpAgent mcp = (TLMcpAgent) inst;
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("name", mod.getOrDefault(MODULENAME, "?"));
+                info.put("description", mcp.getAgentDescription());
+                info.put("initialized", mcp.isInitialized());
+                info.put("familyName", mod.getOrDefault(REGISTRY_P_KEY, "?"));
+                mcpAgents.add(info);
+            }
+        }
+        return ok("已安装 MCP Agent (" + mcpAgents.size() + ")", mcpAgents);
+    }
+
+    /**
+     * /mcp remove &lt;name&gt;
+     * 卸载 MCP Agent（复用已有 uninstallAgent）。
+     */
+    private TLMsg doMcpRemove(Object fromWho, TLMsg msg) {
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (agentName.isEmpty()) {
+            return fail("请指定要卸载的 MCP Agent 名称: /mcp remove <name>");
+        }
+        String target = targetAgent(msg);
+        return uninstallAgent(agentName, target);
+    }
+
+    /**
+     * 从包名推导 Agent 名称。
+     * "@modelcontextprotocol/server-filesystem" → "filesystemMcp"
+     * "mcp-server-time" → "timeMcp"
+     */
+    private String deriveAgentName(String packageName) {
+        String[] parts = packageName.split("[/-]");
+        String last = parts[parts.length - 1];
+        // 去掉 "mcp-" 或 "server-" 前缀
+        last = last.replaceAll("^(mcp-|server-)", "");
+        // 确保以 "Mcp" 结尾
+        if (!last.endsWith("Mcp") && !last.endsWith("mcp")) {
+            last = last + "Mcp";
+        }
+        return last;
     }
 }

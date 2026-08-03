@@ -1,0 +1,171 @@
+{
+  "servers": [
+    {
+      "packageName": "@modelcontextprotocol/server-filesystem",
+      "displayName": "Filesystem",
+      "description": "Secure file system access with configurable allowed directories",
+      "category": "developer-tools",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-github",
+      "displayName": "GitHub",
+      "description": "Repository management, file operations, and GitHub API integration",
+      "category": "developer-tools",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "transport": "stdio",
+      "env": "GITHUB_PERSONAL_ACCESS_TOKEN=<your-token>"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-postgres",
+      "displayName": "PostgreSQL",
+      "description": "Read-only database access with schema inspection and query capabilities",
+      "category": "database",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-postgres"],
+      "transport": "stdio",
+      "env": "DATABASE_URL=postgresql://..."
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-puppeteer",
+      "displayName": "Puppeteer",
+      "description": "Browser automation for web scraping and interaction",
+      "category": "developer-tools",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-brave-search",
+      "displayName": "Brave Search",
+      "description": "Web and local search using Brave's Search API",
+      "category": "search",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+      "transport": "stdio",
+      "env": "BRAVE_API_KEY=<your-key>"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-memory",
+      "displayName": "Knowledge Graph Memory",
+      "description": "Persistent memory system using a knowledge graph",
+      "category": "memory",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-memory"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-slack",
+      "displayName": "Slack",
+      "description": "Slack workspace integration for channels and messaging",
+      "category": "communication",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-slack"],
+      "transport": "stdio",
+      "env": "SLACK_BOT_TOKEN=<your-token>"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-sequential-thinking",
+      "displayName": "Sequential Thinking",
+      "description": "Dynamic and reflective problem-solving through thought sequences",
+      "category": "reasoning",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-google-maps",
+      "displayName": "Google Maps",
+      "description": "Google Maps geocoding, directions, and places search",
+      "category": "location",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+      "transport": "stdio",
+      "env": "GOOGLE_MAPS_API_KEY=<your-key>"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-everything",
+      "displayName": "Everything Search",
+      "description": "Fast file search on Windows using Everything SDK",
+      "category": "developer-tools",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@modelcontextprotocol/server-sentry",
+      "displayName": "Sentry",
+      "description": "Sentry error tracking and performance monitoring integration",
+      "category": "monitoring",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-sentry"],
+      "transport": "stdio",
+      "env": "SENTRY_AUTH_TOKEN=<your-token>"
+    },
+    {
+      "packageName": "@anthropic/mcp-server-sqlite",
+      "displayName": "SQLite",
+      "description": "SQLite database interaction and business intelligence",
+      "category": "database",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-server-sqlite"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "@anthropic/mcp-server-google-drive",
+      "displayName": "Google Drive",
+      "description": "Google Drive file access and search",
+      "category": "productivity",
+      "runtime": "node",
+      "command": "npx",
+      "args": ["-y", "@anthropic/mcp-server-google-drive"],
+      "transport": "stdio",
+      "env": "GOOGLE_DRIVE_API_KEY=<your-key>"
+    },
+    {
+      "packageName": "mcp-server-time",
+      "displayName": "Time Server",
+      "description": "Time and timezone conversion capabilities",
+      "category": "utility",
+      "runtime": "python",
+      "command": "uvx",
+      "args": ["mcp-server-time"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "mcp-server-fetch",
+      "displayName": "Fetch",
+      "description": "Web content fetching and conversion to markdown",
+      "category": "utility",
+      "runtime": "python",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "transport": "stdio"
+    },
+    {
+      "packageName": "mcp-server-git",
+      "displayName": "Git Server",
+      "description": "Git repository operations (diff, log, branch management)",
+      "category": "developer-tools",
+      "runtime": "python",
+      "command": "uvx",
+      "args": ["mcp-server-git"],
+      "transport": "stdio"
+    }
+  ]
+}
