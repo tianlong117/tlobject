@@ -89,6 +89,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private boolean paused = false;
     private long lastEscTime = 0;
     private static final long DOUBLE_ESC_WINDOW = 500;
+    /** readEscapeAction 返回值：Delete 键 */
+    private static final int KEY_DELETE = 1000;
 
     public TLChatConsole() { super(); }
     public TLChatConsole(String name) { super(name); }
@@ -205,6 +207,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // 读取线程
         readerThread = new Thread(() -> {
             StringBuilder line = new StringBuilder();
+            int cursorPos = 0; // 光标在 line 中的位置（0 = 行首）
             try {
                 while (running) {
                     int ch = termReader.read();
@@ -222,15 +225,57 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         try { peeked = termReader.peek(50); } catch (Exception ignore) { peeked = -1; }
                         if (peeked <= 0) {
                             line.setLength(0);
+                            cursorPos = 0;
                             sendStopSignal();
                         } else {
-                            int terminator = consumeEscapeSequence(termReader);
-                            if (terminator == 'A') {
-                                // 上箭头：翻历史
-                                handleHistoryUp(line);
-                            } else if (terminator == 'B') {
-                                // 下箭头：翻历史
-                                handleHistoryDown(line);
+                            int action = readEscapeAction(termReader);
+                            switch (action) {
+                                case 'A': // 上箭头：翻历史
+                                    handleHistoryUp(line);
+                                    cursorPos = line.length();
+                                    break;
+                                case 'B': // 下箭头：翻历史
+                                    handleHistoryDown(line);
+                                    cursorPos = line.length();
+                                    break;
+                                case 'C': // 右箭头
+                                    if (cursorPos < line.length()) {
+                                        int w = isFullWidthChar(line.charAt(cursorPos)) ? 2 : 1;
+                                        System.out.printf("\033[%dC", w);
+                                        System.out.flush();
+                                        cursorPos++;
+                                    }
+                                    break;
+                                case 'D': // 左箭头
+                                    if (cursorPos > 0) {
+                                        int w = isFullWidthChar(line.charAt(cursorPos - 1)) ? 2 : 1;
+                                        System.out.printf("\033[%dD", w);
+                                        System.out.flush();
+                                        cursorPos--;
+                                    }
+                                    break;
+                                case 'H': // Home
+                                {
+                                    int cols = visualWidth(line, 0, cursorPos);
+                                    if (cols > 0) System.out.printf("\033[%dD", cols);
+                                    System.out.flush();
+                                    cursorPos = 0;
+                                    break;
+                                }
+                                case 'F': // End
+                                {
+                                    int cols = visualWidth(line, cursorPos, line.length());
+                                    if (cols > 0) System.out.printf("\033[%dC", cols);
+                                    System.out.flush();
+                                    cursorPos = line.length();
+                                    break;
+                                }
+                                case KEY_DELETE: // Delete 键
+                                    if (cursorPos < line.length()) {
+                                        line.deleteCharAt(cursorPos);
+                                        redrawLine(line, cursorPos);
+                                    }
+                                    break;
                             }
                         }
                         continue;
@@ -241,6 +286,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         }
                         String input = line.toString();
                         line.setLength(0);
+                        cursorPos = 0;
                         if (!input.isEmpty()) {
                             addToHistory(input.trim());
                         }
@@ -251,26 +297,42 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         continue;
                     }
                     if (ch == 127 || ch == 8) {
-                        if (line.length() > 0) {
-                            char lastChar = line.charAt(line.length() - 1);
-                            line.setLength(line.length() - 1);
-                            if (isFullWidthChar(lastChar)) {
-                                System.out.print("\b\b  \b\b");
-                            } else {
+                        if (cursorPos > 0) {
+                            char removed = line.charAt(cursorPos - 1);
+                            line.deleteCharAt(cursorPos - 1);
+                            cursorPos--;
+                            if (isFullWidthChar(removed)) {
+                                // 全角字符删除后重绘整行以确保对齐
+                                redrawLine(line, cursorPos);
+                            } else if (cursorPos == line.length()) {
+                                // 在末尾删除，只需 \b \b
                                 System.out.print("\b \b");
+                                System.out.flush();
+                            } else {
+                                // 在中间删除，重绘
+                                redrawLine(line, cursorPos);
                             }
-                            System.out.flush();
                         }
                         continue;
                     }
                     if (ch == '\t') {
                         handleTabComplete(line);
+                        cursorPos = line.length();
                         continue;
                     }
                     if (ch >= 32) {
-                        line.append((char) ch);
-                        System.out.print((char) ch);
-                        System.out.flush();
+                        if (cursorPos == line.length()) {
+                            // 在末尾追加：快速路径，直接输出
+                            line.append((char) ch);
+                            cursorPos++;
+                            System.out.print((char) ch);
+                            System.out.flush();
+                        } else {
+                            // 在中间插入：需要重绘
+                            line.insert(cursorPos, (char) ch);
+                            cursorPos++;
+                            redrawLine(line, cursorPos);
+                        }
                     }
                 }
             } catch (Exception ignore) {
@@ -350,18 +412,44 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             || c == 0x2014 || c == 0x2015;
     }
 
-    /** 消费 ESC 后续字节直到终止符，返回终止符。用于区分上/下/左/右等箭头键。 */
-    private int consumeEscapeSequence(NonBlockingReader reader) {
+    /**
+     * 读取 ESC 后续的转义序列，返回语义化动作码。
+     *   'A'..'D' = 方向键, 'H' = Home, 'F' = End, KEY_DELETE = Delete
+     */
+    private int readEscapeAction(NonBlockingReader reader) {
         try {
             int b = reader.read(50);
             if (b < 0) return -1;
-            // CSI 序列 (ESC [)：跳过参数（数字/分号等 0x20-0x3F），直到终止符 0x40-0x7E
+            // CSI 序列 (ESC [ 或 ESC O)
             if (b == 0x5B /* '[' */ || b == 0x4F /* 'O' */) {
-                while ((b = reader.read(50)) >= 0) {
-                    if (b >= 0x40 && b <= 0x7E) return b;
+                // 读取第一个参数字节（可能是数字，也可能直接是终止符）
+                b = reader.read(50);
+                if (b < 0) return -1;
+                int param = 0;
+                // 积累参数数字（如 Home = ESC [ 1 ~，Delete = ESC [ 3 ~）
+                while (b >= 0x30 && b <= 0x39) { // '0'..'9'
+                    param = param * 10 + (b - 0x30);
+                    b = reader.read(50);
+                    if (b < 0) return -1;
                 }
+                // b 现在是终止符或中间字节
+                if (b == 0x7E /* '~' */) {
+                    // 带参数的 ~ 序列
+                    if (param == 1 || param == 7) return 'H';   // Home
+                    if (param == 4 || param == 8) return 'F';   // End
+                    if (param == 3) return KEY_DELETE;          // Delete
+                    return -1;
+                }
+                if (b >= 0x40 && b <= 0x7E) return b; // A/B/C/D/H/F 等
+                // 跳过中间字节（分号等 0x20-0x3F），读终止符
+                while (b >= 0x20 && b < 0x40) {
+                    b = reader.read(50);
+                    if (b < 0) return -1;
+                }
+                if (b >= 0x40 && b <= 0x7E) return b;
+                return -1;
             }
-            // 非 CSI 序列：当前字节即终止符（在 0x40-0x7E 范围）
+            // 非 CSI 序列：当前字节即动作码
             if (b >= 0x40 && b <= 0x7E) return b;
         } catch (Exception ignore) {}
         return -1;
@@ -401,6 +489,33 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         line.setLength(0);
         line.append(newText);
         System.out.print(newText);
+        System.out.flush();
+    }
+
+    /**
+     * 计算 StringBuilder 指定区间的显示列宽（全角=2列，半角=1列）。
+     */
+    private int visualWidth(StringBuilder sb, int from, int to) {
+        int w = 0;
+        for (int i = from; i < to && i < sb.length(); i++) {
+            w += isFullWidthChar(sb.charAt(i)) ? 2 : 1;
+        }
+        return w;
+    }
+
+    /**
+     * 重绘整行（内容有变化时使用）。
+     * 用 \r 回行首 + ANSI 清屏 + 重打 prompt + 内容 + 光标定位。
+     */
+    private void redrawLine(StringBuilder line, int cursorPos) {
+        System.out.print("\r\033[K");  // 回行首 + 清除到行尾
+        System.out.print(prompt);
+        System.out.print(line.toString());
+        // 把光标移回正确位置（按显示列宽计算）
+        int afterCursor = visualWidth(line, cursorPos, line.length());
+        if (afterCursor > 0) {
+            System.out.printf("\033[%dD", afterCursor);
+        }
         System.out.flush();
     }
 
@@ -776,10 +891,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private TLMsg parseMcpCommand(String[] parts) {
         TLMsg msg = createMsg();
         if (parts.length < 2) {
-            System.out.println("用法: /mcp search [keyword]");
-            System.out.println("      /mcp install <package> [agentName] [--args ...]");
-            System.out.println("      /mcp list");
-            System.out.println("      /mcp remove <name>");
+            System.out.println("MCP 服务器市场 — 搜索、安装、管理 MCP 工具包");
+            System.out.println();
+            System.out.println("  /mcp search [keyword]   搜索 MCP 服务器（空参数列出全部精选）");
+            System.out.println("  /mcp info <package>     查看包详细信息（功能说明、工具列表、主页等）");
+            System.out.println("  /mcp install <package> [name] [--args ...]  安装 MCP 服务器为子 Agent");
+            System.out.println("  /mcp list               列出已安装的 MCP Agent 及其状态");
+            System.out.println("  /mcp remove <name>      卸载 MCP Agent");
+            System.out.println();
+            System.out.println("  示例:");
+            System.out.println("    /mcp search filesystem         # 搜索文件系统相关 MCP");
+            System.out.println("    /mcp info @modelcontextprotocol/server-filesystem  # 查看这个包有什么工具");
+            System.out.println("    /mcp install @modelcontextprotocol/server-filesystem  # 安装（自动命名）");
+            System.out.println("    /mcp install mcp-server-fetch myFetch  # 安装并指定 Agent 名称");
+            System.out.println("    /mcp list                      # 看看装了哪些");
+            System.out.println("    /mcp remove filesystemMcp      # 卸载");
             return null;
         }
         String subCmd = parts[1].toLowerCase();
@@ -803,9 +929,17 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 msg.setAction(MCP_REMOVE);
                 if (parts.length > 2) msg.setParam(AI_P_AGENTNAME, parts[2]);
                 break;
+            case "info":
+                if (parts.length < 3) {
+                    System.out.println("用法: /mcp info <package>");
+                    return null;
+                }
+                msg.setAction(MCP_INFO);
+                msg.setParam(AI_P_MCPPACKAGE, parts[2]);
+                break;
             default:
                 System.out.println("未知 mcp 子命令: " + subCmd);
-                System.out.println("可用: search, install, list, remove");
+                System.out.println("可用: search, install, list, remove, info");
                 return null;
         }
         return msg;
@@ -931,6 +1065,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "mcpList":
                     printMcpListResult(data, message);
                     break;
+                case "mcpInfo":
+                    printMcpInfoResult(data, message);
+                    break;
                 case "mcpInstall":
                 case "mcpRemove":
                     System.out.println("✓ " + message);
@@ -1001,6 +1138,69 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             }
         }
         System.out.println("─".repeat(60));
+        System.out.println("  使用 /mcp info <package> 查看详细功能说明");
+    }
+
+    /** 打印 MCP 包详情 */
+    @SuppressWarnings("unchecked")
+    private void printMcpInfoResult(Object data, String message) {
+        if (!(data instanceof Map)) {
+            System.out.println(message);
+            return;
+        }
+        Map<String, Object> info = (Map<String, Object>) data;
+        if (message != null && !message.isEmpty()) {
+            System.out.println(message);
+        }
+        System.out.println("─".repeat(60));
+        System.out.printf("  %s%n", info.getOrDefault("name", info.get("package")));
+        System.out.printf("  包: %s%n", info.get("package"));
+        if (info.containsKey("version")) {
+            System.out.printf("  版本: %s%n", info.get("version"));
+        }
+        System.out.printf("  运行时: %s / %s%n",
+                info.getOrDefault("runtime", "?"),
+                info.getOrDefault("command", "?"));
+        System.out.println();
+
+        // 详细描述（可能多行）
+        String desc = (String) info.get("description");
+        if (desc != null && !desc.isEmpty()) {
+            System.out.println("  【功能说明】");
+            for (String line : desc.split("\n")) {
+                System.out.println("  " + line);
+            }
+            System.out.println();
+        }
+
+        // 关键词
+        String keywords = (String) info.get("keywords");
+        if (keywords != null && !keywords.isEmpty()) {
+            System.out.printf("  关键词: %s%n", keywords);
+        }
+
+        // 工具列表
+        String tools = (String) info.get("tools");
+        if (tools != null && !tools.isEmpty()) {
+            System.out.println("  【主要工具】");
+            for (String line : tools.split("\n")) {
+                System.out.println("    " + line);
+            }
+        }
+
+        // 链接
+        if (info.containsKey("homepage")) {
+            System.out.printf("  主页: %s%n", info.get("homepage"));
+        }
+        if (info.containsKey("repository")) {
+            System.out.printf("  仓库: %s%n", info.get("repository"));
+        }
+
+        // 环境变量
+        if (info.containsKey("env")) {
+            System.out.printf("  环境变量: %s%n", info.get("env"));
+        }
+        System.out.println("─".repeat(60));
     }
 
     /** 打印已安装 MCP Agent 列表 */
@@ -1013,9 +1213,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         for (Object obj : list) {
             if (!(obj instanceof Map)) continue;
             Map<String, Object> item = (Map<String, Object>) obj;
+            // 展示 familyName 而非短名，让用户能区分不同父 Agent 下的同名 MCP
+            String displayName = (String) item.getOrDefault("familyName", item.get("name"));
+            boolean initialized = item.get("initialized") instanceof Boolean
+                    && (boolean) item.get("initialized");
             System.out.printf("  %s  [%s]  %s%n",
-                    item.get("name"),
-                    (boolean) item.getOrDefault("initialized", false) ? "✓" : "✗",
+                    displayName,
+                    initialized ? "OK" : "--",
                     item.get("description"));
         }
     }
@@ -1377,7 +1581,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/thinking", "设置推理模式 (off|prompt|native|auto)");
         commandCache.put("/help", "显示帮助信息");
         commandCache.put("/?", "显示帮助信息");
-        commandCache.put("/mcp", "MCP 服务器市场 (search/install/list/remove)");
+        commandCache.put("/mcp", "MCP 服务器市场 (search/info/install/list/remove)");
 
         try {
             TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
@@ -1462,9 +1666,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /eval cascade [agent]   级联评测");
         System.out.println();
         System.out.println("MCP 市场命令:");
-        System.out.println("  /mcp search [keyword]   搜索 MCP 服务器");
-        System.out.println("  /mcp install <package> [name] [--args ...]  安装 MCP 服务器");
-        System.out.println("  /mcp list               列出已安装的 MCP Agent");
+        System.out.println("  /mcp search [keyword]   搜索 MCP 服务器，空参数列出全部精选");
+        System.out.println("  /mcp info <package>     查看包的详细功能说明和工具列表");
+        System.out.println("  /mcp install <package> [name] [--args ...]  安装为子 Agent");
+        System.out.println("  /mcp list               列出已安装的 MCP Agent 及状态");
         System.out.println("  /mcp remove <name>      卸载 MCP Agent");
     }
 }

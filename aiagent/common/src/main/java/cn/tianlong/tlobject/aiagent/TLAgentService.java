@@ -132,6 +132,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "mcpInstall":      return doMcpInstall(fromWho, msg);
             case "mcpList":         return doMcpList(fromWho, msg);
             case "mcpRemove":       return doMcpRemove(fromWho, msg);
+            case "mcpInfo":         return doMcpInfo(fromWho, msg);
 
             // ── 运行时参数 ──
             case "setParam":        return doSetParam(fromWho, msg);
@@ -982,6 +983,65 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         }
         String target = targetAgent(msg);
         return uninstallAgent(agentName, target);
+    }
+
+    /**
+     * /mcp info &lt;package&gt;
+     * 展示 MCP 包的详细信息，优先查精选索引，再查 npm registry。
+     */
+    private TLMsg doMcpInfo(Object fromWho, TLMsg msg) {
+        String packageName = msg.getStringParam(AI_P_MCPPACKAGE, "");
+        if (packageName.isEmpty()) {
+            return fail("用法: /mcp info <package>");
+        }
+
+        // 1. 查精选索引
+        TLMcpRegistryEntry entry = mcpRegistry.resolve(packageName);
+        Map<String, Object> info = new LinkedHashMap<>();
+
+        if (entry != null) {
+            info.put("name", entry.getDisplayName());
+            info.put("package", entry.getPackageName());
+            info.put("description", entry.getDescription());
+            info.put("runtime", entry.getRuntime());
+            info.put("command", entry.getCommand());
+            info.put("category", entry.getCategory());
+            if (entry.getEnv() != null) info.put("env", entry.getEnv());
+            if (entry.getTools() != null && !entry.getTools().isEmpty()) {
+                info.put("tools", String.join("\n", entry.getTools()));
+            }
+        }
+
+        // 2. 从 npm registry 补充详情
+        Map<String, Object> npmDetail = mcpRegistry.fetchPackageDetail(packageName);
+        if (npmDetail != null) {
+            // 精选索引描述优先，npm 描述作为补充
+            if (!info.containsKey("description") || info.get("description") == null
+                    || ((String) info.get("description")).length() < 50) {
+                String npmDesc = (String) npmDetail.get("description");
+                if (npmDesc != null && !npmDesc.isEmpty()) {
+                    info.put("description", npmDesc);
+                }
+            }
+            for (String key : new String[]{"version", "keywords", "homepage", "repository"}) {
+                if (npmDetail.containsKey(key) && !info.containsKey(key)) {
+                    info.put(key, npmDetail.get(key));
+                }
+            }
+            // npm README 摘要拼到描述后面
+            String readmeExcerpt = (String) npmDetail.get("readmeExcerpt");
+            if (readmeExcerpt != null && !readmeExcerpt.isEmpty()) {
+                String desc = (String) info.getOrDefault("description", "");
+                info.put("description", desc + "\n\n---\n" + readmeExcerpt);
+            }
+        }
+
+        if (info.isEmpty()) {
+            return fail("未找到 MCP 包信息: " + packageName
+                    + "\n请确认包名正确，或使用 /mcp search 查找。");
+        }
+
+        return ok(packageName + " 详情", info);
     }
 
     /**

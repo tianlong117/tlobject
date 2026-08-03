@@ -3,169 +3,275 @@
     {
       "packageName": "@modelcontextprotocol/server-filesystem",
       "displayName": "Filesystem",
-      "description": "Secure file system access with configurable allowed directories",
+      "description": "Secure file system access with configurable allowed directories. The official MCP filesystem server — read, write, edit, list, and search files within allowed paths. Best choice for most file operations.",
       "category": "developer-tools",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "read_file — 读取单个文件完整内容",
+        "write_file — 创建或覆盖写入文件",
+        "edit_file — 基于行范围的精确文件编辑",
+        "list_directory — 列出目录内容",
+        "search_files — 递归搜索文件",
+        "get_file_info — 获取文件元信息",
+        "directory_tree — 递归目录树结构",
+        "list_allowed_directories — 列出允许访问的目录"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-github",
       "displayName": "GitHub",
-      "description": "Repository management, file operations, and GitHub API integration",
+      "description": "Repository management, file operations, and GitHub API integration. Create/update issues, PRs, branches, search repos, manage files. Requires GitHub personal access token.",
       "category": "developer-tools",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-github"],
       "transport": "stdio",
-      "env": "GITHUB_PERSONAL_ACCESS_TOKEN=<your-token>"
+      "env": "GITHUB_PERSONAL_ACCESS_TOKEN=<your-token>",
+      "tools": [
+        "create_or_update_file — 创建或更新仓库文件",
+        "search_repositories — 搜索 GitHub 仓库",
+        "create_issue — 创建 Issue",
+        "create_pull_request — 创建 PR",
+        "fork_repository — Fork 仓库",
+        "create_branch — 创建分支",
+        "list_commits — 列出提交记录",
+        "list_issues — 列出 Issues",
+        "get_issue — 获取 Issue 详情"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-postgres",
       "displayName": "PostgreSQL",
-      "description": "Read-only database access with schema inspection and query capabilities",
+      "description": "Read-only database access with schema inspection and query capabilities. Connect to PostgreSQL databases, explore table schemas, and run read-only SQL queries. Requires DATABASE_URL env var.",
       "category": "database",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-postgres"],
       "transport": "stdio",
-      "env": "DATABASE_URL=postgresql://..."
+      "env": "DATABASE_URL=postgresql://user:pass@host:5432/dbname",
+      "tools": [
+        "query — 执行只读 SQL 查询",
+        "list_tables — 列出所有表",
+        "describe_table — 查看表结构（列名、类型、约束）"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-puppeteer",
       "displayName": "Puppeteer",
-      "description": "Browser automation for web scraping and interaction",
+      "description": "Browser automation for web scraping, screenshots, and interaction. Navigate pages, click elements, fill forms, take screenshots, and execute JavaScript in a real Chrome browser.",
       "category": "developer-tools",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-puppeteer"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "navigate — 导航到指定 URL",
+        "screenshot — 截取页面或元素截图",
+        "click — 点击页面元素",
+        "fill — 填写表单输入框",
+        "evaluate — 在页面中执行 JavaScript",
+        "select — 下拉选择框操作",
+        "hover — 鼠标悬停"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-brave-search",
       "displayName": "Brave Search",
-      "description": "Web and local search using Brave's Search API",
+      "description": "Web and local search using Brave's Search API. Perform web searches and local place/business searches. Requires a Brave Search API key (free tier available).",
       "category": "search",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-brave-search"],
       "transport": "stdio",
-      "env": "BRAVE_API_KEY=<your-key>"
+      "env": "BRAVE_API_KEY=<your-key>",
+      "tools": [
+        "brave_web_search — 网页搜索，返回标题+URL+摘要",
+        "brave_local_search — 本地商家/地点搜索"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-memory",
       "displayName": "Knowledge Graph Memory",
-      "description": "Persistent memory system using a knowledge graph",
+      "description": "Persistent memory system using a knowledge graph. Stores entities and relationships, enabling the AI to remember and reason about past interactions across sessions.",
       "category": "memory",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-memory"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "create_entities — 创建知识图谱实体节点",
+        "create_relations — 创建实体间关系边",
+        "search_nodes — 按名称搜索实体",
+        "open_nodes — 查看实体及其关联关系",
+        "read_graph — 读取整个知识图谱",
+        "delete_entities — 删除实体",
+        "delete_observations — 删除实体上的观察记录",
+        "delete_relations — 删除关系"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-slack",
       "displayName": "Slack",
-      "description": "Slack workspace integration for channels and messaging",
+      "description": "Slack workspace integration for channels and messaging. Send messages, list channels, search history, manage users. Requires Slack Bot Token with appropriate scopes.",
       "category": "communication",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-slack"],
       "transport": "stdio",
-      "env": "SLACK_BOT_TOKEN=<your-token>"
+      "env": "SLACK_BOT_TOKEN=<your-token>",
+      "tools": [
+        "slack_list_channels — 列出工作区频道",
+        "slack_post_message — 发送消息到频道/用户",
+        "slack_reply_to_thread — 回复消息线程",
+        "slack_get_channel_history — 获取频道消息历史",
+        "slack_add_reaction — 添加表情回应",
+        "slack_get_user_profile — 获取用户资料"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-sequential-thinking",
       "displayName": "Sequential Thinking",
-      "description": "Dynamic and reflective problem-solving through thought sequences",
+      "description": "Dynamic and reflective problem-solving through thought sequences. Enables the AI to break down complex problems into sequential steps, revise earlier thoughts, and explore branches — useful for math, logic, and planning.",
       "category": "reasoning",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "sequentialthinking — 多步推理思维链（可分支、回溯、修正）"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-google-maps",
       "displayName": "Google Maps",
-      "description": "Google Maps geocoding, directions, and places search",
+      "description": "Google Maps geocoding, directions, and places search. Geocode addresses, calculate routes, search nearby places. Requires Google Maps API key.",
       "category": "location",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-google-maps"],
       "transport": "stdio",
-      "env": "GOOGLE_MAPS_API_KEY=<your-key>"
+      "env": "GOOGLE_MAPS_API_KEY=<your-key>",
+      "tools": [
+        "maps_geocode — 地址→经纬度转换",
+        "maps_reverse_geocode — 经纬度→地址",
+        "maps_search_places — 地点搜索（类型+半径）",
+        "maps_place_details — 获取地点详细信息",
+        "maps_distance_matrix — 多点距离/时间矩阵",
+        "maps_directions — 路线规划（驾车/步行/公交）"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-everything",
       "displayName": "Everything Search",
-      "description": "Fast file search on Windows using Everything SDK",
+      "description": "Fast file search on Windows using Everything SDK. Provides instant filename search across all drives. Requires Everything (voidtools.com) to be installed and running.",
       "category": "developer-tools",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-everything"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "search — 按文件名搜索（支持通配符），比 Windows 自带搜索快百倍"
+      ]
     },
     {
       "packageName": "@modelcontextprotocol/server-sentry",
       "displayName": "Sentry",
-      "description": "Sentry error tracking and performance monitoring integration",
+      "description": "Sentry error tracking and performance monitoring integration. Query Sentry issues, events, and project stats. Requires Sentry Auth Token.",
       "category": "monitoring",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-sentry"],
       "transport": "stdio",
-      "env": "SENTRY_AUTH_TOKEN=<your-token>"
+      "env": "SENTRY_AUTH_TOKEN=<your-token>",
+      "tools": [
+        "get_issue — 获取单个 Issue 详情",
+        "list_issues — 列出项目 Issues",
+        "get_event — 获取错误事件详情",
+        "get_project — 获取项目信息"
+      ]
     },
     {
       "packageName": "@anthropic/mcp-server-sqlite",
       "displayName": "SQLite",
-      "description": "SQLite database interaction and business intelligence",
+      "description": "SQLite database interaction and business intelligence. Run SQL queries, explore schema, and analyze local SQLite databases. Great for data analysis and prototyping.",
       "category": "database",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@anthropic/mcp-server-sqlite"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "read_query — 执行 SELECT 查询",
+        "write_query — 执行 INSERT/UPDATE/DELETE",
+        "create_table — 创建新表",
+        "list_tables — 列出所有表",
+        "describe_table — 查看表结构"
+      ]
     },
     {
       "packageName": "@anthropic/mcp-server-google-drive",
       "displayName": "Google Drive",
-      "description": "Google Drive file access and search",
+      "description": "Google Drive file access and search. List, read, and search files in Google Drive. Requires Google Drive API credentials.",
       "category": "productivity",
       "runtime": "node",
       "command": "npx",
       "args": ["-y", "@anthropic/mcp-server-google-drive"],
       "transport": "stdio",
-      "env": "GOOGLE_DRIVE_API_KEY=<your-key>"
+      "env": "GOOGLE_DRIVE_API_KEY=<your-key>",
+      "tools": [
+        "search — 按文件名/类型搜索 Drive 文件",
+        "read_file — 读取文件内容（Google Docs→Markdown）",
+        "list_files — 列出文件夹内容"
+      ]
     },
     {
       "packageName": "mcp-server-time",
       "displayName": "Time Server",
-      "description": "Time and timezone conversion capabilities",
+      "description": "Time and timezone conversion. Get current time in any timezone and convert between timezones. Pure Python, no API key required.",
       "category": "utility",
       "runtime": "python",
       "command": "uvx",
       "args": ["mcp-server-time"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "get_current_time — 获取指定时区当前时间",
+        "convert_time — 时区间时间转换"
+      ]
     },
     {
       "packageName": "mcp-server-fetch",
       "displayName": "Fetch",
-      "description": "Web content fetching and conversion to markdown",
+      "description": "Web content fetching and conversion to markdown. Fetches URLs and intelligently converts HTML to clean Markdown text for the AI to process. Pure Python, no API key required.",
       "category": "utility",
       "runtime": "python",
       "command": "uvx",
       "args": ["mcp-server-fetch"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "fetch — 抓取网页并转为 Markdown（支持自定义 User-Agent）"
+      ]
     },
     {
       "packageName": "mcp-server-git",
       "displayName": "Git Server",
-      "description": "Git repository operations (diff, log, branch management)",
+      "description": "Git repository operations directly from AI. View diffs, read commit logs, manage branches, and stage changes. Operates on a specific git repo path. Pure Python, no API key required.",
       "category": "developer-tools",
       "runtime": "python",
       "command": "uvx",
       "args": ["mcp-server-git"],
-      "transport": "stdio"
+      "transport": "stdio",
+      "tools": [
+        "git_status — 查看工作区状态",
+        "git_diff_unstaged — 未暂存的差异",
+        "git_diff_staged — 已暂存的差异",
+        "git_log — 提交历史",
+        "git_branch — 分支列表/创建/切换",
+        "git_add — 暂存文件",
+        "git_commit — 提交更改",
+        "git_show — 查看某次提交详情"
+      ]
     }
   ]
 }

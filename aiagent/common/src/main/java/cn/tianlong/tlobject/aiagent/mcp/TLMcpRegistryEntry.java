@@ -24,6 +24,7 @@ public class TLMcpRegistryEntry {
     private String transport;        // "stdio" (default) or "sse"
     private String url;              // for SSE transport
     private String env;              // optional env vars hint (key=value)
+    private List<String> tools;      // optional list of tool descriptions (e.g. "read_file - 读取文件")
 
     public TLMcpRegistryEntry() {
         this.transport = "stdio";
@@ -41,6 +42,7 @@ public class TLMcpRegistryEntry {
     public String getTransport() { return transport; }
     public String getUrl() { return url; }
     public String getEnv() { return env; }
+    public List<String> getTools() { return tools; }
 
     // ======================== Setters (fluent) ========================
 
@@ -54,6 +56,7 @@ public class TLMcpRegistryEntry {
     public TLMcpRegistryEntry setTransport(String v) { this.transport = v; return this; }
     public TLMcpRegistryEntry setUrl(String v) { this.url = v; return this; }
     public TLMcpRegistryEntry setEnv(String v) { this.env = v; return this; }
+    public TLMcpRegistryEntry setTools(List<String> v) { this.tools = v; return this; }
 
     // ======================== Factory methods ========================
 

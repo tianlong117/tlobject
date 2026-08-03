@@ -300,6 +300,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String MCP_LIST = "mcpList";
     /** MCP Agent 卸载 */
     String MCP_REMOVE = "mcpRemove";
+    /** MCP 包详情 */
+    String MCP_INFO = "mcpInfo";
     /** MCP 包名（npm/pypi） */
     String AI_P_MCPPACKAGE = "mcpPackage";
     /** MCP 搜索关键词 */

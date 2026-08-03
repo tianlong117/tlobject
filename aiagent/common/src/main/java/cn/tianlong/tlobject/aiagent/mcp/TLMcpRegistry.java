@@ -131,6 +131,142 @@ public class TLMcpRegistry {
         return index.size();
     }
 
+    /**
+     * Fetch detailed info for a package from npm registry.
+     *
+     * @param packageName npm package name
+     * @return map with keys: description, version, keywords, homepage, repository, readmeExcerpt
+     */
+    public Map<String, Object> fetchPackageDetail(String packageName) {
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        // 先检查精选索引（补充 tools 等信息）
+        TLMcpRegistryEntry curated = index.get(packageName);
+        if (curated != null) {
+            if (curated.getDescription() != null) {
+                result.put("description", curated.getDescription());
+            }
+            if (curated.getTools() != null && !curated.getTools().isEmpty()) {
+                result.put("tools", curated.getTools());
+            }
+            if (curated.getEnv() != null) {
+                result.put("env", curated.getEnv());
+            }
+        }
+
+        // 从 npm registry 获取详情
+        try {
+            String urlStr = "https://registry.npmjs.org/" + packageName.replace("/", "%2F");
+            URL url = new URL(urlStr);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(NPM_TIMEOUT_MS);
+            conn.setReadTimeout(NPM_TIMEOUT_MS);
+            conn.setRequestProperty("Accept", "application/json");
+            conn.setRequestProperty("User-Agent", "tlobject-mcp-registry/1.0");
+
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                conn.disconnect();
+                return result.isEmpty() ? null : result;
+            }
+
+            try (Reader reader = new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> root = gson.fromJson(reader, Map.class);
+
+                // 提取最新版本号（"dist-tags" is a map like {"latest": "1.0.0"}）
+                String latestVersion = null;
+                @SuppressWarnings("unchecked")
+                Map<String, Object> distTags = (Map<String, Object>) root.get("dist-tags");
+                if (distTags != null) {
+                    latestVersion = (String) distTags.get("latest");
+                    if (latestVersion != null) {
+                        result.put("version", latestVersion);
+                    }
+                }
+
+                // versions → latest → description / keywords / homepage / repository
+                if (latestVersion != null) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> versions = (Map<String, Object>) root.get("versions");
+                    if (versions != null) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> versionInfo = (Map<String, Object>) versions.get(latestVersion);
+                        if (versionInfo != null) {
+                            if (!result.containsKey("description")) {
+                                String desc = (String) versionInfo.get("description");
+                                if (desc != null) result.put("description", desc);
+                            }
+                            // keywords
+                            @SuppressWarnings("unchecked")
+                            List<String> kwList = (List<String>) versionInfo.get("keywords");
+                            if (kwList != null && !kwList.isEmpty()) {
+                                result.put("keywords", String.join(", ", kwList));
+                            }
+                            if (versionInfo.get("homepage") != null) {
+                                result.put("homepage", versionInfo.get("homepage"));
+                            }
+                            // repository
+                            @SuppressWarnings("unchecked")
+                            Map<String, Object> repo = (Map<String, Object>) versionInfo.get("repository");
+                            if (repo != null && repo.get("url") != null) {
+                                String repoUrl = repo.get("url").toString()
+                                        .replace("git+", "")
+                                        .replace(".git", "");
+                                result.put("repository", repoUrl);
+                            }
+                        }
+                    }
+                }
+
+                // README (from root, not version-specific)
+                String readme = (String) root.get("readme");
+                if (readme != null && !readme.isEmpty()) {
+                    result.put("readmeExcerpt", extractReadmeExcerpt(readme));
+                }
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            System.out.println("[TLMcpRegistry] fetch detail failed for " + packageName + ": " + e.getMessage());
+        }
+
+        return result.isEmpty() ? null : result;
+    }
+
+    /**
+     * Extract a brief excerpt from README content (first meaningful paragraphs).
+     */
+    private String extractReadmeExcerpt(String readme) {
+        if (readme == null || readme.isEmpty()) return null;
+        // 取前 8 行非空、非标题行（去 # 标记）
+        StringBuilder sb = new StringBuilder();
+        int lineCount = 0;
+        for (String line : readme.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                if (sb.length() > 0 && !sb.toString().endsWith("\n")) {
+                    // skip empty lines between paragraphs
+                }
+                continue;
+            }
+            // 跳过徽章行和纯标题行
+            if (trimmed.startsWith("#") || trimmed.startsWith("[!")
+                    || trimmed.startsWith("<img") || trimmed.startsWith("<p align")
+                    || trimmed.startsWith("---") || trimmed.startsWith("===")) {
+                continue;
+            }
+            // 去掉 markdown 链接格式但保留文字
+            trimmed = trimmed.replaceAll("\\[([^]]+)]\\([^)]+\\)", "$1");
+            // 去掉 markdown 加粗/斜体
+            trimmed = trimmed.replaceAll("[*_]{1,3}([^*_]+)[*_]{1,3}", "$1");
+            sb.append(trimmed).append("\n");
+            lineCount++;
+            if (lineCount >= 8) break;
+        }
+        return sb.toString().trim();
+    }
+
     // ======================== npm Search ========================
 
     /**
@@ -271,7 +407,8 @@ public class TLMcpRegistry {
                 .setCommand(base.getCommand())
                 .setTransport(base.getTransport())
                 .setUrl(base.getUrl())
-                .setEnv(base.getEnv());
+                .setEnv(base.getEnv())
+                .setTools(base.getTools());
 
         List<String> mergedArgs = new ArrayList<>(base.getArgs());
         mergedArgs.addAll(Arrays.asList(extraArgs));
