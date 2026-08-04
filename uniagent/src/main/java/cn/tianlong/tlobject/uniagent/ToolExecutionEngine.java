@@ -18,6 +18,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class ToolExecutionEngine extends TLBaseModule implements UniAgentParamString {
 
+    public ToolExecutionEngine() {
+        super();
+    }
+
+    public ToolExecutionEngine(String name) {
+        super(name);
+    }
+
+    public ToolExecutionEngine(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
+    }
+
     /** 用于并行工具执行的线程池 */
     private ExecutorService toolExecutor;
 

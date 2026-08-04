@@ -43,7 +43,13 @@ public interface UniAgentParamString extends TLParamString {
     // ======================== LLM Provider动作 ========================
     String LLM_COMPLETION = "completion";
     String LLM_COMPLETIONSTREAM = "completionStream";
+    String LLM_LISTMODELS = "listModels";
     String LLM_CANCEL = "cancelLlm";
+    String LLM_EMBEDDING = "embedding";
+    String LLM_DEBUG_ON = "debugOn";
+    String LLM_DEBUG_OFF = "debugOff";
+    String LLM_GETTRACES = "getTraces";
+    String LLM_CLEARTRACES = "clearTraces";
 
     // ======================== Context动作 ========================
     String CONTEXT_ADDMESSAGE = "addMessage";
@@ -94,11 +100,33 @@ public interface UniAgentParamString extends TLParamString {
     String AI_P_SKILLOUTPUT = "skillOutput";
     String AI_P_ENABLED = "enabled";
 
+    // HTTP内部
+    String AI_P_HTTPSTATUS = "httpStatus";
+    String AI_P_RESPONSEBODY = "responseBody";
+
     // 流式
     String AI_P_CHUNK = "chunk";
     String AI_P_STREAMDONE = "streamDone";
     String AI_P_STREAMERROR = "streamError";
     String AI_P_CANCELLED = "cancelled";
+    String AI_P_REASONING_CHUNK = "reasoningChunk";
+
+    // Prompt Caching
+    String AI_P_ENABLEPROMPTCACHING = "enablePromptCaching";
+    String AI_P_CACHECREATIONTOKENS = "cacheCreationTokens";
+    String AI_P_CACHEHITTOKENS = "cacheHitTokens";
+    String AI_P_CACHEMISSTOKENS = "cacheMissTokens";
+    String AI_P_CACHEHITTOKENS_TOTAL = "cacheHitTokensTotal";
+    String AI_P_CACHEMISSTOKENS_TOTAL = "cacheMissTokensTotal";
+
+    // Embedding
+    String AI_P_EMBEDTEXT = "embedText";
+    String AI_P_EMBEDDINGMODEL = "embeddingModel";
+    String AI_P_EMBEDDING = "embeddingVector";
+
+    // 附加参数
+    String AI_P_TOPP = "topP";
+    String AI_P_RESPONSEFORMAT = "responseFormat";
 
     // Provider
     String AI_P_APIKEY = "apiKey";

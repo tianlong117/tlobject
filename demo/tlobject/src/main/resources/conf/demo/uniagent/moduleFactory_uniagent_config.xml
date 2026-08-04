@@ -32,13 +32,13 @@
                 classfile="cn.tianlong.tlobject.uniagent.ToolExecutionEngine"
                 singleton="true"/>
 
-        <!-- ====== Provider 和 Context (Demo 简易版) ====== -->
-        <module name="simpleProvider"
-                classfile="cn.tianlong.java.demo.uniagent.SimpleProvider"
+        <!-- ====== Provider 和 Context ====== -->
+        <module name="openAiProvider"
+                classfile="cn.tianlong.tlobject.uniagent.TLOpenAiProvider"
                 singleton="true"/>
 
-        <module name="simpleContext"
-                classfile="cn.tianlong.java.demo.uniagent.SimpleContext"
+        <module name="aiContext"
+                classfile="cn.tianlong.tlobject.uniagent.TLAiContext"
                 singleton="true"/>
 
         <!-- ====== Demo 工具模块 ====== -->
@@ -60,8 +60,8 @@
     <modulesParams>
         <!-- UniAgent 核心参数 -->
         <module name="uniagent"
-                llmProvider="simpleProvider"
-                contextModule="simpleContext"
+                llmProvider="openAiProvider"
+                contextModule="aiContext"
                 toolFactory="toolFactory"
                 toolEngine="toolExecutionEngine"
                 systemMessage="你是一个友好的AI助手，名叫 UniAgent。你可以使用工具来帮助用户解决问题。如果用户要求做计算，使用 calculatorTool。如果用户要求回显文本，使用 echoTool。如果任务比较复杂，可以委托给 assistantAgent。请用中文回复。"
@@ -70,16 +70,16 @@
                 defaultMaxTokens="4096"
                 maxToolCallIterations="10"/>
 
-        <!-- SimpleProvider 参数 (使用 DeepSeek API 作为示例) -->
-        <module name="simpleProvider"
+        <!-- TLOpenAiProvider 参数 (DeepSeek API) -->
+        <module name="openAiProvider"
                 apiKey="sk-your-api-key-here"
                 apiBaseUrl="https://api.deepseek.com"
                 defaultModel="deepseek-chat"/>
 
         <!-- 子 Agent 使用同一个 Provider -->
         <module name="assistantAgent"
-                llmProvider="simpleProvider"
-                contextModule="simpleContext"
+                llmProvider="openAiProvider"
+                contextModule="aiContext"
                 toolFactory="toolFactory"
                 toolEngine="toolExecutionEngine"
                 systemMessage="你是 UniAgent 的助手。你擅长执行具体任务。请简洁高效地完成任务并返回结果。"
@@ -91,13 +91,10 @@
     <factoryBoot>threadPool
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
         <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
-        <msg action="getModule" destination="moduleFactory" moduleName="simpleProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="simpleContext"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
         <msg action="getModule" destination="moduleFactory" moduleName="toolFactory"/>
         <msg action="getModule" destination="moduleFactory" moduleName="toolExecutionEngine"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="echoTool"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="calculatorTool"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="assistantAgent"/>
         <msg action="getModule" destination="moduleFactory" moduleName="uniagent"/>
     </factoryBoot>
 </moduleConfig>

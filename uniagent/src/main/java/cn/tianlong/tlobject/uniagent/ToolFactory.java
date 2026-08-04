@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 工具工厂 — 统一管理所有工具模块的生命周期。
@@ -21,6 +22,18 @@ import java.util.*;
  * }</pre>
  */
 public class ToolFactory extends TLBaseModule implements UniAgentParamString {
+
+    public ToolFactory() {
+        super();
+    }
+
+    public ToolFactory(String name) {
+        super(name);
+    }
+
+    public ToolFactory(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
+    }
 
     /** 工具注册表: toolName → ToolEntry */
     private final Map<String, ToolEntry> tools = new LinkedHashMap<>();
@@ -69,6 +82,43 @@ public class ToolFactory extends TLBaseModule implements UniAgentParamString {
 
     // ======================== 生命周期 ========================
 
+    /**
+     * 配置解析 — 遵循 TLAiAgent.myConfig 模式。
+     * 在 super.setConfig() 之前创建 ToolConfig 实例，让基类复用而非重建，
+     * 这样 <tools> 段在 configure() 阶段就被 myConfig() 钩子解析完成。
+     */
+    @Override
+    protected Object setConfig() {
+        ToolConfig config = new ToolConfig(configFile, moduleFactory.getConfigDir());
+        mconfig = config;
+        super.setConfig();
+        toolsConfig = config.getToolsConfig();
+        return config;
+    }
+
+    /** <tools> 配置（在 setConfig() 中解析，非 runStartMsg） */
+    private HashMap<String, HashMap<String, String>> toolsConfig;
+
+    /**
+     * 将 toolsConfig 注入 modulesClass 和 modulesParams，遵循 TLAiAgent.injectConfigs 模式。
+     * 这样 initTools() 中调用 getMyModule(toolName) 时，framework 能自动从 modulesClass
+     * 取到 classfile/sameClassAs/configfile，从 modulesParams 取到工具专属参数。
+     */
+    @Override
+    protected void setModuleParams() {
+        super.setModuleParams();
+        if (toolsConfig == null) return;
+
+        if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+        if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
+
+        for (String toolName : toolsConfig.keySet()) {
+            HashMap<String, String> cfg = toolsConfig.get(toolName);
+            modulesClass.putIfAbsent(toolName, cfg);
+            modulesParams.putIfAbsent(toolName, cfg);
+        }
+    }
+
     @Override
     protected TLBaseModule init() {
         return this;
@@ -77,30 +127,11 @@ public class ToolFactory extends TLBaseModule implements UniAgentParamString {
     @Override
     public void runStartMsg() {
         super.runStartMsg();
-        // 延迟解析 <tools> 配置（此时 moduleFactory 已就绪）
-        parseToolsConfig();
-        initTools();
+        initTools(); // 此时 moduleFactory 已就绪，只做模块实例化
     }
 
-    /** 解析 <tools> 配置段（在 runStartMsg 中调用，此时 moduleFactory 已设置） */
-    private void parseToolsConfig() {
-        if (mconfig instanceof ToolConfig) return; // 已解析过
-        if (configFile == null) return;
-
-        String configDir = moduleFactory != null ? moduleFactory.getConfigDir() : null;
-        ToolConfig tc = new ToolConfig(configFile, configDir);
-        tc.setFactory(moduleFactory);
-        tc = (ToolConfig) tc.parse(configFile);
-        if (tc != null) {
-            mconfig = tc;
-        }
-    }
-
-    /** 从 XML 配置初始化所有工具模块 */
+    /** 从已解析的 toolsConfig 初始化所有工具模块（不再碰 XML）。遵循 TLAiAgent.initSkills/initAgents 模式。 */
     protected void initTools() {
-        if (!(mconfig instanceof ToolConfig)) return;
-        ToolConfig config = (ToolConfig) mconfig;
-        HashMap<String, HashMap<String, String>> toolsConfig = config.getToolsConfig();
         if (toolsConfig == null || toolsConfig.isEmpty()) return;
 
         for (String toolName : toolsConfig.keySet()) {
@@ -110,11 +141,12 @@ public class ToolFactory extends TLBaseModule implements UniAgentParamString {
 
             boolean enabled = TLDataUtils.parseBoolean(toolParams.get("enabled"), true);
             try {
+                // 从工厂获取单例模块（ToolFactory 统一管理，不创建私有实例）
+                TLBaseModule module = (TLBaseModule) getModule(toolName);
                 ToolEntry entry = new ToolEntry(toolName, enabled);
-                // 工具名 = 模块名，走框架 getMyModule 创建
-                entry.module = (TLBaseModule) getMyModule(toolName);
+                entry.module = module;
                 tools.put(toolName, entry);
-                registerToRegistry(toolName, entry.module, "tool");
+                registerToRegistry(toolName, module, "tool");
                 putLog("Tool registered: " + toolName + " enabled=" + enabled, LogLevel.INFO);
             } catch (Exception e) {
                 putLog("Failed to init tool: " + toolName + " error: " + e.toString(), LogLevel.ERROR);
