@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- 子 Agent 配置：复用主 Agent 的 provider/context/engine -->
+    <!-- 无独立工具（纯 LLM 对话）或继承 toolFactory 的工具 -->
+</moduleConfig>
