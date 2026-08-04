@@ -27,6 +27,7 @@
     <agents>
         <agent name="filesystemMcp"
                statup="true"
+               factoryShared="true"
                type="mcp"
                tools="write_file"
                sameClassAs="mcpAgent"

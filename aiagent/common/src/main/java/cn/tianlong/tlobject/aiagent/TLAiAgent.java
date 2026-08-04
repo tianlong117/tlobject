@@ -439,7 +439,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (!startup) continue;
 
             try {
-                TLBaseModule module = (TLBaseModule) getMyModule(skillName);
+                boolean factoryShared = "true".equals(skillParams.get("factoryShared"));
+                TLBaseModule module = (TLBaseModule) (factoryShared ? getModule(skillName) : getMyModule(skillName));
                 registerToRegistry(skillName, module, "skill");
                 if (module instanceof TLBaseSkill) {
                     TLBaseSkill skill = (TLBaseSkill) module;
@@ -520,8 +521,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (!startup) continue;
 
             try {
-                // 框架 getMyModule 自动从 modulesClass 取配置、解析 sameClassAs、加载类
-                TLBaseModule module = (TLBaseModule) getMyModule(agentName);
+                boolean factoryShared = "true".equals(agentCfg.get("factoryShared"));
+                TLBaseModule module;
+                if(factoryShared)
+                    module = (TLBaseModule)getModule(agentName);
+                 else
+                    module = (TLBaseModule) getMyModule(agentName);
                 registerToRegistry(agentName, module, "agent");
                 subAgents.put(agentName, module);
                 putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);

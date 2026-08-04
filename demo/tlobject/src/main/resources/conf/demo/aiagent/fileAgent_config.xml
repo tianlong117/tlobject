@@ -22,6 +22,7 @@
         <!-- MCP Agent 示例：本地文件系统工具集 -->
         <agent name="filesystemMcp"
                statup="true"
+               factoryShared="true"
                type="mcp"
                tools="read_file,write_file,list_directory"
                description="MCP文件系统工具集（仅暴露3个常用操作）"
