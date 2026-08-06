@@ -348,36 +348,65 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     @Override
     public void runStartMsg() {
         System.out.println("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===");
-        // 1. 加载 LLM Provider（每个 Agent 独立实例）
-        initProvider();
-        // 1.5 私有 context 实例（与 provider/skill/memory 对称），本 agent 的 defaultSystemMessage/md 正文才能生效
+
+        // 统一初始化所有模块（配置段 = 类型，不走 instanceof 检查）
+        if (mconfig instanceof myConfig) {
+            myConfig config = (myConfig) mconfig;
+            // 1. Provider 必须先就绪 —— 后续 skill/memory/agent 初始化可能通过 owner:name 借引用
+            initModules(config.getProviders(), "provider");
+            resolveLlmProvider();
+
+            // 2. 其他模块
+            initModules(config.getSkills(), "skill");
+            initModules(config.getMemoryStores(), "memory");
+            initModules(config.getAgents(), "agent");
+        }
+
+        // 后处理：每类模块独有的逻辑
+        postInitSkills();
+        postInitMemories();
+        postInitAgents();
+
+        // 私有 context 实例
         initContext();
-        // 2. 启动时检查 LLM Provider 连通性（失败仅告警，不中断——skills/memory/agents 仍初始化，可事后 setLlmProvider 恢复）
+
+        // 启动时检查 LLM Provider 连通性
         if (checkProviderOnStartup && !checkProvider()) {
             putLog("LLM Provider 不可用，skills/memory/agents 仍会初始化，可事后发 setLlmProvider 恢复", LogLevel.WARN);
         }
-        // 3. 加载 Skills / Memory / Agents
-        initSkills();
-        initMemoryStores();
-        initAgents();
+
         super.runStartMsg();
-        // 3.5 将本 Agent 自身注册到全局 registry（供 /install 等命令查找）
         registerToRegistry(name, this, "agent");
-        // 4. 断点检测和恢复已移到 TLSessionManager，控制台启动时向 SessionManager 查询。
     }
 
     /**
-     * 初始化 LLM Provider。
-     * defaultLlmProvider="openAiProvider" → 创建本 agent 私有实例（独立配置，保持隔离）
-     * defaultLlmProvider="masterAgent:openAiProvider" → 从 master 借引用（共享，免重复配置）
+     * 统一模块初始化：statup 门控 → factoryShared 路径 → getModule/getMyModule → registerToRegistry。
+     * 配置段本身就是类型声明——放进 &lt;skills&gt; 的就是 skill，放进 &lt;providers&gt; 的就是 provider，
+     * 不需要 instanceof 判断。
      */
-    protected void initProvider() {
-        if (defaultLlmProvider == null || defaultLlmProvider.isEmpty()) return;
+    private void initModules(HashMap<String, HashMap<String, String>> configs, String registryType) {
+        if (configs == null) return;
+        for (String moduleName : configs.keySet()) {
+            HashMap<String, String> cfg = configs.get(moduleName);
+            if (!TLDataUtils.parseBoolean(cfg.get("statup"), true)) continue;
+            try {
+                boolean factoryShared = "true".equals(cfg.get("factoryShared"));
+                TLBaseModule module = (TLBaseModule) (factoryShared ? getModule(moduleName) : getMyModule(moduleName));
+                registerToRegistry(moduleName, module, registryType);
+                putLog(registryType + " initialized: " + moduleName, LogLevel.DEBUG);
+            } catch (Exception e) {
+                putLog("Failed to init " + registryType + ": " + moduleName + " error: " + e.toString(), LogLevel.ERROR);
+            }
+        }
+    }
 
+    /** 从已创建的 provider 中匹配 defaultLlmProvider，设为 llmProvider */
+    protected void resolveLlmProvider() {
+        if (defaultLlmProvider == null || defaultLlmProvider.isEmpty()) return;
         try {
             int colon = defaultLlmProvider.indexOf(':');
             if (colon > 0) {
-                // 共享模式：从指定 module 借 llmProvider 引用
+                // owner:name → 借引用
                 String ownerName = defaultLlmProvider.substring(0, colon);
                 String provName = defaultLlmProvider.substring(colon + 1);
                 TLMsg refResult = putMsg(ownerName,
@@ -385,32 +414,112 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 Object ref = refResult != null ? refResult.getParam("provider") : null;
                 if (ref instanceof TLLlmProvider) {
                     llmProvider = (TLLlmProvider) ref;
-                    putLog("LLM Provider borrowed: " + defaultLlmProvider
-                            + " model=" + llmProvider.getDefaultModel(), LogLevel.DEBUG);
+                    putLog("LLM Provider borrowed: " + defaultLlmProvider, LogLevel.DEBUG);
                     return;
                 }
-                putLog("Failed to borrow provider: " + defaultLlmProvider + ", fallback to create", LogLevel.WARN);
+                // borrow 失败 → fallback 用冒号后的名字自建
+                putLog("Failed to borrow: " + defaultLlmProvider + ", fallback to create " + provName, LogLevel.WARN);
+                TLBaseModule module = (TLBaseModule) getModule(provName);
+                if (module instanceof TLLlmProvider) {
+                    llmProvider = (TLLlmProvider) module;
+                }
+                return;
             }
-            // 自建模式
-            TLBaseModule module = (TLBaseModule) getMyModule(defaultLlmProvider);
-            registerToRegistry(defaultLlmProvider, module, "provider");
+            // 无冒号 → 直接取
+            TLBaseModule module = (TLBaseModule) getModule(defaultLlmProvider);
             if (module instanceof TLLlmProvider) {
                 llmProvider = (TLLlmProvider) module;
-                putLog("LLM Provider initialized: " + defaultLlmProvider
-                        + " model=" + llmProvider.getDefaultModel(), LogLevel.DEBUG);
+                putLog("LLM Provider resolved: " + defaultLlmProvider, LogLevel.DEBUG);
             } else {
                 putLog("Provider not TLLlmProvider: " + defaultLlmProvider, LogLevel.ERROR);
             }
         } catch (Exception e) {
-            putLog("Failed to init provider: " + e.toString(), LogLevel.ERROR);
+            putLog("Failed to resolve provider: " + e.toString(), LogLevel.ERROR);
         }
     }
 
+    /** 将已创建的 skill 模块放入 skills map。配置段即是类型，信任配置直接转型。 */
+    @SuppressWarnings("unchecked")
+    protected void postInitSkills() {
+        if (!(mconfig instanceof myConfig)) return;
+        HashMap<String, HashMap<String, String>> skillConfigs = ((myConfig) mconfig).getSkills();
+        if (skillConfigs == null) return;
+        for (String moduleName : skillConfigs.keySet()) {
+            if (!TLDataUtils.parseBoolean(skillConfigs.get(moduleName).get("statup"), true)) continue;
+            try {
+                TLBaseSkill skill = (TLBaseSkill) getModule(moduleName);
+                if (skill != null) {
+                    skills.put(skill.getSkillName(), skill);
+                }
+            } catch (Exception e) {
+                putLog("Failed to postInit skill: " + moduleName, LogLevel.WARN);
+            }
+        }
+    }
+
+    /** 将已创建的 memory 模块放入 memoryStores map，注入 embedding provider。配置段即是类型。 */
+    @SuppressWarnings("unchecked")
+    protected void postInitMemories() {
+        if (!(mconfig instanceof myConfig)) return;
+        myConfig config = (myConfig) mconfig;
+        HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
+        if (memoryConfigs == null) return;
+        for (String storeName : memoryConfigs.keySet()) {
+            HashMap<String, String> storeParams = memoryConfigs.get(storeName);
+            if (!TLDataUtils.parseBoolean(storeParams.get("statup"), true)) continue;
+            try {
+                TLBaseMemory memory = (TLBaseMemory) getModule(storeName);
+                if (memory != null) {
+                    memoryStores.put(storeName, memory);
+                    // embedding provider 注入
+                    String embName = storeParams.get(AI_P_EMBEDDINGPROVIDER);
+                    if (embName != null && config.getProviders() != null) {
+                        HashMap<String, String> embCfg = config.getProviders().get(embName);
+                        if (embCfg != null) {
+                            TLBaseModule embM = (TLBaseModule) getModule(embName);
+                            if (embM instanceof TLLlmProvider)
+                                putMsg(memory, createMsg().setAction("setEmbeddingProvider")
+                                        .setParam("provider", embM));
+                        }
+                    }
+                    putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
+                }
+            } catch (Exception e) {
+                putLog("Failed to postInit memory: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
+            }
+        }
+    }
+
+    /** 将已创建的 agent 模块放入 agents map，激活主控模式 */
+    @SuppressWarnings("unchecked")
+    protected void postInitAgents() {
+        if (!(mconfig instanceof myConfig)) return;
+        myConfig config = (myConfig) mconfig;
+        agentsConfig = config.getAgents();
+        if (agentsConfig == null || agentsConfig.isEmpty()) return;
+
+        isMaster = true;
+        if (subAgents == null) subAgents = new ConcurrentHashMap<>();
+
+        for (String agentName : agentsConfig.keySet()) {
+            if (!TLDataUtils.parseBoolean(agentsConfig.get(agentName).get("statup"), true)) continue;
+            try {
+                TLBaseModule module = (TLBaseModule) getModule(agentName);
+                if (module != null) {
+                    subAgents.put(agentName, module);
+                    putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
+                }
+            } catch (Exception e) {
+                putLog("Failed to postInit agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
+            }
+        }
+
+        System.out.println("★★★ 主控Agent模式已激活, Agent数量: " + subAgents.size() + " ★★★");
+    }
+
     /**
-     * 初始化私有 context 实例（与 provider/skill/memory 对称）。
-     * getMyModule = 新建实例（不注册工厂）+ 存入本地 modules map，
-     * 后续 putMsg(contextModuleName, ...) 先查本地 map 即命中私有实例，
-     * 本 agent 的 modulesParams defaultSystemMessage / md 正文注入由此生效。
+     * 初始化私有 context 实例。
+     * getMyModule = 新建实例（不注册工厂）+ 存入本地 modules map。
      */
     protected void initContext() {
         try {
@@ -420,131 +529,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 putLog("Private context initialized: " + contextModuleName, LogLevel.DEBUG);
         } catch (Exception e) {
             putLog("Failed to init context: " + contextModuleName + " error: " + e.toString(), LogLevel.WARN);
-        }
-    }
-
-    /**
-     * 初始化Skills（从config或运行时注册）。
-     * 框架自动根据classfile解析类名，无需手动addPackage。
-     */
-    protected void initSkills() {
-        if (!(mconfig instanceof myConfig)) return;
-        myConfig config = (myConfig) mconfig;
-        if (config.getSkills() == null) return;
-
-        HashMap<String, HashMap<String, String>> skillConfigs = config.getSkills();
-        for (String skillName : skillConfigs.keySet()) {
-            HashMap<String, String> skillParams = skillConfigs.get(skillName);
-            boolean startup = TLDataUtils.parseBoolean(skillParams.get("statup"), true);
-            if (!startup) continue;
-
-            try {
-                boolean factoryShared = "true".equals(skillParams.get("factoryShared"));
-                TLBaseModule module = (TLBaseModule) (factoryShared ? getModule(skillName) : getMyModule(skillName));
-                registerToRegistry(skillName, module, "skill");
-                if (module instanceof TLBaseSkill) {
-                    TLBaseSkill skill = (TLBaseSkill) module;
-                    skills.put(skill.getSkillName(), skill);
-                    putLog("Skill registered: " + skillName + " → getSkillName()=" + skill.getSkillName(), LogLevel.INFO);
-                } else {
-                    putLog("Skill NOT TLBaseSkill: " + skillName + " module=" + (module != null ? module.getClass().getName() : "null"), LogLevel.ERROR);
-                }
-            } catch (Exception e) {
-                putLog("Failed to init skill: " + skillName + " error: " + e.toString(), LogLevel.ERROR);
-            }
-        }
-    }
-
-    /**
-     * 初始化Memory Stores。
-     * 框架自动根据classfile解析类名，自动注入agentNamespace用于多Agent记忆隔离。
-     */
-    @SuppressWarnings("unchecked")
-    protected void initMemoryStores() {
-        if (!(mconfig instanceof myConfig)) return;
-        myConfig config = (myConfig) mconfig;
-        if (config.getMemoryStores() == null) return;
-
-        HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
-        for (String storeName : memoryConfigs.keySet()) {
-            HashMap<String, String> storeParams = memoryConfigs.get(storeName);
-            boolean startup = TLDataUtils.parseBoolean(storeParams.get("statup"), true);
-            if (!startup) continue;
-
-            try {
-                TLBaseModule module = (TLBaseModule) getMyModule(storeName);
-                registerToRegistry(storeName, module, "memory");
-                if (module instanceof TLBaseMemory) {
-                    memoryStores.put(storeName, (TLBaseMemory) module);
-                    // 按配置创建专用的 embedding provider 实例并注入
-                    String embName = storeParams.get(AI_P_EMBEDDINGPROVIDER);
-                    if (embName != null && config.getProviders() != null) {
-                        HashMap<String, String> embCfg = config.getProviders().get(embName);
-                        if (embCfg != null) {
-                            modulesClass.putIfAbsent(embName, embCfg);
-                            modulesParams.putIfAbsent(embName, embCfg);
-                            TLBaseModule embM = (TLBaseModule) getMyModule(embName);
-                            if (embM instanceof TLLlmProvider)
-                                putMsg(module, createMsg().setAction("setEmbeddingProvider")
-                                        .setParam("provider", embM));
-                        }
-                    }
-                    putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
-                }
-            } catch (Exception e) {
-                putLog("Failed to init memory store: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
-            }
-        }
-    }
-
-    /**
-     * 初始化子Agent（仅主控模式）。
-     * 读取<agents>配置，一律走 getMyModule 创建——类由配置决定（classfile/sameClassAs），
-     * 无任何 type 特判。group 也是普通子 agent（自己读配置初始化成员，见 TLAgentGroup）。
-     * 框架自动加载 {agentName}_config.xml 作为配置文件。
-     */
-    protected void initAgents() {
-        if (!(mconfig instanceof myConfig)) return;
-        myConfig config = (myConfig) mconfig;
-        agentsConfig = config.getAgents();
-        System.out.println("=== [initAgents] configFile=" + configFile
-                + " agentsConfig=" + (agentsConfig != null ? agentsConfig.size() + " entries" : "null") + " ===");
-        if (agentsConfig == null || agentsConfig.isEmpty()) return;
-
-        isMaster = true;
-        subAgents = new ConcurrentHashMap<>();
-        agentToolRoutes = new ConcurrentHashMap<>();
-
-        for (String agentName : agentsConfig.keySet()) {
-            HashMap<String, String> agentCfg = agentsConfig.get(agentName);
-            boolean startup = TLDataUtils.parseBoolean(agentCfg.get("statup"), true);
-            if (!startup) continue;
-
-            try {
-                boolean factoryShared = "true".equals(agentCfg.get("factoryShared"));
-                TLBaseModule module;
-                if(factoryShared)
-                    module = (TLBaseModule)getModule(agentName);
-                 else
-                    module = (TLBaseModule) getMyModule(agentName);
-                registerToRegistry(agentName, module, "agent");
-                subAgents.put(agentName, module);
-                putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
-            } catch (Exception e) {
-                putLog("Failed to init sub-agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
-            }
-        }
-
-        int agentCount = subAgents.size();
-        System.out.println("★★★ 主控Agent模式已激活, Agent数量: " + agentCount + " ★★★");
-        for (String name : agentsConfig.keySet()) {
-            String agentType = agentsConfig.get(name).getOrDefault(AI_P_AGENTTYPE, AGENT_TYPE_AGENT);
-            if (subAgents.containsKey(name)) {
-                if (AGENT_TYPE_MCP.equals(agentType))
-                    System.out.println("  ▸ MCP Agent: " + name);
-                else
-                    System.out.println("  ▸ 子Agent: delegate_to_" + name);
-            }
         }
     }
 
