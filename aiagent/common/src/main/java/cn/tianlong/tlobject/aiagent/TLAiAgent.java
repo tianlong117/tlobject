@@ -352,15 +352,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 统一初始化所有模块（配置段 = 类型，不走 instanceof 检查）
         if (mconfig instanceof myConfig) {
             myConfig config = (myConfig) mconfig;
-            // 1. Provider 必须先就绪 —— 后续 skill/memory/agent 初始化可能通过 owner:name 借引用
             initModules(config.getProviders(), "provider");
+
+            // Provider 必须先就绪 —— skill/memory/agent 可能通过 owner:name 借引用
             resolveLlmProvider();
 
-            // 2. 其他模块
             initModules(config.getSkills(), "skill");
             initModules(config.getMemoryStores(), "memory");
             initModules(config.getAgents(), "agent");
         }
+
+        // 无配置文件的子 agent（mconfig==null）也需要 resolve
+        resolveLlmProvider();
 
         // 后处理：每类模块独有的逻辑
         postInitSkills();
@@ -956,10 +959,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         break;
                     }
                     if (!llmResponse.parseBoolean(RESULT, false)) {
-                        int hs = llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
-                        String body = llmResponse.getStringParam(AI_P_RESPONSEBODY, "");
+                        String errMsg = llmResponse.getStringParam(AI_P_RESPONSE, null);
+                        if (errMsg == null || errMsg.isEmpty()) {
+                            errMsg = "LLM 返回错误：HTTP " + llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
+                        }
                         return createMsg().setParam(RESULT, false)
-                                .setParam(AI_P_RESPONSE, "Error: HTTP " + hs + " body=" + body);
+                                .setParam(AI_P_RESPONSE, errMsg);
                     }
                     // Token 用量累加（Provider parseResponse 已解析 usage）
                     turn[0] += llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);

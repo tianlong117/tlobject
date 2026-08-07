@@ -8,6 +8,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import okhttp3.*;
 
 import javax.net.ssl.*;
@@ -371,7 +372,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                         LogLevel.ERROR);
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_HTTPSTATUS, statusCode)
-                        .setParam(AI_P_RESPONSEBODY, responseBody);
+                        .setParam(AI_P_RESPONSEBODY, responseBody)
+                        .setParam(AI_P_RESPONSE, buildErrorMsg(statusCode, responseBody));
 
             } catch (IOException e) {
                 // 被 cancel() 主动取消 → 不重试，返回取消标志，交由 Agent 干净收尾
@@ -390,9 +392,11 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
 
         // 所有重试已用尽
         putLog("LLM HTTP all retries exhausted (status=" + lastStatusCode + ")", LogLevel.ERROR);
+        String errMsg = lastException != null ? lastException.getMessage() : "";
         TLMsg failed = createMsg().setParam(RESULT, false)
                 .setParam(AI_P_HTTPSTATUS, lastStatusCode)
-                .setParam(AI_P_RESPONSEBODY, lastBody);
+                .setParam(AI_P_RESPONSEBODY, lastBody)
+                .setParam(AI_P_RESPONSE, buildErrorMsg(lastStatusCode, lastBody, errMsg));
         if (lastException != null) {
             failed.setParam(EXCEPTION, lastException.getMessage());
         }
@@ -648,6 +652,39 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 sessionId, model, creationTokens, hitTokens, missTokens, hitRate,
                 totals[0], totals[1], totals[2]),
                 LogLevel.DEBUG);
+    }
+
+    // ======================== 错误消息 ========================
+
+    /** 构建用户可读的错误提示 */
+    private String buildErrorMsg(int httpStatus, String body) {
+        return buildErrorMsg(httpStatus, body, null);
+    }
+
+    private String buildErrorMsg(int httpStatus, String body, String exceptionMsg) {
+        if (httpStatus == 0) {
+            if (exceptionMsg != null && !exceptionMsg.isEmpty())
+                return "LLM 连接失败：" + exceptionMsg;
+            return "LLM 连接失败，请检查网络或 API 地址是否正确";
+        }
+        if (httpStatus == 401 || httpStatus == 403)
+            return "LLM 认证失败（HTTP " + httpStatus + "），请检查 API Key 或账户余额";
+        if (httpStatus == 429)
+            return "LLM 请求超限（HTTP 429），请稍后重试或检查账户额度";
+        if (httpStatus >= 500)
+            return "LLM 服务异常（HTTP " + httpStatus + "），请稍后重试";
+        // 尝试从响应体提取错误信息
+        if (body != null && !body.isEmpty()) {
+            try {
+                com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(body).getAsJsonObject();
+                if (json.has("error")) {
+                    com.google.gson.JsonObject err = json.getAsJsonObject("error");
+                    String msg = err.has("message") ? err.get("message").getAsString() : body;
+                    return "LLM 错误：HTTP " + httpStatus + " — " + msg;
+                }
+            } catch (Exception ignored) {}
+        }
+        return "LLM 返回错误（HTTP " + httpStatus + "）";
     }
 
     // ======================== getters/setters ========================
