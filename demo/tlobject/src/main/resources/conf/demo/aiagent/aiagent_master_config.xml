@@ -236,14 +236,10 @@
     <msgTools>
         <msg msgid="getServerStatus"
              statup="true"
-             description="获取服务器运行状态，返回当前已注册的所有Skills和子Agent列表"
-             action="listSkills"
-             destination="aiagent_master"/>
+             description="获取服务器运行状态，返回当前已注册的所有Skills和子Agent列表"/>
         <msg msgid="getConversationStats"
              statup="true"
-             description="获取当前会话的对话统计信息，包括消息总数"
-             action="getTurnCount"
-             destination="aiContext"/>
+             description="获取当前会话的对话统计信息，包括消息总数"/>
         <msg msgid="healthCheck"
              statup="true"
              description="综合健康检查：查询服务器状态+对话统计+provider连通性，一次并行调用获取全部信息。"/>
@@ -251,8 +247,6 @@
         <msg msgid="saveMemory"
              statup="false"
              description="保存一条长期记忆。"
-             action="saveAgentMemory"
-             destination="aiagent_master"
              paramsFromArgs="memKey;memValue;memTag"     LLM可传的参数，自动生成函数schema
              paramsFromMsg="sessionId"/>                 框架自动从chat消息注入的参数 -->
     </msgTools>

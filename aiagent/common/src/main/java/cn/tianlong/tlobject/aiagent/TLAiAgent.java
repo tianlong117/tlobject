@@ -60,11 +60,39 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 从XML <providers> 解析出的配置 */
     protected HashMap<String, HashMap<String, String>> providersConfig;
 
-    /** 已注册的Skill：skillName → skillModule */
-    protected Map<String, TLBaseSkill> skills;
-
     /** 已注册的Memory：storeName → memoryModule */
     protected Map<String, TLBaseMemory> memoryStores;
+
+    /** 统一函数表：function名 → {模块, 动作, 类型}，合并 skill/agent/msgTool。
+     *  替代旧 skills / subAgents / msgTools 三个 map */
+    protected final Map<String, FunctionEntry> functions = new ConcurrentHashMap<>();
+
+    /** 函数条目：描述一个 LLM 可调用的 function */
+    protected static class FunctionEntry {
+        public final String name;        // function 名（LLM 可见）
+        public final String action;      // 执行动作（SKILL_EXECUTE / AGENT_CHAT / 自定义 / _msgId_）
+        public final String type;        // "skill" / "agent" / "msgTool" / "mcp"
+        public final TLBaseModule module; // 目标模块
+        public final String description;  // LLM 函数描述
+        public final Map<String, Object> paramSchema; // LLM 参数 schema
+        public final String nativeName;   // MCP 原生工具名（非 MCP 时 == name）
+        public boolean enabled = true;
+
+        public FunctionEntry(String name, String action, String type, TLBaseModule module,
+                             String description, Map<String, Object> paramSchema) {
+            this(name, action, type, module, description, paramSchema, name);
+        }
+        public FunctionEntry(String name, String action, String type, TLBaseModule module,
+                             String description, Map<String, Object> paramSchema, String nativeName) {
+            this.name = name;
+            this.action = action;
+            this.type = type;
+            this.module = module;
+            this.description = description;
+            this.paramSchema = paramSchema;
+            this.nativeName = nativeName;
+        }
+    }
 
     /** 默认模型 */
     protected String defaultModel = "gpt-4o";
@@ -91,15 +119,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 从XML <agents> 解析出的子Agent配置 */
     protected HashMap<String, HashMap<String, String>> agentsConfig;
-
-    /** 已初始化的子Agent实例：agentName → agentModule */
-    protected Map<String, TLBaseModule> subAgents;
-
-    /** 是否主控模式（配置了<agents>即为true） */
-    protected boolean isMaster = false;
-
-    /** 子 agent 贡献的工具路由表：functionName → (agentName, toolName)，经 AGENT_GETTOOLDEFS 登记，调用发 callTool 消息 */
-    protected Map<String, String[]> agentToolRoutes;
 
     /** 缓存的 function definitions（不可变列表）；随工具集变更失效重建 */
     private volatile List<TLFunctionDefinition> cachedToolDefs;
@@ -339,7 +358,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     @Override
     protected TLBaseModule init() {
-        skills = new ConcurrentHashMap<>();
         memoryStores = new ConcurrentHashMap<>();
         gson = new com.google.gson.GsonBuilder().setPrettyPrinting().create();
         return this;
@@ -366,9 +384,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         resolveLlmProvider();
 
         // 后处理：每类模块独有的逻辑
-        postInitSkills();
+        postInitFunctions();
         postInitMemories();
-        postInitAgents();
 
         // 私有 context 实例
         initContext();
@@ -441,40 +458,96 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
-    /** 将已创建的 skill 模块放入 skills map。配置段即是类型，信任配置直接转型。 */
+    /** 将已创建的 skill 模块放入 skills + functions map。配置段即是类型，信任配置直接转型。 */
     @SuppressWarnings("unchecked")
-    protected void postInitSkills() {
+    /** 统一注册所有 function：skill + agent + msgTool → functions 表。配置段不同，注册逻辑相同。 */
+    protected void postInitFunctions() {
         if (!(mconfig instanceof myConfig)) return;
-        HashMap<String, HashMap<String, String>> skillConfigs = ((myConfig) mconfig).getSkills();
-        if (skillConfigs == null) return;
-        for (String moduleName : skillConfigs.keySet()) {
-            if (!TLDataUtils.parseBoolean(skillConfigs.get(moduleName).get("statup"), true)) continue;
-            try {
-                TLBaseSkill skill = (TLBaseSkill) getModule(moduleName);
-                if (skill != null) {
-                    skills.put(skill.getSkillName(), skill);
+        myConfig config = (myConfig) mconfig;
+
+        // skills → functions
+        HashMap<String, HashMap<String, String>> skillConfigs = config.getSkills();
+        if (skillConfigs != null) {
+            for (String name : skillConfigs.keySet()) {
+                if (!TLDataUtils.parseBoolean(skillConfigs.get(name).get("statup"), true)) continue;
+                try {
+                    TLBaseSkill skill = (TLBaseSkill) getModule(name);
+                    if (skill != null) {
+                        String fnName = skill.getSkillName();
+                        functions.put(fnName, new FunctionEntry(fnName, SKILL_EXECUTE, "skill", skill,
+                                skillConfigs.get(name).getOrDefault("skillDescription", fnName), null));
+                    }
+                } catch (Exception e) { putLog("postInit skill failed: " + name, LogLevel.WARN); }
+            }
+        }
+
+        // agents → functions
+        agentsConfig = config.getAgents();
+        if (agentsConfig != null) {
+            for (String name : agentsConfig.keySet()) {
+                HashMap<String, String> cfg = agentsConfig.get(name);
+                if (!TLDataUtils.parseBoolean(cfg.get("statup"), true)) continue;
+                try {
+                    TLBaseModule module = (TLBaseModule) getModule(name);
+                    if (module != null) {
+                        String desc = cfg.getOrDefault("description", name);
+                        try {
+                            TLMsg descMsg = putMsg(module, createMsg().setAction(AGENT_GETDESCRIPTION));
+                            if (descMsg != null) {
+                                String d = descMsg.getStringParam(AI_P_AGENTDESCRIPTION, null);
+                                if (d != null && !d.isEmpty()) desc = d;
+                            }
+                        } catch (Exception ignored) {}
+                        functions.put(name, new FunctionEntry(name, SKILL_EXECUTE, "agent", module,
+                                desc, buildDelegateParamSchema()));
+                    }
+                } catch (Exception e) { putLog("postInit agent failed: " + name, LogLevel.WARN); }
+            }
+        }
+
+        // msgTools → functions
+        if (msgTools != null) {
+            for (TLMsg msgTool : msgTools) {
+                if (!TLDataUtils.parseBoolean(msgTool.getStringParam("statup", null), true)) continue;
+                String msgId = msgTool.getMsgId();
+                if (msgId == null || msgId.isEmpty()) continue;
+                String action = msgTool.getAction();
+                String dest = msgTool.getDestination();
+                String desc = msgTool.getDescription();
+                if (desc == null || desc.isEmpty()) desc = msgId;
+                TLBaseModule target = this;
+                if (dest != null && !dest.isEmpty()) {
+                    try { target = (TLBaseModule) getModule(dest); } catch (Exception ignored) {}
                 }
-            } catch (Exception e) {
-                putLog("Failed to postInit skill: " + moduleName, LogLevel.WARN);
+                Map<String, Object> props = new LinkedHashMap<>();
+                String pfa = msgTool.getStringParam("paramsFromArgs", null);
+                if (pfa != null && !pfa.isEmpty()) {
+                    for (String k : pfa.split(";")) {
+                        k = k.trim();
+                        if (!k.isEmpty()) props.put(k, Map.of("type", "string", "description", k));
+                    }
+                }
+                Map<String, Object> schema = !props.isEmpty() ? Map.of("type", "object", "properties", props) : null;
+                String fnAction = (action != null && !action.isEmpty()) ? action : "_msgId_";
+                functions.put(msgId, new FunctionEntry(msgId, fnAction, "msgTool", target, desc, schema));
             }
         }
     }
 
-    /** 将已创建的 memory 模块放入 memoryStores map，注入 embedding provider。配置段即是类型。 */
+    /** 将已创建的 memory 模块放入 memoryStores map，注入 embedding provider。 */
     @SuppressWarnings("unchecked")
     protected void postInitMemories() {
         if (!(mconfig instanceof myConfig)) return;
         myConfig config = (myConfig) mconfig;
-        HashMap<String, HashMap<String, String>> memoryConfigs = config.getMemoryStores();
-        if (memoryConfigs == null) return;
-        for (String storeName : memoryConfigs.keySet()) {
-            HashMap<String, String> storeParams = memoryConfigs.get(storeName);
+        HashMap<String, HashMap<String, String>> memCfgs = config.getMemoryStores();
+        if (memCfgs == null) return;
+        for (String storeName : memCfgs.keySet()) {
+            HashMap<String, String> storeParams = memCfgs.get(storeName);
             if (!TLDataUtils.parseBoolean(storeParams.get("statup"), true)) continue;
             try {
                 TLBaseMemory memory = (TLBaseMemory) getModule(storeName);
                 if (memory != null) {
                     memoryStores.put(storeName, memory);
-                    // embedding provider 注入
                     String embName = storeParams.get(AI_P_EMBEDDINGPROVIDER);
                     if (embName != null && config.getProviders() != null) {
                         HashMap<String, String> embCfg = config.getProviders().get(embName);
@@ -485,39 +558,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                         .setParam("provider", embM));
                         }
                     }
-                    putLog("Memory store registered: " + storeName, LogLevel.DEBUG);
                 }
-            } catch (Exception e) {
-                putLog("Failed to postInit memory: " + storeName + " error: " + e.toString(), LogLevel.ERROR);
-            }
+            } catch (Exception e) { putLog("postInit memory failed: " + storeName, LogLevel.ERROR); }
         }
-    }
-
-    /** 将已创建的 agent 模块放入 agents map，激活主控模式 */
-    @SuppressWarnings("unchecked")
-    protected void postInitAgents() {
-        if (!(mconfig instanceof myConfig)) return;
-        myConfig config = (myConfig) mconfig;
-        agentsConfig = config.getAgents();
-        if (agentsConfig == null || agentsConfig.isEmpty()) return;
-
-        isMaster = true;
-        if (subAgents == null) subAgents = new ConcurrentHashMap<>();
-
-        for (String agentName : agentsConfig.keySet()) {
-            if (!TLDataUtils.parseBoolean(agentsConfig.get(agentName).get("statup"), true)) continue;
-            try {
-                TLBaseModule module = (TLBaseModule) getModule(agentName);
-                if (module != null) {
-                    subAgents.put(agentName, module);
-                    putLog("Sub-agent initialized: " + agentName + " (" + module.getClass().getSimpleName() + ")", LogLevel.DEBUG);
-                }
-            } catch (Exception e) {
-                putLog("Failed to postInit agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
-            }
-        }
-
-        System.out.println("★★★ 主控Agent模式已激活, Agent数量: " + subAgents.size() + " ★★★");
     }
 
     /**
@@ -557,16 +600,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 returnMsg = hotUnloadSkill(fromWho, msg);
                 break;
             case AGENT_RELOADSKILL:
-                returnMsg = reloadSkill(fromWho, msg);
+                returnMsg = reloadFunction(fromWho, msg, "skill");
                 break;
             case AGENT_REGISTERSKILL:
-                returnMsg = registerSkill(fromWho, msg);
+                returnMsg = registerFunction(fromWho, msg, "skill");
                 break;
             case AGENT_UNREGISTERSKILL:
-                returnMsg = unregisterSkill(fromWho, msg);
+                returnMsg = unregisterFunction(fromWho, msg, "skill");
                 break;
             case AGENT_LISTSKILLS:
-                returnMsg = listSkills(fromWho, msg);
+                returnMsg = listFunctions(fromWho, msg, "skill");
                 break;
             case AGENT_GETCONTEXT:
                 returnMsg = getAgentContext(fromWho, msg);
@@ -614,16 +657,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 returnMsg = updateAgent(fromWho, msg);
                 break;
             case AGENT_REGISTERAGENT:
-                returnMsg = registerAgent(fromWho, msg);
+                returnMsg = registerFunction(fromWho, msg, "agent");
                 break;
             case AGENT_UNREGISTERAGENT:
-                returnMsg = unregisterAgent(fromWho, msg);
+                returnMsg = unregisterFunction(fromWho, msg, "agent");
                 break;
             case AGENT_RELOADAGENT:
-                returnMsg = reloadAgent(fromWho, msg);
+                returnMsg = reloadFunction(fromWho, msg, "agent");
                 break;
             case AGENT_LISTAGENTS:
-                returnMsg = listAgents(fromWho, msg);
+                returnMsg = listFunctions(fromWho, msg, "agent");
                 break;
             case AGENT_GETDESCRIPTION:
                 returnMsg = createMsg().setParam(RESULT, true)
@@ -634,6 +677,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 break;
             case "_toolExec":
                 returnMsg = doToolExec(fromWho, msg);
+                break;
+            case SKILL_EXECUTE:
+                // agent 作为工具被调用：提取 task → 内部 chat → 结果放入 AI_P_SKILLOUTPUT
+                returnMsg = executeAsTool(fromWho, msg);
                 break;
             case AGENT_STOPCHAT:
                 returnMsg = stopChat(fromWho, msg);
@@ -651,6 +698,30 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 置会话取消标志 + 取消在途 HTTP 请求。可被控制台的 /stop、外部模块调用。
      * 在与 doChat 不同的线程上执行，靠线程安全的 cancelFlags / OkHttp dispatcher 衔接。
      */
+    /** agent 作为工具被调用：提取输入 → 跑一次 chat → 结果放入 AI_P_SKILLOUTPUT */
+    @SuppressWarnings("unchecked")
+    protected TLMsg executeAsTool(Object fromWho, TLMsg msg) {
+        Map<String, Object> args = (Map<String, Object>) msg.getParam(AI_P_SKILLINPUT, Map.class);
+        String task = null;
+        if (args != null && args.containsKey("task")) {
+            task = args.get("task") != null ? args.get("task").toString() : "";
+        }
+        if (task == null || task.isEmpty()) {
+            task = msg.getStringParam(AI_P_USERMESSAGE, "");
+        }
+        TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
+        // 转发会话上下文，保持级联停止、用户数据隔离、会话追踪
+        if (msg.containsParam(AI_P_SESSIONID))
+            chatMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
+        if (msg.containsParam("rootSessionId"))
+            chatMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
+        if (msg.containsParam("userId"))
+            chatMsg.setParam("userId", msg.getStringParam("userId", ""));
+        TLMsg result = chat(fromWho, chatMsg);
+        String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
+        return createMsg().setParam(AI_P_SKILLOUTPUT, output);
+    }
+
     protected TLMsg stopChat(Object fromWho, TLMsg msg) {
         String sid = msg.getStringParam(AI_P_SESSIONID, "default");
         boolean cascade = msg.parseBoolean("cascade", false);
@@ -1488,8 +1559,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         TLBaseModule module = (TLBaseModule) getMyModule(moduleName);
         if (module instanceof TLBaseSkill) {
             TLBaseSkill skill = (TLBaseSkill) module;
-            skills.put(skill.getSkillName(), skill);
             registerToRegistry(moduleName, module, "skill");
+            functions.put(skillName, new FunctionEntry(skillName, SKILL_EXECUTE, "skill", module, skillName, null));
             invalidateToolDefs();
             putLog("Hot-loaded skill: " + moduleName + " (dir=" + skillDir + ")", LogLevel.INFO, AGENT_HOTLOADSKILL);
 
@@ -1532,17 +1603,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
 
-        // 从 skills map 中移除（按 getSkillName() 查找）
-        String foundSkillName = null;
-        for (Map.Entry<String, TLBaseSkill> entry : skills.entrySet()) {
-            if (moduleName.equals(entry.getValue().getName())) {
-                foundSkillName = entry.getKey();
-                break;
+        // 从 functions 中移除（按模块名查找 skill 类型）
+        String foundFnName = null;
+        for (FunctionEntry fe : functions.values()) {
+            if ("skill".equals(fe.type) && moduleName.equals(fe.module.getName())) {
+                foundFnName = fe.name; break;
             }
         }
-        if (foundSkillName != null) {
-            skills.remove(foundSkillName);
-        }
+        if (foundFnName != null) functions.remove(foundFnName);
 
         // 从本地 modules 移除
         modules.remove(moduleName);
@@ -1568,67 +1636,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
 
-        return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
-    }
-
-    /** 重载 Skill：getNewModule 新建实例 → 覆盖旧引用 → 更新 registry → 刷新工具缓存 */
-    protected synchronized TLMsg reloadSkill(Object fromWho, TLMsg msg) {
-        String skillDir = msg.getStringParam("skillDir", null);
-        String skillName = msg.getStringParam(AI_P_SKILLNAME, null);
-        String moduleName = msg.getStringParam(MODULENAME, null);
-
-        // 找到旧实例的 moduleName
-        if (moduleName == null || moduleName.isEmpty()) {
-            if (skillDir != null && !skillDir.isEmpty()) {
-                String targetDir = "skills/" + skillDir + "/scripts";
-                if (modulesParams != null) {
-                    for (Map.Entry<String, HashMap<String, String>> e : modulesParams.entrySet()) {
-                        if (targetDir.equals(e.getValue().get("allowedScriptDir"))) {
-                            moduleName = e.getKey();
-                            break;
-                        }
-                    }
-                }
-            } else if (skillName != null && !skillName.isEmpty()) {
-                TLBaseSkill oldSkill = skills.get(skillName);
-                if (oldSkill != null) moduleName = oldSkill.getName();
-            }
-        }
-        if (moduleName == null || moduleName.isEmpty()) {
-            return createMsg().setParam(RESULT, false).setParam("error", "skill not found");
-        }
-
-        // 找到旧 skill（拿 skillName key）
-        String key = null;
-        for (Map.Entry<String, TLBaseSkill> entry : skills.entrySet()) {
-            if (moduleName.equals(entry.getValue().getName())) {
-                key = entry.getKey();
-                break;
-            }
-        }
-        if (key == null) {
-            return createMsg().setParam(RESULT, false).setParam("error", "skill not found: " + moduleName);
-        }
-
-        // 先建新（旧实例仍在运行，零空窗）
-        TLBaseModule newModule = (TLBaseModule) getNewModule(moduleName);
-        if (!(newModule instanceof TLBaseSkill)) {
-            return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + moduleName);
-        }
-        TLBaseSkill newSkill = (TLBaseSkill) newModule;
-
-        // 切：覆盖旧引用
-        skills.put(key, newSkill);
-        modules.put(moduleName, newModule);
-
-        // 全局 registry 更新
-        String registryKey = getFamilyName() + ":" + moduleName;
-        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                .setParam(REGISTRY_P_KEY, registryKey));
-        registerToRegistry(moduleName, newModule, "skill");
-
-        invalidateToolDefs();
-        putLog("Reloaded skill: " + moduleName + " (key=" + key + ")", LogLevel.INFO);
         return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
     }
 
@@ -1659,124 +1666,104 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
-    protected synchronized TLMsg registerSkill(Object fromWho, TLMsg msg) {
-        // 支持通过instance直接注册
-        TLBaseSkill instance = (TLBaseSkill) msg.getParam(INSTANCE, TLBaseSkill.class);
-        if (instance != null) {
-            skills.put(instance.getSkillName(), instance);
-            modules.put(instance.getName(), instance);
-            putLog("Skill registered by instance: " + instance.getSkillName(), LogLevel.DEBUG);
+    /** 统一注销 function。type="skill"|"agent"，用于读取对应 msg 参数和持久化目标。 */
+    protected synchronized TLMsg unregisterFunction(Object fromWho, TLMsg msg, String type) {
+        String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
+                                           : msg.getStringParam(AI_P_AGENTNAME, "");
+        if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
+        FunctionEntry removedFn = functions.remove(name);
+        modules.remove(name);
+        if (removedFn != null) {
+            String moduleName = removedFn.module.getName();
+            if (modulesClass != null) modulesClass.remove(moduleName);
+            if (modulesParams != null) modulesParams.remove(moduleName);
             invalidateToolDefs();
-            return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLNAME, instance.getSkillName());
-        }
-
-        // 通过模块名和类名注册
-        String skillModuleName = msg.getStringParam(MODULENAME, "");
-        String classfile = msg.getStringParam(MODULE_CLASSFILE, "");
-        HashMap<String, String> skillParams = new HashMap<>(msg.getMapParam(MODULE_PARAMS, new HashMap<>()));
-
-        if (!skillModuleName.isEmpty() && !classfile.isEmpty()) {
-            // 前置校验
-            HashMap<String, String> refCfg = new HashMap<>();
-            if (classfile.contains(".")) {
-                refCfg.put(MODULE_CLASSFILE, classfile);
-            } else {
-                refCfg.put(MODULE_SameClassAs, classfile);
-            }
-            TLMsg err = validateModuleRef(refCfg, TLBaseSkill.class);
-            if (err != null) return err;
-            TLBaseModule module = (TLBaseModule) getNewModule(skillModuleName, classfile, skillParams);
-            if (module ==null)
-                return createMsg().setParam(RESULT, false).setParam("error", "Invalid skill registration");
-            registerToRegistry(skillModuleName, module, "skill");
-            if (module instanceof TLBaseSkill) {
-                TLBaseSkill skill = (TLBaseSkill) module;
-                skills.put(skill.getSkillName(), skill);
-                modules.put(skillModuleName, skill);
-                // 注入 modulesClass/modulesParams（与 hotLoadSkill 对称，供持久化和重启恢复）
-                HashMap<String, String> cfg = new HashMap<>(skillParams);
-                cfg.put(MODULE_CLASSFILE, classfile);
-                modulesClass.put(skillModuleName, cfg);
-                modulesParams.put(skillModuleName, new HashMap<>(cfg));
-                invalidateToolDefs();
-                // 持久化到 XML 配置文件
-                boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
-                if (persist && configFile != null) {
-                    try {
-                        Map<String, String> attrs = new LinkedHashMap<>();
-                        if (classfile.contains(".")) {
-                            attrs.put("classfile", classfile);
-                        } else {
-                            attrs.put("sameClassAs", classfile);
-                        }
-                        attrs.put("statup", "true");
-                        for (Map.Entry<String, String> e : skillParams.entrySet()) {
-                            if (e.getValue() != null) attrs.put(e.getKey(), e.getValue());
-                        }
-                        TLXmlConfigWriter.addOrReplaceElement(configFile, "skills", "skill", skillModuleName, attrs);
-                    } catch (Exception ex) {
-                        putLog("persist skill config failed: " + ex, LogLevel.ERROR, AGENT_REGISTERSKILL);
-                    }
-                }
-                return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLNAME, skill.getSkillName());
-            }
-        }
-
-        return createMsg().setParam(RESULT, false).setParam("error", "Invalid skill registration");
-    }
-
-    protected synchronized TLMsg unregisterSkill(Object fromWho, TLMsg msg) {
-        String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
-        if (!skillName.isEmpty()) {
-            TLBaseSkill removed = skills.remove(skillName);
-            modules.remove(skillName);
-            if (removed != null) {
-                // 从 modulesClass/modulesParams 清理（对称 registerSkill）
-                String moduleName = removed.getName();
-                if (modulesClass != null) modulesClass.remove(moduleName);
-                if (modulesParams != null) modulesParams.remove(moduleName);
-                invalidateToolDefs();
-                // 从 registry 注销
-                String registryKey = getFamilyName() + ":" + skillName;
-                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                        .setParam(REGISTRY_P_KEY, registryKey));
-                // 持久化：从 XML 配置文件删除
-                boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
-                if (persist && configFile != null) {
-                    try {
-                        TLXmlConfigWriter.removeElement(configFile, "skills", "skill", moduleName);
-                    } catch (Exception ex) {
-                        putLog("remove skill from config failed: " + ex, LogLevel.ERROR, AGENT_UNREGISTERSKILL);
-                    }
+            String registryKey = getFamilyName() + ":" + name;
+            putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                    .setParam(REGISTRY_P_KEY, registryKey));
+            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+            if (persist && configFile != null) {
+                try {
+                    TLXmlConfigWriter.removeElement(configFile, type + "s", type, moduleName);
+                } catch (Exception ex) {
+                    putLog("remove " + type + " from config failed: " + ex, LogLevel.ERROR);
                 }
             }
-            return createMsg().setParam(RESULT, removed != null)
-                    .setParam("error", removed != null ? null : "skill 不存在: " + skillName);
         }
-        return createMsg().setParam(RESULT, false).setParam("error", "skillName required");
+        return createMsg().setParam(RESULT, removedFn != null)
+                .setParam("error", removedFn != null ? null : type + " 不存在: " + name);
     }
 
-    protected TLMsg listSkills(Object fromWho, TLMsg msg) {
-        List<String> skillNames = new ArrayList<>();
-        for (TLBaseSkill skill : skills.values()) {
-            if (!skill.isEnabled()) continue;
-            skillNames.add(skill.getSkillName());
+    /** 统一列出 function。type="skill"|"agent" */
+    protected TLMsg listFunctions(Object fromWho, TLMsg msg, String type) {
+        List<String> names = new ArrayList<>();
+        for (FunctionEntry fe : functions.values()) {
+            if (!type.equals(fe.type)) continue;
+            names.add(fe.name);
         }
-        return createMsg().setParam(RESULT, true).setParam("skills", skillNames);
+        return createMsg().setParam(RESULT, true).setParam(type + "s", names);
     }
 
     /**
-     * 运行时切换 skill 启用状态（不删实例）。
-     * 参数：skillName、enabled(bool)。切换后失效工具定义缓存。
+     * 运行时切换 function 启用状态。
      */
+    protected synchronized TLMsg registerFunction(Object fromWho, TLMsg msg, String type) {
+        String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
+                                           : msg.getStringParam(AI_P_AGENTNAME, "");
+        if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
+        try {
+            HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG,
+                    msg.getMapParam(MODULE_PARAMS, new HashMap<>())));
+            cfg.putIfAbsent(MODULE_CLASSFILE, msg.getStringParam(MODULE_CLASSFILE, ""));
+            // 注入 modulesClass/modulesParams，getMyModule 才能找到 class/config
+            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
+            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
+            modulesClass.put(name, cfg);
+            modulesParams.put(name, cfg);
+            TLBaseModule module = (TLBaseModule) getMyModule(name);
+            if (module == null) return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + name);
+            registerToRegistry(name, module, type);
+            functions.put(name, new FunctionEntry(name, SKILL_EXECUTE, type, module,
+                    cfg.getOrDefault("description", name), "agent".equals(type) ? buildDelegateParamSchema() : null));
+            invalidateToolDefs();
+            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+            if (persist && configFile != null) {
+                Map<String, String> attrs = new LinkedHashMap<>(cfg);
+                TLXmlConfigWriter.addOrReplaceElement(configFile, type + "s", type, name, attrs);
+            }
+            return createMsg().setParam(RESULT, true).setParam("name", name);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "register failed: " + e);
+        }
+    }
+
+    /** 统一重载 function。type="skill"|"agent" */
+    protected synchronized TLMsg reloadFunction(Object fromWho, TLMsg msg, String type) {
+        String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
+                                           : msg.getStringParam(AI_P_AGENTNAME, "");
+        if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
+        if (!functions.containsKey(name))
+            return createMsg().setParam(RESULT, false).setParam("error", type + " not found: " + name);
+        FunctionEntry old = functions.get(name);
+        TLBaseModule newModule = (TLBaseModule) getNewModule(name);
+        if (newModule == null) return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + name);
+        modules.put(name, newModule);
+        functions.put(name, new FunctionEntry(name, old.action, old.type, newModule, old.description, old.paramSchema));
+        registerToRegistry(name, newModule, type);
+        invalidateToolDefs();
+        return createMsg().setParam(RESULT, true).setParam("name", name);
+    }
+
     protected synchronized TLMsg setSkillEnabled(Object fromWho, TLMsg msg) {
         String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
-        TLBaseSkill skill = skillName.isEmpty() ? null : skills.get(skillName);
+        FunctionEntry fe = skillName.isEmpty() ? null : functions.get(skillName);
+        TLBaseSkill skill = (fe != null && "skill".equals(fe.type)) ? (TLBaseSkill) fe.module : null;
         if (skill == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "skill not found: " + skillName);
         }
         boolean enabled = msg.parseBoolean(AI_P_ENABLED, true);
         skill.setEnabled(enabled);
+        fe.enabled = enabled;
         invalidateToolDefs();
         return createMsg().setParam(RESULT, true)
                 .setParam(AI_P_SKILLNAME, skillName).setParam(AI_P_ENABLED, enabled);
@@ -1790,7 +1777,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     @SuppressWarnings("unchecked")
     protected synchronized TLMsg updateSkill(Object fromWho, TLMsg msg) {
         String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
-        TLBaseSkill skill = skillName.isEmpty() ? null : skills.get(skillName);
+        FunctionEntry fe = skillName.isEmpty() ? null : functions.get(skillName);
+        TLBaseSkill skill = (fe != null && "skill".equals(fe.type)) ? (TLBaseSkill) fe.module : null;
         if (skill == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "skill not found: " + skillName);
         }
@@ -1824,151 +1812,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(DEFAULTMODULEREGISTRY, msg);
     }
 
-    // ======================== Agent管理 ========================
-
-    @SuppressWarnings("unchecked")
-    protected synchronized TLMsg registerAgent(Object fromWho, TLMsg msg) {
-        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
-        if (agentName.isEmpty()) {
-            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
-        }
-        // 防御性校验：agentName 不能包含 ':' 或 '.'（会被误用作 moduleName 导致崩溃）
-        if (agentName.contains(":") || agentName.contains(".")) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "Agent 名称不允许包含 ':' 或 '.'：" + agentName);
-        }
-        // 注册消息只带 agentName + 一个装好该 agent 全部参数的 cfg map，直接注入，
-        // 与 initAgents 走同一套 getMyModule 机制。默认值由调用方在 cfg 里备好。
-        HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG, new HashMap<>()));
-        try {
-            // 前置校验（含类型检查）
-            TLMsg err = validateModuleRef(cfg, IAgentCapable.class);
-            if (err != null) return err;
-            modulesClass.put(agentName, cfg);
-            modulesParams.put(agentName, cfg);
-            if (subAgents == null) subAgents = new ConcurrentHashMap<>();
-            if (agentsConfig == null) agentsConfig = new HashMap<>();
-            isMaster = true;
-            agentsConfig.put(agentName, cfg);
-            // 一律 getMyModule 创建（内部已 modules.put），类由配置决定（classfile/sameClassAs），
-            // group 也是普通子 agent，无需特判
-            TLBaseModule module = (TLBaseModule) getMyModule(agentName);
-            if (module == null) {
-                modulesClass.remove(agentName);
-                modulesParams.remove(agentName);
-                agentsConfig.remove(agentName);
-                return createMsg().setParam(RESULT, false).setParam("error", "create failed: " + agentName);
-            }
-            registerToRegistry(agentName, module, "agent");
-            subAgents.put(agentName, module);
-            putLog("Agent registered: " + agentName, LogLevel.DEBUG);
-            invalidateToolDefs();
-
-            // 持久化到配置文件
-            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
-            if (persist && configFile != null) {
-                try {
-                    Map<String, String> attrs = new LinkedHashMap<>();
-                    for (Map.Entry<String, String> e : cfg.entrySet()) {
-                        if (e.getValue() != null) attrs.put(e.getKey(), e.getValue());
-                    }
-                    TLXmlConfigWriter.addOrReplaceElement(configFile, "agents", "agent", agentName, attrs);
-                } catch (Exception ex) {
-                    putLog("persist agent config failed: " + ex, LogLevel.ERROR, AGENT_HOTLOADSKILL);
-                }
-            }
-            return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
-        } catch (Exception e) {
-            putLog("Failed to register agent: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
-            return createMsg().setParam(RESULT, false).setParam("error", "register failed: " + e);
-        }
-    }
-
-    protected synchronized TLMsg unregisterAgent(Object fromWho, TLMsg msg) {
-        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
-        if (!agentName.isEmpty() && subAgents != null) {
-            TLBaseModule removed = subAgents.remove(agentName);
-            modules.remove(agentName);
-            if (agentsConfig != null) agentsConfig.remove(agentName);   // 对称清理，防残留
-            // group 也是实例（在 subAgents 中），空了即退出主控模式
-            if (subAgents.isEmpty()) isMaster = false;
-            if (removed != null) invalidateToolDefs();
-
-            // 从 registry 注销（级联删除其所有子孙）
-            String registryKey = getFamilyName() + ":" + agentName;
-            putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                    .setParam(REGISTRY_P_KEY, registryKey));
-
-            // 持久化：从配置文件删除
-            boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
-            if (persist && configFile != null) {
-                try {
-                    TLXmlConfigWriter.removeElement(configFile, "agents", "agent", agentName);
-                } catch (Exception ex) {
-                    putLog("remove agent from config failed: " + ex, LogLevel.ERROR, AGENT_HOTLOADSKILL);
-                }
-            }
-            return createMsg().setParam(RESULT, removed != null)
-                    .setParam("error", removed != null ? null : "agent 不存在: " + agentName);
-        }
-        return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
-    }
-
-    /** 重载子 Agent：清理 registry（级联自动删子孙）→ 重建 → 覆盖引用 */
-    protected synchronized TLMsg reloadAgent(Object fromWho, TLMsg msg) {
-        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
-        if (agentName.isEmpty()) {
-            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
-        }
-        if (subAgents == null || !subAgents.containsKey(agentName)) {
-            return createMsg().setParam(RESULT, false).setParam("error", "agent not found: " + agentName);
-        }
-
-        // 1. 重新解析 XML（置 null 强制 setConfig 新建 TLModuleConfig，确保磁盘修改生效）
-        mconfig = null;
-        configure();
-
-        // 2. 注销旧 agent（registry 级联删除其所有子孙，为新实例清空注册槽）
-        String selfKey = getFamilyName() + ":" + agentName;
-        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                .setParam(REGISTRY_P_KEY, selfKey));
-
-        // 3. 建新（启动时 initAgents/initSkills 自动注册自身及子孙到 registry）
-        TLBaseModule newModule = (TLBaseModule) getNewModule(agentName);
-        if (newModule == null) {
-            return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + agentName);
-        }
-
-        // 4. 切：覆盖旧引用
-        subAgents.put(agentName, newModule);
-        modules.put(agentName, newModule);
-
-        // 5. 注册新 agent
-        registerToRegistry(agentName, newModule, "agent");
-
-        invalidateToolDefs();
-        putLog("Reloaded agent: " + agentName, LogLevel.INFO);
-        return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
-    }
-
-    protected TLMsg listAgents(Object fromWho, TLMsg msg) {
-        List<Map<String, Object>> agentInfos = new ArrayList<>();
-        if (subAgents != null) {
-            for (String agentName : subAgents.keySet()) {
-                Map<String, Object> info = new LinkedHashMap<>();
-                info.put("name", agentName);
-                HashMap<String, String> agentCfg = agentsConfig != null ? agentsConfig.get(agentName) : null;
-                info.put("description", agentCfg != null ? agentCfg.getOrDefault("description", "") : "");
-                info.put("moduleName", agentName);
-                agentInfos.add(info);
-            }
-        }
-        return createMsg().setParam(RESULT, true).setParam(AI_P_SUBAGENTS, agentInfos);
-    }
-
     /**
-     * 更新已注册子 Agent 的描述（影响 delegate_to_xxx 的 tool 描述）。
-     * group agent 同在 agentsConfig，通用。改后失效工具定义缓存。
+     * 更新已注册子 Agent 的描述。改后失效工具定义缓存。
      */
     protected synchronized TLMsg updateAgent(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
@@ -2205,122 +2050,73 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 从已注册skills构建function definitions列表（真正的构建逻辑，仅由 getFunctionDefinitions 调用）。
-     * 主控模式下，对所有子 agent 统一两步消息协议，不研判模块类型：
-     * 1. AGENT_GETTOOLDEFS 问工具贡献——实现者（如 MCP）返回 N 个 defs + 路由，全部纳入；
-     * 2. 未实现者生成单个 delegate_to_xxx，描述经 AGENT_GETDESCRIPTION 消息获取。
+     * 从已注册functions构建function definitions列表。
+     * agent 类型会先探 AGENT_GETTOOLDEFS——MCP agent 可贡献多个工具定义。
      */
     @SuppressWarnings("unchecked")
     private List<TLFunctionDefinition> rebuildFunctionDefinitions() {
         List<TLFunctionDefinition> defs = new ArrayList<>();
-        // 重建前清空 MCP 路由，避免 unregisterAgent 后旧路由残留
-        if (agentToolRoutes != null) agentToolRoutes.clear();
 
-        // 内建工具 request_clarification：agent 可主动要求用户确认，不猜测
-        // 始终可用，不依赖 skill 配置。当 LLM 调此工具时直接结束 tool-call 循环
+        // 内建工具 request_clarification
         defs.add(TLFunctionDefinition.fromSkill(
                 AGENT_REQUESTCLARITY,
                 "当缺少必要信息无法完成任务时调用此工具请求用户确认。不要猜测或编造信息。",
                 Map.of("question", Map.of("type", "string", "description", "需要用户确认的具体问题"))));
 
+        // 已处理过的 function name（避免 MCP 贡献的工具和自身同名冲突）
+        Set<String> added = new HashSet<>();
+        added.add(AGENT_REQUESTCLARITY);
 
-        // 始终包含自身的skills（主控也可以有自己的skill）
-        for (TLBaseSkill skill : skills.values()) {
-            if (skill.isEnabled()) {
+        // 每次重建前清除旧的 MCP 条目（由 agent 实时贡献，可能会变化）
+        functions.entrySet().removeIf(e -> "mcp".equals(e.getValue().type));
+
+        for (FunctionEntry fe : new ArrayList<>(functions.values())) {
+            if (!fe.enabled) continue;
+
+            // agent 类型先探 AGENT_GETTOOLDEFS——MCP agent 贡献多个工具
+            if ("agent".equals(fe.type) && fe.module != null) {
                 try {
-                    defs.add(skill.buildFunctionDefinition());
-                } catch (Exception e) {
-                    putLog("Build function def error for " + skill.getName() + ": " + e.toString(), LogLevel.WARN);
-                }
-            }
-        }
-
-        // msgTools：LLM 可调用的预定义消息
-        if (msgTools != null) {
-            for (TLMsg msgTool : msgTools) {
-                // statup="false" 跳过（与 agent/skill/store 一致）
-                if (!TLDataUtils.parseBoolean(msgTool.getStringParam("statup", null), true))
-                    continue;
-                String name = msgTool.getMsgId();
-                if (name == null || name.isEmpty()) continue;
-
-                TLFunctionDefinition def = new TLFunctionDefinition();
-                def.setName(name);
-                String desc = msgTool.getDescription();
-                def.setDescription(desc != null && !desc.isEmpty() ? desc : name);
-
-                // 从 paramsFromArgs 声明 LLM 可传参数（分号分隔），不盲目暴露所有内部属性
-                Map<String, Object> properties = new LinkedHashMap<>();
-                String paramsFromArgs = msgTool.getStringParam("paramsFromArgs", null);
-                if (paramsFromArgs != null && !paramsFromArgs.isEmpty()) {
-                    for (String key : paramsFromArgs.split(";")) {
-                        key = key.trim();
-                        if (key.isEmpty()) continue;
-                        Map<String, Object> prop = new LinkedHashMap<>();
-                        prop.put("type", "string");
-                        prop.put("description", key);
-                        properties.put(key, prop);
-                    }
-                }
-                Map<String, Object> schema = new LinkedHashMap<>();
-                schema.put("type", "object");
-                schema.put("properties", properties);
-                def.setParameters(schema);
-
-                defs.add(def);
-            }
-        }
-
-        // 主控模式额外添加子Agent委托tools——统一消息协议，不研判类型
-        if (isMaster && subAgents != null) {
-            for (String agentName : subAgents.keySet()) {
-                HashMap<String, String> agentCfg = agentsConfig.get(agentName);
-                TLBaseModule sub = subAgents.get(agentName);
-
-                // 1. 问子 agent 是否自带工具定义（AGENT_GETTOOLDEFS，MCP 等实现者返回 defs+路由）
-                List<TLFunctionDefinition> contributed = null;
-                Map<String, String> routes = null;
-                try {
-                    TLMsg defsMsg = putMsg(sub, createMsg().setAction(AGENT_GETTOOLDEFS));
+                    TLMsg defsMsg = putMsg(fe.module, createMsg().setAction(AGENT_GETTOOLDEFS));
                     if (defsMsg != null) {
-                        contributed = (List<TLFunctionDefinition>) defsMsg.getListParam(AI_P_FUNCTIONDEFS, null);
-                        routes = (Map<String, String>) defsMsg.getMapParam(AI_P_TOOLROUTES, null);
-                    }
-                } catch (Exception e) {
-                    putLog("getToolDefinitions failed: " + agentName + " " + e, LogLevel.DEBUG);
-                }
-                if (contributed != null && !contributed.isEmpty()) {
-                    for (TLFunctionDefinition toolDef : contributed) {
-                        defs.add(toolDef);
-                        String toolName = routes != null ? routes.get(toolDef.getName()) : null;
-                        if (toolName != null) {
-                            if (agentToolRoutes == null) agentToolRoutes = new ConcurrentHashMap<>();
-                            agentToolRoutes.put(toolDef.getName(), new String[]{agentName, toolName});
+                        List<TLFunctionDefinition> contributed =
+                                (List<TLFunctionDefinition>) defsMsg.getListParam(AI_P_FUNCTIONDEFS, null);
+                        Map<String, String> routes =
+                                (Map<String, String>) defsMsg.getMapParam(AI_P_TOOLROUTES, null);
+                        if (contributed != null) {
+                            for (TLFunctionDefinition toolDef : contributed) {
+                                String toolName = toolDef.getName();
+                                if (added.contains(toolName)) continue;
+                                added.add(toolName);
+                                defs.add(toolDef);
+                                // MCP 工具注册到 functions：LLM 名=toolName，原生名=nativeTool
+                                String nativeTool = routes != null ? routes.get(toolName) : toolName;
+                                functions.put(toolName, new FunctionEntry(toolName, MCP_CALLTOOL, "mcp",
+                                        fe.module, toolDef.getDescription() != null ? toolDef.getDescription() : toolName,
+                                        null, nativeTool != null ? nativeTool : toolName));
+                            }
                         }
                     }
-                    putLog("Sub-agent [" + agentName + "] contributed "
-                            + contributed.size() + " tools", LogLevel.DEBUG);
-                    continue;
-                }
-
-                // 2. 默认：单个 delegate_to_xxx def。描述经消息向子 agent 获取
-                // （AGENT_GETDESCRIPTION，实例自己已合并 XML+md），符合消息框架规则，
-                // 无需研判模块类型；未实现该 action 或为空则回落 agentCfg.description
-                String desc = null;
-                try {
-                    TLMsg descMsg = putMsg(sub, createMsg().setAction(AGENT_GETDESCRIPTION));
-                    if (descMsg != null)
-                        desc = descMsg.getStringParam(AI_P_AGENTDESCRIPTION, null);
                 } catch (Exception e) {
-                    putLog("getAgentDescription failed: " + agentName + " " + e, LogLevel.DEBUG);
+                    putLog("AGENT_GETTOOLDEFS failed for " + fe.name + ": " + e, LogLevel.DEBUG);
                 }
-                if (desc == null || desc.isEmpty())
-                    desc = agentCfg != null ? agentCfg.getOrDefault("description", agentName) : agentName;
-                TLFunctionDefinition def = TLFunctionDefinition.fromSkill(
-                        "delegate_to_" + agentName, desc, buildDelegateParamSchema());
+            }
+
+            // agent 自身也作为一个 function（单任务委托）
+            if (!added.contains(fe.name)) {
+                added.add(fe.name);
+                TLFunctionDefinition def;
+                if (fe.paramSchema != null) {
+                    def = TLFunctionDefinition.fromSkill(fe.name, fe.description, fe.paramSchema);
+                } else if (fe.module instanceof TLBaseSkill) {
+                    try { def = ((TLBaseSkill) fe.module).buildFunctionDefinition(); }
+                    catch (Exception e) { def = TLFunctionDefinition.fromSkill(fe.name, fe.description, null); }
+                } else {
+                    def = TLFunctionDefinition.fromSkill(fe.name, fe.description, fe.paramSchema);
+                }
                 defs.add(def);
             }
         }
+
         return defs;
     }
 
@@ -2382,11 +2178,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         if (approvalModule == null) return null;
 
-        // 去掉 delegate_to_ 前缀，让审批模块看到真实的 agent/skill 名
         String checkName = tc.getFunctionName();
-        if (checkName.startsWith("delegate_to_")) {
-            checkName = checkName.substring("delegate_to_".length());
-        }
 
         try {
             TLMsg result = putMsg(approvalModule,
@@ -2544,260 +2336,73 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return approvalResult;  // pending 或 rejected
         }
 
-        // 主控模式：子 agent 贡献的工具路由（查路由表 → 发 callTool 消息，不研判类型）
-        if (isMaster && agentToolRoutes != null && agentToolRoutes.containsKey(functionName)) {
-            String[] route = agentToolRoutes.get(functionName);
-            String routeAgentName = route[0];
-            String routeToolName = route[1];
-            TLBaseModule routeAgent = subAgents.get(routeAgentName);
-            if (routeAgent == null) {
-                putLog("Tool route agent not found: " + routeAgentName, LogLevel.WARN);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error: agent not found: " + routeAgentName);
-            }
-
+        // 统一函数表：skill / agent / msgTool 全部走 functions map → putMsg(module, msg)
+        FunctionEntry fn = functions.get(functionName);
+        if (fn != null && fn.enabled) {
             try {
                 @SuppressWarnings("unchecked")
                 java.util.Map<String, Object> toolArgs = tc.getArguments() instanceof java.util.Map
                         ? (java.util.Map<String, Object>) tc.getArguments()
                         : new java.util.LinkedHashMap<>();
 
-                System.out.println(">>> [主控-tool路由] 调用 [" + routeAgentName + "." + routeToolName + "]");
-                System.out.println("    参数: " + toolArgs);
-
-                TLMsg result = putMsg(routeAgent, createMsg().setAction(MCP_CALLTOOL)
-                        .setParam(AI_P_TOOLNAME, routeToolName)
-                        .setParam(AI_P_TOOLARGUMENTS, toolArgs));
-                if (result == null) {
-                    return createMsg().setParam(RESULT, false)
-                            .setParam(AI_P_SKILLOUTPUT, "Error: no response from " + routeAgentName);
-                }
-                String output = result.getStringParam(AI_P_SKILLOUTPUT,
-                        result.parseBoolean(RESULT, false) ? "OK" : "Failed");
-
-                System.out.println("<<< [主控-tool路由] [" + routeAgentName + "." + routeToolName
-                        + "] 返回 (前200字): " + (output != null ? output.substring(0, Math.min(200, output.length())) : "null"));
-
-                return result;
-            } catch (Exception e) {
-                putLog("!!! [主控-tool路由] [" + routeAgentName + "." + routeToolName + "] 异常: " + e.toString(), LogLevel.ERROR);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error executing tool: " + e.getMessage());
-            }
-        }
-
-        // msgTool 路由：查找匹配 msgId 的预定义消息。
-        // 有 action：直接执行到 destination（缺省发给本 agent 自己）；
-        // 只有 msgid 无 action：走框架 msgid 路由——目标模块的 getMsg() 会
-        // 调用 checkMsgId() 查其 msgTable（一个 msgid 可挂多条 msg），doMsgList 顺序执行。
-        TLMsg matchedMsg = findMsgToolByMsgId(functionName);
-        if (matchedMsg != null) {
-            try {
-                TLMsg execMsg = new TLMsg();
-                execMsg.copyFrom(matchedMsg);
-                execMsg.setSource(getName());
-
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> toolArgs = tc.getArguments() instanceof java.util.Map
-                        ? (java.util.Map<String, Object>) tc.getArguments()
-                        : new java.util.LinkedHashMap<>();
-                // 注入 LLM 参数（覆盖/追加到消息 args 中）
-                if (toolArgs != null) {
-                    for (java.util.Map.Entry<String, Object> entry : toolArgs.entrySet()) {
-                        execMsg.setParam(entry.getKey(), entry.getValue());
+                // skill 类型：执行前校验参数
+                if ("skill".equals(fn.type)) {
+                    TLMsg vResult = putMsg(fn.module, createMsg().setAction(SKILL_VALIDATE)
+                            .setParam(AI_P_SKILLINPUT, toolArgs));
+                    if (vResult != null && !vResult.parseBoolean(RESULT, false)) {
+                        return createMsg().setParam(RESULT, false)
+                                .setParam(AI_P_SKILLOUTPUT, "Validation error: "
+                                        + vResult.getStringParam("error", "unknown"));
                     }
                 }
-                // 自动注入当前会话上下文参数（如果消息模板未预设）
+
+                TLMsg execMsg = createMsg();
+                if ("_msgId_".equals(fn.action)) {
+                    execMsg.setMsgId(fn.name);
+                } else if (MCP_CALLTOOL.equals(fn.action)) {
+                    execMsg.setAction(MCP_CALLTOOL).setParam(AI_P_TOOLNAME, fn.nativeName)
+                            .setParam(AI_P_TOOLARGUMENTS, toolArgs);
+                } else {
+                    execMsg.setAction(fn.action).setParam(AI_P_TOOLNAME, functionName);
+                }
+                execMsg.setParam(AI_P_SKILLINPUT, toolArgs)
+                        .setParam(AI_P_TOOLID, tc.getId());
+                // 注入 LLM 参数
+                for (java.util.Map.Entry<String, Object> entry : toolArgs.entrySet()) {
+                    execMsg.setParam(entry.getKey(), entry.getValue());
+                }
                 if (!execMsg.containsParam(AI_P_SESSIONID) && sessionId != null) {
                     execMsg.setParam(AI_P_SESSIONID, sessionId);
                 }
 
-                String dest = execMsg.getDestination();
-                String action = execMsg.getAction();
-                String msgId = execMsg.getMsgId();
-                if (action != null && !action.isEmpty())
-                    System.out.println(">>> [msgTool] [" + functionName + "] action=" + action
-                            + " dest=" + (dest != null && !dest.isEmpty() ? dest : "self"));
-                else
-                    System.out.println(">>> [msgTool] [" + functionName + "] msgid=" + (msgId != null ? msgId : "-")
-                            + " dest=" + (dest != null && !dest.isEmpty() ? dest : "self") + " (路由查 msgTable)");
-                putLog("Executing msgTool: " + functionName + " -> " + (dest != null && !dest.isEmpty() ? dest : "self"), LogLevel.DEBUG);
-
-                TLMsg result = (dest != null && !dest.isEmpty()) ? putMsg(dest, execMsg) : putMsg(this, execMsg);
+                System.out.println(">>> [Function] " + functionName + " → " + fn.module.getName());
+                TLMsg result = putMsg(fn.module, execMsg);
                 String output;
                 if (result == null) {
                     output = "done";
-                } else if (result.getParam(RESULT) instanceof java.util.List) {
-                    // 并行结果集（doMsgListParallel 返回）：逐条提取标签+内容
-                    @SuppressWarnings("unchecked")
-                    java.util.List<TLMsg> results = (java.util.List<TLMsg>) result.getParam(RESULT);
-                    StringBuilder sb = new StringBuilder();
-                    for (TLMsg r : results) {
-                        if (sb.length() > 0) sb.append("\n");
-                        String label = r.getDestination();
-                        if (label == null) label = r.getAction();
-                        if (label == null) label = r.getMsgId();
-                        if (label == null) label = "msg";
-                        String body;
-                        if (r == null) {
-                            body = "no response";
-                        } else if (r.containsParam(AI_P_SKILLOUTPUT)) {
-                            body = r.getStringParam(AI_P_SKILLOUTPUT, "");
-                        } else {
-                            HashMap<String, Object> args = r.getArgs();
-                            if (args != null && !args.isEmpty()) {
-                                StringBuilder asb = new StringBuilder();
-                                for (java.util.Map.Entry<String, Object> e : args.entrySet()) {
-                                    if (asb.length() > 0) asb.append(", ");
-                                    asb.append(e.getKey()).append("=").append(e.getValue());
-                                }
-                                body = asb.toString();
-                            } else {
-                                body = r.toString();
-                            }
-                        }
-                        sb.append("【").append(label).append("】").append(body);
-                    }
-                    output = sb.toString();
                 } else if (result.containsParam(AI_P_SKILLOUTPUT)) {
-                    // Skill 风格返回（显式设置了 AI_P_SKILLOUTPUT）
                     output = result.getStringParam(AI_P_SKILLOUTPUT, "");
                 } else {
-                    // 通用返回：从 args 中拼出所有业务参数
-                    HashMap<String, Object> resultArgs = result.getArgs();
-                    if (resultArgs != null && !resultArgs.isEmpty()) {
-                        StringBuilder sb = new StringBuilder();
-                        for (java.util.Map.Entry<String, Object> entry : resultArgs.entrySet()) {
-                            if (sb.length() > 0) sb.append(", ");
-                            sb.append(entry.getKey()).append("=").append(entry.getValue());
-                        }
-                        output = sb.toString();
-                    } else {
-                        output = result.toString();
-                    }
+                    output = result.getStringParam(AI_P_RESPONSE, "");
                 }
+                if (output.isEmpty()) output = result.toString();
+                System.out.println("<<< [Function] " + functionName + " 返回 (前200字): "
+                        + (output.length() > 200 ? output.substring(0, 200) : output));
 
-                System.out.println("<<< [msgTool] 消息 [" + functionName + "] 返回: " + output);
-
-                return createMsg().setParam(RESULT, true)
-                        .setParam(AI_P_SKILLOUTPUT, output);
+                return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
             } catch (Exception e) {
-                putLog("msgTool execution error: " + functionName + " -> " + e.toString(), LogLevel.ERROR);
+                putLog("Function execution error: " + functionName + " -> " + e.toString(), LogLevel.ERROR);
                 return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error executing msgTool " + functionName + ": " + e.getMessage());
+                        .setParam(AI_P_SKILLOUTPUT, "Error executing " + functionName + ": " + e.getMessage());
             }
         }
 
-        // 主控模式：路由到子Agent（group 也是 subAgents 中的普通子 agent，无需特判）
-        if (isMaster && functionName.startsWith("delegate_to_")) {
-            String agentName = functionName.substring("delegate_to_".length());
-
-            TLBaseModule subAgent = subAgents.get(agentName);
-            if (subAgent == null) {
-                putLog("Sub-agent not found: " + agentName, LogLevel.WARN);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error: Agent not found: " + agentName)
-                        .setParam(AI_P_AGENTERROR, AGENT_ERR_NOTFOUND);
-            }
-
-            try {
-                String task = parseDelegateArgs(tc.getArguments());
-                String childSessionId = agentName + ":"
-                        + (tc.getId() != null ? tc.getId() : System.currentTimeMillis());
-
-                TLMsg chatMsg = createMsg()
-                        .setAction(AGENT_CHAT)
-                        .setParam(AI_P_USERMESSAGE, task)
-                        .setParam(AI_P_SESSIONID, childSessionId)
-                        .setParam("rootSessionId", currentRootSessionId.get());
-
-                System.out.println(">>> [主控] 委托任务给子Agent [" + agentName + "]");
-                System.out.println("    任务: " + task);
-
-                TLMsg result = putMsg(subAgent, chatMsg);
-                boolean needsClarify = result != null && result.parseBoolean(AI_P_NEEDSCLARIFICATION, false);
-                String agentOutput;
-                if (needsClarify) {
-                    String question = result.getStringParam(AI_P_CLARIFICATIONQUESTION, "");
-                    agentOutput = "⚠️ Agent [" + agentName + "] requests clarification: " + question
-                            + "\n\nAsk the user before re-delegating.";
-                } else {
-                    agentOutput = result != null
-                            ? result.getStringParam(AI_P_RESPONSE, result.toString())
-                            : "No response from agent " + agentName;
-                }
-
-                System.out.println("<<< [主控] 子Agent [" + agentName + "] 返回结果 (前200字): "
-                        + (agentOutput != null ? agentOutput.substring(0, Math.min(200, agentOutput.length())) : "null"));
-
-                return createMsg().setParam(RESULT, true)
-                        .setParam(AI_P_SKILLOUTPUT, agentOutput);
-            } catch (Exception e) {
-                putLog("!!! [主控] 子Agent [" + agentName + "] 执行异常: " + e.toString(), LogLevel.ERROR);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error in agent " + agentName + ": " + e.getMessage())
-                        .setParam(AI_P_AGENTERROR, e.getMessage());
-            }
-        }
-
-        // 独立模式：原有skill路由
-        TLBaseSkill skill = skills.get(functionName);
-
-        if (skill == null) {
-            putLog("Skill not found for tool call: " + functionName, LogLevel.WARN);
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_SKILLOUTPUT, "Error: Skill not found: " + functionName)
-                    .setParam("error", "Skill not found");
-        }
-
-        try {
-            // 输入校验：参数不合法则返回错误让 LLM 自修正
-            TLMsg validateMsg = createMsg().setAction(SKILL_VALIDATE)
-                    .setParam(AI_P_SKILLINPUT, tc.getArguments() != null
-                            ? tc.getArguments() : new LinkedHashMap<>());
-            TLMsg vResult = putMsg(skill, validateMsg);
-            if (!vResult.parseBoolean(RESULT, false)) {
-                putLog("Skill validation failed: " + functionName + " - " + vResult.getStringParam("error", ""), LogLevel.WARN);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Validation error: " + vResult.getStringParam("error", "unknown"));
-            }
-
-            TLMsg executeMsg = createMsg()
-                    .setAction(SKILL_EXECUTE)
-                    .setParam(AI_P_SKILLINPUT, tc.getArguments() != null
-                            ? tc.getArguments() : new LinkedHashMap<>())
-                    .setParam(AI_P_TOOLID, tc.getId())
-                    .setParam(AI_P_TOOLNAME, functionName);
-
-            putLog("Executing skill: " + functionName + " toolCallId=" + tc.getId(), LogLevel.DEBUG);
-
-            return putMsg(skill, executeMsg);
-        } catch (Exception e) {
-            putLog("Skill execution error: " + functionName + " -> " + e.toString(), LogLevel.ERROR);
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_SKILLOUTPUT, "Error executing " + functionName + ": " + e.getMessage());
-        }
+        // 函数未找到
+        putLog("Function not found: " + functionName, LogLevel.WARN);
+        return createMsg().setParam(RESULT, false)
+                .setParam(AI_P_SKILLOUTPUT, "Error: Function not found: " + functionName);
     }
 
-    /**
-     * 解析委托参数，提取task描述字符串
-     */
-    @SuppressWarnings("unchecked")
-    protected String parseDelegateArgs(Object args) {
-        if (args instanceof Map) {
-            Map<String, Object> map = (Map<String, Object>) args;
-            Object task = map.get("task");
-            if (task != null) return task.toString();
-        }
-        if (args instanceof String) return (String) args;
-        return args != null ? args.toString() : "";
-    }
-
-    /**
-     * 根据 msgId 查找 msgTools 列表中的匹配消息。
-     * @param msgId LLM tool call 中的 function name（对应 msg 的 msgid 属性）
-     * @return 匹配的 TLMsg，未找到返回 null
-     */
     /** 解析模板变量 {{key}}：msg 参数 → agent params → 内置值 → 原样保留 */
     private String resolveVar(String key, TLMsg msg, String sessionId, String nowStr) {
         // 1. 从消息参数查找
@@ -2817,16 +2422,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         // 4. 未匹配 → 原样保留，不破坏模板
         return "{{" + key + "}}";
-    }
-
-    protected TLMsg findMsgToolByMsgId(String msgId) {
-        if (msgTools == null || msgId == null) return null;
-        for (TLMsg msg : msgTools) {
-            if (msgId.equals(msg.getMsgId())) {
-                return msg;
-            }
-        }
-        return null;
     }
 
     /**

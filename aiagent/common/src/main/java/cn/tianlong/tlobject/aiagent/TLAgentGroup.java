@@ -203,6 +203,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             case AGENT_CHAT:
                 returnMsg = chat(fromWho, msg);
                 break;
+            case SKILL_EXECUTE:
+                // group 作为 function 被调用：内部 chat，结果放 AI_P_SKILLOUTPUT
+                returnMsg = executeAsTool(fromWho, msg);
+                break;
             case AGENT_REGISTERAGENT:
                 returnMsg = registerMember(fromWho, msg);
                 break;
@@ -365,6 +369,20 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      * 向 agentMonitor 自注册：stopByRoot 级联时能找到组本身，
      * 组的 stopChat 再转发给成员（补成员未进入 doChat 时的间隙）。
      */
+    /** Group 作为 function 被调用：内部 chat → AI_P_SKILLOUTPUT */
+    @SuppressWarnings("unchecked")
+    protected TLMsg executeAsTool(Object fromWho, TLMsg msg) {
+        Map<String, Object> args = (Map<String, Object>) msg.getParam(AI_P_SKILLINPUT, Map.class);
+        String task = (args != null && args.containsKey("task")) ? String.valueOf(args.get("task")) : "";
+        if (task.isEmpty()) task = msg.getStringParam(AI_P_USERMESSAGE, "");
+        TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
+        if (msg.containsParam(AI_P_SESSIONID)) chatMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
+        if (msg.containsParam("rootSessionId")) chatMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
+        if (msg.containsParam("userId")) chatMsg.setParam("userId", msg.getStringParam("userId", ""));
+        TLMsg result = chat(fromWho, chatMsg);
+        return createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
+    }
+
     protected TLMsg chat(Object fromWho, TLMsg msg) {
         if (memberNames == null || memberNames.length == 0) {
             return createMsg().setParam(RESULT, false)

@@ -123,8 +123,9 @@ public class TLAgentWorkflow extends TLBaseModule
             case WORKFLOW_EXECUTE:
                 return doWorkflow(msg);
             case AGENT_CHAT:
-                // 作为子agent被master委托调用，userMessage → workflow input
                 return doWorkflow(msg);
+            case SKILL_EXECUTE:
+                return doWorkflowAsTool(msg);
             case AGENT_GETDESCRIPTION:
                 return createMsg().setParam(RESULT, true)
                         .setParam(AI_P_AGENTDESCRIPTION,
@@ -149,6 +150,21 @@ public class TLAgentWorkflow extends TLBaseModule
      * - edges: List&lt;Map&lt;String, String&gt;&gt;          动态边（可选，覆盖XML）
      */
     @SuppressWarnings("unchecked")
+    /** 作为 function 被调用：执行工作流 → AI_P_SKILLOUTPUT */
+    private TLMsg doWorkflowAsTool(TLMsg msg) {
+        // 从 AI_P_SKILLINPUT 提取 task，注入 userMessage
+        Map<String, Object> args = (Map<String, Object>) msg.getParam(AI_P_SKILLINPUT, Map.class);
+        if (args != null && args.containsKey("task")) {
+            msg.setParam("userMessage", String.valueOf(args.get("task")));
+        }
+        if (!msg.containsParam("userMessage")) {
+            msg.setParam("userMessage", msg.getStringParam(AI_P_USERMESSAGE, ""));
+        }
+        TLMsg result = doWorkflow(msg);
+        String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
+        return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
+    }
+
     private TLMsg doWorkflow(TLMsg msg) {
         // 解析节点
         Map<String, TLWorkflowNode> workflowNodes;
