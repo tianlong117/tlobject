@@ -83,6 +83,12 @@ public interface TLAiAgentParamString extends TLParamString {
     /** 中断指定 session 正在进行的 chat（协作式取消） */
     String AGENT_STOPCHAT = "stopChat";
 
+    // ======================== ToolExecutor 动作 ========================
+    /** 批量执行工具调用（带审批、并行、取消支持） */
+    String TODOOLEXECUTE = "toolExecBatch";
+    /** 取消指定 session 的所有进行中工具执行 */
+    String TODOOLECANCEL = "toolExecCancel";
+
     // ======================== LLM Provider动作 ========================
     /** 发送completion请求（非流式） */
     String LLM_COMPLETION = "completion";

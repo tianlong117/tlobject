@@ -61,10 +61,19 @@
     </params>
 
     <providers>
-        <!-- ==== 带模型路由的 Provider ====
+        <!-- ==== 带模型路由的 Provider（装饰器模式）====
+             TLRoutingProvider 本身不发起 HTTP 请求，它拦截 completion 调用后：
+               1. 根据关键词/LLM 判断任务复杂度
+               2. 选择 simpleModel 或 complexModel
+               3. 转发给 delegateProvider 执行真正的 API 调用
+
+             delegateProvider="openAiProvider" — 指定"真正干活的 Provider 是谁"。
+               这里引用的是模块工厂中已注册的 Provider 类（cn.tianlong.tlobject.aiagent_config.xml 里的 openAiProvider），
+               RoutingProvider 会复制其类（TLOpenAiProvider）并注入 apiKey/apiBaseUrl/model 等参数来创建后端实例。
+
              策略 hybrid = 规则优先 + 未命中时用 simpleModel 做元认知分类。
-             简单任务选 ddeepseek-v4-flash（便宜），复杂任务选 deepseek-v4-flash（强推理）。
-             切回无路由：classfile 改回 TLOpenAiProvider，删掉 strategy/delegateProvider/keywords 属性即可。
+             简单任务选 deepseek-v4-flash（便宜），复杂任务选 deepseek-v4-flash（强推理）。
+             切回无路由：sameClassAs 改回 TLOpenAiProvider，删掉 strategy/delegateProvider/keywords 属性即可。
         -->
         <provider name="openAiProvider"
                   sameClassAs="routingProvider"
@@ -76,7 +85,7 @@
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-flash"
-
+                  checkProviderOnStartup="true"
                   simpleModel="deepseek-v4-flash"
                   simpleKeywords="你好,hello,hi,是什么,定义,解释,翻译,translate,谢谢,再见,笑话,天气"
 

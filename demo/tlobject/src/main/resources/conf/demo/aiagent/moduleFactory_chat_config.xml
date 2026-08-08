@@ -50,6 +50,7 @@
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
+        <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
     </factoryBoot>

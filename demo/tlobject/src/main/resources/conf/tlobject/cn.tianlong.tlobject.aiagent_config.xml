@@ -11,6 +11,8 @@
                 singleton="true"/>
         <module name="routingProvider" classfile="cn.tianlong.tlobject.aiagent.TLRoutingProvider"
                 singleton="true"/>
+        <module name="toolExecutor" classfile="cn.tianlong.tlobject.aiagent.TLToolExecutor"
+                singleton="true"/>
         <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"

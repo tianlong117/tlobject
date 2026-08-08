@@ -9,7 +9,6 @@ import org.xmlpull.v1.XmlPullParser;
 import java.io.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 
 /**
  * AI Agent主控模块——智能体框架的核心编排器。
@@ -36,6 +35,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 当前活跃的Provider实例引用 */
     protected TLLlmProvider llmProvider;
+
+    /** 工具执行模块（私有实例，盲执行解析好的 ToolTask） */
+    protected TLToolExecutor toolExecutor;
 
     /** 上下文模块名 */
     protected String contextModuleName = M_AICONTEXT;
@@ -149,11 +151,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 会话级 msgStartIdx: sessionId → 本轮消息起始位置（供 onStreamResult 使用） */
     private final Map<String, Integer> sessionMsgStartIdx = new ConcurrentHashMap<>();
 
-    /** 并行工具执行上下文: sessionId → 本轮并行执行状态（供 doToolExec 回调写入） */
-    private final Map<String, ParallelToolExec> toolExecs = new ConcurrentHashMap<>();
-    /** 会话级并行工具线程: sessionId → 活跃的工具 ThreadTask 列表（供 stopChat 取消） */
-    private final Map<String, List<ThreadTask>> toolTasksMap = new ConcurrentHashMap<>();
-
     /** LLM 可调用的预定义消息列表（从 XML msgTools 段解析） */
     protected List<TLMsg> msgTools;
 
@@ -168,11 +165,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 数据存储基础路径（供 context/memory 等使用） */
     protected String dataBasePath = "./data/";
-
-    /** 审批模块引用（null = 未启用审批） */
-    protected volatile IObject approvalModule;
-    /** 审批模块名（从 XML params 读取） */
-    protected String approvalModuleName;
 
     /** JSON 序列化（复用 Gson，aiagent 已依赖） */
     protected com.google.gson.Gson gson;
@@ -268,8 +260,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 dataBasePath = params.get("dataBasePath");
             else if (params.get("sessionStorePath") != null)
                 dataBasePath = params.get("sessionStorePath"); // 兼容旧配置
-            if (params.get("approvalModule") != null)
-                approvalModuleName = params.get("approvalModule");
             // 推理/思考链参数
             if (params.get("reasoningMode") != null)
                 reasoningMode = params.get("reasoningMode");
@@ -384,6 +374,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 私有 context 实例
         initContext();
+
+        // 私有工具执行模块（审批模块名从 Agent params 继承）
+        try {
+            toolExecutor = (TLToolExecutor) getMyModule("toolExecutor");
+            if (params != null && params.containsKey("approvalModule")) {
+                toolExecutor.setApprovalModule(params.get("approvalModule"));
+            }
+        } catch (Exception e) {
+            putLog("Failed to init toolExecutor: " + e.toString(), LogLevel.WARN);
+        }
 
         super.runStartMsg();
         registerToRegistry(name, this, "agent");
@@ -667,9 +667,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
                 break;
-            case "_toolExec":
-                returnMsg = doToolExec(fromWho, msg);
-                break;
             case SKILL_EXECUTE:
                 // agent 作为工具被调用：提取 task → 内部 chat → 结果放入 AI_P_SKILLOUTPUT
                 returnMsg = executeAsTool(fromWho, msg);
@@ -732,16 +729,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (worker != null) {
             worker.interrupt();
         }
-        // 4) 取消并行工具线程
-        List<ThreadTask> tts = toolTasksMap.remove(sid);
-        if (tts != null) {
-            // 也清理执行上下文，让未完成的工具直接 countDown
-            ParallelToolExec pte = toolExecs.remove(sid);
-            if (pte != null) {
-                while (pte.latch.getCount() > 0) pte.latch.countDown();
-            }
-            for (ThreadTask t : tts) { t.cancelTask(); t.interrupt(); }
-            putLog("stopChat cancelled " + tts.size() + " tool thread(s): sessionId=" + sid, LogLevel.INFO);
+        // 4) 取消并行工具线程（委托给 ToolExecutor）
+        if (toolExecutor != null) {
+            TLMsg cancelMsg = createMsg().setAction(TODOOLECANCEL)
+                    .setParam(AI_P_SESSIONID, sid);
+            String usr = msg.getStringParam("userId", null);
+            if (usr != null) cancelMsg.setParam("userId", usr);
+            putMsg(toolExecutor, cancelMsg);
         }
         putLog("stopChat requested: sessionId=" + sid + " cascade=" + cascade, LogLevel.INFO);
         return createMsg().setParam(RESULT, true).setParam(AI_P_SESSIONID, sid);
@@ -876,10 +870,33 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         singleTc.add(savedTc);
                         history.add(new TLConversationHistory(
                                 TLConversationHistory.Role.assistant, singleTc));
-                        TLMsg tr = executeToolCall(savedTc, fromWho, sessionId);
+                        // 解析并委托 ToolExecutor 执行单个恢复的 tool
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> savedArgs = savedTc.getArguments() instanceof java.util.Map
+                                ? new java.util.LinkedHashMap<>((java.util.Map<String, Object>) savedTc.getArguments())
+                                : new java.util.LinkedHashMap<>();
+                        List<TLToolExecutor.ToolTask> singleTask = resolveToolCalls(singleTc, sessionId,
+                                msg.getStringParam("userId", "default"));
+                        String execId2 = sessionId + "_resume_" + System.nanoTime();
+                        TLMsg singleExecResult = singleTask.isEmpty() ? null
+                                : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
+                                        .setParam("tasks", singleTask)
+                                        .setParam("executionId", execId2)
+                                        .setParam(AI_P_SESSIONID, sessionId)
+                                        .setParam("userId", msg.getStringParam("userId", "default"))
+                                        .setParam("rootSessionId", rootSid));
+                        String singleOutput;
+                        if (singleExecResult != null) {
+                            @SuppressWarnings("unchecked")
+                            List<TLToolExecutor.ToolResult> singleResults =
+                                    (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
+                            singleOutput = (singleResults != null && !singleResults.isEmpty())
+                                    ? singleResults.get(0).output : "";
+                        } else {
+                            singleOutput = "";
+                        }
                         history.add(new TLConversationHistory(savedTc.getId(),
-                                savedTc.getFunctionName(),
-                                tr.getStringParam(AI_P_SKILLOUTPUT, tr.getStringParam("error", ""))));
+                                savedTc.getFunctionName(), singleOutput));
                         putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
                                 LogLevel.INFO);
                     } else if ("rejected".equals(decision)) {
@@ -1084,73 +1101,72 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     history.add(aMsg);
                     int aMsgIdx = history.size() - 1; // 记录位置，审批/拒绝时精确回滚
 
-                    // ── 并行执行工具 ──
-                    // n≥1 一律走统一路径：fire 到独立 ThreadTask，结果缓存到 pte.results
-                    int n = toolCalls.size();
-                    CountDownLatch toolLatch = new CountDownLatch(n);
-                    ParallelToolExec pte = new ParallelToolExec(toolLatch, history);
-                    toolExecs.put(sessionId, pte);
-                    List<ThreadTask> tasks = new ArrayList<>(n);
-                    try {
-                        for (int i = 0; i < n; i++) {
-                            TLToolCall tc = toolCalls.get(i);
-                            TLMsg execMsg = createMsg().setAction("_toolExec")
-                                    .setParam("_tc", tc).setParam("_idx", i)
-                                    .setParam("_fromWho", fromWho)
+                    // ── 解析 + 委托工具执行 ──
+                    List<TLToolExecutor.ToolTask> tasks = resolveToolCalls(toolCalls, sessionId,
+                            msg.getStringParam("userId", "default"));
+                    if (tasks.isEmpty()) {
+                        // 全部工具被跳过（校验失败等），回滚 assistant 消息直接 break
+                        history.remove(aMsgIdx);
+                        break;
+                    }
+
+                    String execId = sessionId + "_" + System.nanoTime();
+                    String usrId = msg.getStringParam("userId", "default");
+                    TLMsg execResult = putMsg(toolExecutor,
+                            createMsg().setAction(TODOOLEXECUTE)
+                                    .setParam("tasks", tasks)
+                                    .setParam("executionId", execId)
                                     .setParam(AI_P_SESSIONID, sessionId)
-                                    .setParam("rootSessionId", rootSid);
-                            TLMsg taskResult = putMsgNoWait(this, execMsg);
-                            ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
-                            if (tt != null) tasks.add(tt);
-                        }
-                        toolTasksMap.put(sessionId, tasks);
-                        // 不限时等待（用户取消时 stopChat 会 interrupt + cancelTask 释放 latch）
-                        toolLatch.await();
-                        // 收敛特殊状态
-                        if (pte.aborted || cancelled.get()) { aborted = true; break; }
-                        if (pte.rejected || pte.pendingApproval || pte.clarified) {
-                            history.remove(aMsgIdx); // 精确回滚 assistant 消息
-                        }
-                        if (pte.rejected) {
-                            history.add(new TLConversationHistory(TLConversationHistory.Role.user,
-                                    "（操作已被用户拒绝：" + pte.rejectReason + "。不要重试此操作。）"));
-                            rejected = true;
-                            finalResponse = pte.finalResponse;
-                            break;
-                        }
-                        if (pte.pendingApproval) {
-                            pendingApproval = true;
-                            finalResponse = pte.finalResponse;
-                            notifySessionManager(createMsg()
-                                    .setAction("sessionUpdated")
-                                    .setParam("sessionId", sessionId)
-                                    .setParam("userId", msg.getStringParam("userId", "default"))
+                                    .setParam("rootSessionId", rootSid)
+                                    .setParam("userId", usrId));
+
+                    boolean execAborted = execResult.parseBoolean("aborted", false);
+                    boolean execRejected = execResult.parseBoolean("rejected", false);
+                    boolean execPending = execResult.parseBoolean("pendingApproval", false);
+                    boolean execClarified = execResult.parseBoolean("clarified", false);
+
+                    if (execAborted || cancelled.get()) { aborted = true; break; }
+                    if (execRejected || execPending || execClarified) {
+                        history.remove(aMsgIdx); // 精确回滚 assistant 消息
+                    }
+                    if (execRejected) {
+                        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                                "（操作已被用户拒绝：" + execResult.getStringParam("rejectReason", "")
+                                        + "。不要重试此操作。）"));
+                        rejected = true;
+                        finalResponse = execResult.getStringParam("finalResponse", "");
+                        break;
+                    }
+                    if (execPending) {
+                        pendingApproval = true;
+                        finalResponse = execResult.getStringParam("finalResponse", "");
+                        notifySessionManager(createMsg()
+                                .setAction("sessionUpdated")
+                                .setParam("sessionId", sessionId)
+                                .setParam("userId", msg.getStringParam("userId", "default"))
                             .setParam("agentName", name)
-                                    .setParam("messages", deltaMessages(history, msgStartIdx))
-                                    .setParam("model", model)
-                                    .setParam("temperature", temperature)
-                                    .setParam("maxTokens", maxTokens)
-                                    .setParam("userMessage", userMessage)
-                                    .setParam("pendingToolCall", pte.pendingTc)
-                                    .setParam(AI_P_APPROVAL_ID, pte.pendingApprovalId));
-                            break;
+                                .setParam("messages", deltaMessages(history, msgStartIdx))
+                                .setParam("model", model)
+                                .setParam("temperature", temperature)
+                                .setParam("maxTokens", maxTokens)
+                                .setParam("userMessage", userMessage)
+                                .setParam("pendingToolCall", toolCalls.get(0))
+                                .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
+                        break;
+                    }
+                    if (execClarified) {
+                        clarified = true;
+                        finalResponse = execResult.getStringParam("finalResponse", "");
+                        break;
+                    }
+                    // 全部正常：按顺序写入 history
+                    @SuppressWarnings("unchecked")
+                    List<TLToolExecutor.ToolResult> execResults =
+                            (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+                    if (execResults != null) {
+                        for (TLToolExecutor.ToolResult r : execResults) {
+                            history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
                         }
-                        if (pte.clarified) {
-                            clarified = true;
-                            finalResponse = pte.finalResponse;
-                            break;
-                        }
-                        // 全部正常：按顺序写入 history
-                        for (int i = 0; i < n; i++) {
-                            ToolResult r = pte.results.get(i);
-                            if (r != null) {
-                                history.add(new TLConversationHistory(r.tc.getId(), r.tc.getFunctionName(),
-                                        r.msg.getStringParam(AI_P_SKILLOUTPUT, r.msg.getStringParam("error", ""))));
-                            }
-                        }
-                    } finally {
-                        toolExecs.remove(sessionId);
-                        toolTasksMap.remove(sessionId);
                     }
                     if (aborted || clarified || pendingApproval || rejected) break;
                     // L2 checkpoint: 每轮工具调用后通知 SessionManager
@@ -1388,7 +1404,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     history.add(aMsg);
 
                     // 并行执行tool calls
-                    executeToolsParallel(toolCalls, fromWho, sessionId, history);
+                    execToolsViaExecutor(toolCalls, fromWho, sessionId, history, msg.getStringParam("userId", "default"));
 
                     // 非流式继续LLM循环（支持后续tool calls）
                     String finalResponse = null;
@@ -1428,7 +1444,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             aMsg2.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
                         history.add(aMsg2);
 
-                        executeToolsParallel(moreTCs, fromWho, sessionId, history);
+                        execToolsViaExecutor(moreTCs, fromWho, sessionId, history, msg.getStringParam("userId", "default"));
                     }
                     if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
 
@@ -2145,254 +2161,111 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 审批门禁：在执行工具前发送审批请求到审批模块。
-     *
-     * @return null 表示放行（无需审批或已批准）；非 null 表示被拦截（pending/rejected），调用方应在 doChat 循环中处理
-     */
-    private TLMsg checkApprovalGate(TLToolCall tc, String sessionId) {
-        // 延迟解析审批模块（首次使用才查工厂，避免循环依赖）
-        if (approvalModule == null && approvalModuleName != null && !approvalModuleName.isEmpty()) {
-            synchronized (this) {
-                if (approvalModule == null) {
-                    Object m = moduleFactory != null ? moduleFactory.getModule(approvalModuleName) : null;
-                    // 也尝试本地 modules（子模块或 getMyModule 创建的私有实例）
-                    if (m == null && modules != null) m = modules.get(approvalModuleName);
-                    if (m instanceof IObject) {
-                        approvalModule = (IObject) m;
-                        putLog("Approval module resolved: " + approvalModuleName, LogLevel.INFO);
-                    } else {
-                        putLog("Approval module not found: " + approvalModuleName + " → approval disabled", LogLevel.WARN);
-                        approvalModuleName = null; // 标记已尝试，不再重复查找
-                        return null;
-                    }
-                }
-            }
-        }
-        if (approvalModule == null) return null;
-
-        String checkName = tc.getFunctionName();
-
-        try {
-            TLMsg result = putMsg(approvalModule,
-                    createMsg().setAction(APPROVAL_REQUEST)
-                            .setParam("toolName", checkName)
-                            .setParam("toolArgs", tc.getArguments() instanceof java.util.Map
-                                    ? new java.util.LinkedHashMap<>((java.util.Map<?, ?>) tc.getArguments())
-                                    : new java.util.LinkedHashMap<>())
-                            .setParam(AI_P_SESSIONID, sessionId)
-                            .setParam("toolCallId", tc.getId()));
-
-            if (result == null) return null;
-
-            String state = result.getStringParam(AI_P_APPROVAL_STATE, "");
-            if ("approved".equals(state)) {
-                return null;
-            }
-            return result;
-        } catch (Exception e) {
-            putLog("checkApprovalGate error: " + e.toString() + " → bypassing approval", LogLevel.ERROR);
-            return null; // 出错时放行，安全优先（不阻塞正常功能）
-        }
-    }
-
-    /**
-     * 并行工具执行（无审批/clarify 处理的简单版，供 onStreamResult 等场景使用）。
-     * 单个工具直接同步执行，多个工具 fire 后 latch 等待全部完成。
+     * 将 LLM 返回的 tool_calls 解析为 ToolTask 列表（查 functions 表 + 校验 + 路由）。
+     * request_clarification 在此处理（不入 ToolExecutor），通过返回结果中的 clarified 标记告知 doChat。
      */
     @SuppressWarnings("unchecked")
-    private void executeToolsParallel(List<TLToolCall> toolCalls, Object fromWho,
-                                       String sessionId, List<TLConversationHistory> history) {
-        int n = toolCalls.size();
-        if (n == 0) return;
-        CountDownLatch latch = new CountDownLatch(n);
-        ParallelToolExec pte = new ParallelToolExec(latch, history);
-        toolExecs.put(sessionId, pte);
-        List<ThreadTask> tasks = new ArrayList<>(n);
-        try {
-            for (int i = 0; i < n; i++) {
-                TLToolCall tc = toolCalls.get(i);
-                // 流式路径：rootSessionId 即时序 sessionId（无级联场景）
-                String rootSid = currentRootSessionId.get();
-                TLMsg execMsg = createMsg().setAction("_toolExec")
-                        .setParam("_tc", tc).setParam("_idx", i)
-                        .setParam("_fromWho", fromWho)
-                        .setParam(AI_P_SESSIONID, sessionId)
-                        .setParam("rootSessionId", rootSid != null ? rootSid : sessionId);
-                TLMsg taskResult = putMsgNoWait(this, execMsg);
-                ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
-                if (tt != null) tasks.add(tt);
-            }
-            toolTasksMap.put(sessionId, tasks);
-            latch.await();
-            // 按顺序写入 history
-            for (int i = 0; i < n; i++) {
-                ToolResult r = pte.results.get(i);
-                if (r != null) {
-                    history.add(new TLConversationHistory(r.tc.getId(), r.tc.getFunctionName(),
-                            r.msg.getStringParam(AI_P_SKILLOUTPUT, r.msg.getStringParam("error", ""))));
+    private List<TLToolExecutor.ToolTask> resolveToolCalls(List<TLToolCall> toolCalls,
+                                                            String sessionId, String userId) {
+        List<TLToolExecutor.ToolTask> tasks = new ArrayList<>();
+        for (TLToolCall tc : toolCalls) {
+            String functionName = tc.getFunctionName();
+
+            // request_clarification 内建工具：预计算输出，ToolExecutor 直接返回
+            if (AGENT_REQUESTCLARITY.equals(functionName)) {
+                String question = "";
+                if (tc.getArguments() instanceof Map) {
+                    Object q = ((Map<?, ?>) tc.getArguments()).get("question");
+                    if (q != null) question = q.toString();
                 }
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        } finally {
-            toolExecs.remove(sessionId);
-            toolTasksMap.remove(sessionId);
-        }
-    }
-
-    /**
-     * 并行工具执行回调：在独立 ThreadTask 上执行单个 tool call，
-     * 结果缓存到 ParallelToolExec.results，主线程统一写入 history。
-     */
-    @SuppressWarnings("unchecked")
-    protected TLMsg doToolExec(Object fromWho, TLMsg msg) {
-        TLToolCall tc = (TLToolCall) msg.getParam("_tc");
-        Object originFromWho = msg.getParam("_fromWho");
-        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
-        int idx = msg.getIntParam("_idx", -1);
-        String rootSid = msg.getStringParam("rootSessionId", sid);
-        ParallelToolExec pte = toolExecs.get(sid);
-        if (pte == null || tc == null) {
-            if (pte == null) return null; // 已被 stopChat 清理
-            return null;
-        }
-
-        // 透传 rootSessionId 到工具线程（ThreadLocal），保证子 agent spawn 时级联停止和监控链路不断
-        currentRootSessionId.set(rootSid);
-        try {
-            TLMsg tr;
-            try {
-                tr = executeToolCall(tc, originFromWho != null ? originFromWho : fromWho, sid);
-            } catch (Exception e) {
-                putLog("doToolExec exception: " + tc.getFunctionName() + " " + e.toString(), LogLevel.ERROR);
-                tr = createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Tool execution error: " + e.getMessage());
-            }
-            if (tr == null) {
-                tr = createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Internal error: null result for " + tc.getFunctionName());
+                System.out.println(">>> [Clarify] Agent 请求确认: " + question);
+                TLToolExecutor.ToolTask clarifyTask = new TLToolExecutor.ToolTask(
+                        tc.getId(), null, AGENT_REQUESTCLARITY, new LinkedHashMap<>(), userId);
+                clarifyTask.precomputedOutput = "⚠️ 需要确认: " + question;
+                tasks.add(clarifyTask);
+                continue;
             }
 
-            // 审批门禁
-            String approvalState = tr.getStringParam(AI_P_APPROVAL_STATE, "");
-            if ("pending".equals(approvalState)) {
-                pte.pendingApproval = true;
-                pte.finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
-                pte.pendingTc = tc;
-                pte.pendingApprovalId = tr.getStringParam(AI_P_APPROVAL_ID, "");
-                pte.results.put(idx, new ToolResult(tc, tr));
-            } else if ("rejected".equals(approvalState)) {
-                pte.rejected = true;
-                pte.finalResponse = tr.getStringParam(AI_P_SKILLOUTPUT, "");
-                pte.rejectReason = tr.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
-            } else if (tr.parseBoolean(AI_P_NEEDSCLARIFICATION, false)) {
-                pte.clarified = true;
-                pte.finalResponse = tr.getStringParam(AI_P_CLARIFICATIONQUESTION, "")
-                        + "\n\n请提供更多信息后重新提交。";
-            } else {
-                pte.results.put(idx, new ToolResult(tc, tr));
+            FunctionEntry fn = functions.get(functionName);
+            if (fn == null || !fn.enabled) {
+                putLog("Function not found: " + functionName, LogLevel.WARN);
+                TLToolExecutor.ToolTask errTask = new TLToolExecutor.ToolTask(
+                        tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>(), userId);
+                errTask.precomputedOutput = "Error: Function not found: " + functionName;
+                tasks.add(errTask);
+                continue;
             }
-        } finally {
-            // 保证 countDown（防止异常导致主线程死锁）+ 清理 ThreadLocal
-            pte.latch.countDown();
-            currentRootSessionId.remove();
-        }
-        return null;
-    }
 
-    /**
-     * 执行单个tool call。
-     * 主控模式：路由到子Agent（delegate_to_xxx）；
-     * 独立模式：路由到对应skill。
-     */
-    protected TLMsg executeToolCall(TLToolCall tc, Object fromWho, String sessionId) {
-        String functionName = tc.getFunctionName();
+            Map<String, Object> toolArgs = tc.getArguments() instanceof Map
+                    ? new LinkedHashMap<>((Map<String, Object>) tc.getArguments())
+                    : new LinkedHashMap<>();
 
-        // 内建工具 request_clarification：agent 向用户请求确认，不走 skill 路由
-        if (AGENT_REQUESTCLARITY.equals(functionName)) {
-            String question = "";
-            if (tc.getArguments() instanceof java.util.Map) {
-                Object q = ((java.util.Map<?, ?>) tc.getArguments()).get("question");
-                if (q != null) question = q.toString();
-            }
-            System.out.println(">>> [Clarify] Agent 请求确认: " + question);
-            return createMsg().setParam(RESULT, true)
-                    .setParam(AI_P_NEEDSCLARIFICATION, true)
-                    .setParam(AI_P_CLARIFICATIONQUESTION, question)
-                    .setParam(AI_P_SKILLOUTPUT, "⚠️ 需要确认: " + question);
-        }
-
-        // 审批门禁：发送审批请求到审批模块（无需审批/已批准时返回 null）
-        TLMsg approvalResult = checkApprovalGate(tc, sessionId);
-        if (approvalResult != null) {
-            return approvalResult;  // pending 或 rejected
-        }
-
-        // 统一函数表：skill / agent / msgTool 全部走 functions map → putMsg(module, msg)
-        FunctionEntry fn = functions.get(functionName);
-        if (fn != null && fn.enabled) {
-            try {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> toolArgs = tc.getArguments() instanceof java.util.Map
-                        ? (java.util.Map<String, Object>) tc.getArguments()
-                        : new java.util.LinkedHashMap<>();
-
-                // skill 类型：执行前校验参数
-                if ("skill".equals(fn.type)) {
+            // skill 类型：执行前校验参数
+            if ("skill".equals(fn.type)) {
+                try {
                     TLMsg vResult = putMsg(fn.module, createMsg().setAction(SKILL_VALIDATE)
-                            .setParam(AI_P_SKILLINPUT, toolArgs));
+                            .setParam(AI_P_SKILLINPUT, toolArgs)
+                            .setParam("userId", userId));
                     if (vResult != null && !vResult.parseBoolean(RESULT, false)) {
-                        return createMsg().setParam(RESULT, false)
-                                .setParam(AI_P_SKILLOUTPUT, "Validation error: "
-                                        + vResult.getStringParam("error", "unknown"));
+                        putLog("Skill validation failed: " + functionName, LogLevel.WARN);
+                        TLToolExecutor.ToolTask valFailTask = new TLToolExecutor.ToolTask(
+                                tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>(), userId);
+                        valFailTask.precomputedOutput = "Validation error: "
+                                + vResult.getStringParam("error", "unknown");
+                        tasks.add(valFailTask);
+                        continue;
                     }
+                } catch (Exception e) {
+                    putLog("Skill validation error: " + functionName + " " + e, LogLevel.WARN);
                 }
+            }
 
-                TLMsg execMsg = createMsg();
-                if ("_msgId_".equals(fn.action)) {
-                    execMsg.setMsgId(fn.name);
-                } else if (MCP_CALLTOOL.equals(fn.action)) {
-                    execMsg.setAction(MCP_CALLTOOL).setParam(AI_P_TOOLNAME, fn.nativeName)
-                            .setParam(AI_P_TOOLARGUMENTS, toolArgs);
-                } else {
-                    execMsg.setAction(fn.action).setParam(AI_P_TOOLNAME, functionName);
-                }
-                execMsg.setParam(AI_P_SKILLINPUT, toolArgs)
-                        .setParam(AI_P_TOOLID, tc.getId());
-                // 注入 LLM 参数
-                for (java.util.Map.Entry<String, Object> entry : toolArgs.entrySet()) {
-                    execMsg.setParam(entry.getKey(), entry.getValue());
-                }
-                if (!execMsg.containsParam(AI_P_SESSIONID) && sessionId != null) {
-                    execMsg.setParam(AI_P_SESSIONID, sessionId);
-                }
+            // 解析 action：msgTool / MCP / 普通
+            String action;
+            if ("_msgId_".equals(fn.action)) {
+                action = fn.name; // msgTool 用 msgId 路由
+            } else if (MCP_CALLTOOL.equals(fn.action)) {
+                action = MCP_CALLTOOL;
+            } else {
+                action = fn.action;
+            }
 
-                System.out.println(">>> [Function] " + functionName + " → " + fn.module.getName());
-                TLMsg result = putMsg(fn.module, execMsg);
-                String output;
-                if (result == null) {
-                    output = "done";
-                } else if (result.containsParam(AI_P_SKILLOUTPUT)) {
-                    output = result.getStringParam(AI_P_SKILLOUTPUT, "");
-                } else {
-                    output = result.getStringParam(AI_P_RESPONSE, "");
-                }
-                if (output.isEmpty()) output = result.toString();
-                System.out.println("<<< [Function] " + functionName + " 返回 (前200字): "
-                        + (output.length() > 200 ? output.substring(0, 200) : output));
+            TLToolExecutor.ToolTask task = new TLToolExecutor.ToolTask(
+                    tc.getId(), fn.module, action, toolArgs, userId);
+            if (MCP_CALLTOOL.equals(action)) {
+                task.nativeName = fn.nativeName;
+            }
+            tasks.add(task);
+        }
+        return tasks;
+    }
 
-                return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
-            } catch (Exception e) {
-                putLog("Function execution error: " + functionName + " -> " + e.toString(), LogLevel.ERROR);
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error executing " + functionName + ": " + e.getMessage());
+    /**
+     * 委托 ToolExecutor 批量执行工具，结果直接写入 history（供 onStreamResult 等简单场景）。
+     */
+    @SuppressWarnings("unchecked")
+    private void execToolsViaExecutor(List<TLToolCall> toolCalls, Object fromWho,
+                                       String sessionId, List<TLConversationHistory> history, String userId) {
+        if (toolCalls == null || toolCalls.isEmpty()) return;
+        List<TLToolExecutor.ToolTask> tasks = resolveToolCalls(toolCalls, sessionId, userId);
+        if (tasks.isEmpty()) return;
+
+        String execId = sessionId + "_" + System.nanoTime();
+        TLMsg execResult = putMsg(toolExecutor,
+                createMsg().setAction(TODOOLEXECUTE)
+                        .setParam("tasks", tasks)
+                        .setParam("executionId", execId)
+                        .setParam(AI_P_SESSIONID, sessionId)
+                        .setParam("userId", userId != null ? userId : "default")
+                        .setParam("rootSessionId", currentRootSessionId.get()));
+
+        List<TLToolExecutor.ToolResult> results =
+                (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+        if (results != null) {
+            for (TLToolExecutor.ToolResult r : results) {
+                history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
             }
         }
-
-        // 函数未找到
-        putLog("Function not found: " + functionName, LogLevel.WARN);
-        return createMsg().setParam(RESULT, false)
-                .setParam(AI_P_SKILLOUTPUT, "Error: Function not found: " + functionName);
     }
 
     /** 解析模板变量 {{key}}：msg 参数 → agent params → 内置值 → 原样保留 */
@@ -2544,33 +2417,4 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
-    // ======================== 内部类：并行工具执行上下文 ========================
-
-    /** 一轮并行工具执行的状态，主线程 latch.await() 等，doToolExec 回调写入 */
-    static class ParallelToolExec {
-        final CountDownLatch latch;
-        final List<TLConversationHistory> history;
-        /** idx → {tc, output, state}，doToolExec 写入，主线程统一处理 */
-        final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
-        volatile boolean pendingApproval = false;
-        volatile boolean rejected = false;
-        volatile boolean clarified = false;
-        volatile boolean aborted = false;
-        volatile String finalResponse;
-        volatile TLToolCall pendingTc;
-        volatile String pendingApprovalId;
-        volatile String rejectReason;
-
-        ParallelToolExec(CountDownLatch latch, List<TLConversationHistory> history) {
-            this.latch = latch;
-            this.history = history;
-        }
-    }
-
-    /** 单个并行工具的执行结果 */
-    static class ToolResult {
-        final TLToolCall tc;
-        final TLMsg msg;
-        ToolResult(TLToolCall tc, TLMsg msg) { this.tc = tc; this.msg = msg; }
-    }
 }
