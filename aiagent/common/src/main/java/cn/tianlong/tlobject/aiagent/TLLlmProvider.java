@@ -61,6 +61,10 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     /** 会话级缓存统计: sessionId -> {cacheCreationTokens, cacheHitTokens, cacheMissTokens} */
     private final Map<String, long[]> sessionCacheStats = new ConcurrentHashMap<>();
 
+    // ======================== 启动自检 ========================
+    /** 启动时自行检查 API Key / 连通性（默认 false） */
+    protected boolean checkProviderOnStartup = false;
+
     public TLLlmProvider() {
         super();
     }
@@ -117,6 +121,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             if (params.get("promptCachingBeta") != null) {
                 promptCachingBeta = params.get("promptCachingBeta");
             }
+            if (params.get("checkProviderOnStartup") != null) {
+                checkProviderOnStartup = Boolean.parseBoolean(params.get("checkProviderOnStartup"));
+            }
         }
     }
 
@@ -125,6 +132,14 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         gson = new GsonBuilder().setDateFormat("yyyy-MM-dd HH:mm:ss").create();
         okHttpClient = buildDefaultHttpClient();
         return this;
+    }
+
+    @Override
+    public void runStartMsg() {
+        super.runStartMsg();
+        if (checkProviderOnStartup) {
+            checkProvider();
+        }
     }
 
     @Override
@@ -162,10 +177,45 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             case LLM_EMBEDDING:
                 returnMsg = embed(fromWho, msg);
                 break;
+            case AGENT_CHECKPROVIDER:
+                returnMsg = createMsg().setParam(RESULT, checkProvider());
+                break;
             default:
                 returnMsg = null;
         }
         return returnMsg;
+    }
+
+    // ======================== 启动自检 ========================
+
+    /**
+     * 检查自身连通性：发送最小化 ping 请求验证 API Key / 余额 / 网络。
+     * 成功打印确认信息；失败打印诊断信息并置自身为不可用状态。
+     * @return true = provider 可用
+     */
+    public boolean checkProvider() {
+        try {
+            List<TLConversationHistory> testHistory = new ArrayList<>();
+            testHistory.add(new TLConversationHistory(TLConversationHistory.Role.user, "ping"));
+            TLMsg testMsg = createMsg().setAction(LLM_COMPLETION)
+                    .setParam(AI_P_MESSAGEHISTORY, testHistory)
+                    .setParam(AI_P_MODEL, getDefaultModel())
+                    .setParam(AI_P_MAXTOKENS, 1);
+            TLMsg result = completion(this, testMsg);
+            if (result != null && result.parseBoolean(RESULT, false)) {
+                System.out.println("=== [启动检查] LLM Provider 可用: " + getDefaultModel() + " ===");
+                return true;
+            } else {
+                int status = result != null ? result.getIntParam(AI_P_HTTPSTATUS, 0) : 0;
+                String body = result != null ? result.getStringParam(AI_P_RESPONSEBODY, "") : "no response";
+                System.err.println("!!! [启动检查] LLM Provider 不可用！HTTP " + status + " body=" + body);
+                System.err.println("!!! 请检查 API Key 和余额，或切换 Provider");
+                return false;
+            }
+        } catch (Exception e) {
+            System.err.println("!!! [启动检查] LLM Provider 连接失败: " + e.getMessage());
+            return false;
+        }
     }
 
     // ======================== 抽象方法（子类实现） ========================

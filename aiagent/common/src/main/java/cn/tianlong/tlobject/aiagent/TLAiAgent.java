@@ -166,9 +166,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected boolean enableCheckpoint = false;
 
 
-    /** 启动时检查 LLM Provider 是否可用（默认 false） */
-    protected boolean checkProviderOnStartup = false;
-
     /** 数据存储基础路径（供 context/memory 等使用） */
     protected String dataBasePath = "./data/";
 
@@ -271,8 +268,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 dataBasePath = params.get("dataBasePath");
             else if (params.get("sessionStorePath") != null)
                 dataBasePath = params.get("sessionStorePath"); // 兼容旧配置
-            if (params.get("checkProviderOnStartup") != null)
-                checkProviderOnStartup = "true".equals(params.get("checkProviderOnStartup"));
             if (params.get("approvalModule") != null)
                 approvalModuleName = params.get("approvalModule");
             // 推理/思考链参数
@@ -389,11 +384,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 私有 context 实例
         initContext();
-
-        // 启动时检查 LLM Provider 连通性
-        if (checkProviderOnStartup && !checkProvider()) {
-            putLog("LLM Provider 不可用，skills/memory/agents 仍会初始化，可事后发 setLlmProvider 恢复", LogLevel.WARN);
-        }
 
         super.runStartMsg();
         registerToRegistry(name, this, "agent");
@@ -635,7 +625,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 returnMsg = setLlmProvider(fromWho, msg);
                 break;
             case AGENT_CHECKPROVIDER:
-                returnMsg = createMsg().setParam(RESULT, checkProvider());
+                returnMsg = llmProvider != null
+                        ? putMsg(llmProvider, msg)
+                        : createMsg().setParam(RESULT, false).setParam("error", "No LLM Provider configured");
                 break;
             case "getLlmProvider":
                 returnMsg = createMsg().setParam(RESULT, llmProvider != null)
@@ -2458,42 +2450,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (m.contains("o1") || m.contains("o3") || m.contains("o4")) return "native";
         // 其余模型走 prompt 引导
         return "prompt";
-    }
-
-    // ======================== Provider 启动检查 ========================
-
-    /**
-     * 启动时检查 LLM Provider 是否可用。发送最小化请求验证 API Key / 余额。
-     */
-    protected boolean checkProvider() {
-        if (llmProvider == null) {
-            System.err.println("!!! [启动检查] LLM Provider 未加载！");
-            return false;
-        }
-        try {
-            List<TLConversationHistory> testHistory = new ArrayList<>();
-            testHistory.add(new TLConversationHistory(TLConversationHistory.Role.user, "ping"));
-            TLMsg testMsg = createMsg().setAction(LLM_COMPLETION)
-                    .setParam(AI_P_MESSAGEHISTORY, testHistory)
-                    .setParam(AI_P_MODEL, llmProvider.getDefaultModel())
-                    .setParam(AI_P_MAXTOKENS, 1);
-            TLMsg result = putMsg(llmProvider, testMsg);
-            if (result.parseBoolean(RESULT, false)) {
-                System.out.println("=== [启动检查] LLM Provider 可用: " + llmProvider.getDefaultModel() + " ===");
-                return true;
-            } else {
-                int status = result.getIntParam(AI_P_HTTPSTATUS, 0);
-                String body = result.getStringParam(AI_P_RESPONSEBODY, "");
-                System.err.println("!!! [启动检查] LLM Provider 不可用！HTTP " + status + " body=" + body);
-                System.err.println("!!! 请检查 API Key 和余额，或切换 Provider");
-                llmProvider = null;  // 置空，chat() 调用时直接返回错误
-                return false;
-            }
-        } catch (Exception e) {
-            System.err.println("!!! [启动检查] LLM Provider 连接失败: " + e.getMessage());
-            llmProvider = null;
-            return false;
-        }
     }
 
     /** 把本次 turn 用量累加进 session 累计，返回累计后的 {prompt, completion, total} */

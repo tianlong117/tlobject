@@ -202,6 +202,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
 
     /**
      * 裁剪超长历史。保留system消息 + 最近N轮。
+     * 保证不破坏 OpenAI API 消息顺序约束：tool 消息必须紧跟其 assistant(tool_calls)。
      */
     protected void trimHistory(List<TLConversationHistory> history) {
         if (history.size() <= maxHistoryTurns) return;
@@ -219,12 +220,39 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
 
         int removeCount = nonSystemCount - maxHistoryTurns;
         int removed = 0;
+        // 记录被删除的 assistant(tool_calls) 的 tool_call_id，后续 tool 消息一并清理
+        java.util.Set<String> removedToolCallIds = new java.util.HashSet<>();
+
         java.util.Iterator<TLConversationHistory> it = history.iterator();
         while (it.hasNext() && removed < removeCount) {
             TLConversationHistory h = it.next();
-            if (h.getRole() != TLConversationHistory.Role.system) {
+            if (h.getRole() == TLConversationHistory.Role.system) continue;
+
+            it.remove();
+            removed++;
+
+            // 记录被删 assistant 的 tool_call_id
+            if (h.getToolCalls() != null) {
+                for (TLToolCall tc : h.getToolCalls()) {
+                    if (tc.getId() != null) removedToolCallIds.add(tc.getId());
+                }
+            }
+            // 被删的恰好是 tool 消息，从待清理集合移除（已一并删除）
+            if (h.getToolCallId() != null) {
+                removedToolCallIds.remove(h.getToolCallId());
+            }
+        }
+
+        // 清理孤立的 tool 消息：assistant(tool_calls) 已删除但这些 tool 还在
+        while (!removedToolCallIds.isEmpty() && it.hasNext()) {
+            TLConversationHistory h = it.next();
+            if (h.getRole() == TLConversationHistory.Role.tool
+                    && h.getToolCallId() != null
+                    && removedToolCallIds.contains(h.getToolCallId())) {
                 it.remove();
-                removed++;
+                removedToolCallIds.remove(h.getToolCallId());
+            } else {
+                break; // 遇到非孤立的 tool 消息，停止
             }
         }
     }
