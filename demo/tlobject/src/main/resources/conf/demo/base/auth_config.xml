@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+    TLAuthModule 认证配置文件
+    框架根据模块名 "auth" 自动发现此文件 (auth_config.xml)
+
+    认证流程:
+        请求 → beforeMsgTable 钩子 → authInModule / authInUrlMap / authTag
+        → 策略查找 (module:action > authModules > authMsgids > authTags > defaultPolicy)
+        → checkPolicy 规则引擎 → 通过 (放行) / 拒绝 (发送 denyMsg)
+-->
+<moduleConfig>
+
+    <!-- ======================== 模块参数 ======================== -->
+    <params>
+        <!-- 默认策略名: 当模块/msgid/tag 都未配置策略时使用的兜底策略 -->
+        <defaultPolicy value="member" />
+
+        <!-- 默认拒绝消息ID: 当策略和模块都未配 denyMsg 时使用的兜底拒绝消息 -->
+        <defaultDenyMsg value="loginDeny" />
+
+        <!-- 可选参数:
+        <msgNameForCheck value="domsg" />
+               authInUrlMap 中从 DOWITHMSG 取被检查消息的 param key，默认 "domsg"
+
+        <defaultSuperUser value="admin" />
+               超级用户 ID，命中则直接通过所有检查（跳过 IP/Token/角色/分组）
+
+        <defaultSuperRole value="superadmin" />
+               超级角色名，用户拥有此角色则直接通过所有检查
+
+        <auditModule value="msgBus" />
+               审计模块名，配置后将认证决策事件发到此模块。未配置则审计关闭（默认）
+               审计消息格式: action="authAudit", params={result, checkModule, checkAction, ...}
+        -->
+    </params>
+
+    <!-- ======================== 拒绝消息路由表 ========================
+         认证拒绝后，根据 denyMsg ID 找到对应消息，发送到目标模块处理
+         msgid: 拒绝消息 ID（对应 policy 或 module 中的 denyMsg 属性）
+         destination: 处理拒绝的模块名（如 authModule 渲染拒绝页面）
+    -->
+    <msgTable>
+        <msgid value="anonymousDeny" >
+            <msg action="anonymousDeny" destination="authModule"/>
+        </msgid>
+        <msgid value="loginDeny" >
+            <msg action="loginDeny" destination="authModule" />
+        </msgid>
+        <msgid value="adminDenyMsg" >
+            <msg action="noAuth" destination="managerControl" />
+        </msgid>
+    </msgTable>
+
+    <!-- ======================== 策略定义 ========================
+         每个 policy 是一组准入规则的集合，所有规则 AND 关系（不配的维度跳过）
+
+         可用规则:
+         ┌─────────────┬────────────────────────────────────────────────┐
+         │ 规则         │ 说明                                           │
+         ├─────────────┼────────────────────────────────────────────────┤
+         │ user         │ 用户白名单，; 分隔。* 通配所有。!userid 排除    │
+         │ role         │ 角色白名单，; 分隔。!role 排除。命中任一即通过  │
+         │ group        │ 分组白名单，; 分隔。* 通配所有。!group 排除     │
+         │ ip           │ IP 白名单，; 分隔。* 通配所有。支持前缀通配     │
+         │ sameAs       │ 引用另一个策略名，递归继承其规则                │
+         │ parent       │ 父策略名，子策略继承父策略所有规则              │
+         │ denyMsg      │ 拒绝时使用的消息 ID（对应 msgTable）            │
+         │ refusedUserMsg│ 拒绝用户检查的消息 ID（发给自身做二次判定）    │
+         └─────────────┴────────────────────────────────────────────────┘
+
+         否定语法 (!): role="!guest;member;admin" 表示拒绝 guest，允许 member/admin
+         组合示例: user="*" role="!guest;member" group="!159;*"
+    -->
+    <policies>
+        <!-- 匿名策略: 无用户状态要求，IP 全放行 -->
+        <policy name="anonymous"
+                denyMsg="anonymousDeny"
+        />
+
+        <!-- 会员策略: 任意登录用户 + member 角色 + Token 未过期 -->
+        <policy name="member"
+                user="*"
+                role="member"
+                denyMsg="loginDeny"
+        />
+
+        <!-- 产品职称策略: 会员 + 159 部门限定 -->
+        <policy name="chanpinzhicheng"
+                user="*"
+                role="member"
+                group="159"
+                denyMsg="loginDeny"
+        />
+    </policies>
+
+    <!-- ======================== 模块级策略映射 ========================
+         为每个模块的每个 action 指定策略（action 级可覆盖模块默认）
+         属性:
+           name          - 模块名
+           defaultPolicy - 该模块的默认策略（所有未单独指定的 action 使用）
+           denyMsg       - 该模块的拒绝消息 ID
+           <action名>     - 为特定 action 指定策略，覆盖 defaultPolicy
+    -->
+    <authModules>
+        <!-- clientJsonToMsg: 所有 action 使用 anonymous 策略 -->
+        <module name="clientJsonToMsg" defaultPolicy="anonymous" />
+
+        <!-- homePageControl: 默认 anonymous，http/getuser 需 member 角色 -->
+        <module name="homePageControl"
+                defaultPolicy="anonymous"
+                denyMsg=""
+                http="member"
+                getuser="member" />
+    </authModules>
+
+    <!-- ======================== 消息 ID 策略映射 ========================
+         当消息携带 msgId 时，按 msgId 查找策略（优先级低于 module:action）
+         属性:
+           name   - 消息 ID 值
+           policy - 对应的策略名
+    -->
+    <authMsgids>
+        <msgid name="login"                   policy="anonymous"   />
+        <msgid name="trace"                   policy="member"   />
+        <msgid name="keepLogin"               policy="member"   />
+        <msgid name="dangqianliucheng"        policy="member"   />
+        <msgid name="selectUser"              policy="member"   />
+        <msgid name="turn_prev"               policy="member"   />
+        <msgid name="liuchengend"             policy="member"   />
+        <msgid name="delete"                  policy="member"   />
+        <msgid name="callback"                policy="member"   />
+        <msgid name="turnSubmit"              policy="member"   />
+        <msgid name="selectUserByUrl"         policy="member"   />
+        <msgid name="postInfo"                policy="member"  denyMsg=""  />
+        <msgid name="checkUpdate"             policy="anonymous"   />
+        <msgid name="xinwinliebiao"           policy="member"   />
+        <msgid name="gonggaolist"             policy="member"   />
+        <msgid name="selectUserForShouQuan"   policy="member"   />
+        <msgid name="loadDanwei"              policy="member"   />
+        <msgid name="auth_submit"             policy="member"   />
+    </authMsgids>
+
+    <!-- ======================== Tag 策略映射 ========================
+         通过 authTag 入口检查时，按 tag 名查找策略
+         属性:
+           name   - tag 名
+           policy - 对应的策略名
+           denyMsg- 拒绝消息 ID
+    -->
+    <authTags>
+        <tag name="test" policy="admin" denyMsg="" />
+    </authTags>
+
+</moduleConfig>
