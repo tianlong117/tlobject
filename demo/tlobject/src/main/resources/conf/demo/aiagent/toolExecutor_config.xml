@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <beforeMsgTable>
+        <action name="toolExecBatch">
+            <msg action="authForBatch" destination="appAuthModule" />
+        </action>
+    </beforeMsgTable>
+    <afterMsgTable>
+        <action name="toolExecBatch">
+            <msg action="fillDenied" destination="appAuthModule" />
+        </action>
+    </afterMsgTable>
+</moduleConfig>

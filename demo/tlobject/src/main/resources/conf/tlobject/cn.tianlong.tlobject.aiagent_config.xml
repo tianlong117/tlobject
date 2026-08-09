@@ -13,6 +13,10 @@
                 singleton="true"/>
         <module name="toolExecutor" classfile="cn.tianlong.tlobject.aiagent.TLToolExecutor"
                 singleton="true"/>
+        <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.AppAuthModule"
+                singleton="true"
+                userModule="demoUserModule"
+                authModule="auth" />
         <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"

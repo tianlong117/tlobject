@@ -38,6 +38,13 @@
                 classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 configfile="CLASSPATH/conf/demo/aiagent/demoWorkflow_config.xml"/>
 
+        <!-- Demo 用户信息模块：XML 配置 userId → role/group -->
+        <module name="demoUserModule"
+                classfile="cn.tianlong.java.demo.aiagent.DemoUserModule"
+                singleton="true"
+                users="default:member;admin:member,admin;guest:guest"
+                groups="admin:0" />
+
     </modules>
 
     <!-- ===== 工厂启动序列 ===== -->
@@ -68,6 +75,11 @@
 
         <!-- 获取审批模块（可选，启用审批时解注） -->
         <!-- <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/> -->
+
+        <!-- 获取认证模块和桥接模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
 
         <!-- 获取评测模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="evals"/>

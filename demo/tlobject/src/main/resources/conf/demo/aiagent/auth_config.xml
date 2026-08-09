@@ -13,10 +13,10 @@
     <!-- ======================== 模块参数 ======================== -->
     <params>
         <!-- 默认策略名: 当模块/msgid/tag 都未配置策略时使用的兜底策略 -->
-        <defaultPolicy value="member" />
+        <defaultPolicy value="guest" />
 
         <!-- 默认拒绝消息ID: 当策略和模块都未配 denyMsg 时使用的兜底拒绝消息 -->
-        <defaultDenyMsg value="loginDeny" />
+        <defaultDenyMsg value="" />
 
         <!-- 可选参数:
         <msgNameForCheck value="domsg" />
@@ -76,20 +76,27 @@
         <policy name="anonymous"
                 denyMsg="anonymousDeny"
         />
-
+        <policy name="guest"
+                user="*"
+                role="guest"
+                denyMsg=""
+        />
         <!-- 会员策略: 任意登录用户 + member 角色 + Token 未过期 -->
         <policy name="member"
                 user="*"
                 role="member"
-                denyMsg="loginDeny"
+                denyMsg=""
         />
-
+        <policy name="toolAdmin" user="admin" />
+        <policy name="toolMember"
+                user="*"
+                role="member" />
         <!-- 产品职称策略: 会员 + 159 部门限定 -->
         <policy name="chanpinzhicheng"
                 user="*"
                 role="member"
                 group="159"
-                denyMsg="loginDeny"
+                denyMsg=""
         />
     </policies>
 
@@ -97,10 +104,7 @@
          toolExecutor 的工具授权：skillExecute → skill 执行，callTool → MCP 工具
          未列出的 action 使用 defaultPolicy
     -->
-    <policy name="toolAdmin" user="admin" />
-    <policy name="toolMember"
-            user="*"
-            role="member" />
+
 
     <!-- ======================== 模块级策略映射 ========================
          为每个模块的每个 action 指定策略（action 级可覆盖模块默认）
@@ -111,21 +115,21 @@
            <action名>     - 为特定 action 指定策略，覆盖 defaultPolicy
     -->
     <authModules>
-        <!-- clientJsonToMsg: 所有 action 使用 anonymous 策略 -->
-        <module name="clientJsonToMsg" defaultPolicy="anonymous" />
+        <!-- 工具模块授权：skillExecute=skill调用，callTool=MCP工具 -->
+        <module name="poemWorkflow"
+                defaultPolicy="member"
+                denyMsg="" />
 
-        <!-- homePageControl: 默认 anonymous，http/getuser 需 member 角色 -->
-        <module name="homePageControl"
-                defaultPolicy="anonymous"
-                denyMsg=""
-                http="member"
-                getuser="member" />
 
-        <!-- toolExecutor: 工具执行授权。skillExecute=skill调用，callTool=MCP工具 -->
-        <module name="toolExecutor"
-                defaultPolicy="toolMember"
-                skillExecute="toolMember"
-                callTool="toolMember" />
+        <module name="httpRequestSkill"
+                defaultPolicy="guest"
+                skillExecute="toolMember" />
+        <module name="fileOperationSkill"
+                defaultPolicy="guest"
+                skillExecute="toolMember" />
+        <module name="codeExecutionSkill"
+                defaultPolicy="guest"
+                skillExecute="toolMember" />
     </authModules>
 
     <!-- ======================== 消息 ID 策略映射 ========================
@@ -137,24 +141,8 @@
     <authMsgids>
         <msgid name="login"                   policy="anonymous"   />
         <msgid name="trace"                   policy="member"   />
-        <msgid name="keepLogin"               policy="member"   />
-        <msgid name="dangqianliucheng"        policy="member"   />
-        <msgid name="selectUser"              policy="member"   />
-        <msgid name="turn_prev"               policy="member"   />
-        <msgid name="liuchengend"             policy="member"   />
-        <msgid name="delete"                  policy="member"   />
-        <msgid name="callback"                policy="member"   />
-        <msgid name="turnSubmit"              policy="member"   />
-        <msgid name="selectUserByUrl"         policy="member"   />
-        <msgid name="postInfo"                policy="member"  denyMsg=""  />
-        <msgid name="checkUpdate"             policy="anonymous"   />
-        <msgid name="xinwinliebiao"           policy="member"   />
-        <msgid name="gonggaolist"             policy="member"   />
-        <msgid name="selectUserForShouQuan"   policy="member"   />
-        <msgid name="loadDanwei"              policy="member"   />
-        <msgid name="auth_submit"             policy="member"   />
-    </authMsgids>
 
+    </authMsgids>
     <!-- ======================== Tag 策略映射 ========================
          通过 authTag 入口检查时，按 tag 名查找策略
          属性:

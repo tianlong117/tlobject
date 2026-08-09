@@ -47,6 +47,7 @@ public class TLAuthModule extends TLBaseModule {
     static final String AUTH_AUTHINURLMAP = "authInUrlMap";
     static final String AUTH_AUTHINMODULE = "authInModule";
     static final String AUTH_AUTHTAG = "authTag";
+    static final String AUTH_AUTHFORMODULE = "authForModule";
     static final String AUTH_SETPOLICY = "setProliy";
     static final String AUTH_GETPOLICY = "getProliy";
     static final String AUTH_DELETEPOLICY = "deleteProliy";
@@ -232,6 +233,9 @@ public class TLAuthModule extends TLBaseModule {
             case AUTH_AUTHTAG:
                 returnMsg = authTag(fromWho, msg);
                 break;
+            case AUTH_AUTHFORMODULE:
+                returnMsg = authForModule(fromWho, msg);
+                break;
             case AUTH_SETPOLICY:
                 setProliy(fromWho, msg);
                 break;
@@ -374,6 +378,25 @@ public class TLAuthModule extends TLBaseModule {
         }
         sendAudit("pass", null, null, "authTag", null, policyName, msg);
         return null;
+    }
+
+    /**
+     * 跨模块认证。调用方显式指定 checkModule，msg 本身携带用户状态和 checkAction。
+     * 不依赖 DOWITHMSG 包装——所有信息直接在 msg 参数上。
+     */
+    protected TLMsg authForModule(Object fromWho, TLMsg msg) {
+        String checkModule = (String) msg.getParam("checkModule");
+        if (checkModule == null || checkModule.isEmpty())
+            return createMsg()
+                    .setSystemParam(MODULE_DONEXTMSG, false)
+                    .setParam("resultFrom", "auth")
+                    .setParam("denyType", "auth")
+                    .setParam("denyValue", "missing checkModule");
+        // 优先用显式 checkAction，否则用 msg 自带 action
+        String checkAction = (String) msg.getParam("checkAction");
+        if (checkAction != null && !checkAction.isEmpty())
+            return auth(checkModule, checkAction, null, msg);
+        return authForMsg(checkModule, msg);
     }
 
     /**

@@ -1120,6 +1120,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setParam("rootSessionId", rootSid)
                                     .setParam("userId", usrId));
 
+                    if (execResult == null) {
+                        putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
+                        break;
+                    }
                     boolean execAborted = execResult.parseBoolean("aborted", false);
                     boolean execRejected = execResult.parseBoolean("rejected", false);
                     boolean execPending = execResult.parseBoolean("pendingApproval", false);

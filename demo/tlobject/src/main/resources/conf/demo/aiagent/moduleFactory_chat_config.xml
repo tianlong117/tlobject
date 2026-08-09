@@ -27,6 +27,13 @@
         <!-- 主控Agent（独立模块名，避免递归） -->
         <module name="aiagent_master" sameClassAs="aiagent"  configfile="aiagent_master_config.xml"/>
         <module name="outputGuard" classfile="cn.tianlong.tlobject.aiagent.TLOutputGuard"/>
+
+        <!-- Demo 用户信息模块：XML 配置 userId → role/group -->
+        <module name="demoUserModule"
+                classfile="cn.tianlong.java.demo.aiagent.DemoUserModule"
+                singleton="true"
+                users="console_user:guest;admin:member,admin;tianlong:member"
+                groups="admin:0" />
         <!-- DAG工作流模块 -->
         <module name="demoWorkflow"
                  sameClassAs="agentWorkflow"
@@ -50,7 +57,10 @@
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
+        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
     </factoryBoot>
