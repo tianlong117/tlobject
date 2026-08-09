@@ -2227,7 +2227,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // 解析 action：msgTool / MCP / 普通
             String action;
             if ("_msgId_".equals(fn.action)) {
-                action = fn.name; // msgTool 用 msgId 路由
+                action = "_msgId_:" + fn.name; // msgTool: 前缀标记，doToolExec 识别后走 msgId 路由
             } else if (MCP_CALLTOOL.equals(fn.action)) {
                 action = MCP_CALLTOOL;
             } else {

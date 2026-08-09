@@ -78,7 +78,7 @@
         />
         <policy name="guest"
                 user="*"
-                role="guest"
+                role="guest;member"
                 denyMsg=""
         />
         <!-- 会员策略: 任意登录用户 + member 角色 + Token 未过期 -->

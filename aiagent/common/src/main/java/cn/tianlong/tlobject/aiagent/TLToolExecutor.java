@@ -277,7 +277,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     ? task.nativeName : functionName;
             System.out.println(">>> [Function] " + functionName + " → " + task.module.getName());
             TLMsg execMsg = createMsg();
-            execMsg.setAction(task.action).setParam(AI_P_TOOLNAME, toolName);
+            // msgTool 用 "_msgId_:xxx" 前缀标记，拆出 msgId 走框架路由
+            if (task.action != null && task.action.startsWith("_msgId_:")) {
+                execMsg.setMsgId(task.action.substring("_msgId_:".length()));
+            } else {
+                execMsg.setAction(task.action);
+            }
+            execMsg.setParam(AI_P_TOOLNAME, toolName);
             if (MCP_CALLTOOL.equals(task.action)) {
                 execMsg.setParam(AI_P_TOOLARGUMENTS, task.args);
             }

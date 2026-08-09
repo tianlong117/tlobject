@@ -32,7 +32,7 @@
         <module name="demoUserModule"
                 classfile="cn.tianlong.java.demo.aiagent.DemoUserModule"
                 singleton="true"
-                users="console_user:guest;admin:member,admin;tianlong:member"
+                users="console_user:guest;admin:member,admin;tianlong:member,guest"
                 groups="admin:0" />
         <!-- DAG工作流模块 -->
         <module name="demoWorkflow"

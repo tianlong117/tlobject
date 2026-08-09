@@ -92,11 +92,14 @@ public class AppAuthModule extends TLBaseModule {
                 continue;
             }
 
-            // 2. 调 TLAuthModule 做授权（检查目标工具模块是否允许被调用）
+            // 2. 调 TLAuthModule 做授权（去掉 _msgId_: 前缀）
+            String checkAction = task.action;
+            if (checkAction != null && checkAction.startsWith("_msgId_:"))
+                checkAction = checkAction.substring("_msgId_:".length());
             TLMsg authMsg = createMsg()
                     .setAction("authForModule")
                     .setParam("checkModule", task.moduleName)
-                    .setParam("checkAction", task.action)
+                    .setParam("checkAction", checkAction)
                     .setParam("userid", userInfo.getParam("userid"))
                     .setParam("role", userInfo.getParam("role"))
                     .setParam("group", userInfo.getParam("group"));
