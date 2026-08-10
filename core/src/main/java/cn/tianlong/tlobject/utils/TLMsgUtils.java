@@ -581,4 +581,67 @@ public class TLMsgUtils {
         }
         return value;
     }
+
+    /**
+     * 将 TLMsg 转为可读的纯文本：遍历参数，换行 key: value
+     */
+    @SuppressWarnings("unchecked")
+    public static String msgToSimpleStr(TLMsg msg) {
+        if (msg == null) return "";
+        Map<String, Object> args = msg.getArgs();
+        if (args != null && !args.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<String, Object> e : args.entrySet()) {
+                if (sb.length() > 0) sb.append("\n");
+                sb.append(e.getKey()).append(": ");
+                Object v = e.getValue();
+                if (v instanceof List) {
+                    List<?> list = (List<?>) v;
+                    if (list.isEmpty()) {
+                        sb.append("[]");
+                    } else {
+                        // 列表元素是 TLMsg 时递归，否则直接拼
+                        boolean allMsg = list.get(0) instanceof TLMsg;
+                        if (allMsg) {
+                            for (int i = 0; i < list.size(); i++) {
+                                if (i > 0) sb.append("\n  ");
+                                sb.append(msgToSimpleStr((TLMsg) list.get(i)));
+                            }
+                        } else {
+                            sb.append(list.toString());
+                        }
+                    }
+                } else if (v instanceof TLMsg) {
+                    sb.append(msgToSimpleStr((TLMsg) v));
+                } else {
+                    sb.append(v);
+                }
+            }
+            return sb.toString();
+        }
+        return msg.toString();
+    }
+
+    /**
+     * 格式化 checkMsgId 返回的 RESULT 为纯文本。
+     * 并行模式 RESULT=List&lt;TLMsg&gt;，顺序模式 RESULT=TLMsg。
+     */
+    @SuppressWarnings("unchecked")
+    public static String formatMsgToolResult(Object resObj) {
+        if (resObj instanceof List) {
+            StringBuilder sb = new StringBuilder();
+            for (Object item : (List<?>) resObj) {
+                if (item instanceof TLMsg) {
+                    sb.append(msgToSimpleStr((TLMsg) item));
+                } else if (item != null) {
+                    sb.append(item.toString());
+                }
+                sb.append("\n");
+            }
+            return sb.toString().trim();
+        } else if (resObj instanceof TLMsg) {
+            return msgToSimpleStr((TLMsg) resObj);
+        }
+        return resObj != null ? resObj.toString() : "";
+    }
 }

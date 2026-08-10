@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.aiagent;
 import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 import org.xmlpull.v1.XmlPullParser;
 
@@ -518,7 +519,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     }
                 }
                 Map<String, Object> schema = !props.isEmpty() ? Map.of("type", "object", "properties", props) : null;
-                String fnAction = (action != null && !action.isEmpty()) ? action : "_msgId_";
+                String fnAction = (action != null && !action.isEmpty()) ? action : "msgTool";
                 functions.put(msgId, new FunctionEntry(msgId, fnAction, "msgTool", target, desc, schema));
             }
         }
@@ -674,6 +675,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case AGENT_STOPCHAT:
                 returnMsg = stopChat(fromWho, msg);
                 break;
+            case "msgTool":
+                returnMsg = executeMsgTool(fromWho, msg);
+                break;
             default:
                 returnMsg = null;
         }
@@ -687,6 +691,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 置会话取消标志 + 取消在途 HTTP 请求。可被控制台的 /stop、外部模块调用。
      * 在与 doChat 不同的线程上执行，靠线程安全的 cancelFlags / OkHttp dispatcher 衔接。
      */
+    /**
+     * 执行 msgTool：从 AI_P_TOOLNAME 取 msgId → checkMsgId → 结果包成 AI_P_SKILLOUTPUT。
+     * 解决 msgId 路由返回的 RESULT 不符合 ToolExecutor 的 AI_P_SKILLOUTPUT 约定问题。
+     */
+    protected TLMsg executeMsgTool(Object fromWho, TLMsg msg) {
+        String msgId = msg.getStringParam(AI_P_TOOLNAME, "");
+        if (msgId.isEmpty()) {
+            return createMsg().setParam(AI_P_SKILLOUTPUT, "Error: msgId missing");
+        }
+        TLMsg result = checkMsgId(msgId, fromWho, msg);
+        String output;
+        if (result == null) {
+            output = "done";
+        } else if (result.containsParam(RESULT)) {
+            output = TLMsgUtils.formatMsgToolResult(result.getParam(RESULT));
+        } else {
+            output = result.getStringParam(AI_P_RESPONSE, result.toString());
+        }
+        return createMsg().setParam(AI_P_SKILLOUTPUT, output);
+    }
+
     /** agent 作为工具被调用：提取输入 → 跑一次 chat → 结果放入 AI_P_SKILLOUTPUT */
     @SuppressWarnings("unchecked")
     protected TLMsg executeAsTool(Object fromWho, TLMsg msg) {
@@ -2226,9 +2251,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             // 解析 action：msgTool / MCP / 普通
             String action;
-            if ("_msgId_".equals(fn.action)) {
-                action = "_msgId_:" + fn.name; // msgTool: 前缀标记，doToolExec 识别后走 msgId 路由
-            } else if (MCP_CALLTOOL.equals(fn.action)) {
+            if (MCP_CALLTOOL.equals(fn.action)) {
                 action = MCP_CALLTOOL;
             } else {
                 action = fn.action;
@@ -2238,6 +2261,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     tc.getId(), fn.module, action, toolArgs, userId);
             if (MCP_CALLTOOL.equals(action)) {
                 task.nativeName = fn.nativeName;
+            }
+            // msgTool: 用 fn.name (msgId) 覆写 moduleName，使 doToolExec 的 AI_P_TOOLNAME 传出正确的 msgId
+            if ("msgTool".equals(fn.type)) {
+                task.moduleName = fn.name;
             }
             tasks.add(task);
         }

@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent;
 
 import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -277,12 +278,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     ? task.nativeName : functionName;
             System.out.println(">>> [Function] " + functionName + " → " + task.module.getName());
             TLMsg execMsg = createMsg();
-            // msgTool 用 "_msgId_:xxx" 前缀标记，拆出 msgId 走框架路由
-            if (task.action != null && task.action.startsWith("_msgId_:")) {
-                execMsg.setMsgId(task.action.substring("_msgId_:".length()));
-            } else {
-                execMsg.setAction(task.action);
-            }
+            execMsg.setAction(task.action);
             execMsg.setParam(AI_P_TOOLNAME, toolName);
             if (MCP_CALLTOOL.equals(task.action)) {
                 execMsg.setParam(AI_P_TOOLARGUMENTS, task.args);
@@ -307,7 +303,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             } else {
                 output = result.getStringParam(AI_P_RESPONSE, "");
             }
-            if (output.isEmpty()) output = result != null ? result.toString() : "";
+            if (output.isEmpty()) output = result != null ? TLMsgUtils.msgToSimpleStr(result) : "";
             System.out.println("<<< [Function] " + functionName + " 返回 (前200字): "
                     + (output.length() > 200 ? output.substring(0, 200) : output));
 
