@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.utils.TLMsgUtils;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 工具执行模块——接收解析好的任务清单，并行执行并返回结果。
@@ -25,6 +26,11 @@ import java.util.concurrent.CountDownLatch;
  * 作者:tianlong
  */
 public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString {
+
+    /** 单次工具执行超时（毫秒），默认 5 分钟 */
+    private static final long TOOL_EXECUTION_TIMEOUT_MS = 300_000;
+    /** 残留状态清理阈值（毫秒），超过此时间的 ExecutionState 视为孤儿 */
+    private static final long STALE_STATE_TIMEOUT_MS = 600_000;
 
     // ======================== 数据结构 ========================
 
@@ -83,11 +89,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
         volatile boolean aborted;
         final List<ThreadTask> activeTasks = new ArrayList<>();
+        volatile long createdAt;
 
         ExecutionState(String executionId, String sessionId, CountDownLatch latch) {
             this.executionId = executionId;
             this.sessionId = sessionId;
             this.latch = latch;
+            this.createdAt = System.currentTimeMillis();
         }
     }
 
@@ -157,6 +165,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     .setParam("results", Collections.emptyList());
         }
 
+        // 防御性清理：扫描并移除残留的孤儿状态
+        cleanupStaleStates();
+
         int n = tasks.size();
         CountDownLatch latch = new CountDownLatch(n);
         ExecutionState state = new ExecutionState(executionId, sessionId, latch);
@@ -172,6 +183,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         .setParam("_task", task).setParam("_idx", idx)
                         .setParam("_fromWho", fromWho)
                         .setParam("executionId", executionId)
+                        .setParam(AI_P_SESSIONID, sessionId)
                         .setParam("userId", userId)
                         .setParam("rootSessionId", rootSessionId);
                 TLMsg taskResult = putMsgNoWait(this, execMsg);
@@ -179,8 +191,21 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 if (tt != null) state.activeTasks.add(tt);
             }
 
-            // 等待全部完成
-            latch.await();
+            // 等待全部完成（带超时保护，防止工具执行挂死）
+            boolean completed = latch.await(TOOL_EXECUTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            if (!completed) {
+                putLog("Tool execution timeout after " + (TOOL_EXECUTION_TIMEOUT_MS / 1000)
+                        + "s, executionId=" + executionId + ", aborting " + latch.getCount()
+                        + " remaining task(s)", LogLevel.WARN);
+                state.aborted = true;
+                // 释放 latch，让收集结果的逻辑继续
+                while (state.latch.getCount() > 0) state.latch.countDown();
+                // 中断所有活跃任务
+                for (ThreadTask t : state.activeTasks) {
+                    t.cancelTask();
+                    t.interrupt();
+                }
+            }
 
             // 收集结果
             TLMsg response = createMsg().setParam(RESULT, true);
@@ -222,6 +247,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             return response;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            // 确保 latch 被释放，防止活跃任务永远等待
+            state.aborted = true;
+            while (state.latch.getCount() > 0) state.latch.countDown();
+            for (ThreadTask t : state.activeTasks) { t.cancelTask(); t.interrupt(); }
             return createMsg().setParam(RESULT, false).setParam("aborted", true)
                     .setParam("error", "Interrupted");
         } finally {
@@ -239,6 +268,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         ExecutionState state = states.get(executionId);
         if (state == null || task == null) {
             if (state == null) return null; // 已被 cancel 清理
+            return null;
+        }
+
+        // 已被取消/超时 → 快速失败，不执行
+        if (state.aborted) {
+            state.latch.countDown();
             return null;
         }
 
@@ -364,6 +399,33 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         }
     }
 
+    // ======================== 残留状态清理 ========================
+
+    /**
+     * 防御性清理：扫描并移除超时的孤儿 ExecutionState。
+     * 在每次 executeTools 前调用，确保即使 finally 因极端情况未执行也不会永久泄漏。
+     */
+    private void cleanupStaleStates() {
+        long now = System.currentTimeMillis();
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, ExecutionState> entry : states.entrySet()) {
+            ExecutionState s = entry.getValue();
+            if (now - s.createdAt > STALE_STATE_TIMEOUT_MS) {
+                stale.add(entry.getKey());
+            }
+        }
+        for (String id : stale) {
+            ExecutionState s = states.remove(id);
+            if (s != null) {
+                s.aborted = true;
+                while (s.latch.getCount() > 0) s.latch.countDown();
+                for (ThreadTask t : s.activeTasks) { t.cancelTask(); t.interrupt(); }
+                putLog("Cleaned up stale ExecutionState: " + id + " (age="
+                        + ((now - s.createdAt) / 1000) + "s)", LogLevel.WARN);
+            }
+        }
+    }
+
     // ======================== 取消 ========================
 
     /**
@@ -372,14 +434,19 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     private TLMsg cancelSession(Object fromWho, TLMsg msg) {
         String sid = msg.getStringParam(AI_P_SESSIONID, "default");
         int cancelled = 0;
-        for (ExecutionState state : states.values()) {
+        // 用副本迭代，避免在遍历中 remove 的并发问题
+        List<String> toRemove = new ArrayList<>();
+        for (Map.Entry<String, ExecutionState> entry : states.entrySet()) {
+            ExecutionState state = entry.getValue();
             if (sid.equals(state.sessionId)) {
                 state.aborted = true;
                 while (state.latch.getCount() > 0) state.latch.countDown();
                 for (ThreadTask t : state.activeTasks) { t.cancelTask(); t.interrupt(); }
+                toRemove.add(entry.getKey());
                 cancelled++;
             }
         }
+        for (String id : toRemove) states.remove(id);
         if (cancelled > 0) {
             putLog("cancelSession: cancelled " + cancelled + " execution(s) for sessionId=" + sid,
                     LogLevel.INFO);

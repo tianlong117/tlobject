@@ -240,6 +240,13 @@
             <msg action="getTurnCount" destination="aiContext" />
             <msg action="checkProvider" destination="aiagent_master" />
         </msgid>
+        <msgid value="getConversationStats">
+            <msg action="getTurnCount" destination="aiContext" />
+        </msgid>
+        <msgid value="getServerStatus" mode="parallel" waitTime="30000">
+            <msg action="listSkills" destination="aiagent_master" />
+            <msg action="listAgents" destination="aiagent_master" />
+        </msgid>
     </msgTable>
 
     <msgTools>

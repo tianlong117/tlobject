@@ -1325,7 +1325,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         String mode = (String) entry.getOrDefault("mode", "sequential");
         putLog("run msgid:"+msgId+" mode:"+mode, LogLevel.TRACE, "checkMsgId");
         if ("parallel".equals(mode)) {
-            int waitTime = 120000;
+            int waitTime = 0; // 0 = 一直等待，配置了 waitTime 才设超时
             if (entry.containsKey("waitTime")) {
                 try { waitTime = Integer.parseInt((String) entry.get("waitTime")); }
                 catch (NumberFormatException ignored) {}
@@ -1534,7 +1534,10 @@ public abstract class TLBaseModule extends TLBaseObject {
             resultMsgList.add(j,null);
         }
         try {
-            latch.await(waitTime, TimeUnit.MILLISECONDS);
+            if (waitTime > 0)
+                latch.await(waitTime, TimeUnit.MILLISECONDS);
+            else
+                latch.await(); // waitTime <= 0 时一直等待
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
@@ -1576,7 +1579,10 @@ public abstract class TLBaseModule extends TLBaseObject {
             latch.countDown();
         }
         try {
-            latch.await(waitTime, TimeUnit.MILLISECONDS);
+            if (waitTime > 0)
+                latch.await(waitTime, TimeUnit.MILLISECONDS);
+            else
+                latch.await(); // waitTime <= 0 时一直等待
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
