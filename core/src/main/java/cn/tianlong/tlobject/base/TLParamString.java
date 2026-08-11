@@ -170,6 +170,7 @@ public interface TLParamString {
     final String TASKRESESSIONDATA= "taskSessionData";
     final String TASKDELAYTIME = "taskDelayTime";
     final String TASKWAITTIME = "taskWaitTime";
+    final String TASKTIMEOUT = "taskTimeout";
     final String TASKMAINTHREAD = "taskMainThread";
     /** 暂停/恢复任务 — action */
     String TASK_PAUSE = "pauseTask";

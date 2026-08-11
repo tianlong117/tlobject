@@ -84,6 +84,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         public final Map<String, Object> paramSchema; // LLM 参数 schema
         public final String nativeName;   // MCP 原生工具名（非 MCP 时 == name）
         public boolean enabled = true;
+        public long timeoutMs = 0;        // 单次执行超时（毫秒），0 = 不限时
 
         public FunctionEntry(String name, String action, String type, TLBaseModule module,
                              String description, Map<String, Object> paramSchema) {
@@ -469,8 +470,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     TLBaseSkill skill = (TLBaseSkill) getModule(name);
                     if (skill != null) {
                         String fnName = skill.getSkillName();
-                        functions.put(fnName, new FunctionEntry(fnName, SKILL_EXECUTE, "skill", skill,
-                                skillConfigs.get(name).getOrDefault("skillDescription", fnName), null));
+                        FunctionEntry fe = new FunctionEntry(fnName, SKILL_EXECUTE, "skill", skill,
+                                skillConfigs.get(name).getOrDefault("skillDescription", fnName), null);
+                        try { fe.timeoutMs = Long.parseLong(skillConfigs.get(name).getOrDefault("timeout", "0")) * 1000; }
+                        catch (NumberFormatException ignored) {}
+                        functions.put(fnName, fe);
                     }
                 } catch (Exception e) { putLog("postInit skill failed: " + name, LogLevel.WARN); }
             }
@@ -493,8 +497,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 if (d != null && !d.isEmpty()) desc = d;
                             }
                         } catch (Exception ignored) {}
-                        functions.put(name, new FunctionEntry(name, SKILL_EXECUTE, "agent", module,
-                                desc, buildDelegateParamSchema()));
+                        FunctionEntry fe = new FunctionEntry(name, SKILL_EXECUTE, "agent", module,
+                                desc, buildDelegateParamSchema());
+                        try { fe.timeoutMs = Long.parseLong(cfg.getOrDefault("timeout", "0")) * 1000; }
+                        catch (NumberFormatException ignored) {}
+                        functions.put(name, fe);
                     }
                 } catch (Exception e) { putLog("postInit agent failed: " + name, LogLevel.WARN); }
             }
@@ -524,7 +531,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 }
                 Map<String, Object> schema = !props.isEmpty() ? Map.of("type", "object", "properties", props) : null;
                 String fnAction = (action != null && !action.isEmpty()) ? action : "msgTool";
-                functions.put(msgId, new FunctionEntry(msgId, fnAction, "msgTool", target, desc, schema));
+                FunctionEntry fe = new FunctionEntry(msgId, fnAction, "msgTool", target, desc, schema);
+                try { fe.timeoutMs = Long.parseLong(msgTool.getStringParam("timeout", "0")) * 1000; }
+                catch (NumberFormatException ignored) {}
+                functions.put(msgId, fe);
             }
         }
     }
@@ -1018,7 +1028,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     // 流式参数将在 doStreamCall 构建消息时注入
                 }
                 finalResponse = doStreamCall(history, toolDefs, sessionId, model);
-                if (cancelled.get()) {
+                if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
                     aborted = true;
                 } else if (finalResponse != null) {
                     history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
@@ -1163,9 +1173,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     boolean execRejected = execResult.parseBoolean("rejected", false);
                     boolean execPending = execResult.parseBoolean("pendingApproval", false);
                     boolean execClarified = execResult.parseBoolean("clarified", false);
+                    boolean execTimeout = execResult.parseBoolean("hasTimeout", false);
 
                     if (execAborted || cancelled.get()) { aborted = true; break; }
-                    if (execRejected || execPending || execClarified) {
+                    if (execRejected || execPending || execClarified || execTimeout) {
                         history.remove(aMsgIdx); // 精确回滚 assistant 消息
                     }
                     if (execRejected) {
@@ -1198,6 +1209,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         finalResponse = execResult.getStringParam("finalResponse", "");
                         break;
                     }
+                    if (execTimeout) {
+                        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                                "（工具执行超时：" + execResult.getStringParam("finalResponse", "")
+                                        + "，请根据已有信息继续或重试。）"));
+                        finalResponse = execResult.getStringParam("finalResponse", "");
+                        break;
+                    }
                     // 全部正常：按顺序写入 history
                     @SuppressWarnings("unchecked")
                     List<TLToolExecutor.ToolResult> execResults =
@@ -1207,7 +1225,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
                         }
                     }
-                    if (aborted || clarified || pendingApproval || rejected) break;
+                    if (aborted || clarified || pendingApproval || rejected || execTimeout) break;
                     // L2 checkpoint: 每轮工具调用后通知 SessionManager
                     notifySessionManager(createMsg()
                             .setAction("sessionUpdated")
@@ -2318,6 +2336,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             TLToolExecutor.ToolTask task = new TLToolExecutor.ToolTask(
                     tc.getId(), fn.module, action, toolArgs, userId);
+            task.timeoutMs = fn.timeoutMs;
             if (MCP_CALLTOOL.equals(action)) {
                 task.nativeName = fn.nativeName;
             }

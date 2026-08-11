@@ -59,6 +59,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
         ACTION_REGISTRY.put("getCacheStats", "查询 Prompt 缓存统计");
         ACTION_REGISTRY.put("checkProvider", "检查 LLM Provider 可用性");
+        ACTION_REGISTRY.put("param", "查看工具的参数 (例: /param priceTeam)");
         ACTION_REGISTRY.put("listCommands", "列出所有可用命令");
         ACTION_REGISTRY.put("mcpSearch", "搜索 MCP 服务器市场");
         ACTION_REGISTRY.put("mcpInstall", "从市场安装 MCP 服务器");
@@ -136,6 +137,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 运行时参数 ──
             case "setParam":        return doSetParam(fromWho, msg);
+            case "param":           return doParam(fromWho, msg);
 
             default: return null;
         }
@@ -821,6 +823,21 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         putMsg(targetAgent(msg), createMsg().setAction(MODULE_SETPARAM)
                 .setParam(param, value));
         return ok(param + " = " + value);
+    }
+
+    /** /param <工具名|家族名> — 直接查模块的参数 */
+    private TLMsg doParam(Object fromWho, TLMsg msg) {
+        String toolName = msg.getStringParam("toolName", "");
+        if (toolName.isEmpty()) return fail("用法: /param <工具名或家族名>");
+        // 1) 按家族名从注册表查（aiagent_master:priceTeam 这类）
+        TLMsg regResult = putMsg(DEFAULTMODULEREGISTRY,
+                createMsg().setAction(REGISTRY_GET).setParam(REGISTRY_P_KEY, toolName));
+        Object module = regResult != null ? regResult.getParam(INSTANCE) : null;
+        if (!(module instanceof IObject))
+            return fail("模块未找到或非标准模块: " + toolName);
+        TLMsg result = putMsg((IObject) module, createMsg().setAction(MODULE_GETPARAM));
+        if (result == null) return fail("模块无响应: " + toolName);
+        return ok(toolName + " 的参数", result.getArgs());
     }
 
     // ======================== MCP 市场 ========================

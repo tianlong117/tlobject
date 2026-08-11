@@ -25,6 +25,7 @@
     <params>
         <mode value="parallel"/>
         <maxReviewRounds value="1"/>
+        <timeout value="2" />
         <defaultLlmProvider value="aiagent_master:openAiProvider"/>
     </params>
 

@@ -637,6 +637,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 msg.setAction("clear").setParam(AI_P_SESSIONID, sessionId);
                 break;
 
+            case "param":
+                if (parts.length < 2) {
+                    System.out.println("用法: /param <工具名>");
+                    return null;
+                }
+                msg.setAction("param").setParam("toolName", parts[1]);
+                break;
+
             case "resume":
                 // /resume → 恢复断点（非 busy 时）
                 if (pendingCheckpointSessionId != null) {
@@ -1053,6 +1061,20 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     break;
                 case "eval":
                     printEvalResult(data);
+                    break;
+                case "param":
+                    System.out.println(message);
+                    if (data instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> params = (Map<String, Object>) data;
+                        if (params.isEmpty()) {
+                            System.out.println("  (无参数)");
+                        } else {
+                            for (Map.Entry<String, Object> e : params.entrySet()) {
+                                System.out.println("  " + e.getKey() + " = " + e.getValue());
+                            }
+                        }
+                    }
                     break;
                 case "install":
                 case "uninstall":
@@ -1637,6 +1659,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /stream        切换流式/非流式模式");
         System.out.println("  /session <id>  切换会话ID");
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
+        System.out.println("  /param <工具名>  查看工具模块的参数");
         System.out.println();
         System.out.println("安装命令:");
         System.out.println("  /install -s <skillDir> [家族名]              安装脚本型Skill（目录）");

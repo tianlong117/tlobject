@@ -27,10 +27,10 @@ import java.util.concurrent.TimeUnit;
  */
 public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString {
 
-    /** 单次工具执行超时（毫秒），默认 5 分钟 */
-    private static final long TOOL_EXECUTION_TIMEOUT_MS = 300_000;
-    /** 残留状态清理阈值（毫秒），超过此时间的 ExecutionState 视为孤儿 */
-    private static final long STALE_STATE_TIMEOUT_MS = 600_000;
+    /** 单次工具执行超时（毫秒），0 = 一直等待。可通过 XML params 的 executionTimeoutMs 配置 */
+    private long executionTimeoutMs = 0;
+    /** 残留状态清理阈值（毫秒），0 = 禁用。超过此时间的 ExecutionState 视为孤儿。可通过 XML params 的 staleStateTimeoutMs 配置 */
+    private long staleStateTimeoutMs = 0;
 
     // ======================== 数据结构 ========================
 
@@ -43,6 +43,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         public Map<String, Object> args;    // LLM 传入的参数
         public String userId;               // 用户隔离
         public String nativeName;           // MCP 原生工具名（非 MCP 时为 null，与 LLM 函数名可能不同）
+        /** 单次执行超时（毫秒），0 = 不限时。通过 ThreadTask 的 taskTimeout 系统参数传递给执行线程 */
+        public long timeoutMs = 0;
         /** 预设输出（非 null 时 ToolExecutor 直接返回，不执行。用于 error/clarification 等已处理的 tool） */
         public String precomputedOutput;
 
@@ -120,6 +122,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         if (params != null) {
             if (params.get("approvalModule") != null)
                 approvalModuleName = params.get("approvalModule");
+            if (params.get("executionTimeoutMs") != null)
+                executionTimeoutMs = Long.parseLong(params.get("executionTimeoutMs"));
+            if (params.get("staleStateTimeoutMs") != null)
+                staleStateTimeoutMs = Long.parseLong(params.get("staleStateTimeoutMs"));
         }
     }
 
@@ -186,31 +192,36 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         .setParam(AI_P_SESSIONID, sessionId)
                         .setParam("userId", userId)
                         .setParam("rootSessionId", rootSessionId);
+                // 每个 task 可单独设超时，传给 ThreadTask
+                if (task.timeoutMs > 0)
+                    execMsg.setSystemParam(TASKTIMEOUT, task.timeoutMs);
                 TLMsg taskResult = putMsgNoWait(this, execMsg);
                 ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
                 if (tt != null) state.activeTasks.add(tt);
             }
 
-            // 等待全部完成（带超时保护，防止工具执行挂死）
-            boolean completed = latch.await(TOOL_EXECUTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            if (!completed) {
-                putLog("Tool execution timeout after " + (TOOL_EXECUTION_TIMEOUT_MS / 1000)
-                        + "s, executionId=" + executionId + ", aborting " + latch.getCount()
-                        + " remaining task(s)", LogLevel.WARN);
-                state.aborted = true;
-                // 释放 latch，让收集结果的逻辑继续
-                while (state.latch.getCount() > 0) state.latch.countDown();
-                // 中断所有活跃任务
-                for (ThreadTask t : state.activeTasks) {
-                    t.cancelTask();
-                    t.interrupt();
+            // 等待全部完成（executionTimeoutMs=0 则一直等待，>0 超时后中断剩余任务）
+            if (executionTimeoutMs > 0) {
+                boolean completed = latch.await(executionTimeoutMs, TimeUnit.MILLISECONDS);
+                if (!completed) {
+                    putLog("Tool execution timeout after " + (executionTimeoutMs / 1000)
+                            + "s, executionId=" + executionId + ", aborting " + latch.getCount()
+                            + " remaining task(s)", LogLevel.WARN);
+                    state.aborted = true;
+                    while (state.latch.getCount() > 0) state.latch.countDown();
+                    for (ThreadTask t : state.activeTasks) {
+                        t.cancelTask();
+                        t.interrupt();
+                    }
                 }
+            } else {
+                latch.await();
             }
 
             // 收集结果
             TLMsg response = createMsg().setParam(RESULT, true);
             List<ToolResult> results = new ArrayList<>();
-            boolean hasPending = false, hasRejected = false, hasClarified = false;
+            boolean hasPending = false, hasRejected = false, hasClarified = false, hasTimeout = false;
             String finalResponse = null, rejectReason = null, clarificationQuestion = null;
             String pendingApprovalId = null;
 
@@ -231,6 +242,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     hasClarified = true;
                     finalResponse = tr.output;
                     clarificationQuestion = tr.stateExtra;
+                } else if ("timeout".equals(tr.state)) {
+                    hasTimeout = true;
+                    finalResponse = tr.output;
                 }
             }
 
@@ -239,6 +253,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             response.setParam("pendingApproval", hasPending);
             response.setParam("rejected", hasRejected);
             response.setParam("clarified", hasClarified);
+            response.setParam("hasTimeout", hasTimeout);
             if (finalResponse != null) response.setParam("finalResponse", finalResponse);
             if (rejectReason != null) response.setParam("rejectReason", rejectReason);
             if (clarificationQuestion != null) response.setParam("clarificationQuestion", clarificationQuestion);
@@ -330,6 +345,21 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             execMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId",
                     msg.getStringParam(AI_P_SESSIONID, "default")));
             TLMsg result = putMsg(task.module, execMsg);
+            // 线程被中断 = Future 超时，即使工具返回了部分结果也标记为超时
+            if (Thread.currentThread().isInterrupted()) {
+                Thread.currentThread().interrupt(); // 恢复中断标志，让上游也能感知
+                state.results.put(idx, new ToolResult(task.toolCallId,
+                        "[超时] " + task.moduleName + " 执行超时",
+                        "timeout", "执行超时"));
+                return null;
+            }
+            // 检查执行结果自身是否标记为超时
+            if (result != null && Boolean.TRUE.equals(result.getParam(TASKTIMEOUT))) {
+                state.results.put(idx, new ToolResult(task.toolCallId,
+                        "[超时] " + task.moduleName + " 执行超时",
+                        "timeout", "执行超时"));
+                return null;
+            }
             String output;
             if (result == null) {
                 output = "done";
@@ -344,9 +374,21 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
             state.results.put(idx, new ToolResult(task.toolCallId, output));
         } catch (Exception e) {
-            putLog("Tool execution error: " + task.moduleName + " -> " + e.toString(), LogLevel.ERROR);
-            state.results.put(idx, new ToolResult(task.toolCallId,
-                    "Error executing " + task.moduleName + ": " + e.getMessage()));
+            // 判断是否因超时中断：InterruptedIOException / InterruptedException / 线程中断标志
+            boolean isTimeout = Thread.currentThread().isInterrupted()
+                    || e instanceof InterruptedException
+                    || e.getClass().getName().contains("Interrupted");
+            if (isTimeout) {
+                Thread.currentThread().interrupt(); // 恢复中断标志
+                putLog("Tool execution timeout: " + task.moduleName, LogLevel.WARN);
+                state.results.put(idx, new ToolResult(task.toolCallId,
+                        "[超时] " + task.moduleName + " 执行超时",
+                        "timeout", "执行超时"));
+            } else {
+                putLog("Tool execution error: " + task.moduleName + " -> " + e.toString(), LogLevel.ERROR);
+                state.results.put(idx, new ToolResult(task.toolCallId,
+                        "Error executing " + task.moduleName + ": " + e.getMessage()));
+            }
         } finally {
             state.latch.countDown();
         }
@@ -406,11 +448,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
      * 在每次 executeTools 前调用，确保即使 finally 因极端情况未执行也不会永久泄漏。
      */
     private void cleanupStaleStates() {
+        if (staleStateTimeoutMs <= 0) return; // 未配置则不启用
         long now = System.currentTimeMillis();
         List<String> stale = new ArrayList<>();
         for (Map.Entry<String, ExecutionState> entry : states.entrySet()) {
             ExecutionState s = entry.getValue();
-            if (now - s.createdAt > STALE_STATE_TIMEOUT_MS) {
+            if (now - s.createdAt > staleStateTimeoutMs) {
                 stale.add(entry.getKey());
             }
         }
