@@ -1,0 +1,24 @@
+{
+  "id": "math-simple-001",
+  "name": "简单数学计算",
+  "input": "请直接回答：2+2等于几？只输出数字。",
+  "expectedOutput": "4",
+  "judges": [
+    {
+      "type": "exact_match",
+      "config": {
+        "ignoreCase": true,
+        "normalizeWhitespace": true,
+        "trim": true,
+        "contains": true
+      }
+    },
+    {
+      "type": "constraint",
+      "config": {
+        "maxIterations": 2,
+        "maxTokens": 500
+      }
+    }
+  ]
+}

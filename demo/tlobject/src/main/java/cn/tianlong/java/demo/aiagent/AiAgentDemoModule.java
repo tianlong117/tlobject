@@ -444,12 +444,12 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 6b: 验证Skill出现在列表中
             TLMsg listMsg = createMsg().setAction(AGENT_LISTSKILLS);
             TLMsg listResult = putMsg(M_AIAGENT, listMsg);
-            java.util.List<LinkedHashMap<String, Object>> skillList =
-                    (java.util.List<LinkedHashMap<String, Object>>) listResult.getListParam("skills", null);
+            java.util.List<String> skillList =
+                    (java.util.List<String>) listResult.getListParam("skills", null);
             boolean foundInList = false;
             if (skillList != null) {
-                for (LinkedHashMap<String, Object> info : skillList) {
-                    if ("demo_echo".equals(info.get("name"))) {
+                for (String skillName : skillList) {
+                    if ("demo_echo".equals(skillName)) {
                         foundInList = true;
                         break;
                     }

@@ -1798,6 +1798,25 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected TLMsg registerFunction(Object fromWho, TLMsg msg, String type) {
         functionsLock.writeLock().lock();
         try {
+            // INSTANCE 直接注入模式：已有现成的模块实例，跳过 getMyModule 创建
+            Object instance = msg.getParam(INSTANCE);
+            if (instance instanceof TLBaseModule) {
+                TLBaseModule module = (TLBaseModule) instance;
+                String name = "skill".equals(type)
+                        ? (module instanceof TLBaseSkill ? ((TLBaseSkill) module).getSkillName() : module.getName())
+                        : module.getName();
+                if (name == null || name.isEmpty())
+                    return createMsg().setParam(RESULT, false).setParam("error", "module name empty");
+                modules.put(name, module);
+                registerToRegistry(name, module, type);
+                String desc = "skill".equals(type) && module instanceof TLBaseSkill
+                        ? ((TLBaseSkill) module).getSkillDescription() : module.getName();
+                functions.put(name, new FunctionEntry(name, SKILL_EXECUTE, type, module,
+                        desc, "agent".equals(type) ? buildDelegateParamSchema() : null));
+                invalidateToolDefs();
+                return createMsg().setParam(RESULT, true).setParam("name", name);
+            }
+
             String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
                     : msg.getStringParam(AI_P_AGENTNAME, "");
             if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");

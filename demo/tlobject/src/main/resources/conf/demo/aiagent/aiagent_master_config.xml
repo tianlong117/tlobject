@@ -173,6 +173,15 @@
                statup="false"
                description="数据库处理专家，负责SQL查询、数据操作、表管理等。当用户请求涉及数据库操作时使用此Agent。"/>
 
+        <agent name="planTask"
+               sameClassAs="planTask"
+               statup="true"
+               defaultLlmProvider="aiagent_master:openAiProvider"
+               maxToolCallIterations="1"
+               defaultTemperature="0.3"
+               defaultMaxTokens="2048"
+               description="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当用户需求涉及多步骤、且无法直接委托现有子Agent独立完成时使用（如未知流程编排）。如果子任务已有对应的Agent（如poemWorkflow写诗、priceTeam询价、fileAgent文件操作、codeAgent代码执行），请直接并行委托这些Agent，无需调用本Agent。"/>
+
     </agents>
     <skills>
         <skill name="liantongyun"
@@ -185,10 +194,6 @@
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"
                statup="true"/>
-        <skill name="planTask"
-               sameClassAs="planTask"
-               statup="true"
-               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当用户需求涉及多步骤、且无法直接委托现有子Agent独立完成时使用（如未知流程编排）。如果子任务已有对应的Agent（如poemWorkflow写诗、priceTeam询价、fileAgent文件操作、codeAgent代码执行），请直接并行委托这些Agent，无需调用本技能。"/>
         <skill name="skillInstallerSkill"
                sameClassAs="skillInstallerSkill"
                statup="true"

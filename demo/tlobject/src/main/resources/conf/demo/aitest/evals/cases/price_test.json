@@ -1,0 +1,9 @@
+{
+  "id": "price-test-001",
+  "name": "价格计算-单商品",
+  "targetAgent": "aiagent_master:priceTeam",
+  "input": "我要买一个汉堡",
+  "judges": [
+    { "type": "constraint", "config": { "mustContain": ["2元", "汉堡"] } }
+  ]
+}

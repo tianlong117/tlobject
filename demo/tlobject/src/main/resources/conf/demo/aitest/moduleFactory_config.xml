@@ -30,13 +30,13 @@
         <!-- 主测试模块 -->
         <module name="aiAgentDemo"
                 classfile=".AiAgentDemoModule"
-                configfile="CLASSPATH/conf/demo/aiagent/aiagent_demo_config.xml"
+                configfile="CLASSPATH/conf/demo/aitest/aiagent_demo_config.xml"
                 singleton="true"/>
 
         <!-- DAG工作流模块 -->
         <module name="demoWorkflow"
                 classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
-                configfile="CLASSPATH/conf/demo/aiagent/demoWorkflow_config.xml"/>
+                configfile="CLASSPATH/conf/demo/aitest/demoWorkflow_config.xml"/>
 
         <!-- Demo 用户信息模块：XML 配置 userId → role/group -->
         <module name="demoUserModule"
@@ -83,5 +83,14 @@
 
         <!-- 获取评测模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="evals"/>
+
+        <!-- 获取测试模块 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
+
+        <!-- 触发 Mock Provider 单元测试 -->
+        <msg action="runAllTests" destination="agentTestModule"/>
     </factoryBoot>
 </moduleConfig>

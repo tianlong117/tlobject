@@ -65,7 +65,7 @@
         <!-- defaultMemoryPackageName: Memory 类名简写时的默认包名前缀 -->
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <!-- defaultMemoryStore: 默认长期记忆模块名（dbMemory=数据库, longTermMemory=JSONL文件） -->
-        <defaultMemoryStore value="dbMemory"/>
+        <defaultMemoryStore value="longTermMemory"/>
 
         <!-- ===== HITL 审批机制 =====
              approvalModule: 审批模块名（不配或配空字符串 = 不启用审批）
@@ -128,11 +128,19 @@
                skillName="code_execution"
                skillDescription="Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine)."/>
 
-        <skill name="planTask"
+    </skills>
+
+    <!-- ===== Sub-Agents ===== -->
+    <agents>
+        <agent name="planTask"
                sameClassAs="planTask"
                statup="true"
-               skillDescription="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当任务涉及多步骤、且无法用单个现有Skill直接完成时使用。如果任务只需调用一个Skill即可完成，直接调用该Skill，无需规划。"/>
-    </skills>
+               defaultLlmProvider="openAiProvider"
+               maxToolCallIterations="1"
+               defaultTemperature="0.3"
+               defaultMaxTokens="2048"
+               description="将复杂任务分解为带进度标记的可执行子任务清单（3-7项）。仅当任务涉及多步骤、且无法用单个现有Skill直接完成时使用。如果任务只需调用一个Skill即可完成，直接调用该Skill，无需规划。"/>
+    </agents>
 
     <!-- ===== Memory Stores ===== -->
     <memoryStores>
@@ -144,19 +152,19 @@
                      maxEntries="1000"
                      cleanupInterval="60"/>
 
-        <!--memoryStore name="longTermMemory"
+        <memoryStore name="longTermMemory"
                      classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
                      statup="true"
                      memoryType="longTerm"
                      defaultExptime="0"
                      storagePath="./data/aiagent_longterm_memory"
-                     maxCacheEntries="10000"/-->
+                     maxCacheEntries="10000"/>
 
-        <memoryStore name="dbMemory"
+        <!--memoryStore name="dbMemory"
                      classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
                      statup="true"
                      memoryType="longTerm"
-                     maxCacheEntries="10000"/>
+                     maxCacheEntries="10000"/-->
     </memoryStores>
 
     <!-- ===== AOP拦截: 记忆自动注入 ===== -->
@@ -179,9 +187,10 @@
         maxReviewRounds 控制最大修正轮次（默认 1）。
     -->
     <afterMsgTable>
-        <action name="chat">
+        <!-- 测试环境关闭 errorSupervisor 审查，避免消耗 Mock Provider 响应队列 -->
+        <!--action name="chat">
             <msg action="reviewChat" destination="errorSupervisor" maxReviewRounds="2"/>
-        </action>
+        </action-->
     </afterMsgTable>
 
     <!-- ===== 模块参数 ===== -->
@@ -192,14 +201,14 @@
 
 **任何需要 2 步及以上工具调用才能完成的任务，必须遵循以下流程，不得跳过：**
 
-1. **第一步必须是 plan_task**：收到复杂任务后，第一个工具调用必须是 plan_task。将任务分解为 3-7 项子任务清单。不得在调用 plan_task 之前执行任何其他工具或委托子 agent。
+1. **第一步必须是 planTask**：收到复杂任务后，第一个工具调用必须是 planTask。将任务分解为 3-7 项子任务清单。不得在调用 planTask 之前执行任何其他工具或委托子 agent。
 2. **按清单逐步执行**：拿到清单后按顺序逐项执行，每完成一项在对话中展示进度（[ ] → [~] → [x]）
 3. **失败标记**：某步失败时标记 [✗]，分析原因后调整计划继续
 4. **最终汇总**：全部完成后做简要总结
 
-判断标准：如果完成任务需要调用 2 个或以上工具（包括 delegate_to_*、skill、msgTool），就是复杂任务，必须先调 plan_task。
+判断标准：如果完成任务需要调用 2 个或以上工具（包括 delegate_to_*、skill、msgTool），就是复杂任务，必须先调 planTask。
 
-仅当任务确实只需单步完成（如纯知识问答、简单计算、单次查询）时，可跳过 plan_task 直接回答。
+仅当任务确实只需单步完成（如纯知识问答、简单计算、单次查询）时，可跳过 planTask 直接回答。
 
 当你缺少必要信息时，调用 request_clarification 工具向用户确认。"/>
     </modulesParams>

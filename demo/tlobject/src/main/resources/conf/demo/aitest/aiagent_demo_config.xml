@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <verison value="1"/>
+    </params>
+
+    <!-- ===== 消息路由表 ===== -->
+    <msgTable>
+        <!-- 启动后自动运行全部测试 -->
+        <msgid name="allTests">
+            <msg action="runAllTests" destination="aiAgentDemo"/>
+        </msgid>
+
+        <!-- 单独运行各个测试 -->
+        <msgid name="test1">
+            <msg action="testBasicChat" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test2">
+            <msg action="testMultiTurn" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test3">
+            <msg action="testToolCall" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test4">
+            <msg action="testStreamChat" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test5">
+            <msg action="testMemory" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test6">
+            <msg action="testSkillRegister" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test7">
+            <msg action="testProviderSwitch" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test8">
+            <msg action="testClearContext" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test9">
+            <msg action="testConcurrent" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test10">
+            <msg action="testAgentDelegate" destination="aiAgentDemo"/>
+        </msgid>
+        <msgid name="test11">
+            <msg action="testWorkflow" destination="aiAgentDemo"/>
+        </msgid>
+    </msgTable>
+
+    <!-- ===== 启动时自动执行 Mock Provider 单元测试（在 factoryBoot 中触发） ===== -->
+    <!-- aiAgentDemo 的 runAllTests 暂不自动运行，仍可通过 msgid 手动触发 -->
+    <!--startMsg>
+        <msg action="runAllTests" destination="aiAgentDemo"/>
+    </startMsg-->
+</moduleConfig>

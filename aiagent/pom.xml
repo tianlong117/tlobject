@@ -17,6 +17,7 @@
         <module>provider-openai</module>
         <module>provider-claude</module>
         <module>skill-builtin</module>
+        <module>agent-builtin</module>
         <module>memory-store</module>
     </modules>
 

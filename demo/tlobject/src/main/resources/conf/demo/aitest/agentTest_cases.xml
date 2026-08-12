@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testCases>
+    <!--
+        ===== 自定义测试用例配置 =====
+
+        格式说明:
+          <case name="用例名">
+            <mock>                         ← 预设 Mock Provider 响应（按顺序消耗）
+              <response                     ← 单次 LLM 响应
+                result="true|false"         ← RESULT 字段（默认 true）
+                aiResponse="文本"           ← AI 回复内容
+                hasToolCalls="true"         ← 是否包含工具调用
+                error="错误信息"/>           ← result=false 时的错误信息
+                <toolCall                   ← 工具调用（需 hasToolCalls="true"）
+                  id="call_1"               ← tool call ID
+                  function="函数名"          ← LLM 函数名
+                  args='{"key":"val"}'/>    ← 参数 JSON
+              </response>
+            </mock>
+            <chat                            ← 发送的 chat 消息
+              targetAgent="aiagent"          ← 目标 Agent 模块名（默认 aiagent）
+              userMessage="用户输入"          ← 用户消息
+              sessionId="唯一会话ID"          ← 会话 ID
+              model="模型名"                  ← 可选：模型
+              temperature="0.7"              ← 可选：温度
+              maxIterations="10"/>           ← 可选：最大迭代
+            <assert                          ← 断言（全部匹配才通过）
+              result="true"                  ← RESULT 期望值
+              aiResponseContains="应包含"     ← AI 回复应包含的文字
+              aiResponseNotContains="不应含"  ← AI 回复不应包含的文字
+              minIterations="1"              ← 最少迭代轮次
+              maxIterations="5"/>            ← 最多迭代轮次
+          </case>
+
+        内置 echo/sleep 测试 Skill:
+          函数名: test_echo  → 回显输入
+          函数名: test_sleep → 按 duration 毫秒阻塞
+    -->
+
+    <!-- ===== 示例1：测默认 Agent 纯文本 ===== -->
+    <case name="示例-默认Agent基本问答">
+        <mock>
+            <response result="true" aiResponse="你好！我是AI助手，有什么可以帮助你的？"/>
+        </mock>
+        <chat targetAgent="aiagent" userMessage="你好" sessionId="case_hello"/>
+        <assert result="true" aiResponseContains="AI助手"/>
+    </case>
+
+    <!-- ===== 示例2：测指定 Agent ===== -->
+    <!-- 如果把 aiagent_config.xml 里的 planTask 作为子 Agent 测试：
+    <case name="示例-测planTaskAgent">
+        <mock>
+            <response result="true" aiResponse="1. [ ] 查询天气
+2. [ ] 预订酒店
+3. [ ] 预订机票"/>
+        </mock>
+        <chat targetAgent="planTask" userMessage="帮我规划北京到上海的旅行"/>
+        <assert result="true" aiResponseContains="预订"/>
+    </case>
+    -->
+
+    <!-- ===== 示例3：测工具调用 ===== -->
+    <!--case name="示例-工具调用">
+        <mock>
+            <response result="true" hasToolCalls="true">
+                <toolCall id="c1" function="test_echo" args='{"message":"hello world"}'/>
+            </response>
+            <response result="true" aiResponse="工具返回: ECHO: hello world，任务完成。"/>
+        </mock>
+        <chat targetAgent="aiagent" userMessage="用echo输出hello world" sessionId="case_tool"/>
+        <assert result="true" minIterations="2" aiResponseContains="ECHO"/>
+    </case-->
+</testCases>

@@ -29,7 +29,7 @@
         <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
         <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 singleton="false"/>
-        <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLPlanTaskSkill"
+        <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.agent.builtin.TLPlanTaskAgent"
                 singleton="false"/>
         <module name="skillInstallerSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLSkillInstallerSkill"
                 singleton="true"/>
@@ -45,11 +45,18 @@
         <module name="sessionManager" classfile="cn.tianlong.tlobject.aiagent.TLSessionManager" singleton="true"/>
         <module name="dbSessionManager" classfile="cn.tianlong.tlobject.aiagent.TLDatabaseSessionManager" singleton="true"/>
         <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
-        <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"
-                configfile="CLASSPATH/conf/demo/aiagent/errorSupervisor_config.xml"/>
-        <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"
-                configfile="CLASSPATH/conf/demo/aiagent/approvalGate_config.xml"/>
-        <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"
-                configfile="CLASSPATH/conf/demo/aiagent/evals_config.xml"/>
+        <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"/>
+        <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"/>
+        <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"/>
+
+        <!-- 测试模块：Mock Provider + 辅助 Skill + 测试编排 -->
+        <module name="mockProvider" classfile="cn.tianlong.tlobject.aiagent.TLMockProvider"
+                singleton="true" defaultModel="mock-model"/>
+        <module name="testEchoSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLEchoSkill"
+                singleton="true"/>
+        <module name="testSleepSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLSleepSkill"
+                singleton="true"/>
+        <module name="agentTestModule" classfile="cn.tianlong.tlobject.aiagent.test.TLAgentTestModule"
+                singleton="true"/>
     </modules>
 </moduleConfig>

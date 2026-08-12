@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 是否启用断点保存/恢复 -->
+        <enableCheckpoint value="true"/>
+        <!-- 会话存储根路径（各用户在此下建子目录 data/{userId}/session_store/） -->
+        <sessionStorePath value="./data/"/>
+    </params>
+</moduleConfig>

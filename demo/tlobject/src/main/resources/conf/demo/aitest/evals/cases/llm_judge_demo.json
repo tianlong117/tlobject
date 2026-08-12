@@ -1,0 +1,21 @@
+{
+  "id": "llm-judge-demo-001",
+  "name": "LLM-Judge 示例-回答质量评估",
+  "input": "请用中文解释什么是人工智能。",
+  "judges": [
+    {
+      "type": "constraint",
+      "config": {
+        "minResponseLength": 30,
+        "maxIterations": 3
+      }
+    },
+    {
+      "type": "llm_judge",
+      "config": {
+        "prompt": "评估AI助手的回复是否用中文清晰解释了人工智能的概念。只要包含了AI基本概念的解释就给满分。如果只是简单一句话没有细节则扣分。",
+        "passThreshold": 0.6
+      }
+    }
+  ]
+}

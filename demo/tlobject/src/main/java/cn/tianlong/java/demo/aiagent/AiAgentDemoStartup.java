@@ -37,7 +37,7 @@ public class AiAgentDemoStartup extends TLAppStartUp {
 
         HashMap<String, String> argsMap = new HashMap<>();
         argsMap.put("appName", "aiAgentDemo");
-        argsMap.put("configPath", CLASSPATH + "/conf/demo/aiagent/");
+        argsMap.put("configPath", CLASSPATH + "/conf/demo/aitest/");
         argsMap.put("factoryConfigFile", "moduleFactory_config.xml");
         argsMap.put("configFile", "startup_config.xml");
 
