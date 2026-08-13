@@ -65,6 +65,14 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
     /** 当前 Agent 名称 */
     private String agentName;
 
+    /** MCP 客户端标识（连接握手用，init/重连共用） */
+    private String clientName;
+    private String clientVersion;
+
+    /** 惰性重连退避间隔（毫秒），防每次被访问都重试形成风暴 */
+    private long retryIntervalMs = 60_000;
+    private volatile long lastConnectAttempt;
+
     // ======================== 构造函数 ========================
 
     public TLMcpAgent() {
@@ -99,6 +107,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 agentDescription = params.get("description");
             if (params.get("tools") != null)
                 toolFilter = params.get("tools");
+            if (params.get("retryIntervalMs") != null) {
+                try { retryIntervalMs = Long.parseLong(params.get("retryIntervalMs")); }
+                catch (NumberFormatException ignored) {}
+            }
         }
     }
 
@@ -129,26 +141,49 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
         }
 
         // 连接并发现工具
+        this.clientName = "tlobject-mcp-agent/" + agentName;
+        this.clientVersion = "1.0";
         try {
-            String clientName = "tlobject-mcp-agent/" + agentName;
-            String clientVersion = "1.0";
-            transport.connect(clientName, clientVersion);
-            refreshTools();
-            initialized = true;
-            putLog("MCP Agent [" + agentName + "]: connected, " + tools.size() + " tools discovered", LogLevel.INFO);
-
-            for (McpTool tool : tools.values()) {
-                String funcName = agentName + "_" + tool.getName();
-                functionNameToTool.put(funcName, tool.getName());
-                putLog("    ▸ " + funcName + " - " + tool.getDescription(), LogLevel.DEBUG);
-            }
+            connectInternal();
         } catch (Exception e) {
             initialized = false;
-            putLog("MCP Agent [" + agentName + "]: INIT FAILED - " + e.toString(), LogLevel.ERROR);
-            putLog("MCP Agent [" + agentName + "] init failed: " + e.toString(), LogLevel.ERROR);
+            putLog("MCP Agent [" + agentName + "]: INIT FAILED - " + e.toString()
+                    + " (will retry on demand, interval " + retryIntervalMs + "ms)", LogLevel.ERROR);
         }
 
         return this;
+    }
+
+    /** 执行一次连接握手 + 工具发现（init 与惰性重连共用） */
+    private void connectInternal() throws Exception {
+        transport.connect(clientName, clientVersion);
+        refreshTools();
+        initialized = true;
+        putLog("MCP Agent [" + agentName + "]: connected, " + tools.size() + " tools discovered", LogLevel.INFO);
+
+        for (McpTool tool : tools.values()) {
+            String funcName = agentName + "_" + tool.getName();
+            functionNameToTool.put(funcName, tool.getName());
+            putLog("    ▸ " + funcName + " - " + tool.getDescription(), LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * 惰性重连：init 失败或连接中断后，下次被主控访问时按退避间隔重试。
+     * AGENT_GETTOOLDEFS / callTool / refreshTools 入口调用，
+     * 避免"工具瞬间不可用"，同时退避保证不形成重试风暴。
+     */
+    private synchronized void ensureInitialized() {
+        if (initialized && transport != null && transport.isConnected()) return;
+        long now = System.currentTimeMillis();
+        if (now - lastConnectAttempt < retryIntervalMs) return;
+        lastConnectAttempt = now;
+        try {
+            connectInternal();
+        } catch (Exception e) {
+            initialized = false;
+            putLog("MCP Agent [" + agentName + "] reconnect failed: " + e.toString(), LogLevel.WARN);
+        }
     }
 
     @Override
@@ -179,6 +214,7 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 break;
             case AGENT_GETTOOLDEFS:
                 // 向 master 贡献工具定义（统一子 agent 协议）：defs + functionName→toolName 路由映射
+                ensureInitialized();
                 returnMsg = createMsg().setParam(RESULT, true)
                         .setParam(AI_P_FUNCTIONDEFS, getToolDefinitions())
                         .setParam(AI_P_TOOLROUTES, new LinkedHashMap<>(functionNameToTool));
@@ -251,6 +287,9 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
      * @return 执行结果 TLMsg
      */
     public TLMsg callTool(String toolName, Map<String, Object> arguments) {
+        if (!initialized || transport == null || !transport.isConnected()) {
+            ensureInitialized();  // 惰性重连（含退避），仍不可用再报错
+        }
         if (!initialized || transport == null || !transport.isConnected()) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error: MCP Agent not initialized or disconnected");
@@ -373,7 +412,8 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
     }
 
     private TLMsg handleRefreshTools(Object fromWho, TLMsg msg) {
-        refreshTools();
+        ensureInitialized();
+        if (initialized) refreshTools();
         return createMsg().setParam(RESULT, true).setParam("toolCount", tools.size());
     }
 }

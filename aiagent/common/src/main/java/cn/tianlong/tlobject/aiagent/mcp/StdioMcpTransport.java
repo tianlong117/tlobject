@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -19,6 +21,23 @@ import java.util.concurrent.TimeUnit;
  * 作者:tianlong
  */
 public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
+
+    /** 活跃的 MCP 子进程注册表：JVM 退出（含崩溃/强杀路径，disconnect 未被执行）时统一清理，防止孤儿子进程 */
+    private static final Set<Process> LIVE_PROCESSES = ConcurrentHashMap.newKeySet();
+    static {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            for (Process p : LIVE_PROCESSES) {
+                if (p != null && p.isAlive()) {
+                    try {
+                        // npx 等启动器会再派生 node 孙进程，先杀后代再杀本体
+                        p.descendants().forEach(ProcessHandle::destroyForcibly);
+                        p.destroyForcibly();
+                        p.waitFor(2, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {}
+                }
+            }
+        }, "mcp-stdio-shutdown"));
+    }
 
     private final String command;
     private final String[] args;
@@ -57,6 +76,7 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
 
         log("Starting MCP stdio process: " + String.join(" ", cmdArray), LogLevel.DEBUG);
         process = pb.start();
+        LIVE_PROCESSES.add(process);
 
         // stdin → writer (向子进程写入)
         writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
@@ -82,14 +102,14 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
         connected = true;
 
         // MCP 初始化握手
-        Map<String, Object> initParams = jsonRpc.buildInitializeParams(clientName, clientVersion);
-        String initRequest = jsonRpc.buildRequest("initialize", initParams);
-        String initResponse = send(initRequest);
-
         try {
+            Map<String, Object> initParams = jsonRpc.buildInitializeParams(clientName, clientVersion);
+            String initRequest = jsonRpc.buildRequest("initialize", initParams);
+            String initResponse = send(initRequest);
             jsonRpc.parseResponse(initResponse);
             log("MCP initialize successful", LogLevel.DEBUG);
-        } catch (McpJsonRpc.McpRpcException e) {
+        } catch (Exception e) {
+            // 握手失败（含进程提前退出等 IOException）：清理连接，惰性重连可重新拉起进程
             log("MCP initialize failed: " + e.toString(), LogLevel.ERROR);
             disconnect();
             throw e;
@@ -137,14 +157,20 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
             if (writer != null) { writer.close(); writer = null; }
             if (reader != null) { reader.close(); reader = null; }
         } catch (IOException ignored) {}
-        if (process != null && process.isAlive()) {
-            process.destroy();
-            try {
-                if (!process.waitFor(5, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
+        Process p = process;
+        if (p != null) {
+            LIVE_PROCESSES.remove(p);
+            if (p.isAlive()) {
+                p.destroy();
+                try {
+                    if (!p.waitFor(5, TimeUnit.SECONDS)) {
+                        p.descendants().forEach(ProcessHandle::destroyForcibly);
+                        p.destroyForcibly();
+                    }
+                } catch (InterruptedException ignored) {
+                    p.descendants().forEach(ProcessHandle::destroyForcibly);
+                    p.destroyForcibly();
                 }
-            } catch (InterruptedException ignored) {
-                process.destroyForcibly();
             }
         }
         process = null;

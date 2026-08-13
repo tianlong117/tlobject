@@ -24,7 +24,8 @@ import java.util.concurrent.*;
  *
  * <h3>配置参数（XML params）</h3>
  * <pre>{@code
- *   approvalRules      — 审批规则，格式 "tool:op, tool:op, tool"（无:op=全部操作）
+ *   approvalRules      — 审批规则，格式 "tool:op, tool, tool:*, tool*"
+ *                        tool:op=指定操作需审批；tool=全部操作；tool:*=该工具通配；tool*=函数名前缀通配
  *   reviewerClass      — IApprovalReviewer 实现类全名
  *   reviewerStrategy   — "sync"(同步阻塞) / "async"(异步回调)，默认 "sync"
  *   approvalTimeoutMs  — 超时毫秒数，默认 300000（5分钟）
@@ -47,6 +48,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /** 工具名 → 需审批的操作集合（空 Set = 全部操作都审） */
     private final Map<String, Set<String>> approvalRules = new LinkedHashMap<>();
+
+    /** 通配规则前缀（tool:* → "tool:"，tool* → "tool"），按 startsWith 匹配函数名 */
+    private final List<String> approvalRulePrefixes = new ArrayList<>();
 
     // ======================== 审查人 ========================
 
@@ -115,12 +119,10 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         if (reviewerClass != null && !reviewerClass.isEmpty()) {
             try {
                 Class<?> clazz = Class.forName(reviewerClass);
-                Object instance = clazz.getDeclaredConstructor().newInstance();
+                Object instance = instantiateReviewer(clazz);
                 if (instance instanceof IApprovalReviewer) {
                     this.reviewer = (IApprovalReviewer) instance;
-                    if (instance instanceof ConsoleReviewer) {
-                        ((ConsoleReviewer) instance).setOwner(this);
-                    }
+                    injectReviewerOwner(instance);
                     putLog("Reviewer loaded: " + reviewerClass + " strategy=" + reviewerStrategy, LogLevel.INFO);
                 } else {
                     putLog("reviewerClass does not implement IApprovalReviewer: " + reviewerClass, LogLevel.WARN);
@@ -131,11 +133,43 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         }
     }
 
+    /**
+     * 实例化审查人，优先支持框架依赖注入构造。
+     * 构造优先级：(String, TLObjectFactory) → (TLObjectFactory) → 无参。
+     * 审查人构造时只应保存引用（工厂服务在 start 后才完整可用）。
+     */
+    private Object instantiateReviewer(Class<?> clazz) throws Exception {
+        try {
+            return clazz.getDeclaredConstructor(String.class, TLObjectFactory.class)
+                    .newInstance(name, moduleFactory);
+        } catch (NoSuchMethodException ignored) {}
+        try {
+            return clazz.getDeclaredConstructor(TLObjectFactory.class)
+                    .newInstance(moduleFactory);
+        } catch (NoSuchMethodException ignored) {}
+        return clazz.getDeclaredConstructor().newInstance();
+    }
+
+    /**
+     * 宿主注入：审查人若有 setOwner(TLApprovalModule) 方法则回调注入，
+     * 替代硬编码 instanceof ConsoleReviewer，自定义审查人同样受益。
+     */
+    private void injectReviewerOwner(Object instance) {
+        try {
+            instance.getClass().getMethod("setOwner", TLApprovalModule.class).invoke(instance, this);
+        } catch (NoSuchMethodException ignored) {
+            // 可选注入：无 setOwner 的审查人跳过
+        } catch (Exception e) {
+            putLog("Reviewer setOwner invoke failed: " + e.getMessage(), LogLevel.ERROR);
+        }
+    }
+
     @Override
     protected TLBaseModule init() {
         // 如果没有显式配置审查人，默认使用 ConsoleReviewer
         if (reviewer == null) {
             this.reviewer = new ConsoleReviewer();
+            ((ConsoleReviewer) reviewer).setOwner(this);
             putLog("Using default ConsoleReviewer", LogLevel.INFO);
         }
         // 启动超时调度器（单线程 daemon）
@@ -428,22 +462,29 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
      * @return true 需要审批
      */
     public boolean isApprovalRequired(String toolName, Map<String, Object> args) {
-        if (approvalRules.isEmpty()) {
+        if (approvalRules.isEmpty() && approvalRulePrefixes.isEmpty()) {
             return false;  // 未配置规则，全部放行
         }
 
-        // 1. 精确匹配 toolName
+        // 1. 通配前缀匹配（tool:* 命中 "tool:xxx" 冒号风格函数名；tool* 命中任意前缀，如 MCP 的 agentName_toolName）
+        for (String prefix : approvalRulePrefixes) {
+            if (toolName.startsWith(prefix)) {
+                return true;
+            }
+        }
+
+        // 2. 精确匹配 toolName
         Set<String> ops = approvalRules.get(toolName);
         if (ops == null) {
             return false;  // 不在规则中
         }
 
-        // 2. 空 Set = 该工具的所有操作都需审批
+        // 3. 空 Set = 该工具的所有操作都需审批
         if (ops.isEmpty()) {
             return true;
         }
 
-        // 3. 按操作名匹配
+        // 4. 按操作名匹配
         String operation = extractOperation(toolName, args);
         return operation != null && ops.contains(operation);
     }
@@ -502,10 +543,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
      *   → file_operation → {"delete", "write"}
      *   → code_execution → {}  (空 Set = 全部操作)
      *   → http_request   → {"POST"}
+     * 通配形式：
+     *   "file_operation:*" → 裸名 file_operation 全部操作 + "file_operation:" 前缀函数名
+     *   "filesystemMcp*"   → 任意以 filesystemMcp 开头的函数名（如 filesystemMcp_read_file）
      * }</pre>
      */
     private void parseApprovalRules(String rulesStr) {
         approvalRules.clear();
+        approvalRulePrefixes.clear();
         if (rulesStr == null || rulesStr.trim().isEmpty()) return;
 
         for (String rule : rulesStr.split(",")) {
@@ -516,14 +561,24 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             if (colonIdx > 0) {
                 String tool = rule.substring(0, colonIdx).trim();
                 String op = rule.substring(colonIdx + 1).trim().toLowerCase();
-                approvalRules.computeIfAbsent(tool, k -> new LinkedHashSet<>()).add(op);
+                if ("*".equals(op)) {
+                    // tool:* 通配：裸名全部操作 + 冒号风格函数名前缀
+                    approvalRulePrefixes.add(tool + ":");
+                    approvalRules.putIfAbsent(tool, Collections.emptySet());
+                } else {
+                    approvalRules.computeIfAbsent(tool, k -> new LinkedHashSet<>()).add(op);
+                }
+            } else if (rule.endsWith("*")) {
+                // tool* 前缀通配（MCP 的 agentName_toolName 函数名风格）
+                approvalRulePrefixes.add(rule.substring(0, rule.length() - 1));
             } else {
                 // 无冒号 = 该工具全部操作都需审批
                 approvalRules.put(rule, Collections.emptySet());
             }
         }
 
-        putLog("Approval rules parsed: " + approvalRules, LogLevel.DEBUG);
+        putLog("Approval rules parsed: " + approvalRules
+                + (approvalRulePrefixes.isEmpty() ? "" : " prefixes=" + approvalRulePrefixes), LogLevel.DEBUG);
     }
 
     // ======================== 超时处理 ========================

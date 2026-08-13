@@ -160,22 +160,41 @@ public class SseMcpTransport implements McpTransport, TLAiAgentParamString {
     }
 
     /**
-     * 解析 SSE 文本流，提取最后一个有效的 data 行作为 JSON-RPC 响应。
+     * 解析 SSE 文本流，提取最后一个含 data 的完整 event 作为 JSON-RPC 响应。
+     * 按 SSE 规范：同一 event 的多个 data: 行以 \n 拼接，空行结束一个 event；
+     * 服务器把 JSON 分多帧 data 下发时不再丢数据。
      */
     private String parseSseResponse(String sseText) throws IOException {
-        String lastData = null;
+        String lastEventData = null;
+        StringBuilder current = new StringBuilder();
+        boolean hasData = false;
         try (BufferedReader br = new BufferedReader(new StringReader(sseText))) {
             String line;
             while ((line = br.readLine()) != null) {
-                if (line.startsWith("data:")) {
-                    lastData = line.substring(5).trim();
+                if (line.isEmpty()) {
+                    // event 边界：提交当前 event
+                    if (hasData) lastEventData = current.toString();
+                    current.setLength(0);
+                    hasData = false;
+                } else if (line.startsWith("data:")) {
+                    // 规范：去掉 "data:" 前缀及紧随的一个空格
+                    String data = line.substring(5);
+                    if (data.startsWith(" ")) data = data.substring(1);
+                    if (hasData) current.append("\n");
+                    current.append(data);
+                    hasData = true;
+                } else if (line.startsWith(":")) {
+                    // 注释行忽略
                 }
+                // 其他字段（event:/id:/retry:）不影响 data 累积
             }
+            // 兼容末尾无空行的流：提交最后一个未闭合 event
+            if (hasData) lastEventData = current.toString();
         }
-        if (lastData == null) {
+        if (lastEventData == null) {
             throw new IOException("SSE response contained no data");
         }
-        return lastData;
+        return lastEventData;
     }
 
     private void log(String msg, LogLevel level) {

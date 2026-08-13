@@ -45,6 +45,9 @@ public class TLWorkflowEngine implements TLParamString {
     private final Set<String> failed = ConcurrentHashMap.newKeySet();
     private final Map<String, NodeTask> running = new ConcurrentHashMap<>();
 
+    /** 节点重试计数（onFailure="retry" 时按节点累积） */
+    private final Map<String, Integer> retryCounts = new ConcurrentHashMap<>();
+
     public TLWorkflowEngine(Map<String, TLWorkflowNode> nodes,
                             List<TLWorkflowEdge> edges,
                             TLWorkflowContext context,
@@ -248,11 +251,19 @@ public class TLWorkflowEngine implements TLParamString {
     /** 构建节点的完整输入：工作流初始输入 + 上游产出 */
     private TLMsg buildNodeInput(TLWorkflowNode node) {
         TLMsg input = new TLMsg();
-        // 先拷贝工作流初始输入（含 userMessage）
+        // 先拷贝工作流初始输入（含 userMessage 与会话上下文）
         if (context.getInput() != null) {
-            input.addArgs(context.getInput().getArgs());
-            String um = context.getInput().getStringParam("userMessage", "");
+            TLMsg initial = context.getInput();
+            input.addArgs(initial.getArgs());
+            String um = initial.getStringParam("userMessage", "");
             if (!um.isEmpty()) input.setParam("userMessage", um);
+            // 会话上下文透传（rootSessionId/sessionId/userId），供 runAgentNode 派生节点会话
+            if (initial.containsParam("sessionId"))
+                input.setParam("sessionId", initial.getStringParam("sessionId", ""));
+            if (initial.containsParam("rootSessionId"))
+                input.setParam("rootSessionId", initial.getStringParam("rootSessionId", ""));
+            if (initial.containsParam("userId"))
+                input.setParam("userId", initial.getStringParam("userId", ""));
         }
         // 再合并上游产出
         TLMsg upstream = collectUpstreamInput(node.getId());
@@ -274,8 +285,18 @@ public class TLWorkflowEngine implements TLParamString {
     }
 
     private void handleNodeFailure(String nid, TLWorkflowNode node) {
-        failed.add(nid);
         String strategy = node.getOnFailure() != null ? node.getOnFailure() : "fail";
+        if ("retry".equals(strategy)) {
+            int used = retryCounts.merge(nid, 1, Integer::sum);
+            int max = Math.max(0, node.getMaxRetries());
+            if (used <= max) {
+                // 不入 failed、不动 inDegree，主循环下一轮自然重排该节点
+                context.putStatus(nid, "RETRY:" + used + "/" + max);
+                return;
+            }
+            strategy = "retry(exhausted)";
+        }
+        failed.add(nid);
         context.putStatus(nid, "FAILED:" + strategy);
         if ("skip".equals(strategy)) {
             onNodeDone(nid);

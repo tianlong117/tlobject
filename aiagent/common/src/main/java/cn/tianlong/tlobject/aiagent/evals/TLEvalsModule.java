@@ -384,23 +384,37 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
     /**
      * 解析目标模块。
-     * 先尝试从全局 moduleRegistry 按 familyName 获取实例（如 "aiagent_master:researchAgent"），
-     * 未找到则返回模块名字符串（由 putMsg 按正常工厂流程查找）。
+     * 1) 先按完整 familyName 查 moduleRegistry（如 "aiagent_master:httpRequestSkill"）；
+     * 2) 裸名（无冒号）再按默认家族前缀查（targetAgent + ":" + name）——
+     *    子 Agent 与全局工厂模块重名时保证评测目标取到注册表中的 Agent；
+     * 3) 仍无则返回名字字符串（由 putMsg 按正常工厂流程查找）。
      */
     private Object resolveTarget(String targetName) {
-        TLMsg getResult = putMsg(DEFAULTMODULEREGISTRY,
-                createMsg().setAction(REGISTRY_GET)
-                        .setSystemParam(IGNOREMODULEISNULL, true)
-                        .setParam(REGISTRY_P_KEY, targetName));
-        if (getResult != null) {
-            Object instance = getResult.getParam(INSTANCE);
-            if (instance instanceof IObject) {
-                putLog("通过注册表解析目标: " + targetName, LogLevel.DEBUG);
-                return instance;
-            }
+        Object instance = registryGet(targetName);
+        if (instance == null && !targetName.contains(":")) {
+            instance = registryGet(targetAgent + ":" + targetName);
+        }
+        if (instance instanceof IObject) {
+            putLog("通过注册表解析目标: " + targetName, LogLevel.DEBUG);
+            return instance;
         }
         // 回退：当作工厂注册的普通模块名
         return targetName;
+    }
+
+    /** 按 key 查 moduleRegistry，未命中返回 null */
+    private Object registryGet(String key) {
+        TLMsg getResult = putMsg(DEFAULTMODULEREGISTRY,
+                createMsg().setAction(REGISTRY_GET)
+                        .setSystemParam(IGNOREMODULEISNULL, true)
+                        .setParam(REGISTRY_P_KEY, key));
+        if (getResult != null) {
+            Object instance = getResult.getParam(INSTANCE);
+            if (instance instanceof IObject) {
+                return instance;
+            }
+        }
+        return null;
     }
 
     /** 向目标模块发送消息：实例引用优先（注册表解析），否则按名称查找 */

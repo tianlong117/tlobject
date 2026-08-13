@@ -192,6 +192,13 @@ public class TLAgentWorkflow extends TLBaseModule
             input.setParam("userMessage", userMessage);
         }
         input.addArgs(msg.getArgs());
+        // 转发会话上下文，保持级联停止、用户数据隔离（与 TLAiAgent.executeAsTool 同款）
+        if (msg.containsParam(AI_P_SESSIONID))
+            input.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
+        if (msg.containsParam("rootSessionId"))
+            input.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
+        if (msg.containsParam("userId"))
+            input.setParam("userId", msg.getStringParam("userId", ""));
 
         return executeWorkflow(workflowNodes, workflowEdges, input);
     }
@@ -228,7 +235,9 @@ public class TLAgentWorkflow extends TLBaseModule
 
             if (node.getSameClassAs() != null) {
                 HashMap<String, String> nodeParams = new HashMap<>(node.getParams());
-                Object inst = getNewModule(nid, node.getSameClassAs(), nodeParams);
+                // 用 5 参 getModule（ifSaveModule=true）落本地缓存，
+                // 避免 runAgentNode 的 getMyModule 再建一个实例（首轮双实例）
+                Object inst = getModule(nid, node.getSameClassAs(), false, true, nodeParams);
                 if (inst != null) {
                     putLog("Workflow dynamic node [" + nid + "] created (sameClassAs="
                             + node.getSameClassAs() + ")", LogLevel.DEBUG);
@@ -237,7 +246,7 @@ public class TLAgentWorkflow extends TLBaseModule
                             + node.getSameClassAs() + ")", LogLevel.ERROR);
                 }
             } else if (node.getClassfile() != null) {
-                Object inst = getModuleByClass(nid, node.getClassfile());
+                Object inst = getModule(nid, node.getClassfile(), false, true, null);
                 if (inst != null) {
                     putLog("Workflow dynamic node [" + nid + "] created (classfile="
                             + node.getClassfile() + ")", LogLevel.DEBUG);
@@ -308,18 +317,32 @@ public class TLAgentWorkflow extends TLBaseModule
             Map<String, String> attrs = e.getValue();
             TLWorkflowNode node = new TLWorkflowNode();
             node.setId(e.getKey());
-            node.setType(TLWorkflowNodeType.valueOf(
-                    attrs.getOrDefault("type", "AGENT").toUpperCase()));
+            String typeStr = attrs.getOrDefault("type", "AGENT").toUpperCase();
+            try {
+                node.setType(TLWorkflowNodeType.valueOf(typeStr));
+            } catch (IllegalArgumentException iae) {
+                node.setType(TLWorkflowNodeType.AGENT);
+            }
             node.setModule(attrs.get("module"));
             node.setSameClassAs(attrs.get("sameClassAs"));
             node.setClassfile(attrs.get("classfile"));
             node.setAction(attrs.getOrDefault("action", "chat"));
-            if (attrs.containsKey("timeout"))
-                node.setTimeout(Long.parseLong(attrs.get("timeout")));
+            if (attrs.containsKey("timeout")) {
+                try { node.setTimeout(Long.parseLong(attrs.get("timeout"))); }
+                catch (NumberFormatException nfe) {
+                    putLog("Workflow dynamic node [" + e.getKey() + "] invalid timeout: "
+                            + attrs.get("timeout"), LogLevel.WARN);
+                }
+            }
             if (attrs.containsKey("onFailure"))
                 node.setOnFailure(attrs.get("onFailure"));
-            if (attrs.containsKey("maxRetries"))
-                node.setMaxRetries(Integer.parseInt(attrs.get("maxRetries")));
+            if (attrs.containsKey("maxRetries")) {
+                try { node.setMaxRetries(Integer.parseInt(attrs.get("maxRetries"))); }
+                catch (NumberFormatException nfe) {
+                    putLog("Workflow dynamic node [" + e.getKey() + "] invalid maxRetries: "
+                            + attrs.get("maxRetries"), LogLevel.WARN);
+                }
+            }
             if (attrs.containsKey("fallbackNodeId"))
                 node.setFallbackNodeId(attrs.get("fallbackNodeId"));
 
@@ -372,6 +395,19 @@ public class TLAgentWorkflow extends TLBaseModule
             for (Map.Entry<String, String> e : node.getParams().entrySet()) {
                 msg.setParam(e.getKey(), e.getValue());
             }
+        }
+
+        // 会话上下文透传：与 TLAgentGroup 同模式。rootSessionId 保持 stopByRoot 级联停止能力；
+        // 节点用独立 sid（并行节点不互相污染 aiContext），无上游会话时用时间戳兜底
+        String baseSession = nodeInput != null ? nodeInput.getStringParam(AI_P_SESSIONID, "") : "";
+        String rootSid = nodeInput != null ? nodeInput.getStringParam("rootSessionId", "") : "";
+        if (!rootSid.isEmpty()) {
+            msg.setParam("rootSessionId", rootSid);
+        }
+        msg.setParam(AI_P_SESSIONID, name + "_" + nid + ":"
+                + (baseSession.isEmpty() ? System.currentTimeMillis() : baseSession));
+        if (nodeInput != null && nodeInput.containsParam("userId")) {
+            msg.setParam("userId", nodeInput.getStringParam("userId", ""));
         }
 
         // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例
@@ -463,12 +499,22 @@ public class TLAgentWorkflow extends TLBaseModule
                     parseParams(xpp, "node", params);
                     node.setParams(params);
 
-                    if (params.containsKey("timeout"))
-                        node.setTimeout(Long.parseLong(params.get("timeout")));
+                    if (params.containsKey("timeout")) {
+                        try { node.setTimeout(Long.parseLong(params.get("timeout"))); }
+                        catch (NumberFormatException e) {
+                            putLog("Workflow node [" + id + "] invalid timeout: "
+                                    + params.get("timeout"), LogLevel.WARN);
+                        }
+                    }
                     if (params.containsKey("onFailure"))
                         node.setOnFailure(params.get("onFailure"));
-                    if (params.containsKey("maxRetries"))
-                        node.setMaxRetries(Integer.parseInt(params.get("maxRetries")));
+                    if (params.containsKey("maxRetries")) {
+                        try { node.setMaxRetries(Integer.parseInt(params.get("maxRetries"))); }
+                        catch (NumberFormatException e) {
+                            putLog("Workflow node [" + id + "] invalid maxRetries: "
+                                    + params.get("maxRetries"), LogLevel.WARN);
+                        }
+                    }
                     if (params.containsKey("fallbackNodeId"))
                         node.setFallbackNodeId(params.get("fallbackNodeId"));
 
