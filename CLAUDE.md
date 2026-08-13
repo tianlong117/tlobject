@@ -24,7 +24,7 @@ mvn clean package -DskipTests
 mvn clean install -pl database -am -DskipTests
 ```
 
-No test framework is configured (no test directories exist). The demo module (`demo/tlobject`) contains runnable `main()` examples instead.
+No JUnit test framework is configured. Instead there are two layers of self-testing: runnable `main()` examples in the demo module, and `TLAgentTestModule` (aiagent, Mock Provider 驱动) — 9 deterministic test scenarios runnable via `/test` console command or `runAllTests` message (config: `conf/demo/aitest/` and `conf/demo/aiagent/`).
 
 ## Architecture
 
@@ -104,7 +104,7 @@ Built-in modules extending `TLBaseModule`:
 
 **Demo:**
 - `AiAgentDemoModule` — 8 场景自动化测试（全部通过）
-- `ChatDemo` — 交互式对话，支持 `/stream` `/clear` `/exit`
+- `ChatDemo` / `AIStart`（aistart.bat，config `conf/demo/aiagent/`）— 交互式对话，支持 `/stream` `/thinking` `/clear` `/exit` `/test` `/eval` `/mcp` `/approve` `/sessions` `/continue` `/resume`
 
 **关键实现要点:**
 - `doChat(msg, stream)` — 流/非流统一入口，预处理(记忆召回+上下文)和後処理(保存上下文+長期記憶)完全共享
@@ -138,6 +138,17 @@ Built-in modules extending `TLBaseModule`:
       <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手..."/>
   </modulesParams>
   ```
+
+**HITL 审批 (`approvalGate`，全局单例):**
+- 规则键是 **LLM 函数名**（`file_operation:delete`），不是模块名（`fileOperationSkill`）——审批门禁按 `ToolTask.functionName` 匹配
+- 各 Agent 通过自身 config 的 `<approvalModule value="approvalGate"/>` 启用；审批下沉子 Agent（fileAgent/codeAgent 启用，master 不启用）
+- **拒绝是结构化标志**：`doChat` 返回 `rejected`/`rejectReason` → `ToolExecutor` 识别子模块拒绝 → 父 agent 回滚 + 停止循环（不靠 LLM 读文案）
+- **会话级拒绝记忆**：同会话同参数被拒后自动拒绝，不再重复弹框
+- 审批框经 `msgBus` topic `approvalEvent` 发布，控制台 `registBus` 订阅渲染（零直接依赖）；注意 `TLMsgBus.onBus` 路由后必须清 `msg.destination` 防二次路由
+
+**单元测试 (`/test` 命令):**
+- 测试目标为独立 `aiagent` 实例（与主控 aiagent_master 隔离，不污染 /sessions），Mock Provider 驱动 9 场景
+- chat 应用接入：`conf/demo/aiagent/` 的 `aiagent_config.xml` + `agentTestModule_config.xml`；两 demo 配置目录（aiagent/aitest）禁止互相引用，只共享 `conf/tlobject/`
 
 ### Configuration
 

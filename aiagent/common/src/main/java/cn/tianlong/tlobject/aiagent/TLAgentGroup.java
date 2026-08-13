@@ -189,9 +189,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             }
         }
         memberNames = created.toArray(new String[0]);
-        System.out.println("  ▸ Group [" + name + "] mode=" + mode
+        putLog("Group [" + name + "] mode=" + mode
                 + " members=[" + String.join(";", created) + "]"
-                + (supervisorName != null ? " supervisor=" + supervisorName : ""));
+                + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.DEBUG);
     }
 
     @Override
@@ -388,9 +388,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         String baseSession = msg.getStringParam(AI_P_SESSIONID, String.valueOf(System.currentTimeMillis()));
         String rootSessionId = msg.getStringParam("rootSessionId", baseSession);
 
-        System.out.println(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames)
-                + (supervisorName != null ? " supervisor=" + supervisorName : ""));
-        System.out.println("    任务: " + task);
+        putLog(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames)
+                + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.INFO);
+        putLog("    任务: " + task, LogLevel.INFO);
 
         // 向监控模块登记（与 TLAiAgent.doChat 同契约），finally 注销
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
@@ -439,7 +439,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                         .setParam(AI_P_RESPONSE, "Group member not found: " + mName);
             }
             String sid = name + "_" + mName + ":" + baseSession;
-            System.out.println("  → [Group-seq] " + mName);
+            putLog("  → [Group-seq] " + mName, LogLevel.DEBUG);
             TLMsg result = putMsg(member, createMsg().setAction(AGENT_CHAT)
                     .setParam(AI_P_USERMESSAGE, currentInput).setParam(AI_P_SESSIONID, sid)
                     .setParam("rootSessionId", rootSessionId));
@@ -452,7 +452,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             results.put(mName, resp);
             if (!resp.isEmpty())
                 currentInput = resp;
-            System.out.println("  ✓ [Group-seq] " + mName + " done");
+            putLog("  ✓ [Group-seq] " + mName + " done", LogLevel.DEBUG);
         }
         return null;
     }
@@ -523,7 +523,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     + "全部达标则直接输出面向用户的最终统一结果（不要提及审核过程）；"
                     + "若有成员结果不达标，只输出JSON（不要任何其他文字）："
                     + "{\"retry\":{\"成员名\":\"具体反馈意见\"}}";
-            System.out.println("  → [Group-supervisor] " + supervisorName + " 审核 (round " + (round + 1) + ")");
+            putLog("  → [Group-supervisor] " + supervisorName + " 审核 (round " + (round + 1) + ")", LogLevel.DEBUG);
             TLMsg r = putMsg(supervisor, createMsg().setAction(AGENT_CHAT)
                     .setParam(AI_P_USERMESSAGE, reviewInput).setParam(AI_P_SESSIONID, sid)
                     .setParam("rootSessionId", rootSessionId));
@@ -534,7 +534,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             String resp = r.getStringParam(AI_P_RESPONSE, "");
             Map<String, String> retry = parseRetryDirective(resp);
             if (retry == null || retry.isEmpty()) {
-                System.out.println("  ✓ [Group-supervisor] 审核通过，输出统一结果");
+                putLog("  ✓ [Group-supervisor] 审核通过，输出统一结果", LogLevel.DEBUG);
                 return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, resp);
             }
             if (round == maxReviewRounds) {
@@ -542,7 +542,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 break;
             }
 
-            System.out.println("  ↻ [Group-supervisor] 要求重跑: " + retry.keySet() + " 反馈: " + retry.values());
+            putLog("  ↻ [Group-supervisor] 要求重跑: " + retry.keySet() + " 反馈: " + retry.values(), LogLevel.DEBUG);
             if ("parallel".equals(mode)) {
                 // 只重发被点名且在结果集中的成员，输入 = 原任务 + 监理反馈
                 LinkedHashMap<String, String> retryTasks = new LinkedHashMap<>();

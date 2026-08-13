@@ -336,7 +336,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             String functionName = task.moduleName;
             String toolName = MCP_CALLTOOL.equals(task.action) && task.nativeName != null
                     ? task.nativeName : functionName;
-            System.out.println(">>> [Function] " + functionName + " → " + task.module.getName());
+            putLog(">>> [Function] " + functionName + " → " + task.module.getName(), LogLevel.DEBUG);
             TLMsg execMsg = createMsg();
             execMsg.setAction(task.action);
             execMsg.setParam(AI_P_TOOLNAME, toolName);
@@ -382,12 +382,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             // 子模块（如子 agent 的审批被拒）返回拒绝标志 → 标记 rejected，上游 doChat 停止循环
             if (result != null && result.parseBoolean("rejected", false)) {
                 String reason = result.getStringParam("rejectReason", "用户拒绝");
-                System.out.println("<<< [Function] " + functionName + " 返回: REJECTED (" + reason + ")");
+                putLog("<<< [Function] " + functionName + " 返回: REJECTED (" + reason + ")", LogLevel.WARN);
                 state.results.put(idx, new ToolResult(task.toolCallId, output, "rejected", reason));
                 return null;
             }
-            System.out.println("<<< [Function] " + functionName + " 返回 (前200字): "
-                    + (output.length() > 200 ? output.substring(0, 200) : output));
+            putLog("<<< [Function] " + functionName + " 返回 (前200字): "
+                    + (output.length() > 200 ? output.substring(0, 200) : output), LogLevel.DEBUG);
 
             state.results.put(idx, new ToolResult(task.toolCallId, output));
         } catch (Exception e) {

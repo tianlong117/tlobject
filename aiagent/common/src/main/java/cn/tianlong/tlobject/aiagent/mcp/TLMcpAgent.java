@@ -135,16 +135,16 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
             transport.connect(clientName, clientVersion);
             refreshTools();
             initialized = true;
-            System.out.println("  MCP Agent [" + agentName + "]: connected, " + tools.size() + " tools discovered");
+            putLog("MCP Agent [" + agentName + "]: connected, " + tools.size() + " tools discovered", LogLevel.INFO);
 
             for (McpTool tool : tools.values()) {
                 String funcName = agentName + "_" + tool.getName();
                 functionNameToTool.put(funcName, tool.getName());
-                System.out.println("    ▸ " + funcName + " - " + tool.getDescription());
+                putLog("    ▸ " + funcName + " - " + tool.getDescription(), LogLevel.DEBUG);
             }
         } catch (Exception e) {
             initialized = false;
-            System.out.println("  MCP Agent [" + agentName + "]: INIT FAILED - " + e.toString());
+            putLog("MCP Agent [" + agentName + "]: INIT FAILED - " + e.toString(), LogLevel.ERROR);
             putLog("MCP Agent [" + agentName + "] init failed: " + e.toString(), LogLevel.ERROR);
         }
 
@@ -155,10 +155,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
     public void runStartMsg() {
         super.runStartMsg();
         if (initialized) {
-            System.out.println("  MCP Agent [" + agentName + "]: " + tools.size()
-                    + " tools ready via " + transportType);
+            putLog("MCP Agent [" + agentName + "]: " + tools.size()
+                    + " tools ready via " + transportType, LogLevel.INFO);
         } else {
-            System.out.println("  MCP Agent [" + agentName + "]: NOT initialized, tools unavailable");
+            putLog("MCP Agent [" + agentName + "]: NOT initialized, tools unavailable", LogLevel.WARN);
         }
     }
 

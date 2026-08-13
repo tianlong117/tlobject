@@ -126,6 +126,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "testSessionRecovery":
                 returnMsg = testSessionRecovery(fromWho, msg);
                 break;
+            case "testStreamError":
+                returnMsg = testStreamError(fromWho, msg);
+                break;
             case "runCaseFile":
                 returnMsg = runCaseFile(fromWho, msg);
                 break;
@@ -237,6 +240,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("cancelExecution", new String[]{"7-取消执行", "test_sleep 未注册"});
         TEST_CASES.put("batchTimeout",    new String[]{"8-批次超时", "test_sleep 未注册"});
         TEST_CASES.put("sessionRecovery", new String[]{"9-会话恢复", "需要 sessionManager"});
+        TEST_CASES.put("streamError",      new String[]{"10-流式异常", null});
     }
 
     /** 用例名 → 测试函数（大小写不敏感），未知返回 null */
@@ -252,6 +256,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "cancelexecution": return this::testCancelExecution;
             case "batchtimeout":    return this::testBatchTimeout;
             case "sessionrecovery": return this::testSessionRecovery;
+            case "streamerror":     return this::testStreamError;
             default:                return null;
         }
     }
@@ -444,12 +449,38 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         boolean ok = response.parseBoolean(RESULT, false);
         int iterations = response.getIntParam("iterations", 0);
 
-        if (ok && iterations >= 2) {
-            log("[TEST]   并行执行: iterations=" + iterations + " (3个tool并行→1次LLM→完成)");
+        // 断言：3 个并行 tool 结果全部收集（查会话上下文中的 tool 消息）
+        int toolCount = 0;
+        boolean allCollected = false;
+        try {
+            TLMsg ctxResult = putMsg(M_AIAGENT, createMsg().setAction(AGENT_GETCONTEXT)
+                    .setParam(AI_P_SESSIONID, "test_mock_parallel"));
+            if (ctxResult != null) {
+                List<TLConversationHistory> hist = (List<TLConversationHistory>)
+                        ctxResult.getListParam(AI_P_MESSAGEHISTORY, java.util.List.of());
+                StringBuilder outputs = new StringBuilder();
+                for (TLConversationHistory h : hist) {
+                    if (h.getRole() == TLConversationHistory.Role.tool) {
+                        toolCount++;
+                        outputs.append(h.getContent()).append(";");
+                    }
+                }
+                allCollected = toolCount == 3
+                        && outputs.toString().contains("task-A")
+                        && outputs.toString().contains("task-B")
+                        && outputs.toString().contains("task-C");
+            }
+        } catch (Exception e) {
+            log("[TEST]   并行执行: 上下文断言异常 - " + e);
+        }
+
+        if (ok && iterations >= 2 && allCollected) {
+            log("[TEST]   并行执行: iterations=" + iterations + " tool结果=" + toolCount + "/3 全部收集");
             return createMsg().setParam(RESULT, true);
         }
         return createMsg().setParam(RESULT, false)
-                .setParam("error", String.format("ok=%s, iterations=%d", ok, iterations));
+                .setParam("error", String.format("ok=%s, iterations=%d, toolCount=%d, allCollected=%s",
+                        ok, iterations, toolCount, allCollected));
     }
 
     // ======================== 场景 5: Tool 执行超时 ========================
@@ -671,7 +702,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             return createMsg().setParam(RESULT, false).setParam("error", "checkpoint round1 failed");
         }
 
-        // 查询 sessionManager 验证 checkpoint 已保存
+        // 查询 sessionManager 验证 checkpoint 已保存（未保存 = 场景失败，不再只 log）
         try {
             TLMsg listMsg = createMsg()
                     .setAction("listSessions")
@@ -679,14 +710,15 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             TLMsg listResult = putMsg("sessionManager", listMsg);
             List<?> sessions = (List<?>) listResult.getListParam("sessions", Collections.emptyList());
 
-            if (sessions != null && !sessions.isEmpty()) {
-                log("[TEST]   会话恢复: checkpoint 已保存, sessions=" + sessions.size());
-            } else {
-                log("[TEST]   会话恢复: checkpoint 可能未启用或 sessionManager 配置缺失, sessions="
-                        + (sessions != null ? sessions.size() : "null"));
+            if (sessions == null || sessions.isEmpty()) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "checkpoint 未保存: sessions="
+                                + (sessions != null ? sessions.size() : "null"));
             }
+            log("[TEST]   会话恢复: checkpoint 已保存, sessions=" + sessions.size());
         } catch (Exception e) {
-            log("[TEST]   会话恢复: sessionManager 查询异常 - " + e.getMessage());
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "sessionManager 查询异常: " + e.getMessage());
         }
 
         // 验证第二轮可以继续（新的 chat 在同一 session）
@@ -703,6 +735,54 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         }
         return createMsg().setParam(RESULT, false)
                 .setParam("error", "checkpoint round2 failed: " + r2.getStringParam("error", ""));
+    }
+
+    // ======================== 场景 10: 流式异常路径 ========================
+
+    protected TLMsg testStreamError(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        String sessionId = "test_mock_streamerr";
+
+        // 预设流式响应: chunk → 中途错误（模拟 Provider 连接中断）
+        mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                mp.streamChunk("部分内容"),
+                createMsg().setAction(STREAM_ONCHUNK).setParam(AI_P_STREAMERROR, "provider connection reset")
+        ));
+
+        try {
+            // 重置流回调
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+
+            // 发送流式请求
+            TLMsg streamMsg = createMsg()
+                    .setAction(AGENT_CHATSTREAM)
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_USERMESSAGE, "请流式回复")
+                    .setParam(RESULTFOR, "streamCallback")
+                    .setParam(RESULTACTION, "onStreamChunk");
+
+            putMsg(M_AIAGENT, streamMsg);
+
+            // 等待流式完成（错误路径: streamDone=true + streamError 非空）
+            TLMsg waitMsg = createMsg().setAction("waitForStream").setParam("timeout", 30);
+            TLMsg waitResult = putMsg("streamCallback", waitMsg);
+
+            boolean streamDone = waitResult.parseBoolean("streamDone", false);
+            String err = waitResult.getStringParam(AI_P_STREAMERROR, "");
+
+            if (streamDone && !err.isEmpty()) {
+                log("[TEST]   流式异常: 错误已转发 err=" + err);
+                return createMsg().setParam(RESULT, true);
+            }
+            boolean timedOut = waitResult.parseBoolean("timedOut", false);
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", String.format("streamDone=%s, timedOut=%s, error=%s",
+                            streamDone, timedOut, err));
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "stream error exception: " + e);
+        }
     }
 
     // ======================== 工具方法 ========================

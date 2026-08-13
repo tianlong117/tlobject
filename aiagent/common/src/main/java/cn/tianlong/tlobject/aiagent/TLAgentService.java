@@ -36,7 +36,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private String sessionManagerName = "sessionManager";
 
     /** MCP 市场注册表 */
-    private final TLMcpRegistry mcpRegistry = new TLMcpRegistry();
+    private final TLMcpRegistry mcpRegistry = new TLMcpRegistry(this);
 
     /** 所有可用 action 及其描述，供 UI 做帮助/补全 */
     private static final LinkedHashMap<String, String> ACTION_REGISTRY = new LinkedHashMap<>();

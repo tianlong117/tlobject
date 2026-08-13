@@ -24,6 +24,12 @@
 6. [XML配置](#xml配置)
 7. [使用示例](#使用示例)
 8. [扩展开发](#扩展开发)
+9. [新功能模块](#新功能模块)
+   - [MCP 市场与工具集成](#mcp-市场与工具集成)
+   - [Evals 评测体系](#evals-评测体系)
+   - [单元测试 /test](#单元测试-test)
+   - [HITL 人工审批](#hitl-人工审批)
+   - [会话管理与断点恢复](#会话管理与断点恢复)
 
 ---
 
@@ -1206,3 +1212,106 @@ TLParamString (核心常量接口)
 数据POJO (implements Serializable):
   TLConversationHistory, TLToolCall, TLFunctionDefinition, TLMemoryEntry
 ```
+
+---
+
+## 新功能模块
+
+以下模块在核心框架之上扩展，均为消息驱动、控制台有对应命令。
+
+### MCP 市场与工具集成
+
+**包**: `cn.tianlong.tlobject.aiagent.mcp` — `TLMcpRegistry`、`TLMcpAgent`、MCP 客户端
+
+MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装为子 Agent，LLM 通过 `delegate_to_*` 委托调用。
+
+**控制台命令**:
+
+| 命令 | 说明 |
+|------|------|
+| `/mcp search [keyword]` | 搜索 MCP 服务器（空参数列出全部精选，精选索引 + npm 在线搜索） |
+| `/mcp info <package>` | 查看包详情（功能、工具列表、主页） |
+| `/mcp install <package> [name] [--args ...]` | 安装为子 Agent（自动命名，运行时检测） |
+| `/mcp list` | 列出已安装的 MCP Agent 及状态 |
+| `/mcp remove <name>` | 卸载 MCP Agent |
+
+**组件**:
+- `TLMcpRegistry` — 精选索引（内置）+ npm 在线搜索，数据查询层
+- `TLMcpAgent` — MCP 桥接 Agent（无 LLM）：连接 MCP 服务器，自动发现 tools → 展开为 N 个 function defs，供 master 委托
+
+### Evals 评测体系
+
+**包**: `cn.tianlong.tlobject.aiagent.evals` — `TLEvalsModule`
+
+框架级自动化评测：JSON 用例 + 报告，三类 Judge（精确匹配 / LLM 裁判 / 约束检查）。
+
+**控制台命令**:
+
+| 命令 | 说明 |
+|------|------|
+| `/eval suite` | 运行全部评测用例 |
+| `/eval list` | 列出可用用例 |
+| `/eval quick` | 快速自检 |
+| `/eval run <id>` | 运行指定用例 |
+| `/eval cascade [agent]` | 级联评测（多目标多调用模式） |
+
+`TLAgentService.doEval` 只做路由 + 结果汇总格式化，评测逻辑全部在 evals 模块内。
+
+### 单元测试 /test
+
+**包**: `cn.tianlong.tlobject.aiagent.test` — `TLAgentTestModule`、`TLMockProvider`、`TLEchoSkill`、`TLSleepSkill`
+
+确定性单元测试（Mock Provider 驱动，零网络、结果可重复）。覆盖 doChat 主循环、多轮对话、单/并行 Tool、超时、流式、取消、批次超时、会话恢复 9 个场景。
+
+**控制台命令**（chat 应用配置好测试模块后可用）:
+
+| 命令 | 说明 |
+|------|------|
+| `/test` | 运行全部测试（9 内置场景 + 自定义用例） |
+| `/test list` | 列出可用测试用例 |
+| `/test <用例名>` | 运行单个场景（如 `/test basicChat`） |
+
+**chat 应用接入要点**（`conf/demo/aiagent/`）:
+- 测试目标为**独立 `aiagent` 实例**（`aiagent_config.xml`），与主控 `aiagent_master` 完全隔离：测试切 mockProvider 不影响真实对话，会话走文件版 sessionManager，不污染 `/sessions`
+- `agentTestModule_config.xml` 的 `caseFile` 指向 `agentTest_cases.xml`（XML 配置驱动的自定义用例）
+- 两 demo 配置目录（`conf/demo/aiagent/` 与 `conf/demo/aitest/`）互相独立，仅共享 `conf/tlobject/` 公共层
+
+### HITL 人工审批
+
+**包**: `cn.tianlong.tlobject.aiagent.approval` — `TLApprovalModule`（approvalGate）、`TLApprovalRequest`、`ConsoleReviewer`、`IApprovalReviewer`
+
+高风险工具操作需人工批准后才执行。
+
+**规则配置**（`approvalGate_config.xml`，全局单例）:
+```xml
+<!-- 键是 LLM 函数名（如 file_operation），不是模块名（fileOperationSkill）！
+     tool:op → 该工具的指定操作需审批；tool → 全部操作需审批 -->
+<approvalRules value="file_operation:delete, file_operation:write"/>
+```
+
+**启用方式**: 各 Agent 在自身 config 中设 `<approvalModule value="approvalGate"/>`（fileAgent/codeAgent 已启用；master 不启用——审批下沉到执行敏感操作的子 Agent）。
+
+**控制台交互**: 审批框经 `msgBus` 发布（topic `approvalEvent`），控制台启动时 `registBus` 订阅并自行渲染，审批模块与控制台零直接依赖。命令：
+
+```
+/approve approve:ID        批准
+/approve reject:ID:原因     拒绝
+```
+
+**拒绝语义（重要）**:
+- 拒绝是**结构化标志**沿委托链逐级传播（`doChat` 返回 `rejected`/`rejectReason` 参数 → `ToolExecutor` 识别子模块拒绝 → 父 agent 回滚并停止循环），不依赖 LLM 读懂文案
+- **会话级拒绝记忆**：同会话内（工具+参数）被拒绝后再次请求直接返回拒绝，不再重复弹框；换会话或换参数正常审批
+
+### 会话管理与断点恢复
+
+- `TLSessionManager` — 文件版（JSONL 增量存储，`data/{userId}/` 隔离）
+- `TLDatabaseSessionManager` — 数据库版（ai_sessions + ai_session_rounds 双表）
+- **断点续传**: Agent 侧 `enableCheckpoint=true` 通知 + SessionManager 落盘；mid-loop 中断后控制台 `⚠ 提示 /resume`
+
+**控制台命令**:
+
+| 命令 | 说明 |
+|------|------|
+| `/sessions` | 列出所有历史会话 |
+| `/continue [id]` | 继续历史会话（不带 id 恢复最近） |
+| `/resume` | 恢复未完成的 mid-loop 断点会话 |

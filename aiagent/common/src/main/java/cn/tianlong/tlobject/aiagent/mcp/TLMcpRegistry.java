@@ -1,5 +1,7 @@
 package cn.tianlong.tlobject.aiagent.mcp;
 
+import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
@@ -40,8 +42,17 @@ public class TLMcpRegistry {
 
     private final Gson gson = new Gson();
 
-    public TLMcpRegistry() {
+    /** 日志宿主（调用方模块，统一走 putLog 而非 System.out） */
+    private final TLBaseModule logOwner;
+
+    public TLMcpRegistry(TLBaseModule logOwner) {
+        this.logOwner = logOwner;
         loadBuiltinIndex();
+    }
+
+    /** 统一日志出口 */
+    private void log(String msg, LogLevel level) {
+        if (logOwner != null) logOwner.putLog(msg, level, "mcpRegistry");
     }
 
     // ======================== Public API ========================
@@ -228,7 +239,7 @@ public class TLMcpRegistry {
             }
             conn.disconnect();
         } catch (Exception e) {
-            System.out.println("[TLMcpRegistry] fetch detail failed for " + packageName + ": " + e.getMessage());
+            log("fetch detail failed for " + packageName + ": " + e.getMessage(), LogLevel.ERROR);
         }
 
         return result.isEmpty() ? null : result;
@@ -301,7 +312,7 @@ public class TLMcpRegistry {
 
             int code = conn.getResponseCode();
             if (code != 200) {
-                System.out.println("[TLMcpRegistry] npm search returned HTTP " + code);
+                log("npm search returned HTTP " + code, LogLevel.WARN);
                 conn.disconnect();
                 return results;
             }
@@ -346,9 +357,9 @@ public class TLMcpRegistry {
             }
             conn.disconnect();
 
-            System.out.println("[TLMcpRegistry] npm search '" + keyword + "' returned " + results.size() + " results");
+            log("npm search '" + keyword + "' returned " + results.size() + " results", LogLevel.INFO);
         } catch (Exception e) {
-            System.out.println("[TLMcpRegistry] npm search failed: " + e.getMessage());
+            log("npm search failed: " + e.getMessage(), LogLevel.ERROR);
             // 网络不可用时静默降级，只返回本地结果
         }
 
@@ -370,7 +381,7 @@ public class TLMcpRegistry {
             if (cl == null) cl = TLMcpRegistry.class.getClassLoader();
             InputStream is = cl.getResourceAsStream(REGISTRY_RESOURCE);
             if (is == null) {
-                System.out.println("[TLMcpRegistry] WARN: registry resource not found: " + REGISTRY_RESOURCE);
+                log("registry resource not found: " + REGISTRY_RESOURCE, LogLevel.WARN);
                 return;
             }
             try (Reader reader = new InputStreamReader(is, StandardCharsets.UTF_8)) {
@@ -388,9 +399,9 @@ public class TLMcpRegistry {
                     }
                 }
             }
-            System.out.println("[TLMcpRegistry] Loaded " + index.size() + " MCP servers from curated index");
+            log("Loaded " + index.size() + " MCP servers from curated index", LogLevel.INFO);
         } catch (Exception e) {
-            System.out.println("[TLMcpRegistry] ERROR loading registry: " + e);
+            log("ERROR loading registry: " + e, LogLevel.ERROR);
         }
     }
 
