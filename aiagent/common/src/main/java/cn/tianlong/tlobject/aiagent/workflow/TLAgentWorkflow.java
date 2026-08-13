@@ -24,6 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 配置方式：
  * 1. XML 配置文件（{name}_config.xml）
  * 2. 编程式：doWorkflow msg 中传入 nodes + edges 参数动态构建
+ * 3. 表达式式：msg 参数 expression 或 XML &lt;param name="expression"/&gt;，
+ *    经 {@link TLWorkflowExprParser} 编译成 DAG（如 "A && B -> C"、"if(c) X else Y"）
+ *
+ * 节点/边来源优先级：msg.expression &gt; msg.nodes/edges &gt; XML expression &gt; XML nodes/edges
  *
  * 与 TLAgentGroup 互补：Group 是"一个团队"，Workflow 是"一条流水线"。
  * 流水线的每个工位可以是 Agent，也可以是 Group（对 Workflow 透明）。
@@ -39,6 +43,10 @@ public class TLAgentWorkflow extends TLBaseModule
 
     /** 静态配置的边（XML 解析） */
     private List<TLWorkflowEdge> configuredEdges = new ArrayList<>();
+
+    /** XML &lt;param name="expression"/&gt; 编译缓存（null = 未配置） */
+    private Map<String, TLWorkflowNode> xmlExprNodes;
+    private List<TLWorkflowEdge> xmlExprEdges;
 
     /** 最大并行节点数 */
     private int maxParallel = 5;
@@ -74,6 +82,20 @@ public class TLAgentWorkflow extends TLBaseModule
             }
             if (params.get("description") != null) {
                 description = params.get("description");
+            }
+            // XML 表达式模式：启动期编译一次并缓存（失败回退 XML nodes/edges）
+            if (params.get("expression") != null) {
+                try {
+                    TLWorkflowExprParser.Compiled compiled =
+                            TLWorkflowExprParser.compile(params.get("expression"));
+                    xmlExprNodes = compiled.nodes;
+                    xmlExprEdges = compiled.edges;
+                    putLog("Workflow [" + name + "] expression compiled: "
+                            + params.get("expression"), LogLevel.DEBUG);
+                } catch (RuntimeException e) {
+                    putLog("Workflow [" + name + "] expression parse failed: " + e.getMessage()
+                            + " (fallback to XML nodes/edges)", LogLevel.ERROR);
+                }
             }
         }
         configuredNodes = ((myConfig) mconfig).getNodes();
@@ -166,22 +188,42 @@ public class TLAgentWorkflow extends TLBaseModule
     }
 
     private TLMsg doWorkflow(TLMsg msg) {
-        // 解析节点
+        // 节点/边来源优先级：msg.expression > msg.nodes/edges > XML expression > XML nodes/edges
         Map<String, TLWorkflowNode> workflowNodes;
-        Object dynamicNodes = msg.getParam("nodes");
-        if (dynamicNodes instanceof Map) {
-            workflowNodes = parseDynamicNodes((Map<String, Map<String, String>>) dynamicNodes);
-        } else {
-            workflowNodes = new LinkedHashMap<>(configuredNodes);
-        }
-
-        // 解析边
         List<TLWorkflowEdge> workflowEdges;
-        Object dynamicEdges = msg.getParam("edges");
-        if (dynamicEdges instanceof List) {
-            workflowEdges = parseDynamicEdges((List<Map<String, String>>) dynamicEdges);
+        Object exprParam = msg.getParam("expression");
+        if (exprParam instanceof String && !((String) exprParam).trim().isEmpty()) {
+            try {
+                TLWorkflowExprParser.Compiled compiled =
+                        TLWorkflowExprParser.compile((String) exprParam);
+                workflowNodes = compiled.nodes;
+                workflowEdges = compiled.edges;
+                putLog("Workflow [" + name + "] expression run: "
+                        + ((String) exprParam).trim(), LogLevel.DEBUG);
+            } catch (RuntimeException e) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "expression parse failed: " + e.getMessage());
+            }
         } else {
-            workflowEdges = new ArrayList<>(configuredEdges);
+            // 解析节点
+            Object dynamicNodes = msg.getParam("nodes");
+            if (dynamicNodes instanceof Map) {
+                workflowNodes = parseDynamicNodes((Map<String, Map<String, String>>) dynamicNodes);
+            } else if (xmlExprNodes != null) {
+                workflowNodes = xmlExprNodes;
+            } else {
+                workflowNodes = new LinkedHashMap<>(configuredNodes);
+            }
+
+            // 解析边
+            Object dynamicEdges = msg.getParam("edges");
+            if (dynamicEdges instanceof List) {
+                workflowEdges = parseDynamicEdges((List<Map<String, String>>) dynamicEdges);
+            } else if (xmlExprEdges != null) {
+                workflowEdges = xmlExprEdges;
+            } else {
+                workflowEdges = new ArrayList<>(configuredEdges);
+            }
         }
 
         // 构建输入

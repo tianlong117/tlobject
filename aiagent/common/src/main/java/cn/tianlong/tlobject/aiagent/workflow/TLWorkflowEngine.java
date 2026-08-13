@@ -48,6 +48,12 @@ public class TLWorkflowEngine implements TLParamString {
     /** 节点重试计数（onFailure="retry" 时按节点累积） */
     private final Map<String, Integer> retryCounts = new ConcurrentHashMap<>();
 
+    /**
+     * 节点"活"入边激活计数（上游真实完成 / CONDITION 命中边）。
+     * join-aware 跳过传播用：分辨"所有入边都已死（该跳过）"与"有活上游（该就绪）"。
+     */
+    private final Map<String, Integer> liveIncoming = new ConcurrentHashMap<>();
+
     public TLWorkflowEngine(Map<String, TLWorkflowNode> nodes,
                             List<TLWorkflowEdge> edges,
                             TLWorkflowContext context,
@@ -112,6 +118,8 @@ public class TLWorkflowEngine implements TLParamString {
                 if (ready.size() > slots) ready = ready.subList(0, slots);
 
                 for (String nid : ready) {
+                    // 防线：同一批就绪列表中，先处理的 CONDITION 可能已跳过列表后半的节点
+                    if (skipped.contains(nid) || failed.contains(nid)) continue;
                     TLWorkflowNode node = nodes.get(nid);
                     if (node.getType() == TLWorkflowNodeType.AGENT) {
                         TLMsg nodeInput = buildNodeInput(node);
@@ -120,8 +128,8 @@ public class TLWorkflowEngine implements TLParamString {
                             running.put(nid, task);
                             context.putStatus(nid, "RUNNING");
                         } else {
-                            failed.add(nid);
-                            context.putStatus(nid, "SUBMIT_FAILED");
+                            // 提交失败走统一失败处理：默认策略等价，且 onFailure="skip" 能放行下游（|| 回退的硬失败路径）
+                            handleNodeFailure(nid, node);
                         }
                     } else {
                         processBuiltinNode(node);
@@ -195,6 +203,7 @@ public class TLWorkflowEngine implements TLParamString {
                 for (TLWorkflowEdge edge : outEdges.getOrDefault(nid, Collections.emptyList())) {
                     if (edgeMatches(edge, condResult)) {
                         decrementInDegree(edge.getTo());
+                        liveIncoming.merge(edge.getTo(), 1, Integer::sum);  // 命中边是"活"激活
                     } else {
                         cascadeSkip(edge.getTo());
                     }
@@ -219,6 +228,7 @@ public class TLWorkflowEngine implements TLParamString {
     private void onNodeDone(String nid) {
         for (TLWorkflowEdge edge : outEdges.getOrDefault(nid, Collections.emptyList())) {
             decrementInDegree(edge.getTo());
+            liveIncoming.merge(edge.getTo(), 1, Integer::sum);  // 完成节点的出边是"活"激活
         }
     }
 
@@ -226,13 +236,23 @@ public class TLWorkflowEngine implements TLParamString {
         inDegree.computeIfPresent(targetId, (k, v) -> Math.max(0, v - 1));
     }
 
+    /**
+     * join-aware 跳过传播：本入边判定为"死"（decrement），
+     * 仅当目标所有入边都已判定且无活上游时才真正跳过并继续传播；
+     * 否则留待活分支到达后自然就绪——支持条件分支重建合流（菱形图）。
+     */
     private void cascadeSkip(String nodeId) {
-        if (skipped.contains(nodeId) || completed.contains(nodeId) || failed.contains(nodeId)) return;
+        if (skipped.contains(nodeId) || completed.contains(nodeId) || failed.contains(nodeId)
+                || running.containsKey(nodeId)) return;
+        List<TLWorkflowEdge> in = inEdges.get(nodeId);
+        if (in == null || in.isEmpty()) return;  // 防御：无入边源节点不被传播误杀
+        decrementInDegree(nodeId);
+        int resolved = in.size() - inDegree.getOrDefault(nodeId, 0);
+        if (resolved < in.size()) return;                       // 还有入边未判定 → 留待活分支
+        if (liveIncoming.getOrDefault(nodeId, 0) > 0) return;   // 有活上游 → 不该跳过
         skipped.add(nodeId);
         context.putStatus(nodeId, "SKIPPED");
-        running.remove(nodeId);
         for (TLWorkflowEdge edge : outEdges.getOrDefault(nodeId, Collections.emptyList())) {
-            decrementInDegree(edge.getTo());
             cascadeSkip(edge.getTo());
         }
     }
@@ -318,16 +338,35 @@ public class TLWorkflowEngine implements TLParamString {
     }
 
     private boolean evalCondition(TLWorkflowNode node, TLMsg upstream) {
-        String expr = node.getParams().get("expression");
+        Map<String, String> nodeParams = node.getParams();
+        String expr = nodeParams != null ? nodeParams.get("expression") : null;
         if (expr == null || expr.isEmpty()) {
+            // 无表达式：直接读上游合并结果的 RESULT（|| 路由节点依赖此语义）
             return upstream != null && upstream.parseBoolean(RESULT, false);
         }
         try {
             String[] parts = expr.split("\\s+");
             if (parts.length < 3) return false;
-            String path = parts[0], op = parts[1], valStr = parts[2];
+            String path = parts[0], op = parts[1];
+            // 引号字面量含空格时把剩余部分拼回
+            String valStr = parts.length > 3
+                    ? String.join(" ", Arrays.copyOfRange(parts, 2, parts.length)) : parts[2];
             Object actual = context.getValueByPath(path);
             if (actual == null) return false;
+
+            // 字符串模式：引号字面量仅对 == / != 有意义
+            boolean strMode = valStr.length() >= 2
+                    && ((valStr.startsWith("'") && valStr.endsWith("'"))
+                        || (valStr.startsWith("\"") && valStr.endsWith("\"")));
+            if (strMode) {
+                String b = valStr.substring(1, valStr.length() - 1);
+                switch (op) {
+                    case "==": return String.valueOf(actual).equals(b);
+                    case "!=": return !String.valueOf(actual).equals(b);
+                    default:   return false;
+                }
+            }
+
             double a = toDouble(actual), b = Double.parseDouble(valStr);
             switch (op) {
                 case ">":  return a > b;

@@ -29,12 +29,37 @@
     <agent name="poemWorkflow" sameClassAs="agentWorkflow"
            configfile="demoWorkflow_config.xml"
            description="诗歌创作工作流，两个不同风格诗人并行创作后汇总"/>
+
+  六、表达式模式（可选替代 <nodes>/<edges>）：
+    在 <params> 里配置 <param name="expression" value="..."/>，
+    逻辑表达式会被编译成 DAG（节点/边自动生成），效果等同手写 nodes/edges。
+    表达式是"前端语法"，nodes/edges 是"中间表示"，引擎执行的始终是后者。
+
+    语法（优先级 -> 最松 > || > &&，括号可任意嵌套）：
+      A && B   并行：A、B 都跑，全部完成后继续（&& 自动生成汇聚节点）
+      A || B   回退：A 失败才跑 B（A 成功则 B 被跳过）
+      A -> B   顺序：B 等 A 完成，且 B 的输入自动合并 A 的产出
+      if (A.aiResponse == "xx") B else C   值分支：按上游产出判断走哪条
+      组合示例：(A || B) -> C、A -> if (A.aiResponse == "ok") B else C
+
+    注意：
+      · 表达式里每个 IDENT 都是 AGENT 节点，必须对应 <modules> 里声明的模块名
+        （本配置即 poetA/poetB）
+      · JOIN/FANOUT/CONDITION 由编译器自动生成（__e1、__e2...），不能作为 IDENT 写
+      · 本配置的表达式等价写法：poetA && poetB
+        （原 DAG 的 merge join 由 && 自动汇聚替代，结果自动汇总所有节点产出）
+
+    运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
+    （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>）
   ============================================================
 -->
 <moduleConfig>
     <params>
         <param name="maxParallel" value="5"/>
         <param name="description" value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
+        <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式"，如
+        <param name="expression" value="poetA && poetB"/>
+        -->
     </params>
 
     <!-- 工作流自有的私有模块——每个节点一个独立实例 -->
