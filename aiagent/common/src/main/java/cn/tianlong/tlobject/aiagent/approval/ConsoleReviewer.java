@@ -63,8 +63,12 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
                 .replace("{toolArgs}", formatArgs(request.getToolArguments()))
                 .replace("{approvalId}", request.getApprovalId() != null ? request.getApprovalId() : "-")
                 .replace("{id}", request.getApprovalId() != null ? request.getApprovalId() : "-");
-        System.out.println(msg);
-        System.out.flush();
+        // 经消息总线发布审批事件，由订阅者（控制台）自行渲染审批框+输入提示符；
+        // 无订阅者（无控制台环境）时回退为直接打印
+        if (owner == null || !owner.publishApprovalEvent(msg)) {
+            System.out.println(msg);
+            System.out.flush();
+        }
     }
 
     private String formatArgs(java.util.Map<String, Object> args) {

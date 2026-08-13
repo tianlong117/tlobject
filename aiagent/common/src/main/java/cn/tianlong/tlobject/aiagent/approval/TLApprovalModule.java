@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.approval;
 
 import cn.tianlong.tlobject.aiagent.IAgentCapable;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -65,6 +66,15 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /** 审批请求注册表：approvalId → TLApprovalRequest */
     private final ConcurrentHashMap<String, TLApprovalRequest> pendingApprovals = new ConcurrentHashMap<>();
+
+    /**
+     * 会话级拒绝记忆：key = sessionId|toolName|argsKey → 拒绝原因。
+     * 同一会话内被拒绝的（工具+参数）组合再次请求时直接返回已拒绝，不再重复弹审批，
+     * 防止 LLM 在委派/续跑回环中重试被拒操作造成连环审批。上限 200，超出驱逐最旧。
+     */
+    private final Map<String, String> rejectedOps = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
+    /** 拒绝记忆上限 */
+    private static final int MAX_REJECTED_OPS = 200;
 
     /** 决策信号：approvalId → CountDownLatch（同步审查人阻塞在此，handleApprove/handleReject 信号唤醒） */
     private final ConcurrentHashMap<String, java.util.concurrent.CountDownLatch> decisionLatches = new ConcurrentHashMap<>();
@@ -190,6 +200,25 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         if (latch != null) latch.countDown();
     }
 
+    /**
+     * 经消息总线发布审批事件（ConsoleReviewer 打印审批框前调用）。
+     * 订阅者（如 TLChatConsole，按 destination="approvalEvent" 注册到 msgBus）自行渲染，
+     * 审批模块不直接依赖控制台。无总线/订阅者时返回 false，调用方回退为直接打印。
+     */
+    public boolean publishApprovalEvent(String text) {
+        try {
+            Object bus = getModuleInFactory("msgBus");
+            if (!(bus instanceof IObject)) return false;
+            TLMsg evt = createMsg().setAction("approvalEvent").setParam("text", text);
+            evt.setDestination("approvalEvent");  // 总线按 destination 路由到订阅者
+            TLMsg ack = putMsg((IObject) bus, evt);
+            return ack != null;  // 订阅者返回 ack 表示已处理
+        } catch (Exception e) {
+            putLog("publish approval event failed: " + e, LogLevel.DEBUG);
+            return false;
+        }
+    }
+
     // ======================== 审批请求处理 ========================
 
     /**
@@ -219,6 +248,18 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             toolArgs = new LinkedHashMap<>((Map<String, Object>) argsObj);
         } else {
             toolArgs = new LinkedHashMap<>();
+        }
+
+        // 0. 会话级拒绝记忆：该（会话+工具+参数）组合已被拒绝过 → 直接返回拒绝，不再弹审批
+        String rejectedKey = rejectionKey(sessionId, toolName, toolArgs);
+        String rejectedReason = rejectedOps.get(rejectedKey);
+        if (rejectedReason != null) {
+            putLog("Approval auto-rejected (previously rejected in this session): "
+                    + toolName + " session=" + sessionId, LogLevel.INFO);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED)
+                    .setParam(AI_P_APPROVAL_REJECTREASON, rejectedReason)
+                    .setParam(AI_P_SKILLOUTPUT, buildRejectedOutput(rejectedReason));
         }
 
         // 1. 检查是否需要审批
@@ -326,6 +367,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         request.setRejectionReason(reason);
         request.setState(TLApprovalRequest.REJECTED);
+        // 记入会话级拒绝记忆，防止 LLM 重试同一操作造成连环审批
+        rememberRejection(request.getSessionId(), request.getToolName(),
+                request.getToolArguments(), reason);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         putLog("Approval rejected: id=" + approvalId + " reason=" + reason, LogLevel.INFO);
 
@@ -350,6 +394,31 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     }
 
     // ======================== 规则匹配 ========================
+
+    /** 构建拒绝记忆键：sessionId|toolName|排序后的参数 */
+    private String rejectionKey(String sessionId, String toolName, Map<String, Object> args) {
+        String argsKey = args != null && !args.isEmpty() ? new TreeMap<>(args).toString() : "{}";
+        return sessionId + "|" + toolName + "|" + argsKey;
+    }
+
+    /** 记录一次拒绝（会话级），超上限驱逐最旧 */
+    private void rememberRejection(String sessionId, String toolName,
+                                   Map<String, Object> args, String reason) {
+        synchronized (rejectedOps) {
+            if (rejectedOps.size() >= MAX_REJECTED_OPS) {
+                String firstKey = rejectedOps.keySet().iterator().next();
+                rejectedOps.remove(firstKey);
+            }
+            rejectedOps.put(rejectionKey(sessionId, toolName, args),
+                    reason != null ? reason : "用户拒绝");
+        }
+    }
+
+    /** 拒绝结果文案：明确告知 LLM 不得重试 */
+    private String buildRejectedOutput(String reason) {
+        return "⚠️ 用户已拒绝此操作：" + (reason != null ? reason : "用户拒绝")
+                + "。请勿重试或以其他方式绕过，直接向用户说明拒绝原因。";
+    }
 
     /**
      * 判断一个工具调用是否需要审批。
@@ -498,8 +567,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 result.setParam(RESULT, false);
                 result.setParam(AI_P_APPROVAL_REJECTREASON,
                         request.getRejectionReason() != null ? request.getRejectionReason() : "用户拒绝");
-                result.setParam(AI_P_SKILLOUTPUT,
-                        "⚠️ 操作已被拒绝: " + request.getRejectionReason());
+                result.setParam(AI_P_SKILLOUTPUT, buildRejectedOutput(request.getRejectionReason()));
                 break;
 
             case TLApprovalRequest.PENDING:

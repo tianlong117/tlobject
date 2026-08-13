@@ -69,7 +69,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private static final int MAX_HISTORY = 200;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
-    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP }
+    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL }
 
     private static final class ConsoleEvent {
         final EventType type;
@@ -132,6 +132,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case STREAM_ONCHUNK:
                 onStreamChunkEvent(msg);
                 break;
+            case "approvalEvent":
+                // 审批事件（经 msgBus 订阅）：主循环渲染审批框并重打提示符，无需回车
+                offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
+                return createMsg().setParam(RESULT, true);  // ack：发布方据此确认有订阅者处理
         }
         return null;
     }
@@ -203,6 +207,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         final Terminal term = terminal;
         final NonBlockingReader termReader = term.reader();
+
+        // 订阅审批事件：审批模块经消息总线发布，控制台自行渲染（解耦，不直接依赖审批模块）
+        try {
+            putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "approvalEvent").setParam("object", this));
+        } catch (Exception e) {
+            putLog("msgBus 订阅审批事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+        }
 
         // 读取线程
         readerThread = new Thread(() -> {
@@ -359,6 +371,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
                 case STREAM_END: onStreamEnd(e.text,
                         e.msg != null ? e.msg.getStringParam(AI_P_REASONING, null) : null); break;
+                case APPROVAL:
+                    // 审批框 + 紧随其后的输入提示符（用户可直接输入 /approve 命令）
+                    System.out.println();
+                    System.out.println(e.text);
+                    printPrompt();
+                    System.out.flush();
+                    break;
             }
         }
 

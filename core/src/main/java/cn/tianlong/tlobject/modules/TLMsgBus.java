@@ -62,6 +62,8 @@ public class TLMsgBus extends TLBaseModule {
         Object object =receivers.get(destination);
         if(object ==null)
             return null ;
+        // 总线已按 destination 完成路由，清除之，避免接收方 getMsg 按 destination 二次路由（可支持 topic 键，而非仅模块名）
+        msg.setDestination(null);
         if(object instanceof String)
           return   putMsg((String)object,msg);
         else

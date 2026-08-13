@@ -379,6 +379,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 output = result.getStringParam(AI_P_RESPONSE, "");
             }
             if (output.isEmpty()) output = result != null ? TLMsgUtils.msgToSimpleStr(result) : "";
+            // 子模块（如子 agent 的审批被拒）返回拒绝标志 → 标记 rejected，上游 doChat 停止循环
+            if (result != null && result.parseBoolean("rejected", false)) {
+                String reason = result.getStringParam("rejectReason", "用户拒绝");
+                System.out.println("<<< [Function] " + functionName + " 返回: REJECTED (" + reason + ")");
+                state.results.put(idx, new ToolResult(task.toolCallId, output, "rejected", reason));
+                return null;
+            }
             System.out.println("<<< [Function] " + functionName + " 返回 (前200字): "
                     + (output.length() > 200 ? output.substring(0, 200) : output));
 

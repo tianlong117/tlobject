@@ -872,6 +872,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean clarified = false; // 是否调用了 request_clarification 工具
             boolean pendingApproval = false; // 是否需要人工审批
             boolean rejected = false;       // 审批是否被拒绝
+            String rejectedReason = null;   // 拒绝原因（随返回消息传播给上游，供 ToolExecutor 识别）
             // 本轮唯一标识：恢复时继承保存的 roundId，新会话生成新的
             String roundId = msg.getStringParam("resumeRoundId",
                     "r_" + System.currentTimeMillis());
@@ -1178,8 +1179,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         history.remove(aMsgIdx); // 精确回滚 assistant 消息
                     }
                     if (execRejected) {
+                        rejectedReason = execResult.getStringParam("rejectReason", "");
                         history.add(new TLConversationHistory(TLConversationHistory.Role.user,
-                                "（操作已被用户拒绝：" + execResult.getStringParam("rejectReason", "")
+                                "（操作已被用户拒绝：" + rejectedReason
                                         + "。不要重试此操作。）"));
                         rejected = true;
                         finalResponse = execResult.getStringParam("finalResponse", "");
@@ -1296,6 +1298,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
                     .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration)
                     .setParam(AI_P_NEEDSCLARIFICATION, clarified)
+                    // 拒绝标志：供 ToolExecutor/父 agent 结构化识别，不依赖 LLM 读懂文案
+                    .setParam("rejected", rejected)
+                    .setParam("rejectReason", rejectedReason != null ? rejectedReason : "")
                     .setParam(AI_P_PROMPTTOKENS, (int) turn[0])
                     .setParam(AI_P_COMPLETIONTOKENS, (int) turn[1])
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
@@ -1483,8 +1488,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         }
                         history.add(aMsg);
 
-                        // 并行执行tool calls
-                        execToolsViaExecutor(toolCalls, fromWho, sessionId, history, msg.getStringParam("userId", "default"));
+                        // 并行执行tool calls（含拒绝标志：被拒则停止续跑并转发拒绝文案）
+                        TLMsg execResult = execToolsViaExecutor(toolCalls, fromWho, sessionId,
+                                history, msg.getStringParam("userId", "default"));
+                        if (handleStreamRejected(execResult, history, sessionId)) {
+                            forwardStreamFinal(resultAction, resultFor, sessionId,
+                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
+                            return null;
+                        }
 
                         // 非流式继续LLM循环（支持后续tool calls）
                         String finalResponse = null;
@@ -1524,7 +1535,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 aMsg2.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
                             history.add(aMsg2);
 
-                            execToolsViaExecutor(moreTCs, fromWho, sessionId, history, msg.getStringParam("userId", "default"));
+                            TLMsg moreExecResult = execToolsViaExecutor(moreTCs, fromWho, sessionId,
+                                    history, msg.getStringParam("userId", "default"));
+                            if (handleStreamRejected(moreExecResult, history, sessionId)) {
+                                forwardStreamFinal(resultAction, resultFor, sessionId,
+                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
+                                return null;
+                            }
                         }
                         if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
 
@@ -2384,13 +2401,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /**
      * 委托 ToolExecutor 批量执行工具，结果直接写入 history（供 onStreamResult 等简单场景）。
+     * @return ToolExecutor 的执行结果消息（rejected 等标志供调用方处理），无执行时为 null
      */
     @SuppressWarnings("unchecked")
-    private void execToolsViaExecutor(List<TLToolCall> toolCalls, Object fromWho,
+    private TLMsg execToolsViaExecutor(List<TLToolCall> toolCalls, Object fromWho,
                                        String sessionId, List<TLConversationHistory> history, String userId) {
-        if (toolCalls == null || toolCalls.isEmpty()) return;
+        if (toolCalls == null || toolCalls.isEmpty()) return null;
         List<TLToolExecutor.ToolTask> tasks = resolveToolCalls(toolCalls, sessionId, userId);
-        if (tasks.isEmpty()) return;
+        if (tasks.isEmpty()) return null;
 
         String execId = sessionId + "_" + System.nanoTime();
         TLMsg execResult = putMsg(toolExecutor,
@@ -2400,6 +2418,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setParam(AI_P_SESSIONID, sessionId)
                         .setParam("userId", userId != null ? userId : "default")
                         .setParam("rootSessionId", currentRootSessionId.get()));
+        if (execResult == null) return null;
 
         List<TLToolExecutor.ToolResult> results =
                 (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
@@ -2408,6 +2427,36 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
             }
         }
+        return execResult;
+    }
+
+    /**
+     * 流式路径的拒绝处理：工具执行结果含 rejected 标志 → 回滚刚写入的
+     * assistant(tool_calls) 与 tool 结果消息，注入"不要重试"提示。
+     * @return true = 已处理拒绝（调用方应停止续跑并转发拒绝文案）
+     */
+    private boolean handleStreamRejected(TLMsg execResult, List<TLConversationHistory> history, String sessionId) {
+        if (execResult == null || !execResult.parseBoolean("rejected", false)) return false;
+        String reason = execResult.getStringParam("rejectReason", "");
+        // 回滚：本次写入的 tool 结果（results 列表条数）+ 1 个 assistant(tool_calls) 消息
+        int written = execResult.getListParam("results", java.util.List.of()).size();
+        for (int i = 0; i < written + 1 && !history.isEmpty(); i++) {
+            history.remove(history.size() - 1);
+        }
+        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                "（操作已被用户拒绝：" + reason + "。不要重试此操作。）"));
+        saveContextHistory(sessionId, history);
+        return true;
+    }
+
+    /** 转发流式最终结果给调用方：先发文本 chunk 再发完成信号 */
+    private void forwardStreamFinal(String resultAction, String resultFor, String sessionId, String text) {
+        TLMsg chunk = createMsg().setAction(resultAction)
+                .setParam(AI_P_CHUNK, text).setParam(AI_P_SESSIONID, sessionId);
+        putMsg(resultFor, chunk);
+        TLMsg doneMsg = createMsg().setAction(resultAction)
+                .setParam(AI_P_STREAMDONE, true).setParam(AI_P_SESSIONID, sessionId);
+        putMsg(resultFor, doneMsg);
     }
 
     /** 解析模板变量 {{key}}：msg 参数 → agent params → 内置值 → 原样保留 */
