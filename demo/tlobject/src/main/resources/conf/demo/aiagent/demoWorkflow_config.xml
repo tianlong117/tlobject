@@ -31,7 +31,8 @@
            description="诗歌创作工作流，两个不同风格诗人并行创作后汇总"/>
 
   六、表达式模式（可选替代 <nodes>/<edges>）：
-    在 <params> 里配置 <param name="expression" value="..."/>，
+    在 <params> 里配置 <expression value="..."/>（框架 <params> 段格式：元素名作 key，
+    不是 <param name="..." value="..."/> 写法），
     逻辑表达式会被编译成 DAG（节点/边自动生成），效果等同手写 nodes/edges。
     表达式是"前端语法"，nodes/edges 是"中间表示"，引擎执行的始终是后者。
 
@@ -51,15 +52,19 @@
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
     （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>）
+
+    XML 转义：属性值里 & 是非法字符（实体引用起始符），&& 必须写 &amp;&amp;，
+    解析后自动还原为 &&，运行时表达式与手写完全一致。
   ============================================================
 -->
 <moduleConfig>
+    <!-- 注意：框架 <params> 段格式为 元素名作 key + value 属性（如 <maxParallel value="5"/>），
+         不是 <param name="..." value="..."/>（后者会被解析器当成 key="param" 反复覆盖，静默失效） -->
     <params>
-        <param name="maxParallel" value="5"/>
-        <param name="description" value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
-        <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式"，如
-        <param name="expression" value="poetA && poetB"/>
-        -->
+        <maxParallel value="5"/>
+        <description value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
+        <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式" -->
+        <expression value="poetA &amp;&amp; poetB"/>
     </params>
 
     <!-- 工作流自有的私有模块——每个节点一个独立实例 -->
@@ -75,18 +80,18 @@
     </modules>
 
     <!-- 节点定义：id = <modules> 中的模块名 -->
-    <nodes>
+    <!--nodes>
         <node id="input" type="fanout" />
         <node id="poetA" type="agent" action="chat"/>
         <node id="poetB" type="agent" action="chat"/>
         <node id="merge" type="join" />
-    </nodes>
+    </nodes-->
 
     <!-- 边定义 -->
-    <edges>
+    <!--edges>
         <edge from="input" to="poetA" />
         <edge from="input" to="poetB" />
         <edge from="poetA" to="merge" />
         <edge from="poetB" to="merge" />
-    </edges>
+    </edges-->
 </moduleConfig>
