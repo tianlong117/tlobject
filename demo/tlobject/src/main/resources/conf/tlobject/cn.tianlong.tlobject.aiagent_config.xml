@@ -11,6 +11,9 @@
                 singleton="true"/>
         <module name="routingProvider" classfile="cn.tianlong.tlobject.aiagent.TLRoutingProvider"
                 singleton="true"/>
+        <!-- 工具执行器。超时参数在各应用配置目录的 toolExecutor_config.xml 中设置：
+             executionTimeoutMs=单次工具执行超时毫秒(0=不限)，staleStateTimeoutMs=残留状态
+             清理阈值毫秒(默认600000=10分钟，0=禁用)，详见 toolExecutor_config.xml 注释 -->
         <module name="toolExecutor" classfile="cn.tianlong.tlobject.aiagent.TLToolExecutor"
                 singleton="true"/>
         <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.AppAuthModule"

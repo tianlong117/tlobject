@@ -22,9 +22,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public  class TLModuleConfig extends TLBaseModule {
     protected String configDir ;
-    protected ConcurrentHashMap<String, HashMap<String, String>> modulesClass;
-    protected ConcurrentHashMap<String, HashMap<String, String>> modulesParams;
-    protected ConcurrentHashMap<String, HashMap<String, String>> paramsModules;
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesClass = new ConcurrentHashMap<>();
+    protected ConcurrentHashMap<String, HashMap<String, String>> modulesParams = new ConcurrentHashMap<>();
+    protected ConcurrentHashMap<String, HashMap<String, String>> paramsModules = new ConcurrentHashMap<>();
     protected ArrayList<TLMsg> initMsgTable ;          //初始化时的消息队列
     protected ArrayList<TLMsg> startMsgTable ;
     protected HashMap<String, String> params ;
@@ -238,8 +238,6 @@ public  class TLModuleConfig extends TLBaseModule {
                             if(paramName !=null )
                                 returnObj =  cmodulesClass ;
                             else {
-                                if(modulesClass ==null)
-                                    modulesClass =new ConcurrentHashMap<>();
                                 modulesClass.putAll(cmodulesClass);
                             }
                         }
@@ -251,8 +249,6 @@ public  class TLModuleConfig extends TLBaseModule {
                             if(paramName !=null )
                                 returnObj =  cmodulesParams ;
                             else {
-                                if(modulesParams ==null)
-                                    modulesParams =new ConcurrentHashMap<>();
                                 modulesParams.putAll(cmodulesParams);
                             }
 
@@ -265,8 +261,6 @@ public  class TLModuleConfig extends TLBaseModule {
                             if(paramName !=null )
                                 returnObj =  cparamModules ;
                             else {
-                                if(paramsModules ==null)
-                                    paramsModules =new ConcurrentHashMap<>();
                                 paramsModules.putAll(cparamModules);
                             }
 

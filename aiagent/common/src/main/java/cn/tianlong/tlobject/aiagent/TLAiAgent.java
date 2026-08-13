@@ -282,8 +282,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 没有配置文件时（mconfig 非 myConfig 实例）跳过——作为子模块从父级继承 provider 等
         if (mconfig instanceof myConfig) {
             myConfig config = (myConfig) mconfig;
-            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
             String namespace = params != null ? params.get("agentNamespace") : null;
             injectConfigs(config.getProviders(), namespace, false);
             injectConfigs(config.getAgents(), namespace, false);
@@ -1399,6 +1397,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
 
         if (llmProvider == null) {
+            cleanupStreamState(sessionId);
             TLMsg errMsg = createMsg().setAction(fwdAction)
                     .setParam(AI_P_STREAMERROR, "No LLM provider configured");
             putMsg(fwdTarget, errMsg);
@@ -1426,8 +1425,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (msg.containsParam(AI_P_TEMPERATURE))
             streamMsg.setParam(AI_P_TEMPERATURE, msg.getParam(AI_P_TEMPERATURE));
 
-        putMsg(llmProvider, streamMsg);
+        try {
+            putMsg(llmProvider, streamMsg);
+        } catch (Exception e) {
+            // 流启动失败：清理状态并转发错误（与 Provider 错误路径一致，避免泄漏）
+            cleanupStreamState(sessionId);
+            try {
+                TLMsg errMsg = createMsg().setAction(fwdAction)
+                        .setParam(AI_P_STREAMERROR, "Stream start failed: " + e.getMessage());
+                putMsg(fwdTarget, errMsg);
+            } catch (Exception ignored) {
+                // 转发失败不再抛出，调用方通过无回调获知
+            }
+        }
         return null; // 异步
+    }
+
+    /** 统一清理流式会话状态（streamForwardMap/sessionRoundIds/sessionMsgStartIdx），异常路径也不泄漏 */
+    private void cleanupStreamState(String sessionId) {
+        streamForwardMap.remove(sessionId);
+        sessionRoundIds.remove(sessionId);
+        sessionMsgStartIdx.remove(sessionId);
     }
 
     /**
@@ -1571,15 +1589,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 }
             } finally {
                 // 统一清理流式会话状态，确保异常路径也不泄漏
-                streamForwardMap.remove(sessionId);
-                sessionRoundIds.remove(sessionId);
-                sessionMsgStartIdx.remove(sessionId);
+                cleanupStreamState(sessionId);
             }
         } else if (msg.containsParam(AI_P_STREAMERROR)) {
             // Provider 流式错误：清理状态并转发
-            streamForwardMap.remove(sessionId);
-            sessionRoundIds.remove(sessionId);
-            sessionMsgStartIdx.remove(sessionId);
+            cleanupStreamState(sessionId);
             TLMsg errMsg = createMsg()
                     .setAction(resultAction)
                     .setParam(AI_P_STREAMERROR, msg.getParam(AI_P_STREAMERROR));
@@ -1823,9 +1837,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             HashMap<String, String> cfg = new HashMap<>(msg.getMapParam(AI_P_AGENTCONFIG,
                     msg.getMapParam(MODULE_PARAMS, new HashMap<>())));
             cfg.putIfAbsent(MODULE_CLASSFILE, msg.getStringParam(MODULE_CLASSFILE, ""));
-            // 注入 modulesClass/modulesParams，getMyModule 才能找到 class/config
-            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
+            // 注入 modulesClass/modulesParams，getMyModule 才能找到 class/config（声明处已初始化，CHM.put 线程安全）
             modulesClass.put(name, cfg);
             modulesParams.put(name, cfg);
             TLBaseModule module = (TLBaseModule) getMyModule(name);
@@ -2356,6 +2368,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             TLToolExecutor.ToolTask task = new TLToolExecutor.ToolTask(
                     tc.getId(), fn.module, action, toolArgs, userId);
             task.timeoutMs = fn.timeoutMs;
+            // 审批规则按 LLM 函数名匹配（如 file_operation:delete），模块名是部署实现细节
+            task.functionName = functionName;
             if (MCP_CALLTOOL.equals(action)) {
                 task.nativeName = fn.nativeName;
             }

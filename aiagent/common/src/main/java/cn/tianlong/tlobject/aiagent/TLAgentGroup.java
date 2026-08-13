@@ -158,8 +158,6 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         LinkedHashMap<String, HashMap<String, String>> membersConfig = ((myConfig) mconfig).getAgents();
         if (membersConfig == null || membersConfig.isEmpty()) return;
 
-        if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-        if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
         List<String> created = new ArrayList<>();
         for (String mName : membersConfig.keySet()) {
             HashMap<String, String> cfg = membersConfig.get(mName);
@@ -278,8 +276,6 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             // 前置校验（含类型检查）
             TLMsg err = validateModuleRef(cfg, IAgentCapable.class);
             if (err != null) return err;
-            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
             modulesClass.put(agentName, cfg);
             modulesParams.put(agentName, cfg);
             TLBaseModule module = (TLBaseModule) getMyModule(agentName);

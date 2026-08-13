@@ -114,8 +114,6 @@ public class TLRoutingProvider extends TLLlmProvider {
             cfg.remove("classfile");
             cfg.put("sameClassAs", delegateProviderName);
 
-            if (modulesClass == null) modulesClass = new ConcurrentHashMap<>();
-            if (modulesParams == null) modulesParams = new ConcurrentHashMap<>();
             modulesClass.put(delegateName, cfg);
             modulesParams.put(delegateName, cfg);
 

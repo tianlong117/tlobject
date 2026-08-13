@@ -29,8 +29,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
     /** 单次工具执行超时（毫秒），0 = 一直等待。可通过 XML params 的 executionTimeoutMs 配置 */
     private long executionTimeoutMs = 0;
-    /** 残留状态清理阈值（毫秒），0 = 禁用。超过此时间的 ExecutionState 视为孤儿。可通过 XML params 的 staleStateTimeoutMs 配置 */
-    private long staleStateTimeoutMs = 0;
+    /**
+     * 残留状态清理阈值（毫秒），0 = 禁用。超过此时间的 ExecutionState 视为孤儿，在下次
+     * executeTools 入口扫描时强制终止（abort + latch 排空 + 取消/中断执行线程）。
+     * 默认 10 分钟：远大于框架内正常工具执行上限（skill maxExecutionTime ≤ 120s、provider
+     * readTimeOut ≤ 120s），只兜底"等待线程已消失"的真孤儿/挂死工具。可通过 XML params
+     * 的 staleStateTimeoutMs 覆盖（0 = 禁用）。
+     */
+    private long staleStateTimeoutMs = 600000;
 
     // ======================== 数据结构 ========================
 
@@ -38,6 +44,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     public static class ToolTask {
         public String toolCallId;           // LLM 的 tool_call id
         public String moduleName;           // 目标模块名
+        /** LLM 函数名（如 file_operation）。审批规则按此匹配，与模块名（fileOperationSkill）不同 */
+        public String functionName;
         public TLBaseModule module;         // 目标模块引用（Agent 已解析，null = 内建/错误）
         public String action;               // SKILL_EXECUTE / MCP_CALLTOOL / 自定义
         public Map<String, Object> args;    // LLM 传入的参数
@@ -293,8 +301,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         }
 
         try {
-            // 审批门禁
-            TLMsg approvalResult = checkApprovalGate(task.toolCallId, task.args, task.moduleName,
+            // 审批门禁（按 LLM 函数名匹配规则，如 file_operation:delete；无函数名时回退模块名）
+            String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
+                    ? task.functionName : task.moduleName;
+            TLMsg approvalResult = checkApprovalGate(task.toolCallId, task.args, approvalToolName,
                     msg.getStringParam(AI_P_SESSIONID, "default"),
                     msg.getStringParam("userId", "default"));
             if (approvalResult != null) {

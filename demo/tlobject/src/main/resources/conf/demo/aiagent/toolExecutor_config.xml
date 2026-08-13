@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
+    <params>
+        <!-- ===== 工具执行超时控制 =====
+             executionTimeoutMs: 单次工具执行超时（毫秒），0 = 一直等待。
+                 注意：LLM 的 tool-call 循环另有 maxToolCallIterations 限制，此参数只限单次工具执行。
+
+             staleStateTimeoutMs: 残留状态清理阈值（毫秒），0 = 禁用。
+                 超过此时间的工具执行状态视为"孤儿"（等待线程已消失/工具挂死），在下次
+                 工具执行入口扫描时被强制终止（abort + 中断执行线程 + 释放等待者）。
+                 默认 600000（10分钟）：远大于框架内正常工具执行上限（skill maxExecutionTime
+                 ≤ 120秒、provider readTimeOut ≤ 120秒），只兜底挂死工具，正常工具不会被误杀。
+                 若确有超长时间工具（>10分钟），请调大此值；不需要兜底则设为 0 禁用。 -->
+        <executionTimeoutMs value="0"/>
+        <staleStateTimeoutMs value="600000"/>
+    </params>
     <beforeMsgTable>
         <action name="toolExecBatch">
             <msg action="authForBatch" destination="appAuthModule" />

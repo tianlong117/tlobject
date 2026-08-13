@@ -33,8 +33,10 @@ public abstract class TLBaseModule extends TLBaseObject {
     public static final String PRERESULT = "beforeResult";
     protected String applicationId="tlobjectApp";
     protected boolean ifMonitor = false;    //是否开启工厂监控 ，默认关闭
-    protected ConcurrentHashMap<String, HashMap<String, String>> modulesClass;  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
-    protected ConcurrentHashMap<String, HashMap<String, String>> modulesParams;  //定义的模块配置参数params，getmodule 时自动赋值
+    //声明处初始化保证永不为null：运行期热加载/注册消息（hotLoadModule/registerFunction等）并发到达时，
+    //只剩线程安全的CHM.put操作，消除 check-then-act 惰性初始化竞态。volatile 兜底 setConfig 换引用的可见性
+    protected volatile ConcurrentHashMap<String, HashMap<String, String>> modulesClass = new ConcurrentHashMap<>();  //定义的模块配置，取代工厂配置，getmodule 时自动赋值
+    protected volatile ConcurrentHashMap<String, HashMap<String, String>> modulesParams = new ConcurrentHashMap<>();  //定义的模块配置参数params，getmodule 时自动赋值
     protected ConcurrentHashMap<String, HashMap<String, String>> paramsForModules;   //定义参数适用的模块，getmodule 时自动赋值
     protected Map<String, Object> modules = new ConcurrentHashMap<>();   // 模块对象实例，名字对应该模块的实例
     protected Map<String, Method> classMethods ;   // 类方法的实例，名字对应该方法的实例
@@ -171,8 +173,12 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected void initProperty() {
         if (mconfig != null)
         {
-            modulesClass = mconfig.getModulesClass();
-            modulesParams =mconfig.getModulesParams();
+            // 防 null 回灌：配置文件无 <modules>/<modulesParams> 段时解析结果为 null，
+            // 若直接覆盖会破坏声明处初始化的非 null 不变式，导致运行期惰性初始化竞态复活
+            if (mconfig.getModulesClass() != null)
+                modulesClass = mconfig.getModulesClass();
+            if (mconfig.getModulesParams() != null)
+                modulesParams =mconfig.getModulesParams();
             paramsForModules =mconfig.getParamsModules();
             initMsgTable = mconfig.getInitMsg();
             msgTable = mconfig.getMsgTable();
@@ -310,8 +316,6 @@ public abstract class TLBaseModule extends TLBaseObject {
             String[] moduelsArray =TLDataUtils.splitStrToArray(modules,";");
             if(moduelsArray ==null )
                 continue;
-            if(modulesParams ==null)
-                modulesParams =new ConcurrentHashMap<>() ;
             for(int i=0 ; i<moduelsArray.length ; i ++)
             {
                String moduleUnit = moduelsArray[i];
@@ -1167,9 +1171,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             return null;
         }
 
-        // 1. 写入 modulesClass
-        if (modulesClass == null)
-            modulesClass = new ConcurrentHashMap<>();
+        // 1. 写入 modulesClass（声明处已初始化，CHM.put 线程安全）
         HashMap<String, String> cfg = new HashMap<>();
         if (classFile != null)
             cfg.put(MODULE_CLASSFILE, classFile);
@@ -1180,10 +1182,8 @@ public abstract class TLBaseModule extends TLBaseObject {
         cfg.put(MODULE_SINGLETON, String.valueOf(toFactory));
         modulesClass.put(moduleName, cfg);
 
-        // 2. 写入 modulesParams
+        // 2. 写入 modulesParams（声明处已初始化，CHM.put 线程安全）
         if (moduleParams != null && !moduleParams.isEmpty()) {
-            if (modulesParams == null)
-                modulesParams = new ConcurrentHashMap<>();
             modulesParams.put(moduleName, new HashMap<>(moduleParams));
         }
 
@@ -1391,8 +1391,6 @@ public abstract class TLBaseModule extends TLBaseObject {
         HashMap<String, HashMap<String, String>> addModulesClass =  msg.getArgs();
         if(addModulesClass ==null)
             return;
-        if(modulesClass ==null)
-            modulesClass =new ConcurrentHashMap<>();
         modulesClass.putAll(addModulesClass);
     }
     private TLMsg addModule(Object fromWho, TLMsg msg) {
