@@ -42,7 +42,6 @@
       A -> B   顺序：B 等 A 完成，且 B 的输入自动合并 A 的产出
       if (A.aiResponse == "xx") B else C   值分支：按上游产出判断走哪条
       组合示例：(A || B) -> C、A -> if (A.aiResponse == "ok") B else C
-
     注意：
       · 表达式里每个 IDENT 都是 AGENT 节点，必须对应 <modules> 里声明的模块名
         （本配置即 poetA/poetB）
