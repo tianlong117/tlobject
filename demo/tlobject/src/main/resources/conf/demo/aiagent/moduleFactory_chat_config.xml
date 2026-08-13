@@ -63,5 +63,12 @@
         <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
+
+        <!-- 单元测试模块（/test 命令）：Mock Provider + 辅助 Skill + 测试编排
+             测试目标为独立 aiagent 实例（aiagent_config.xml），不影响 aiagent_master 对话 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
     </factoryBoot>
 </moduleConfig>

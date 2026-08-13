@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== /test 命令的测试目标 Agent 实例配置 =====
+         与控制台主控 Agent（aiagent_master）相互独立：
+           - 测试时切换到 mockProvider，不影响真实对话
+           - 会话/记忆走文件版 sessionManager / longTermMemory，不写 dbSessionManager，不污染 /sessions
+         本实例仅由 agentTestModule 的测试消息触发（惰性创建）。 -->
+    <params>
+        <sessionManagerName value="sessionManager"/>
+        <defaultMemoryStore value="longTermMemory"/>
+        <!-- 会话恢复（场景9）依赖 Agent 侧断点通知 -->
+        <enableCheckpoint value="true"/>
+        <maxToolCallIterations value="10"/>
+        <maxHistoryTurns value="50"/>
+        <defaultTemperature value="0.7"/>
+        <defaultMaxTokens value="4096"/>
+        <!-- 不配 defaultLlmProvider：无默认 Provider，测试运行时切换到 mockProvider -->
+    </params>
+</moduleConfig>

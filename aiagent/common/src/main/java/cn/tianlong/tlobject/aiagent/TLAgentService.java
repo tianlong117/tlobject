@@ -56,6 +56,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("session", "切换当前会话ID");
         ACTION_REGISTRY.put("approve", "审批操作（批准/拒绝）");
         ACTION_REGISTRY.put("eval", "Agent评测");
+        ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
         ACTION_REGISTRY.put("getCacheStats", "查询 Prompt 缓存统计");
         ACTION_REGISTRY.put("checkProvider", "检查 LLM Provider 可用性");
@@ -122,6 +123,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 评测 ──
             case "eval":            return doEval(fromWho, msg);
+
+            // ── 单元测试 ──
+            case "test":            return doTest(fromWho, msg);
 
             // ── 状态查询 ──
             case "getTokenUsage":   return doGetTokenUsage(fromWho, msg);
@@ -776,6 +780,45 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         }
         String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
         return fail("评测失败: " + err);
+    }
+
+    // ======================== 单元测试 ========================
+
+    /** /test 命令：无参=全部，list=列出用例，<用例名>=单个场景。转发给 agentTestModule */
+    private TLMsg doTest(Object fromWho, TLMsg msg) {
+        String caseName = msg.getStringParam("caseName", null);
+
+        // /test list → 列出可用用例
+        if ("list".equalsIgnoreCase(caseName)) {
+            TLMsg result = putMsg("agentTestModule", createMsg().setAction("listTestCases"));
+            if (result == null) return fail("agentTestModule 模块未注册（需在配置中声明 agentTestModule）");
+            if (!result.parseBoolean(RESULT, false)) {
+                return fail("列出用例失败: " + result.getStringParam("error", "未知错误"));
+            }
+            List<String> cases = result.getListParam("cases", java.util.List.of());
+            return ok("可用测试用例 (" + cases.size() + " 个)", cases);
+        }
+
+        // 无参数 / agent / all → 运行全部；否则运行单个用例
+        TLMsg testMsg = createMsg();
+        if (caseName == null || caseName.isEmpty()
+                || "all".equalsIgnoreCase(caseName) || "agent".equalsIgnoreCase(caseName)) {
+            testMsg.setAction("runAllTests");
+        } else {
+            testMsg.setAction("runSingleTest").setParam("caseName", caseName);
+        }
+        TLMsg result = putMsg("agentTestModule", testMsg);
+        if (result == null) return fail("agentTestModule 模块未注册（需在配置中声明 agentTestModule）");
+        if (!result.parseBoolean(RESULT, false)) {
+            return fail("测试失败: " + result.getStringParam("error", "未知错误"));
+        }
+        int passed = result.getIntParam("passed", 0);
+        int failed = result.getIntParam("failed", 0);
+        Map<String, Object> data = new HashMap<>();
+        data.put("passed", passed);
+        data.put("failed", failed);
+        data.put("total", passed + failed);
+        return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过", data);
     }
 
     // ======================== 状态查询 ========================

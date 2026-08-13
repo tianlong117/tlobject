@@ -749,6 +749,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 parseEvalCommand(parts, msg);
                 break;
 
+            case "test":
+                msg.setAction("test");
+                parseTestCommand(parts, msg);
+                break;
+
             case "mcp":
                 msg = parseMcpCommand(parts);
                 if (msg == null) return null;
@@ -887,6 +892,20 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("用法: /eval suite|list|quick|run <id>|cascade [agent]");
                 break;
         }
+    }
+
+    /**
+     * 解析 /test 命令：/test [agent] [list|<用例名>]，空参数运行全部。
+     * 不带 caseName 时 agentService 端运行 runAllTests。
+     */
+    private void parseTestCommand(String[] parts, TLMsg msg) {
+        String arg = null;
+        if (parts.length > 1) {
+            arg = parts[1].toLowerCase();
+            // /test agent <用例名> 与 /test <用例名> 等价
+            if ("agent".equals(arg) && parts.length > 2) arg = parts[2].toLowerCase();
+        }
+        if (arg != null && !"agent".equals(arg)) msg.setParam("caseName", arg);
     }
 
     /**
@@ -1061,6 +1080,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     break;
                 case "eval":
                     printEvalResult(data);
+                    break;
+                case "test":
+                    printTestResult(data);
                     break;
                 case "param":
                     System.out.println(message);
@@ -1311,6 +1333,23 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("✓ 评测完成: " + passed + "/" + total + " 通过"
                 + (passRate instanceof Double ? String.format(" (%.1f%%)", (Double) passRate * 100) : ""));
         if (reportPath != null && !reportPath.isEmpty()) System.out.println("  报告: " + reportPath);
+    }
+
+    /** 打印 /test 结果：list 为 List<String>，运行为 {passed, failed, total} */
+    @SuppressWarnings("unchecked")
+    private void printTestResult(Object data) {
+        if (data instanceof List) {
+            List<String> cases = (List<String>) data;
+            System.out.println("可用测试用例 (" + cases.size() + "):");
+            for (String c : cases) System.out.println("  " + c);
+        } else if (data instanceof Map) {
+            Map<String, Object> r = (Map<String, Object>) data;
+            Object passed = r.get("passed");
+            Object failed = r.get("failed");
+            Object total = r.get("total");
+            System.out.println("✓ 测试完成: " + passed + "/" + total + " 通过"
+                    + ((failed instanceof Integer && (Integer) failed > 0) ? "，失败 " + failed : ""));
+        }
     }
 
     // ======================== ESC / 暂停 / 中断 ========================
@@ -1687,6 +1726,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /eval quick             快速自检");
         System.out.println("  /eval run <id>          运行指定用例");
         System.out.println("  /eval cascade [agent]   级联评测");
+        System.out.println();
+        System.out.println("测试命令:");
+        System.out.println("  /test                   运行全部单元测试（Mock Provider 驱动）");
+        System.out.println("  /test list              列出可用测试用例");
+        System.out.println("  /test <用例名>          运行单个测试场景 (例: /test basicChat)");
         System.out.println();
         System.out.println("MCP 市场命令:");
         System.out.println("  /mcp search [keyword]   搜索 MCP 服务器，空参数列出全部精选");

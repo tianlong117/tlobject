@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 用户自定义测试用例文件（XML），与内置框架测试一起运行 -->
+        <caseFile value="CLASSPATH/conf/demo/aiagent/agentTest_cases.xml"/>
+    </params>
+</moduleConfig>

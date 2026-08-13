@@ -23,12 +23,14 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <h3>使用方式</h3>
  * <pre>
- * // 控制台
- * /test agent              → 运行全部测试
- * /test agent basicChat    → 运行单个场景
+ * // 控制台（经 agentService 的 "test" action 转发）
+ * /test                    → 运行全部测试
+ * /test list               → 列出可用测试用例
+ * /test basicChat          → 运行单个场景（/test agent basicChat 亦可）
  *
- * // 代码
+ * // 代码 / XML 配置
  * putMsg("agentTestModule", createMsg().setAction("runAllTests"));
+ * putMsg("agentTestModule", createMsg().setAction("runSingleTest").setParam("caseName", "basicChat"));
  * </pre>
  *
  * 创建日期：2026/8/12
@@ -90,6 +92,12 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         switch (msg.getAction()) {
             case "runAllTests":
                 returnMsg = runAllTests(fromWho, msg);
+                break;
+            case "runSingleTest":
+                returnMsg = runSingleTest(fromWho, msg);
+                break;
+            case "listTestCases":
+                returnMsg = listTestCases(fromWho, msg);
                 break;
             case "testBasicChat":
                 returnMsg = testBasicChat(fromWho, msg);
@@ -164,18 +172,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         passed = 0;
         failed = 0;
 
-        // 场景 1-7: 运行每个独立测试
-        runOne("1-基本Chat", this::testBasicChat);
-        runOne("2-多轮对话", this::testMultiTurn);
-        runOne("3-单Tool调用", skillsOk ? this::testToolSingle : skipTest("test_echo 未注册"));
-        runOne("4-Tool并行执行", skillsOk ? this::testToolParallel : skipTest("test_echo 未注册"));
-        runOne("5-Tool超时", skillsOk ? this::testToolTimeout : skipTest("test_sleep 未注册"));
-        runOne("6-流式Chat", this::testStreamBasic);
-        runOne("7-取消执行", skillsOk ? this::testCancelExecution : skipTest("test_sleep 未注册"));
-
-        // 场景 8-9: 高级场景
-        runOne("8-批次超时", skillsOk ? this::testBatchTimeout : skipTest("test_sleep 未注册"));
-        runOne("9-会话恢复", skillsOk ? this::testSessionRecovery : skipTest("需要 sessionManager"));
+        // 场景 1-9: 按注册表顺序运行（依赖测试 Skill 的用例在注册失败时跳过）
+        for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
+            String[] def = e.getValue();
+            TestFunc func = resolveTestCase(e.getKey());
+            if (!skillsOk && def[1] != null) func = skipTest(def[1]);
+            runOne(def[0], func);
+        }
 
         // === 用户自定义测试用例（XML 配置驱动）===
         if (caseFile != null && !caseFile.isEmpty()) {
@@ -218,6 +221,91 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     @FunctionalInterface
     private interface TestFunc {
         TLMsg run(Object fromWho, TLMsg msg) throws Exception;
+    }
+
+    // ======================== 用例注册表 / 单用例运行 ========================
+
+    /** 测试用例注册表：用例名 → [场景标签, 依赖测试Skill失败时的跳过原因(null=不依赖)] */
+    private static final LinkedHashMap<String, String[]> TEST_CASES = new LinkedHashMap<>();
+    static {
+        TEST_CASES.put("basicChat",       new String[]{"1-基本Chat", null});
+        TEST_CASES.put("multiTurn",       new String[]{"2-多轮对话", null});
+        TEST_CASES.put("toolSingle",      new String[]{"3-单Tool调用", "test_echo 未注册"});
+        TEST_CASES.put("toolParallel",    new String[]{"4-Tool并行执行", "test_echo 未注册"});
+        TEST_CASES.put("toolTimeout",     new String[]{"5-Tool超时", "test_sleep 未注册"});
+        TEST_CASES.put("streamBasic",     new String[]{"6-流式Chat", null});
+        TEST_CASES.put("cancelExecution", new String[]{"7-取消执行", "test_sleep 未注册"});
+        TEST_CASES.put("batchTimeout",    new String[]{"8-批次超时", "test_sleep 未注册"});
+        TEST_CASES.put("sessionRecovery", new String[]{"9-会话恢复", "需要 sessionManager"});
+    }
+
+    /** 用例名 → 测试函数（大小写不敏感），未知返回 null */
+    private TestFunc resolveTestCase(String name) {
+        if (name == null) return null;
+        switch (name.toLowerCase()) {
+            case "basicchat":       return this::testBasicChat;
+            case "multiturn":       return this::testMultiTurn;
+            case "toolsingle":      return this::testToolSingle;
+            case "toolparallel":    return this::testToolParallel;
+            case "tooltimeout":     return this::testToolTimeout;
+            case "streambasic":     return this::testStreamBasic;
+            case "cancelexecution": return this::testCancelExecution;
+            case "batchtimeout":    return this::testBatchTimeout;
+            case "sessionrecovery": return this::testSessionRecovery;
+            default:                return null;
+        }
+    }
+
+    /** 按用例名查找注册表项（大小写不敏感） */
+    private String[] findTestCase(String name) {
+        if (name == null) return null;
+        for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
+            if (e.getKey().equalsIgnoreCase(name)) return e.getValue();
+        }
+        return null;
+    }
+
+    /** 运行单个测试用例（控制台 /test <用例名>），自带 Provider 切换与 Skill 注册清理 */
+    protected TLMsg runSingleTest(Object fromWho, TLMsg msg) {
+        String caseName = msg.getStringParam("caseName", null);
+        if (caseName == null || caseName.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "缺少 caseName 参数");
+        }
+        String[] def = findTestCase(caseName);
+        if (def == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "未知用例: " + caseName + "，输入 /test list 查看可用用例");
+        }
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "mockProvider not found");
+        }
+
+        log("===== AI Agent Unit Test [" + caseName + "] Start =====");
+        switchToMockProvider(mp);
+        boolean skillsOk = registerTestSkills();
+        passed = 0;
+        failed = 0;
+        try {
+            TestFunc func = resolveTestCase(caseName);
+            if (!skillsOk && def[1] != null) func = skipTest(def[1]);
+            runOne(def[0], func);
+        } finally {
+            unregisterTestSkills();
+            restoreOriginalProvider();
+        }
+        log(String.format("[TEST] 用例[%s]: 通过=%d, 失败=%d", caseName, passed, failed));
+        return createMsg().setParam(RESULT, failed == 0)
+                .setParam("passed", passed).setParam("failed", failed);
+    }
+
+    /** 列出可用测试用例（控制台 /test list） */
+    protected TLMsg listTestCases(Object fromWho, TLMsg msg) {
+        List<String> cases = new ArrayList<>();
+        for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
+            cases.add(e.getKey() + " — " + e.getValue()[0]);
+        }
+        return createMsg().setParam(RESULT, true).setParam("cases", cases);
     }
 
     // ======================== 场景 1: 基本 Chat ========================
