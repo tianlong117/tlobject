@@ -87,6 +87,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private Thread readerThread;
     private ThreadTask currentTask;
     private boolean paused = false;
+
+    /** JLine 终端引用（异步输出后强制 flush，修复 raw 模式下"结果按回车才出来"的显示延迟） */
+    private Terminal terminal;
     private long lastEscTime = 0;
     private static final long DOUBLE_ESC_WINDOW = 500;
     /** readEscapeAction 返回值：Delete 键 */
@@ -192,7 +195,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         running = true;
 
         // JLine Terminal
-        Terminal terminal = null;
+        terminal = null;
         try {
             terminal = TerminalBuilder.builder()
                     .system(true)
@@ -1503,6 +1506,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println();
         printPrompt();
         System.out.flush();
+        flushTerminal();
+    }
+
+    /**
+     * 强制 JLine 终端刷新显示。raw 模式下 reader 线程阻塞在终端输入时，
+     * 异步打印的内容可能被 Windows 控制台搁置，直到下次按键事件才刷出
+     * （表现为"结果按回车才出来"）——此处强制 push 待显示的输出。
+     */
+    private void flushTerminal() {
+        try {
+            if (terminal != null) terminal.flush();
+        } catch (Exception ignore) {}
     }
 
     /** 流式 chunk 回调（非主线程）：拆成 CHUNK / STREAM_END 事件入队 */
@@ -1572,6 +1587,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println();
         printPrompt();
         System.out.flush();
+        flushTerminal();
     }
 
     /** 显示推理过程（折叠/展开） */
@@ -1713,6 +1729,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /stop          中断当前正在运行的对话");
         System.out.println("  ESC            按一下暂停，再按恢复；快速连按两下（500ms 内）中断（同 /stop）");
         System.out.println("  ↑/↓ 方向键     翻阅输入历史（命令与会话内容均可回翻）");
+        System.out.println("  意图缓存       重复任务首次由 LLM 路由并自动缓存，之后直接执行（provider 配 intentCacheProvider）");
         System.out.println("  /clear         清除当前会话上下文");
         System.out.println("  /resume        恢复未完成的 mid-loop 断点会话");
         System.out.println("  /continue [id] 继续某个历史会话（加载历史记忆，接着上次聊；不带 id 则恢复最近）");

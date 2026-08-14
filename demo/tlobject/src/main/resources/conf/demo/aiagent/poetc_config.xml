@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== poetc 配置（诗歌评判 Agent）=====
+         在 poemWorkflow 的 <modules> 中通过 configfile 引用。
+         filesystemMcp 作为 LLM 可调用的工具（factoryShared 共享主工厂实例，不重复启动 npx），
+         供 poetc 调用 write_file 把分析结果写入文件。 -->
+
+    <agents>
+        <agent name="filesystemMcp"
+               statup="true"
+               factoryShared="true"
+               type="mcp"
+               tools="write_file"
+               description="MCP文件系统工具集（仅写文件）"
+               sameClassAs="mcpAgent"
+               transport="stdio"
+               command="C:/Program Files/nodejs/npx.cmd"
+               args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"/>
+    </agents>
+</moduleConfig>

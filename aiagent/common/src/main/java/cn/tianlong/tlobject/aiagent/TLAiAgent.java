@@ -108,6 +108,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 默认temperature */
     protected double defaultTemperature = 0.7;
 
+    /** 无历史模式：不向 context 载入/保存会话消息（每次白纸）。
+     *  会话链（sid/rootSessionId/级联停止）不受影响；适合无记忆召回的独立任务子 agent */
+    protected boolean noHistory = false;
+
     /** 默认maxTokens */
     protected int defaultMaxTokens = 4096;
 
@@ -246,6 +250,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 defaultMemoryPackageName = params.get("defaultMemoryPackageName");
             if (params.get("defaultModel") != null)
                 defaultModel = params.get("defaultModel");
+            if (params.get("noHistory") != null)
+                noHistory = "true".equals(params.get("noHistory"));
             if (params.get("defaultTemperature") != null) {
                 try { defaultTemperature = Double.parseDouble(params.get("defaultTemperature")); }
                 catch (NumberFormatException ignored) {}
@@ -998,8 +1004,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
                 }
             } else {
-                // 正常流程：从 context 构建历史
-                history = getContextHistory(sessionId);
+                // 正常流程：从 context 构建历史。
+                // noHistory 模式：不载入历史（每次白纸）——子 agent 无记忆召回时
+                // 跨轮历史只膨胀提示词、拖慢响应，会话链（sid/stopByRoot）保持完整
+                history = noHistory ? new ArrayList<>() : getContextHistory(sessionId);
                 msgStartIdx = history.size();
                 sessionMsgStartIdx.put(sessionId, msgStartIdx);
                 if (memoryContext != null && !memoryContext.isEmpty()) {
@@ -1164,7 +1172,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
                     if (!hasToolCalls || toolCalls == null || toolCalls.isEmpty()) {
                         finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                        // 空响应：历史里放占位符（空 assistant 消息会被 DeepSeek 拒绝，
+                        // 且会随上下文存续污染后续回合），返回给调用方的 finalResponse 仍保持原值
+                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                                finalResponse.isEmpty() ? "（无输出）" : finalResponse));
                         break;
                     }
 
@@ -1299,7 +1310,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
 
             // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
-            saveContextHistory(sessionId, history);
+            if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
             notifySessionManager(createMsg()
                     .setAction("chatFinished")
                     .setParam("sessionId", sessionId)

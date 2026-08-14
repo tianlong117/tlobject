@@ -129,6 +129,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "testStreamError":
                 returnMsg = testStreamError(fromWho, msg);
                 break;
+            case "testIntentCache":
+                returnMsg = testIntentCache(fromWho, msg);
+                break;
             case "runCaseFile":
                 returnMsg = runCaseFile(fromWho, msg);
                 break;
@@ -241,6 +244,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("batchTimeout",    new String[]{"8-批次超时", "test_sleep 未注册"});
         TEST_CASES.put("sessionRecovery", new String[]{"9-会话恢复", "需要 sessionManager"});
         TEST_CASES.put("streamError",      new String[]{"10-流式异常", null});
+        TEST_CASES.put("intentCache",      new String[]{"11-意图缓存", null});
     }
 
     /** 用例名 → 测试函数（大小写不敏感），未知返回 null */
@@ -257,6 +261,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "batchtimeout":    return this::testBatchTimeout;
             case "sessionrecovery": return this::testSessionRecovery;
             case "streamerror":     return this::testStreamError;
+            case "intentcache":     return this::testIntentCache;
             default:                return null;
         }
     }
@@ -416,6 +421,138 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, false)
                 .setParam("error", String.format("ok=%s, iterations=%d, resp=%s",
                         ok, iterations, aiResp.substring(0, Math.min(100, aiResp.length()))));
+    }
+
+    // ======================== 场景 11: 意图路由缓存 ========================
+
+    /** 直接驱动 testCacheProvider（delegate=工厂 mockProvider）验证 学习/命中/槽位回填/三类miss/多轮不学 */
+    @SuppressWarnings("unchecked")
+    protected TLMsg testIntentCache(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "mockProvider not found");
+        }
+        TLBaseModule cp = (TLBaseModule) getModule("testCacheProvider");
+        if (cp == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "testCacheProvider not found");
+        }
+        mp.clearAllResponses();
+
+        List<TLFunctionDefinition> defs = new ArrayList<>();
+        defs.add(TLFunctionDefinition.fromSkill(FN_ECHO, "echo test skill", new HashMap<>()));
+
+        // ---- 1. 学习：单轮工具任务（首轮工具 + 次轮收尾） ----
+        TLToolCall tc = TLMockProvider.createToolCall("call_ic_1", FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "写2首爱情诗"); }});
+        mp.enqueueResponse(mp.toolCallResponse(tc));
+        TLMsg r1 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("写2首爱情诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_learn"));
+        if (r1 == null || !r1.parseBoolean("hasToolCalls", false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "学习第1轮未返回tool_call");
+        }
+        mp.enqueueResponse(mp.textResponse("任务完成"));
+        TLMsg r2 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, toolResultHistory("写2首爱情诗", "call_ic_1", "ECHO: 写2首爱情诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_learn"));
+        if (r2 == null || r2.parseBoolean("hasToolCalls", false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "学习第2轮异常");
+        }
+
+        // ---- 2. 命中 + 数字槽位回填（空队列：命中返回缓存的 tool_calls，mock 兜底不会产生 tool_calls） ----
+        TLMsg r3 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("写4首爱情诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_hit"));
+        List<TLToolCall> hitCalls = (List<TLToolCall>) (r3 != null ? r3.getListParam(AI_P_TOOLCALLS, null) : null);
+        boolean hitOk = r3 != null && r3.parseBoolean("hasToolCalls", false)
+                && hitCalls != null && hitCalls.size() == 1
+                && "写4首爱情诗".equals(String.valueOf(hitCalls.get(0).getArguments().get("message")));
+        if (!hitOk) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "命中/槽位回填失败: hasToolCalls="
+                            + (r3 != null ? r3.parseBoolean("hasToolCalls", false) : "null")
+                            + " args=" + (hitCalls != null ? hitCalls.get(0).getArguments() : "null"));
+        }
+        // Phase 2 合成终版（空队列零转发，响应含工具结果内容）
+        TLMsg r4 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, toolResultHistory("写4首爱情诗", "call_ic_1", "ECHO: 写4首爱情诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_hit"));
+        boolean synthOk = r4 != null && !r4.parseBoolean("hasToolCalls", false)
+                && r4.getStringParam(AI_P_RESPONSE, "").contains("ECHO: 写4首爱情诗");
+        if (!synthOk) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "Phase2合成失败: resp="
+                            + (r4 != null ? r4.getStringParam(AI_P_RESPONSE, "") : "null"));
+        }
+
+        // ---- 3. 数字个数不符 → miss（转发消费入队的文本） ----
+        mp.enqueueResponse(mp.textResponse("miss_fallback_num"));
+        TLMsg r5 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("写2首爱情诗和3首山水诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_nummiss"));
+        boolean numMissOk = r5 != null && !r5.parseBoolean("hasToolCalls", false)
+                && "miss_fallback_num".equals(r5.getStringParam(AI_P_RESPONSE, ""));
+        if (!numMissOk) {
+            return createMsg().setParam(RESULT, false).setParam("error", "数字个数不符未miss");
+        }
+
+        // ---- 4. 字符串不同 → miss ----
+        mp.enqueueResponse(mp.textResponse("miss_fallback_str"));
+        TLMsg r6 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("写2首山水诗"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_strmiss"));
+        boolean strMissOk = r6 != null && !r6.parseBoolean("hasToolCalls", false)
+                && "miss_fallback_str".equals(r6.getStringParam(AI_P_RESPONSE, ""));
+        if (!strMissOk) {
+            return createMsg().setParam(RESULT, false).setParam("error", "字符串不同未miss");
+        }
+
+        // ---- 5. 多轮规划 → 不学习（次轮仍有工具，第三次同消息应 miss） ----
+        mp.enqueueResponse(mp.toolCallResponse(TLMockProvider.createToolCall("call_ic_2", FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "复杂任务"); }})));
+        TLMsg r7 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("复杂任务"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_multi"));
+        mp.enqueueResponse(mp.toolCallResponse(TLMockProvider.createToolCall("call_ic_3", FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "复杂任务续"); }})));
+        TLMsg r8 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, toolResultHistory("复杂任务", "call_ic_2", "ECHO: 复杂任务"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_multi"));
+        mp.enqueueResponse(mp.textResponse("miss_fallback_multi"));
+        TLMsg r9 = putMsg(cp, createMsg().setAction(LLM_COMPLETION)
+                .setParam(AI_P_MESSAGEHISTORY, userHistory("复杂任务"))
+                .setParam(AI_P_FUNCTIONDEFS, defs)
+                .setParam(AI_P_SESSIONID, "ic_multi2"));
+        boolean multiOk = r7 != null && r7.parseBoolean("hasToolCalls", false)
+                && r8 != null && r8.parseBoolean("hasToolCalls", false)
+                && r9 != null && !r9.parseBoolean("hasToolCalls", false)
+                && "miss_fallback_multi".equals(r9.getStringParam(AI_P_RESPONSE, ""));
+        if (!multiOk) {
+            return createMsg().setParam(RESULT, false).setParam("error", "多轮规划误学习或判定失败");
+        }
+
+        log("[TEST]   意图缓存: 学习/命中/槽位回填/三类miss 全部通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private List<TLConversationHistory> userHistory(String text) {
+        List<TLConversationHistory> h = new ArrayList<>();
+        h.add(new TLConversationHistory(TLConversationHistory.Role.user, text));
+        return h;
+    }
+
+    private List<TLConversationHistory> toolResultHistory(String userText, String toolCallId, String output) {
+        List<TLConversationHistory> h = userHistory(userText);
+        h.add(new TLConversationHistory(toolCallId, toolCallId, output));
+        return h;
     }
 
     // ======================== 场景 4: Tool 并行执行 ========================

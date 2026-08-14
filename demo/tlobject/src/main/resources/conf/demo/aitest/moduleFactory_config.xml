@@ -45,6 +45,12 @@
                 users="default:member;admin:member,admin;guest:guest"
                 groups="admin:0" />
 
+        <!-- 意图缓存测试实例（borrowDelegate 直接借用工厂 mockProvider 单例，共享测试队列） -->
+        <module name="testCacheProvider"
+                classfile="cn.tianlong.tlobject.aiagent.TLIntentCacheProvider"
+                borrowDelegate="true"
+                delegateProvider="mockProvider"/>
+
     </modules>
 
     <!-- ===== 工厂启动序列 ===== -->

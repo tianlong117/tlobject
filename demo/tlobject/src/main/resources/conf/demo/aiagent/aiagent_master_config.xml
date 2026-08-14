@@ -53,7 +53,7 @@
              注意: 每个子Agent独立配置自己的reasoningMode，主Agent不自动传播
         -->
         <!-- reasoningMode: 推理模式 off|prompt|native|auto，详见上方注释 -->
-        <reasoningMode value="native"/>
+        <reasoningMode value="off"/>
         <!-- reasoningVisible: 推理内容是否暴露给调用方 -->
         <reasoningVisible value="true"/>
         <!-- thinkingBudget: Claude Extended Thinking token预算（仅native/auto生效） -->
@@ -75,8 +75,12 @@
              简单任务选 deepseek-v4-flash（便宜），复杂任务选 deepseek-v4-flash（强推理）。
              切回无路由：sameClassAs 改回 TLOpenAiProvider，删掉 strategy/delegateProvider/keywords 属性即可。
         -->
+        <!-- 意图路由缓存：cache → routing → openAi 三层装饰链。
+             cacheDelegateProvider 指定缓存层目标；delegateProvider 保留给内层 routing。
+             停用缓存：sameClassAs 改回 routingProvider、删掉 cacheDelegateProvider -->
         <provider name="openAiProvider"
-                  sameClassAs="routingProvider"
+                  sameClassAs="intentCacheProvider"
+                  cacheDelegateProvider="routingProvider"
                   delegateProvider="openAiProvider"
                   statup="true"
                   debugMode="true"

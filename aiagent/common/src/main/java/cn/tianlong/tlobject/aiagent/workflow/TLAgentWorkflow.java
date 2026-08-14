@@ -477,7 +477,8 @@ public class TLAgentWorkflow extends TLBaseModule
         }
 
         // 会话上下文透传：与 TLAgentGroup 同模式。rootSessionId 保持 stopByRoot 级联停止能力；
-        // 节点用独立 sid（并行节点不互相污染 aiContext），无上游会话时用时间戳兜底
+        // 节点用独立 sid（并行节点不互相污染 aiContext）。sid 照常继承父会话——链不断；
+        // 历史是否跨运行累积由节点的 noHistory 配置控制（见 TLAiAgent）
         String baseSession = nodeInput != null ? nodeInput.getStringParam(AI_P_SESSIONID, "") : "";
         String rootSid = nodeInput != null ? nodeInput.getStringParam("rootSessionId", "") : "";
         if (!rootSid.isEmpty()) {
