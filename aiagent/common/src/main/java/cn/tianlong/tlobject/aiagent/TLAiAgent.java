@@ -249,6 +249,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (params.get("defaultTemperature") != null) {
                 try { defaultTemperature = Double.parseDouble(params.get("defaultTemperature")); }
                 catch (NumberFormatException ignored) {}
+            } else if (params.get("temperature") != null) {
+                // temperature 别名（工作流 <modules> 条目等场景的常用写法）
+                try { defaultTemperature = Double.parseDouble(params.get("temperature")); }
+                catch (NumberFormatException ignored) {}
             }
             if (params.get("defaultMaxTokens") != null) {
                 try { defaultMaxTokens = Integer.parseInt(params.get("defaultMaxTokens")); }
@@ -291,6 +295,28 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 自动加载本 Agent 的 md 文件（须在最后：依赖 contextModuleName 和 modulesParams 已就位）
         loadAgentMd();
+        // XML systemMessage 配置注入 context 的 defaultSystemMessage（显式配置优先于 md 正文）
+        injectConfigSystemMessage();
+    }
+
+    /**
+     * XML/模块条目 systemMessage 配置注入：与 loadAgentMd 同机制，
+     * 写入 context 模块的 defaultSystemMessage（context 懒加载，此时改 modulesParams 即生效）。
+     * 显式配置为主提示，md 正文追加其后。
+     */
+    private void injectConfigSystemMessage() {
+        if (params == null) return;
+        String sm = params.get("systemMessage");
+        if (sm == null || sm.trim().isEmpty()) return;
+        HashMap<String, String> ctxParams =
+                modulesParams.computeIfAbsent(contextModuleName, k -> new HashMap<>());
+        String existing = ctxParams.get("defaultSystemMessage");
+        if (existing == null || existing.isEmpty()) {
+            ctxParams.put("defaultSystemMessage", sm);
+        } else if (!existing.startsWith(sm)) {
+            ctxParams.put("defaultSystemMessage", sm + "\n\n" + existing);
+        }
+        putLog("Agent systemMessage injected: " + name, LogLevel.DEBUG);
     }
 
     /**
@@ -815,6 +841,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         currentRootSessionId.set(rootSid);
         currentChatUserId.set(msg.getStringParam("userId", sessionId));
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
+        // 固定任务前缀（配置的 task 参数）：普通 agent 配置后每次收到的消息都前置该任务指令；
+        // 工作流下游节点同样经此生效（user 层指令权重最高，systemMessage 管人设，task 管本次工作）
+        if (params != null && params.get("task") != null && !params.get("task").trim().isEmpty()) {
+            userMessage = params.get("task").trim() + "\n\n" + userMessage;
+        }
         String model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
         double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
         int maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
@@ -1882,13 +1913,34 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         try {
             String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
                     : msg.getStringParam(AI_P_AGENTNAME, "");
+            // 脚本 skill（/reload -s）传 skillDir：目录名即模块名，从 functions 反查函数名
+            if (name.isEmpty() && "skill".equals(type)) {
+                String skillDir = msg.getStringParam("skillDir", "");
+                if (!skillDir.isEmpty()) {
+                    for (Map.Entry<String, FunctionEntry> e : functions.entrySet()) {
+                        FunctionEntry fe = e.getValue();
+                        if ("skill".equals(fe.type) && fe.module instanceof TLBaseModule
+                                && skillDir.equals(((TLBaseModule) fe.module).getName())) {
+                            name = e.getKey();
+                            break;
+                        }
+                    }
+                    if (name.isEmpty())
+                        return createMsg().setParam(RESULT, false)
+                                .setParam("error", "skill not found by skillDir: " + skillDir);
+                }
+            }
             if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
             if (!functions.containsKey(name))
                 return createMsg().setParam(RESULT, false).setParam("error", type + " not found: " + name);
             FunctionEntry old = functions.get(name);
-            TLBaseModule newModule = (TLBaseModule) getNewModule(name);
-            if (newModule == null) return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + name);
-            modules.put(name, newModule);
+            // 模块名可能与函数名不同（如 fileOperationSkill 的函数名是 file_operation），
+            // 以旧实例的实际模块名为准重建；脚本 skill 的模块名即 skillDir（目录名）
+            String moduleName = (old.module instanceof TLBaseModule)
+                    ? ((TLBaseModule) old.module).getName() : name;
+            TLBaseModule newModule = (TLBaseModule) getNewModule(moduleName);
+            if (newModule == null) return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + moduleName);
+            modules.put(moduleName, newModule);
             functions.put(name, new FunctionEntry(name, old.action, old.type, newModule, old.description, old.paramSchema));
             registerToRegistry(name, newModule, type);
             invalidateToolDefs();

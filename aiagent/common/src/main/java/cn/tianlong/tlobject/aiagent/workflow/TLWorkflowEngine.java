@@ -261,9 +261,24 @@ public class TLWorkflowEngine implements TLParamString {
         List<TLWorkflowEdge> incoming = inEdges.get(nodeId);
         if (incoming == null || incoming.isEmpty()) return null;
         TLMsg merged = new TLMsg();
+        List<String> upstreamResponses = new ArrayList<>();
         for (TLWorkflowEdge edge : incoming) {
             TLMsg up = context.getOutput(edge.getFrom());
-            if (up != null) merged.addArgs(up.getArgs());
+            if (up != null) {
+                merged.addArgs(up.getArgs());
+                // 收集上游正文（addArgs 是覆盖式合并，多个上游的 aiResponse 会互相覆盖丢失）。
+                // 已携带 upstreamResponses 的输出（JOIN/FANOUT 汇聚产物）不再重复收录——
+                // 其上游正文已随 args 合并进 merged，重复收录会产生【__eN】冗余段
+                if (up.getParam("upstreamResponses") == null) {
+                    String resp = up.getStringParam("aiResponse", "");
+                    if (!resp.isEmpty()) {
+                        upstreamResponses.add("【" + edge.getFrom() + "】\n" + resp);
+                    }
+                }
+            }
+        }
+        if (!upstreamResponses.isEmpty()) {
+            merged.setParam("upstreamResponses", upstreamResponses);
         }
         return merged;
     }
@@ -271,13 +286,19 @@ public class TLWorkflowEngine implements TLParamString {
     /** 构建节点的完整输入：工作流初始输入 + 上游产出 */
     private TLMsg buildNodeInput(TLWorkflowNode node) {
         TLMsg input = new TLMsg();
-        // 先拷贝工作流初始输入（含 userMessage 与会话上下文）
+        // 先拷贝工作流初始输入（含 userMessage）
+        if (context.getInput() != null) {
+            input.addArgs(context.getInput().getArgs());
+            String um = context.getInput().getStringParam("userMessage", "");
+            if (!um.isEmpty()) input.setParam("userMessage", um);
+        }
+        // 再合并上游产出
+        TLMsg upstream = collectUpstreamInput(node.getId());
+        if (upstream != null) input.addArgs(upstream.getArgs());
+        // 会话上下文最后覆盖：上游 agent 的返回消息自带其 sessionId，
+        // 合并后会把工作流级会话覆盖掉（sid 链污染）——此处恢复初始值
         if (context.getInput() != null) {
             TLMsg initial = context.getInput();
-            input.addArgs(initial.getArgs());
-            String um = initial.getStringParam("userMessage", "");
-            if (!um.isEmpty()) input.setParam("userMessage", um);
-            // 会话上下文透传（rootSessionId/sessionId/userId），供 runAgentNode 派生节点会话
             if (initial.containsParam("sessionId"))
                 input.setParam("sessionId", initial.getStringParam("sessionId", ""));
             if (initial.containsParam("rootSessionId"))
@@ -285,9 +306,6 @@ public class TLWorkflowEngine implements TLParamString {
             if (initial.containsParam("userId"))
                 input.setParam("userId", initial.getStringParam("userId", ""));
         }
-        // 再合并上游产出
-        TLMsg upstream = collectUpstreamInput(node.getId());
-        if (upstream != null) input.addArgs(upstream.getArgs());
         return input;
     }
 

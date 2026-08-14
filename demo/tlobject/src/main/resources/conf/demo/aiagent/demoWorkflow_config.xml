@@ -39,18 +39,29 @@
     语法（优先级 -> 最松 > || > &&，括号可任意嵌套）：
       A && B   并行：A、B 都跑，全部完成后继续（&& 自动生成汇聚节点）
       A || B   回退：A 失败才跑 B（A 成功则 B 被跳过）
-      A -> B   顺序：B 等 A 完成，且 B 的输入自动合并 A 的产出
+      A -> B   顺序：B 等 A 完成，且 A 的产出正文（aiResponse）自动并入 B 的提示词
+               （多个上游时带【节点名】分段；原始任务不前置——它是上游节点的职责，
+                下游节点职责由其 systemMessage 定义）
+     agent 通用参数（工作流 <modules> 条目同样适用，作用于所有 agent）：
+       systemMessage — 人设/规矩（注入 context 的 defaultSystemMessage，显式配置优先于 md 正文）
+       task          — 固定任务前缀（每次收到的消息前置，user 层权重最高）
+       temperature   — 采样温度（defaultTemperature 的别名）
       if (A.aiResponse == "xx") B else C   值分支：按上游产出判断走哪条
       组合示例：(A || B) -> C、A -> if (A.aiResponse == "ok") B else C
     注意：
       · 表达式里每个 IDENT 都是 AGENT 节点，必须对应 <modules> 里声明的模块名
-        （本配置即 poetA/poetB）
+        （本配置即 poetA/poetB/poetc）
       · JOIN/FANOUT/CONDITION 由编译器自动生成（__e1、__e2...），不能作为 IDENT 写
+      · 工具类模块（如 MCP 的 filesystemMcp）不能作为工作流节点（节点一律发 chat，
+        MCP 无 chat 动作会 FAILED）——应声明为节点 Agent 的 <agents> 工具
+        （见 poetc_config.xml：factoryShared 共享主工厂实例）
       · 本配置的表达式等价写法：poetA && poetB
         （原 DAG 的 merge join 由 && 自动汇聚替代，结果自动汇总所有节点产出）
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
-    （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>）
+    （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>；
+     表达式节点与静态节点一样在启动期初始化，失败当场报错；
+     msg 级动态表达式在执行期惰性创建节点）
 
     XML 转义：属性值里 & 是非法字符（实体引用起始符），&& 必须写 &amp;&amp;，
     解析后自动还原为 &&，运行时表达式与手写完全一致。
@@ -63,7 +74,7 @@
         <maxParallel value="5"/>
         <description value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
         <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式" -->
-        <expression value="poetA &amp;&amp; poetB"/>
+        <expression value="(poetA &amp;&amp; poetB) -> poetc"/>
     </params>
 
     <!-- 工作流自有的私有模块——每个节点一个独立实例 -->
@@ -76,6 +87,15 @@
                 defaultLlmProvider="aiagent_master:openAiProvider"
                 systemMessage="你是一个现实主义诗人，请用朴实深刻的语言回应用户。"
                 temperature="0.7"/>
+        <!-- poetc 的工具（filesystemMcp MCP）声明在其自己的配置文件 poetc_config.xml 的
+             <agents> 段（factoryShared 共享主工厂实例）——工具模块不能作为工作流节点。
+             task 参数：通用 agent 参数，固定任务前缀（systemMessage 管人设，task 管工作） -->
+        <module name="poetc" sameClassAs="aiagent"
+                configfile="poetc_config.xml"
+                defaultLlmProvider="aiagent_master:openAiProvider"
+                systemMessage="你是诗歌评判专家，只输出分析和评判，禁止创作新诗。"
+                task="请对以上两首诗进行对比分析和评判，并把诗和分析结果写入文件 诗.txt，如该文件存在，不要复写。重新建立带序号的文件"
+                />
     </modules>
 
     <!-- 节点定义：id = <modules> 中的模块名 -->

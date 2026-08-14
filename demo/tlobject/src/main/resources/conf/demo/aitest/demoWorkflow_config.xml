@@ -3,6 +3,7 @@
   ============================================================
   DAG 工作流 Demo 配置说明
   ============================================================
+
   标准框架配置格式：<moduleConfig> 为根，<params>/<modules> 为标准段，
   <nodes>/<edges> 为工作流自定义段（由 TLAgentWorkflow.myConfig 解析）。
 
@@ -38,7 +39,13 @@
     语法（优先级 -> 最松 > || > &&，括号可任意嵌套）：
       A && B   并行：A、B 都跑，全部完成后继续（&& 自动生成汇聚节点）
       A || B   回退：A 失败才跑 B（A 成功则 B 被跳过）
-      A -> B   顺序：B 等 A 完成，且 B 的输入自动合并 A 的产出
+      A -> B   顺序：B 等 A 完成，且 A 的产出正文（aiResponse）自动并入 B 的提示词
+               （多个上游时带【节点名】分段；原始任务不前置——它是上游节点的职责，
+                下游节点职责由其 systemMessage 定义）
+     agent 通用参数（工作流 <modules> 条目同样适用，作用于所有 agent）：
+       systemMessage — 人设/规矩（注入 context 的 defaultSystemMessage，显式配置优先于 md 正文）
+       task          — 固定任务前缀（每次收到的消息前置，user 层权重最高）
+       temperature   — 采样温度（defaultTemperature 的别名）
       if (A.aiResponse == "xx") B else C   值分支：按上游产出判断走哪条
       组合示例：(A || B) -> C、A -> if (A.aiResponse == "ok") B else C
 
@@ -46,11 +53,15 @@
       · 表达式里每个 IDENT 都是 AGENT 节点，必须对应 <modules> 里声明的模块名
         （本配置即 poetA/poetB）
       · JOIN/FANOUT/CONDITION 由编译器自动生成（__e1、__e2...），不能作为 IDENT 写
+      · 工具类模块（如 MCP 的 filesystemMcp）不能作为工作流节点（节点一律发 chat，
+        MCP 无 chat 动作会 FAILED）——应声明为节点 Agent 的 <agents> 工具
       · 本配置的表达式等价写法：poetA && poetB
         （原 DAG 的 merge join 由 && 自动汇聚替代，结果自动汇总所有节点产出）
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
-    （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>）
+    （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>；
+     表达式节点与静态节点一样在启动期初始化，失败当场报错；
+     msg 级动态表达式在执行期惰性创建节点）
 
     XML 转义：属性值里 & 是非法字符（实体引用起始符），&& 必须写 &amp;&amp;，
     解析后自动还原为 &&，运行时表达式与手写完全一致。

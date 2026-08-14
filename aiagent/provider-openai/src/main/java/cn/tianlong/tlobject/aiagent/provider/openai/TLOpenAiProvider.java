@@ -101,10 +101,18 @@ public class TLOpenAiProvider extends TLLlmProvider {
         }
         body.add("messages", msgs);
 
-        // tools
-        if (tools != null && !tools.isEmpty()) {
+        // tools：真实工具全量发送。仅内置澄清工具（request_clarification）时省略——
+        // 否则 hasTools 恒为 true，DeepSeek 的 tools/temperature 互斥约束会让
+        // temperature 对所有无真实工具的 agent 永远失效
+        List<TLFunctionDefinition> toolsToSend = tools;
+        boolean hasTools = (tools != null && !tools.isEmpty());
+        if (hasTools && tools.size() == 1 && AGENT_REQUESTCLARITY.equals(tools.get(0).getName())) {
+            toolsToSend = null;
+            hasTools = false;
+        }
+        if (hasTools) {
             JsonArray ts = new JsonArray();
-            for (TLFunctionDefinition fd : tools) {
+            for (TLFunctionDefinition fd : toolsToSend) {
                 JsonObject t = new JsonObject();
                 t.addProperty("type", "function");
                 JsonObject f = new JsonObject();
@@ -120,7 +128,6 @@ public class TLOpenAiProvider extends TLLlmProvider {
         }
 
         // parameters: 带tools时DeepSeek不接受temperature/max_tokens
-        boolean hasTools = (tools != null && !tools.isEmpty());
         if (!hasTools) {
             body.addProperty("temperature", getEffectiveTemperature(msg));
         }

@@ -110,10 +110,34 @@ public class TLAgentWorkflow extends TLBaseModule
     @Override
     public void runStartMsg() {
         initNodeModules();
+        initExprNodeModules();
         super.runStartMsg();
-        if (configuredNodes.isEmpty()) {
+        if (configuredNodes.isEmpty() && xmlExprNodes == null) {
             putLog("Workflow [" + name + "] has no statically configured nodes, "
                     + "will use dynamic nodes from doWorkflow message", LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * 初始化阶段创建表达式节点的私有模块实例（与静态节点 initNodeModules 同模式）。
+     * 启动期建好处：失败当场报错（fail-fast），执行时直接命中缓存，
+     * 避免任务中途才拉起节点（msg 级动态表达式仍在执行期惰性创建，无法预知）。
+     */
+    private void initExprNodeModules() {
+        if (xmlExprNodes == null) return;
+        for (TLWorkflowNode node : xmlExprNodes.values()) {
+            if (node.getType() != TLWorkflowNodeType.AGENT) continue;
+            String nid = node.getId();
+            try {
+                Object inst = getMyModule(nid);
+                if (inst != null) {
+                    putLog("Workflow expr node [" + nid + "] initialized", LogLevel.DEBUG);
+                } else {
+                    putLog("Workflow expr node [" + nid + "] failed to create", LogLevel.ERROR);
+                }
+            } catch (Exception e) {
+                putLog("Workflow expr node [" + nid + "] init error: " + e, LogLevel.ERROR);
+            }
         }
     }
 
@@ -424,12 +448,25 @@ public class TLAgentWorkflow extends TLBaseModule
                 .setWaitFlag(false);
 
         // 从 nodeInput 中取 userMessage
+        Object upstreamListObj = nodeInput != null ? nodeInput.getParam("upstreamResponses") : null;
+        boolean hasUpstream = upstreamListObj instanceof List && !((List) upstreamListObj).isEmpty();
         if (nodeInput != null) {
+            // 先合并上游 args（注意 nodeInput args 里带原始 userMessage，
+            // 若后合并会把构造好的提示词覆盖掉——必须先合并后覆盖）
+            msg.addArgs(nodeInput.getArgs());
             String userMessage = nodeInput.getStringParam("userMessage", "");
+            // -> 顺序链数据流：上游产出正文合并进本节点的提示词。
+            // 原始任务不前置——它是上游节点的职责，前置会误导下游
+            //（如把"写诗"任务带给评判节点，评判节点也会去写诗）；
+            // 下游职责由其 systemMessage 定义，任务指令可经 <modules> 条目的 task 参数声明
+            if (hasUpstream) {
+                StringBuilder sb = new StringBuilder();
+                for (Object o : (List) upstreamListObj) sb.append(o).append("\n\n");
+                userMessage = sb.toString().trim();
+            }
             if (!userMessage.isEmpty()) {
                 msg.setParam(AI_P_USERMESSAGE, userMessage);
             }
-            msg.addArgs(nodeInput.getArgs());
         }
 
         // 节点参数透传（temperature、systemMessage 等），运行时覆盖模块默认值
@@ -452,7 +489,8 @@ public class TLAgentWorkflow extends TLBaseModule
             msg.setParam("userId", nodeInput.getStringParam("userId", ""));
         }
 
-        // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例
+        // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例。
+        // 节点自身任务指令由 TLAiAgent 层统一处理（task 参数前置到 user 消息），此处无需重复
         TLMsg ret;
         TLBaseModule target = (TLBaseModule) getMyModule(nid);
         if (target != null) {

@@ -700,7 +700,29 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private TLMsg doSwitchSession(Object fromWho, TLMsg msg) {
         String newSessionId = msg.getStringParam(AI_P_SESSIONID, null);
         if (newSessionId == null || newSessionId.isEmpty()) return fail("sessionId 参数必填");
-        return ok("会话已切换", newSessionId);
+        // 存在性提示：查 SessionManager 会话元数据（轻量），防止误切到已存在会话造成混写
+        boolean exists = false;
+        try {
+            TLMsg list = putMsg(targetSessionManager(msg), createMsg()
+                    .setAction("listSessions")
+                    .setParam("userId", msg.getStringParam("userId", null)));
+            if (list != null && list.parseBoolean(RESULT, false)) {
+                java.util.List<?> sessions = list.getListParam("sessions", java.util.List.of());
+                for (Object s : sessions) {
+                    if (s instanceof java.util.Map
+                            && newSessionId.equals(((java.util.Map<?, ?>) s).get("sessionId"))) {
+                        exists = true;
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        String hint = exists
+                ? "会话已切换: " + newSessionId
+                    + "（该会话已有历史记录，但 /session 不加载历史；如需接着聊请用 /continue "
+                    + newSessionId + "）"
+                : "会话已切换: " + newSessionId + "（新会话）";
+        return ok(hint, newSessionId);
     }
 
     // ======================== 审批 ========================

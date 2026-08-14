@@ -500,8 +500,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 用新文本替换当前行显示和 line */
     private void replaceLine(StringBuilder line, String newText) {
-        // 清除当前显示
-        for (int i = 0; i < line.length(); i++) {
+        // 清除当前显示：按显示列宽回退（全角字符占 2 列，逐字符清会残留半行，
+        // 表现为"上一条中文内容不消失、新历史跟在后面"）
+        int width = visualWidth(line, 0, line.length());
+        for (int i = 0; i < width; i++) {
             System.out.print("\b \b");
         }
         // 设置新内容
@@ -1709,15 +1711,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("对话命令:");
         System.out.println("  /exit, /quit   退出控制台");
         System.out.println("  /stop          中断当前正在运行的对话");
-        System.out.println("  ESC            快捷中断（效果同 /stop）");
+        System.out.println("  ESC            按一下暂停，再按恢复；快速连按两下（500ms 内）中断（同 /stop）");
+        System.out.println("  ↑/↓ 方向键     翻阅输入历史（命令与会话内容均可回翻）");
         System.out.println("  /clear         清除当前会话上下文");
         System.out.println("  /resume        恢复未完成的 mid-loop 断点会话");
-        System.out.println("  /continue [id] 继续某个历史会话（不带 id 则恢复最近）");
+        System.out.println("  /continue [id] 继续某个历史会话（加载历史记忆，接着上次聊；不带 id 则恢复最近）");
+        System.out.println("  /session <id>  切换会话ID（只换记录归属，不加载历史；新 id=开新会话，已存在的 id 会追加写入）");
         System.out.println("  /sessions      列出所有历史会话");
         System.out.println("  /stream        切换流式/非流式模式");
-        System.out.println("  /session <id>  切换会话ID");
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
-        System.out.println("  /param <工具名>  查看工具模块的参数");
         System.out.println();
         System.out.println("安装命令:");
         System.out.println("  /install -s <skillDir> [家族名]              安装脚本型Skill（目录）");
@@ -1737,6 +1739,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("查询命令:");
         System.out.println("  /agents [ownerName]    列出已注册的Agent");
         System.out.println("  /skills [ownerName]    列出已注册的Skill");
+        System.out.println("  /param <工具名>        查看工具模块的参数");
         System.out.println("  /help                  显示此帮助");
         System.out.println();
         System.out.println("评测命令:");
