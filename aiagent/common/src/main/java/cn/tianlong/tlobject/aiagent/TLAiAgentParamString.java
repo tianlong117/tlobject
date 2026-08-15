@@ -174,6 +174,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_FUNCTIONDEFS = "functionDefinitions";
     /** 结构化输出：response_format（值 "json_object" 或 json_schema map） */
     String AI_P_RESPONSEFORMAT = "responseFormat";
+    /** LLM 请求消息参数：本次请求不走意图缓存（per-agent 开关 intentCache=false 时置 true） */
+    String AI_P_NOCACHE = "_noCache";
     /** tool-call 因到达 maxToolCallIterations 而截断的标志 */
     String AI_P_TRUNCATED = "truncated";
 

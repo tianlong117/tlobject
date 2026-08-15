@@ -189,6 +189,9 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             return createMsg().setParam(RESULT, false)
                     .setParam("error", "TLIntentCacheProvider: no delegate configured");
         }
+        // per-agent 缓存开关：带 _noCache 标志的请求直接透传 delegate
+        // （不查缓存、不学习、不留 pendingLearn/inFlight——带审批门禁的 agent 配置 intentCache=false）
+        if (msg.parseBoolean(AI_P_NOCACHE, false)) return forward(msg);
         @SuppressWarnings("unchecked")
         List<TLConversationHistory> messages =
                 (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());

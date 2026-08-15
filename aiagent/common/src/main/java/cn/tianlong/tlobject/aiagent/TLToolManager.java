@@ -13,14 +13,14 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * 每 agent 私有的函数表管理模块（"agent 黑盒"的工具管理内脏）。
- * 代码类共享：所有 TLAiAgent 各持一个私有实例（TLAiAgent.runStartMsg 经 getMyModule 创建，
- * 家族名 = agent:toolManager），函数表数据互不干扰。
+ * 代码类共享：所有 TLAiAgent 各持一个私有实例（TLAiAgent.runStartMsg 经 getMyModule 创建），
+ * 函数表数据互不干扰。家族名代理为 owner（getFamilyName 覆写），工具命名链中本模块不可见。
  *
  * 职责：function 的注册/注销/热加载/重载/启用开关/描述更新/列表，
  * 以及 LLM 函数定义（toolDefs）的缓存与构建、ToolTask 解析（resolveToolCalls）。
  *
  * 工具归工具模块管理：skill/agent 模块实例是本模块的私有子模块（家族名 =
- * agent:toolManager:tool），由本模块自己的 modules/modulesClass/modulesParams 管理，
+ * agent:tool（经 getFamilyName 代理）），由本模块自己的 modules/modulesClass/modulesParams 管理，
  * 实例化走本模块的 getMyModule/getModule/getNewModule，注册表键由模块自身家族名决定。
  * agent 不参与工具模块表管理。
  *
@@ -94,6 +94,17 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
     @Override
     protected TLBaseModule init() {
         return this;
+    }
+
+    /**
+     * 家族名代理为 owner：本模块只是 agent 的内部管理内脏，不应出现在对外命名链中。
+     * 工厂给子工具起名用请求方家族名 → 工具家族名直接是 agent:tool（而非 agent:toolManager:tool），
+     * 注册表键/控制台列表/evals resolveTarget 表达的都是"agent↔工具"的隶属关系，
+     * 构建隶属关系（经本模块实例化）对命名不可见。
+     */
+    @Override
+    public String getFamilyName() {
+        return owner != null ? owner.getFamilyName() : super.getFamilyName();
     }
 
     /**
@@ -173,7 +184,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
 
         // 工具归工具模块：把解析到的 skills/agents 配置注入本模块自己的 modulesClass/modulesParams，
         // getMyModule 在本模块内创建工具实例（工具是 toolManager 的私有子模块，家族名
-        // = agent:toolManager:tool，与父 agent 的模块表无关）
+        // = agent:tool（经 getFamilyName 代理），与父 agent 的模块表无关）
         injectOwnConfigs(skillConfigs, agentConfigs);
 
         // skills → 实例化 + 注册 + functions
@@ -241,8 +252,10 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 String desc = msgTool.getDescription();
                 if (desc == null || desc.isEmpty()) desc = msgId;
                 TLBaseModule target = owner;   // 默认目标 = 父 agent
+                // 显式 dest = 工厂级模块（跨 agent 可访问），直接从工厂获取
                 if (dest != null && !dest.isEmpty()) {
-                    try { target = owner.getModuleOwned(dest); } catch (Exception ignored) {}
+                    TLBaseModule destModule = (TLBaseModule) getModule(dest);
+                    if (destModule != null) target = destModule;
                 }
                 Map<String, Object> props = new LinkedHashMap<>();
                 String pfa = msgTool.getStringParam("paramsFromArgs", null);
@@ -264,7 +277,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
 
     /**
      * 工具模块实例化（原 TLAiAgent.initModules 的 skill/agent 路径）：
-     * factoryShared=true 取工厂单例，否则在本模块内创建私有子模块（家族名 = agent:toolManager:tool）。
+     * factoryShared=true 取工厂单例，否则在本模块内创建私有子模块（家族名 = agent:tool（经 getFamilyName 代理））。
      * 工具归工具模块管理，不经父 agent。
      */
     private TLBaseModule createToolModule(String moduleName, HashMap<String, String> cfg) {
@@ -291,7 +304,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
 
     /**
      * 向全局 moduleRegistry 注册工具子模块，以模块自身家族名字为 key
-     * （agent:toolManager:tool——工具是 toolManager 的私有子模块）。
+     * （agent:tool（经 getFamilyName 代理）——工具是 toolManager 的私有子模块）。
      * registry 未配置时静默跳过（IGNOREMODULEISNULL）。
      */
     private void registerToRegistry(String subName, Object module, String moduleType) {
@@ -348,7 +361,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         modulesClass.put(moduleName, cfg);
         modulesParams.put(moduleName, new HashMap<>(cfg));
 
-        // 创建为本模块的私有子模块（家族名 = agent:toolManager:moduleName）
+        // 创建为本模块的私有子模块（家族名 = agent:moduleName，本模块经 getFamilyName 代理不可见）
         TLBaseModule module = (TLBaseModule) getMyModule(moduleName);
         if (module instanceof TLBaseSkill) {
             TLBaseSkill skill = (TLBaseSkill) module;
@@ -421,7 +434,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         if (modulesClass != null) modulesClass.remove(moduleName);
         if (modulesParams != null) modulesParams.remove(moduleName);
 
-        // 从 registry 注销（本模块家族名前缀，键 = agent:toolManager:moduleName，与注册一致）
+        // 从 registry 注销（本模块家族名代理为 agent 家族名，键 = agent:moduleName，与注册一致）
         String key = getFamilyName() + ":" + moduleName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, key));

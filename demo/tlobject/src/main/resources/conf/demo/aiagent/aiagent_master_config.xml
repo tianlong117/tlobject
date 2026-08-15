@@ -58,6 +58,8 @@
         <reasoningVisible value="true"/>
         <!-- thinkingBudget: Claude Extended Thinking token预算（仅native/auto生效） -->
         <thinkingBudget value="4000"/>
+        <!-- 不走意图缓存：带审批门禁的工具操作不得被学习/命中缓存 -->
+        <intentCache value="false"/>
     </params>
 
     <providers>

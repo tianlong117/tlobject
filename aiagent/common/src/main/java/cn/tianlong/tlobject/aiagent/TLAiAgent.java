@@ -78,6 +78,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      *  会话链（sid/rootSessionId/级联停止）不受影响；适合无记忆召回的独立任务子 agent */
     protected boolean noHistory = false;
 
+    /** 是否走意图缓存（TLIntentCacheProvider）。带审批门禁工具的 agent 配置 intentCache=false，
+     *  防止被拒/危险操作的轮次被学习并在重复请求时命中缓存 */
+    protected boolean intentCacheEnabled = true;
+
     /** 默认maxTokens */
     protected int defaultMaxTokens = 4096;
 
@@ -206,6 +210,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 defaultModel = params.get("defaultModel");
             if (params.get("noHistory") != null)
                 noHistory = "true".equals(params.get("noHistory"));
+            if (params.get("intentCache") != null)
+                intentCacheEnabled = "true".equals(params.get("intentCache"));
             if (params.get("defaultTemperature") != null) {
                 try { defaultTemperature = Double.parseDouble(params.get("defaultTemperature")); }
                 catch (NumberFormatException ignored) {}
@@ -456,15 +462,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         } catch (Exception e) {
             putLog("Failed to init toolManager: " + e.toString(), LogLevel.WARN);
         }
-    }
-
-    // ======================== 供 TLToolManager 使用的转发访问器 ========================
-    // 工具归工具模块管理：工具模块的实例化/模块表操作全部在 toolManager 内部完成。
-    // 唯一例外是 msgTool——它的消息 destination 语义是"父 agent"，显式 dest 需经本 agent 解析。
-
-    /** msgTool 显式 destination 解析：在本 agent 的模块内查找（如 aiContext 等 agent 私有模块） */
-    public TLBaseModule getModuleOwned(String moduleName) {
-        return (TLBaseModule) getModule(moduleName);
     }
 
     /** 将已创建的 memory 模块放入 memoryStores map，注入 embedding provider。 */
@@ -997,6 +994,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
                             .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_MODEL, model)
                             .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens);
+                    // per-agent 缓存开关：本 agent 不走意图缓存时在请求上带标志（provider 透传）
+                    if (!intentCacheEnabled) llmMsg.setParam(AI_P_NOCACHE, true);
                     if (toolDefs != null && !toolDefs.isEmpty()) {
                         llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
                     }

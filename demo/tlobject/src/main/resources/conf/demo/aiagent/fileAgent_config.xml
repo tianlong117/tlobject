@@ -9,6 +9,8 @@
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <!-- HITL 审批由共享执行器全局启用（toolExecutor_config.xml 的 approvalModule=approvalGate），
              规则按工具名匹配，危险工具在本 agent 上天然被管 -->
+        <!-- 不走意图缓存：带审批门禁的工具操作不得被学习/命中缓存 -->
+        <intentCache value="false"/>
     </params>
     <!--providers>
         <provider name="openAiProvider"
