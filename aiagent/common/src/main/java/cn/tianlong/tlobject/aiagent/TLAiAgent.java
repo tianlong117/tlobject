@@ -386,7 +386,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     @Override
     public void runStartMsg() {
-        System.out.println("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===");
+        putLog("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===", LogLevel.INFO);
 
         // 统一初始化所有模块（配置段 = 类型，不走 instanceof 检查）
         if (mconfig instanceof myConfig) {
@@ -881,6 +881,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_SESSIONID, sessionId)
                 .setParam("rootSessionId", rootSid)
                 .setParam("agentName", getName()));
+        // 声明在 try 外：catch 收尾需访问；history 构建前异常时为 null，notifyChatError 内部判空
+        List<TLConversationHistory> history = null;
+        int msgStartIdx = 0;
+        String roundId = msg.getStringParam("resumeRoundId",
+                "r_" + System.currentTimeMillis());
+        sessionRoundIds.put(sessionId, roundId);
         try {
             // ==== 预处理: 记忆召回 + 上下文 ====
             TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
@@ -899,7 +905,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // 历史数据由调用方（agentService）从 SessionManager 加载好，通过 msg 参数传入。
             // Agent 不直接操作会话文件——只接收已加载的数据。
             boolean resume = msg.parseBoolean("resume", false);
-            List<TLConversationHistory> history;
             int iteration = 0;
             boolean resumedFromCheckpoint = false;
             long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
@@ -910,11 +915,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean pendingApproval = false; // 是否需要人工审批
             boolean rejected = false;       // 审批是否被拒绝
             String rejectedReason = null;   // 拒绝原因（随返回消息传播给上游，供 ToolExecutor 识别）
-            // 本轮唯一标识：恢复时继承保存的 roundId，新会话生成新的
-            String roundId = msg.getStringParam("resumeRoundId",
-                    "r_" + System.currentTimeMillis());
-            sessionRoundIds.put(sessionId, roundId);
-            int msgStartIdx;
             // 存储到 map 供 onStreamResult 使用，finally 中清理
             sessionMsgStartIdx.remove(sessionId);
 
@@ -1057,7 +1057,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             StringBuilder allReasoning = new StringBuilder();
 
             // ==== LLM请求 ====
-            String finalResponse;
+            String finalResponse = null; // 流式分支仅成功路径赋值；错误路径提前 return
 
             if (stream) {
                 // 流式: 单次请求，无tool-call循环
@@ -1065,11 +1065,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 if (!"off".equals(effectiveReasoningMode)) {
                     // 流式参数将在 doStreamCall 构建消息时注入
                 }
-                finalResponse = doStreamCall(history, toolDefs, sessionId, model);
+                TLMsg streamResult = doStreamCall(history, toolDefs, sessionId, model);
                 if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
                     aborted = true;
-                } else if (finalResponse != null) {
-                    history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                } else if (streamResult == null || !streamResult.parseBoolean(RESULT, false)) {
+                    // 流式失败（Provider 中断/超时/回调未注册）：按错误返回，不提交空回合
+                    String streamErr = streamResult != null
+                            ? streamResult.getStringParam(AI_P_RESPONSE, "流式请求失败")
+                            : "流式请求失败";
+                    putLog("Stream failed: " + streamErr, LogLevel.ERROR);
+                    notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage, streamErr);
+                    return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, streamErr);
+                } else {
+                    finalResponse = streamResult.getStringParam(AI_P_RESPONSE, "");
+                    // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
+                    history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                            finalResponse.isEmpty() ? "（无输出）" : finalResponse));
                 }
                 // 收集流式推理内容
                 TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
@@ -1126,6 +1137,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (errMsg == null || errMsg.isEmpty()) {
                             errMsg = "LLM 返回错误：HTTP " + llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
                         }
+                        // 收尾 SessionManager，避免已发 sessionUpdated 的 checkpoint 轮次残留
+                        notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage, errMsg);
                         return createMsg().setParam(RESULT, false)
                                 .setParam(AI_P_RESPONSE, errMsg);
                     }
@@ -1378,6 +1391,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId);
             }
             putLog("Chat error: " + e.toString(), LogLevel.ERROR);
+            // 收尾 SessionManager，避免已发 sessionUpdated 的 checkpoint 轮次残留
+            notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage,
+                    "Agent error: " + e.getMessage());
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
         } finally {
@@ -1394,13 +1410,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
-    /** 流式LLM调用——使用配置文件中注册的streamCallback模块 */
-    private String doStreamCall(List<TLConversationHistory> history,
-                                 List<TLFunctionDefinition> toolDefs,
-                                 String sessionId, String model) {
+    /** 流式LLM调用——使用配置文件中注册的streamCallback模块。返回 RESULT=false + 错误文案表示失败 */
+    private TLMsg doStreamCall(List<TLConversationHistory> history,
+                               List<TLFunctionDefinition> toolDefs,
+                               String sessionId, String model) {
         TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
                 ? (TLBaseModule) getModule("streamCallback") : null;
-        if (cb == null) return null;
+        if (cb == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "流式回调模块未注册（streamCallback）");
+        }
 
         putMsg(cb, createMsg().setAction(STREAM_RESET));
         TLMsg sm = createMsg().setAction(LLM_COMPLETIONSTREAM)
@@ -1410,6 +1429,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(llmProvider, sm);
 
         TLMsg wr = putMsg(cb, createMsg().setAction(STREAM_WAITFORSTREAM).setParam("timeout", 120));
+        if (wr == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "流式回调无响应");
+        }
+        // Provider 中途出错：waitForStream 的 streamError 携带错误信息
+        String streamErr = wr.getStringParam(AI_P_STREAMERROR, "");
+        if (!streamErr.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "流式中断: " + streamErr);
+        }
+        // 等待超时或未收到 done 信号
+        if (wr.parseBoolean("timedOut", false) || !wr.parseBoolean("streamDone", false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "流式超时/未完成");
+        }
         // 提取流式 reasoning 内容
         if (wr.containsParam(AI_P_REASONING)) {
             String streamReasoning = wr.getStringParam(AI_P_REASONING, "");
@@ -1417,7 +1451,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history.add(TLConversationHistory.createReasoning(streamReasoning));
             }
         }
-        return wr.getStringParam("content", null);
+        return createMsg().setParam(RESULT, true)
+                .setParam(AI_P_RESPONSE, wr.getStringParam("content", ""));
     }
 
     /**
@@ -1716,8 +1751,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (module instanceof TLBaseSkill) {
             TLBaseSkill skill = (TLBaseSkill) module;
             registerToRegistry(moduleName, module, "skill");
-            functions.put(skillName, new FunctionEntry(skillName, SKILL_EXECUTE, "skill", module, skillName, null));
-            invalidateToolDefs();
+            // 与 registerFunction 等路径一致：functions 变更 + 失效标记须在写锁内原子完成
+            functionsLock.writeLock().lock();
+            try {
+                functions.put(skillName, new FunctionEntry(skillName, SKILL_EXECUTE, "skill", module, skillName, null));
+                invalidateToolDefs();
+            } finally {
+                functionsLock.writeLock().unlock();
+            }
             putLog("Hot-loaded skill: " + moduleName + " (dir=" + skillDir + ")", LogLevel.INFO, AGENT_HOTLOADSKILL);
 
             // 持久化
@@ -1759,14 +1800,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
 
-        // 从 functions 中移除（按模块名查找 skill 类型）
-        String foundFnName = null;
-        for (FunctionEntry fe : functions.values()) {
-            if ("skill".equals(fe.type) && moduleName.equals(fe.module.getName())) {
-                foundFnName = fe.name; break;
+        // 从 functions 中移除（按模块名查找 skill 类型）——遍历+删除+失效标记须在写锁内原子完成
+        functionsLock.writeLock().lock();
+        try {
+            String foundFnName = null;
+            for (FunctionEntry fe : functions.values()) {
+                if ("skill".equals(fe.type) && moduleName.equals(fe.module.getName())) {
+                    foundFnName = fe.name; break;
+                }
             }
+            if (foundFnName != null) functions.remove(foundFnName);
+            invalidateToolDefs();
+        } finally {
+            functionsLock.writeLock().unlock();
         }
-        if (foundFnName != null) functions.remove(foundFnName);
 
         // 从本地 modules 移除
         modules.remove(moduleName);
@@ -1780,7 +1827,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, key));
 
-        invalidateToolDefs();
         putLog("Hot-unloaded skill: " + moduleName, LogLevel.INFO, AGENT_HOTUNLOADSKILL);
 
         // 从配置文件删除
@@ -2223,6 +2269,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (enableCheckpoint) putMsg(sessionManagerName, notificationMsg);
     }
 
+    /** LLM 失败/异常路径收尾：把本轮存为 completed（含错误文案），避免已发 sessionUpdated 的 checkpoint 轮次残留 */
+    private void notifyChatError(String sessionId, TLMsg msg, List<TLConversationHistory> history,
+                                 int msgStartIdx, String roundId, String userMessage, String errMsg) {
+        if (history == null) return; // 异常发生在 history 构建前：无 checkpoint 可残留，无需收尾
+        notifySessionManager(createMsg()
+                .setAction("chatFinished")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", msg.getStringParam("userId", "default"))
+                .setParam("agentName", name)
+                .setParam("roundId", roundId)
+                .setParam("messages", deltaMessages(history, msgStartIdx))
+                .setParam("userMessage", userMessage)
+                .setParam("response", errMsg));
+    }
+
     /** 从 fullHistory 中截取本轮增量消息（从 startIdx 开始到末尾） */
     private List<TLConversationHistory> deltaMessages(List<TLConversationHistory> fullHistory, int startIdx) {
         if (startIdx >= fullHistory.size()) return new ArrayList<>();
@@ -2395,7 +2456,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     Object q = ((Map<?, ?>) tc.getArguments()).get("question");
                     if (q != null) question = q.toString();
                 }
-                System.out.println(">>> [Clarify] Agent 请求确认: " + question);
+                putLog(">>> [Clarify] Agent 请求确认: " + question, LogLevel.INFO);
                 TLToolExecutor.ToolTask clarifyTask = new TLToolExecutor.ToolTask(
                         tc.getId(), null, AGENT_REQUESTCLARITY, new LinkedHashMap<>(), userId);
                 clarifyTask.precomputedOutput = "⚠️ 需要确认: " + question;
