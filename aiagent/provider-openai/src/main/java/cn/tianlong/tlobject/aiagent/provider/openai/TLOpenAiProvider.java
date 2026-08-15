@@ -321,7 +321,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 httpResult.getStringParam(AI_P_RESPONSEBODY, ""),
                 httpResult.getIntParam(AI_P_HTTPSTATUS, 0),
                 getEffectiveModel(msg),
-                System.currentTimeMillis() - traceStart
+                System.currentTimeMillis() - traceStart,
+                msg.getStringParam(AI_P_ROUNDID, "")
         );
 
         if (!httpResult.parseBoolean(RESULT, false)) {

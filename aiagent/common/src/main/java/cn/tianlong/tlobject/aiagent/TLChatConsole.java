@@ -778,6 +778,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 parseTestCommand(parts, msg);
                 break;
 
+            case "trace":
+                // /trace —— 查询当前会话最新一轮的环节记录（agentMonitor 内存）
+                msg.setAction("trace").setParam(AI_P_SESSIONID, sessionId);
+                break;
+
             case "mcp":
                 msg = parseMcpCommand(parts);
                 if (msg == null) return null;
@@ -1085,6 +1090,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "agents":
                 case "skills":
                     printModuleList(data, msg.getAction());
+                    break;
+                case "trace":
+                    if (data instanceof List) {
+                        for (Object l : (List<?>) data) System.out.println(l);
+                    } else {
+                        System.out.println("✓ " + message);
+                    }
                     break;
                 case "sessions":
                     printSessionList(data);
@@ -1770,6 +1782,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /test                   运行全部单元测试（Mock Provider 驱动）");
         System.out.println("  /test list              列出可用测试用例");
         System.out.println("  /test <用例名>          运行单个测试场景 (例: /test basicChat)");
+        System.out.println();
+        System.out.println("全链追踪:");
+        System.out.println("  /trace                  查看当前会话最新一轮的环节记录（agentMonitor 内存）");
         System.out.println();
         System.out.println("MCP 市场命令:");
         System.out.println("  /mcp search [keyword]   搜索 MCP 服务器，空参数列出全部精选");

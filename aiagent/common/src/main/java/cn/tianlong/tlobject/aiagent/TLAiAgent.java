@@ -656,6 +656,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             chatMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
         if (msg.containsParam("userId"))
             chatMsg.setParam("userId", msg.getStringParam("userId", ""));
+        // 全链追踪：上游 roundId 透传——子 agent 的一轮就是上游的一轮
+        if (msg.containsParam(AI_P_ROUNDID))
+            chatMsg.setParam(AI_P_ROUNDID, msg.getStringParam(AI_P_ROUNDID, ""));
         TLMsg result = chat(fromWho, chatMsg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
         return createMsg().setParam(AI_P_SKILLOUTPUT, output);
@@ -759,9 +762,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 声明在 try 外：catch 收尾需访问；history 构建前异常时为 null，notifyChatError 内部判空
         List<TLConversationHistory> history = null;
         int msgStartIdx = 0;
-        String roundId = msg.getStringParam("resumeRoundId",
-                "r_" + System.currentTimeMillis());
+        // 一轮 = 控制台发起对话到返回结果：上游（主 agent/工作流/组）传入的 roundId 沿用，
+        // 断点恢复用 resumeRoundId 继承，只有源头（控制台）才生成新的
+        String upstreamRoundId = msg.getStringParam(AI_P_ROUNDID, null);
+        String roundId = (upstreamRoundId != null && !upstreamRoundId.isEmpty())
+                ? upstreamRoundId
+                : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
         sessionRoundIds.put(sessionId, roundId);
+        // 全链追踪：轮次开始打点
+        traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0);
         try {
             // ==== 预处理: 记忆召回 + 上下文 ====
             TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
@@ -843,7 +852,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                         .setParam("executionId", execId2)
                                         .setParam(AI_P_SESSIONID, sessionId)
                                         .setParam("userId", msg.getStringParam("userId", "default"))
-                                        .setParam("rootSessionId", rootSid));
+                                        .setParam("rootSessionId", rootSid)
+                                        .setParam(AI_P_ROUNDID, roundId));
                         String singleOutput;
                         if (singleExecResult != null) {
                             @SuppressWarnings("unchecked")
@@ -993,7 +1003,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             .setParam("userMessage", userMessage));
                     TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
                             .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_MODEL, model)
-                            .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens);
+                            .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens)
+                            .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_ROUNDID, roundId);
                     // per-agent 缓存开关：本 agent 不走意图缓存时在请求上带标志（provider 透传）
                     if (!intentCacheEnabled) llmMsg.setParam(AI_P_NOCACHE, true);
                     if (toolDefs != null && !toolDefs.isEmpty()) {
@@ -1009,6 +1020,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         llmMsg.setParam(AI_P_THINKING_BUDGET, msg.getIntParam(AI_P_THINKING_BUDGET, thinkingBudget));
                     }
 
+                    // 全链追踪：LLM 请求/响应打点
+                    traceStage(sessionId, rootSid, roundId, "llmRequest",
+                            "iter=" + iteration + " model=" + model, 0);
+                    long llmStartTs = System.currentTimeMillis();
                     TLMsg llmResponse = putMsg(llmProvider, llmMsg);
                     // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
                     if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
@@ -1034,6 +1049,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     cacheTurn[0] += llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
                     cacheTurn[1] += llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
                     cacheTurn[2] += llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+                    traceStage(sessionId, rootSid, roundId, "llmResponse",
+                            "tokens=" + turn[1] + "/" + turn[2]
+                                    + " cache=" + cacheTurn[1] + "/" + cacheTurn[0],
+                            System.currentTimeMillis() - llmStartTs);
 
                     // ==== 提取推理内容 ====
                     String reasoningText = null;
@@ -1103,7 +1122,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setParam("executionId", execId)
                                     .setParam(AI_P_SESSIONID, sessionId)
                                     .setParam("rootSessionId", rootSid)
-                                    .setParam("userId", usrId));
+                                    .setParam("userId", usrId)
+                                    .setParam(AI_P_ROUNDID, roundId));
 
                     if (execResult == null) {
                         putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
@@ -1200,6 +1220,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setParam("messages", deltaMessages(history, msgStartIdx))
                         .setParam("userMessage", userMessage));
                 putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
+                traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted", 0);
                 long[] accCancel = accumulateTokenUsage(sessionId, turn);
                 return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
                         .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
@@ -1219,6 +1240,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("messages", deltaMessages(history, msgStartIdx))
                     .setParam("userMessage", userMessage)
                     .setParam("response", finalResponse));
+            // 全链追踪：轮次结束打点
+            String roundOutcome = "completed";
+            if (rejected) roundOutcome = "rejected";
+            else if (pendingApproval) roundOutcome = "pendingApproval";
+            else if (clarified) roundOutcome = "clarified";
+            else if (truncated) roundOutcome = "truncated";
+            traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0);
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                         .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
@@ -1802,6 +1830,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam("messages", deltaMessages(history, msgStartIdx))
                 .setParam("userMessage", userMessage)
                 .setParam("response", errMsg));
+        traceStage(sessionId, currentRootSessionId.get(), roundId, "roundEnd", "error", 0);
+    }
+
+    /** 轮次环节打点：发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */
+    private void traceStage(String sessionId, String rootSid, String roundId,
+                            String stage, String detail, long durationMs) {
+        try {
+            TLMsg traceMsg = createMsg().setAction("recordStage")
+                    .setParam("agentName", name)
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("rootSessionId", rootSid != null ? rootSid : sessionId)
+                    .setParam(AI_P_ROUNDID, roundId)
+                    .setParam("stage", stage)
+                    .setParam("detail", TLAgentMonitor.sanitizeDetail(detail))
+                    .setParam("durationMs", durationMs);
+            traceMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg(M_AGENTMONITOR, traceMsg);
+        } catch (Exception ignored) {}
     }
 
     /** 从 fullHistory 中截取本轮增量消息（从 startIdx 开始到末尾） */
@@ -1877,7 +1923,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setParam("executionId", execId)
                         .setParam(AI_P_SESSIONID, sessionId)
                         .setParam("userId", userId != null ? userId : "default")
-                        .setParam("rootSessionId", currentRootSessionId.get()));
+                        .setParam("rootSessionId", currentRootSessionId.get())
+                        .setParam(AI_P_ROUNDID, sessionRoundIds.get(sessionId)));
         if (execResult == null) return null;
 
         List<TLToolExecutor.ToolResult> results =

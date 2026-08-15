@@ -169,6 +169,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         String userId = msg.getStringParam("userId", "default");
         String executionId = msg.getStringParam("executionId", sessionId + "_" + System.nanoTime());
         String rootSessionId = msg.getStringParam("rootSessionId", sessionId);
+        String roundId = msg.getStringParam(AI_P_ROUNDID, "");
 
         if (tasks == null || tasks.isEmpty()) {
             return createMsg().setParam(RESULT, true)
@@ -185,6 +186,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
         try {
             // 并行 fire ThreadTask
+            Map<Integer, Long> taskStartTs = new HashMap<>();
             for (int i = 0; i < n; i++) {
                 final int idx = i;
                 final ToolTask task = tasks.get(i);
@@ -194,13 +196,19 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         .setParam("executionId", executionId)
                         .setParam(AI_P_SESSIONID, sessionId)
                         .setParam("userId", userId)
-                        .setParam("rootSessionId", rootSessionId);
+                        .setParam("rootSessionId", rootSessionId)
+                        .setParam(AI_P_ROUNDID, roundId);
                 // 每个 task 可单独设超时，传给 ThreadTask
                 if (task.timeoutMs > 0)
                     execMsg.setSystemParam(TASKTIMEOUT, task.timeoutMs);
                 TLMsg taskResult = putMsgNoWait(this, execMsg);
                 ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
                 if (tt != null) state.activeTasks.add(tt);
+                // 全链追踪：工具开始执行
+                taskStartTs.put(idx, System.currentTimeMillis());
+                traceStage(fromWho, sessionId, rootSessionId, roundId, "toolStart",
+                        (task.functionName != null && !task.functionName.isEmpty()
+                                ? task.functionName : task.moduleName) + " execId=" + executionId, 0);
             }
 
             // 等待全部完成（executionTimeoutMs=0 则一直等待，>0 超时后中断剩余任务）
@@ -249,6 +257,19 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     hasTimeout = true;
                     finalResponse = tr.output;
                 }
+                // 全链追踪：工具执行结束（含工具名/状态与耗时）
+                String toolState = tr.state == null ? "ok" : tr.state;
+                long startTs = taskStartTs.getOrDefault(i, System.currentTimeMillis());
+                ToolTask doneTask = i < tasks.size() ? tasks.get(i) : null;
+                String doneTool = "?";
+                if (doneTask != null) {
+                    if (doneTask.functionName != null && !doneTask.functionName.isEmpty())
+                        doneTool = doneTask.functionName;
+                    else if (doneTask.moduleName != null && !doneTask.moduleName.isEmpty())
+                        doneTool = doneTask.moduleName;
+                }
+                traceStage(fromWho, sessionId, rootSessionId, roundId, "toolEnd",
+                        "tool=" + doneTool + " state=" + toolState, System.currentTimeMillis() - startTs);
             }
 
             response.setParam("results", results);
@@ -301,7 +322,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     ? task.functionName : task.moduleName;
             TLMsg approvalResult = checkApprovalGate(task.toolCallId, task.args, approvalToolName,
                     msg.getStringParam(AI_P_SESSIONID, "default"),
-                    msg.getStringParam("userId", "default"));
+                    msg.getStringParam("userId", "default"),
+                    msg.getStringParam(AI_P_ROUNDID, ""),
+                    msg.getStringParam("rootSessionId",
+                            msg.getStringParam(AI_P_SESSIONID, "default")));
             if (approvalResult != null) {
                 String approvalState = approvalResult.getStringParam(AI_P_APPROVAL_STATE, "");
                 ToolResult tr = new ToolResult(task.toolCallId,
@@ -345,10 +369,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             }
             String toolUserId = msg.getStringParam("userId", null);
             if (toolUserId != null) execMsg.setParam("userId", toolUserId);
-            // 会话信息透传（工具模块、before/after 钩子、级联停止可用）
+            // 会话信息透传（工具模块、before/after 钩子、级联停止、全链追踪可用）
             execMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, "default"));
             execMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId",
                     msg.getStringParam(AI_P_SESSIONID, "default")));
+            execMsg.setParam(AI_P_ROUNDID, msg.getStringParam(AI_P_ROUNDID, ""));
             TLMsg result = putMsg(task.module, execMsg);
             // 线程被中断 = Future 超时，即使工具返回了部分结果也标记为超时
             if (Thread.currentThread().isInterrupted()) {
@@ -414,7 +439,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
      * @return null = 放行；非 null = 被拦截（pending/rejected）
      */
     private TLMsg checkApprovalGate(String toolCallId, Map<String, Object> toolArgs,
-                                     String toolName, String sessionId, String userId) {
+                                     String toolName, String sessionId, String userId, String roundId,
+                                     String rootSessionId) {
         if (approvalModule == null && approvalModuleName != null && !approvalModuleName.isEmpty()) {
             synchronized (this) {
                 if (approvalModule == null) {
@@ -441,7 +467,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                                     ? new LinkedHashMap<>(toolArgs) : new LinkedHashMap<>())
                             .setParam(AI_P_SESSIONID, sessionId)
                             .setParam("userId", userId)
-                            .setParam("toolCallId", toolCallId));
+                            .setParam("toolCallId", toolCallId)
+                            .setParam(AI_P_ROUNDID, roundId)
+                            .setParam("rootSessionId", rootSessionId));
 
             if (result == null) return null;
             String state = result.getStringParam(AI_P_APPROVAL_STATE, "");
@@ -451,6 +479,27 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             putLog("checkApprovalGate error: " + e.toString() + " → bypassing approval", LogLevel.ERROR);
             return null;
         }
+    }
+
+    // ======================== 全链追踪打点 ========================
+
+    /** 发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */
+    private void traceStage(Object fromWho, String sessionId, String rootSessionId, String roundId,
+                            String stage, String detail, long durationMs) {
+        try {
+            String agentName = fromWho instanceof TLBaseModule
+                    ? ((TLBaseModule) fromWho).getName() : "toolExecutor";
+            TLMsg traceMsg = createMsg().setAction("recordStage")
+                    .setParam("agentName", agentName)
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("rootSessionId", rootSessionId)
+                    .setParam(AI_P_ROUNDID, roundId)
+                    .setParam("stage", stage)
+                    .setParam("detail", TLAgentMonitor.sanitizeDetail(detail))
+                    .setParam("durationMs", durationMs);
+            traceMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg(M_AGENTMONITOR, traceMsg);
+        } catch (Exception ignored) {}
     }
 
     // ======================== 残留状态清理 ========================

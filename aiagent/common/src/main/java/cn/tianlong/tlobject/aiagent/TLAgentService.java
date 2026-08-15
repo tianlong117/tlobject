@@ -66,6 +66,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpInstall", "从市场安装 MCP 服务器");
         ACTION_REGISTRY.put("mcpList", "列出已安装的 MCP Agent");
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
+        ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
+        ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
     }
 
     public TLAgentService() { super(); }
@@ -126,6 +128,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 单元测试 ──
             case "test":            return doTest(fromWho, msg);
+
+            // ── 全链追踪 ──
+            case "trace":           return doTrace(fromWho, msg);
 
             // ── 状态查询 ──
             case "getTokenUsage":   return doGetTokenUsage(fromWho, msg);
@@ -841,6 +846,29 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         data.put("failed", failed);
         data.put("total", passed + failed);
         return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过", data);
+    }
+
+    // ======================== 全链追踪 ========================
+
+    /** /trace 命令：查询当前会话最新一轮的环节记录（agentMonitor.getLatestTrace） */
+    private TLMsg doTrace(Object fromWho, TLMsg msg) {
+        String rootSid = msg.getStringParam(AI_P_SESSIONID, "default");
+        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
+                .setParam("rootSessionId", rootSid));
+        if (result == null) return fail("agentMonitor 未注册");
+        List<?> stages = result.getListParam("stages", new ArrayList<>());
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
+        List<String> lines = new ArrayList<>();
+        lines.add("最新一轮环节记录 (" + stages.size() + " 条, root=" + rootSid
+                + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + "):");
+        for (Object s : stages) {
+            if (!(s instanceof TLAgentMonitor.StageRecord)) continue;
+            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) s;
+            lines.add(String.format("  %s %-16s %-16s %s%s",
+                    sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
+                    rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
+        }
+        return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
     }
 
     // ======================== 状态查询 ========================

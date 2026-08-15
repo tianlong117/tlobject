@@ -14,6 +14,7 @@ import java.util.Date;
 public class TLLlmTrace {
 
     private String sessionId;
+    private String roundId;
     private String senderName;
     private String providerName;
     private String requestBody;
@@ -43,6 +44,9 @@ public class TLLlmTrace {
         sb.append(" | HTTP ").append(httpStatus);
         sb.append("\n");
         sb.append("Sender: ").append(senderName != null ? senderName : "unknown");
+        if (roundId != null && !roundId.isEmpty()) {
+            sb.append("  round=").append(roundId);
+        }
         sb.append("\n");
         sb.append("======================================================================\n");
 
@@ -136,6 +140,9 @@ public class TLLlmTrace {
 
     public String getSessionId() { return sessionId; }
     public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+
+    public String getRoundId() { return roundId; }
+    public void setRoundId(String roundId) { this.roundId = roundId; }
 
     public String getSenderName() { return senderName; }
     public void setSenderName(String senderName) { this.senderName = senderName; }

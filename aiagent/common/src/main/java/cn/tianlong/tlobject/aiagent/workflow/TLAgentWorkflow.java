@@ -489,6 +489,10 @@ public class TLAgentWorkflow extends TLBaseModule
         if (nodeInput != null && nodeInput.containsParam("userId")) {
             msg.setParam("userId", nodeInput.getStringParam("userId", ""));
         }
+        // 全链追踪：上游 roundId 透传——工作流节点的一轮就是上游（控制台）的一轮
+        if (nodeInput != null && nodeInput.containsParam(AI_P_ROUNDID)) {
+            msg.setParam(AI_P_ROUNDID, nodeInput.getStringParam(AI_P_ROUNDID, ""));
+        }
 
         // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例。
         // 节点自身任务指令由 TLAiAgent 层统一处理（task 参数前置到 user 消息），此处无需重复

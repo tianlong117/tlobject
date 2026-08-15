@@ -62,6 +62,17 @@ public class TLApprovalRequest {
         }
     }
 
+    // ======================== 全链追踪字段（roundId/rootSessionId，审批请求消息携带） ========================
+
+    private String roundId = "";
+    private String rootSessionId = "";
+
+    public String getRoundId() { return roundId; }
+    public void setRoundId(String roundId) { this.roundId = roundId; }
+
+    public String getRootSessionId() { return rootSessionId; }
+    public void setRootSessionId(String rootSessionId) { this.rootSessionId = rootSessionId; }
+
     // ======================== getters / setters ========================
 
     public String getApprovalId() { return approvalId; }

@@ -159,6 +159,8 @@ public interface TLAiAgentParamString extends TLParamString {
 
     // 会话/上下文
     String AI_P_SESSIONID = "sessionId";
+    /** 轮次 ID（doChat 每轮生成，SessionManager 按轮落盘；全链追踪的关联键） */
+    String AI_P_ROUNDID = "roundId";
     String AI_P_USERMESSAGE = "userMessage";
     String AI_P_SYSTEMMESSAGE = "systemMessage";
     String AI_P_CONVERSATIONID = "conversationId";

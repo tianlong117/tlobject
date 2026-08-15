@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.approval;
 
 import cn.tianlong.tlobject.aiagent.IAgentCapable;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -308,6 +309,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         // 3. 创建审批请求
         TLApprovalRequest request = new TLApprovalRequest(sessionId, toolName, toolArgs, toolCallId);
+        request.setRoundId(msg.getStringParam(AI_P_ROUNDID, ""));
+        request.setRootSessionId(msg.getStringParam("rootSessionId", sessionId));
         request.setOperation(operation);
         request.setRiskLevel(riskLevel);
         request.setRationale(rationale);
@@ -319,6 +322,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         putLog("Approval request created: id=" + request.getApprovalId()
                 + " tool=" + toolName + " risk=" + riskLevel + " session=" + sessionId, LogLevel.INFO);
+        // 全链追踪：审批请求发起
+        traceStage(sessionId, request.getRootSessionId(), request.getRoundId(), "approvalRequested",
+                "id=" + request.getApprovalId() + " tool=" + toolName + " risk=" + riskLevel, 0);
 
         // 5. 委托给审查人
         TLMsg reviewerResult = reviewer.requestApproval(request);
@@ -375,6 +381,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         request.setState(TLApprovalRequest.APPROVED);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         putLog("Approval approved: id=" + approvalId, LogLevel.INFO);
+        traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
+                "approvalDecided", "id=" + approvalId + " approved", 0);
 
         return createMsg().setParam(RESULT, true).setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.APPROVED);
     }
@@ -406,6 +414,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 request.getToolArguments(), reason);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         putLog("Approval rejected: id=" + approvalId + " reason=" + reason, LogLevel.INFO);
+        traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
+                "approvalDecided", "id=" + approvalId + " rejected", 0);
 
         return createMsg().setParam(RESULT, true).setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED);
     }
@@ -430,6 +440,23 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     // ======================== 规则匹配 ========================
 
     /** 构建拒绝记忆键：sessionId|toolName|排序后的参数 */
+    /** 全链追踪打点：发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */
+    private void traceStage(String sessionId, String rootSessionId, String roundId,
+                            String stage, String detail, long durationMs) {
+        try {
+            TLMsg traceMsg = createMsg().setAction("recordStage")
+                    .setParam("agentName", getName())
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("rootSessionId", rootSessionId != null ? rootSessionId : sessionId)
+                    .setParam(AI_P_ROUNDID, roundId != null ? roundId : "")
+                    .setParam("stage", stage)
+                    .setParam("detail", TLAgentMonitor.sanitizeDetail(detail))
+                    .setParam("durationMs", durationMs);
+            traceMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg(M_AGENTMONITOR, traceMsg);
+        } catch (Exception ignored) {}
+    }
+
     private String rejectionKey(String sessionId, String toolName, Map<String, Object> args) {
         String argsKey = args != null && !args.isEmpty() ? new TreeMap<>(args).toString() : "{}";
         return sessionId + "|" + toolName + "|" + argsKey;

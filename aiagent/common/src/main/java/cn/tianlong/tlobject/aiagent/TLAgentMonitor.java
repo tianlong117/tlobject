@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
+import java.io.File;
+import java.io.FileWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -23,6 +25,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *   register(sessionId, rootSessionId, agentName) — doChat 入口调用
  *   unregister(sessionId)                        — doChat finally 调用
  *   stopByRoot(rootSessionId)                    — 控制台/外部 触发级联停止
+ *   recordStage(...)                             — 轮次环节打点（全链追踪）
+ *   getLatestTrace(rootSessionId)                — 查询某会话最新一轮的环节记录
+ *
+ * 全链追踪：agent/执行器/审批在各环节发 recordStage；本模块内存保留每个 rootSessionId
+ * 的最新一轮记录（roundId 变化时清空重建）；enableTrace=true 时追加落盘
+ * data/{userId}/traces/{rootSessionId}/{roundId}.jsonl（用户隔离）。
  *
  * 创建日期：2026/7/14
  * 作者:tianlong
@@ -43,8 +51,61 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         }
     }
 
+    /** 轮次环节记录（一行 = 一个环节） */
+    public static class StageRecord {
+        public long ts;
+        public String agentName;
+        public String sessionId;
+        public String roundId;
+        public String stage;
+        public String detail;
+        public long durationMs;
+
+        StageRecord(long ts, String agentName, String sessionId, String roundId,
+                    String stage, String detail, long durationMs) {
+            this.ts = ts;
+            this.agentName = agentName;
+            this.sessionId = sessionId;
+            this.roundId = roundId;
+            this.stage = stage;
+            this.detail = detail;
+            this.durationMs = durationMs;
+        }
+    }
+
     /** sessionId → 运行条目（ConcurrentHashMap，跨线程安全） */
     private final ConcurrentHashMap<String, RunEntry> runningAgents = new ConcurrentHashMap<>();
+
+    /** rootSessionId → 最新一轮的环节记录（roundId 变化时清空重建） */
+    private final ConcurrentHashMap<String, LatestRound> latestRounds = new ConcurrentHashMap<>();
+
+    /** 是否落盘 JSONL（agentMonitor 配置 enableTrace，默认 false——不落盘但内存保留最新轮） */
+    private boolean enableTrace = false;
+
+    /**
+     * 最新一轮：同一轮（控制台发起对话到返回结果）全链共享一个 roundId（上游透传），
+     * 记录按到达序追加；roundId 变化 = 新一轮开始 → 清空重建。
+     */
+    private static final class LatestRound {
+        volatile String roundId;
+        final List<StageRecord> stages = new ArrayList<>();
+
+        synchronized void record(StageRecord rec) {
+            if (!rec.roundId.equals(roundId)) {
+                roundId = rec.roundId;
+                stages.clear();
+            }
+            stages.add(rec);
+        }
+
+        synchronized List<StageRecord> snapshot() {
+            return new ArrayList<>(stages);
+        }
+
+        synchronized String latestRoundId() {
+            return roundId != null ? roundId : "";
+        }
+    }
 
     public TLAgentMonitor() { super(); }
     public TLAgentMonitor(String name) { super(name); }
@@ -52,6 +113,13 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
 
     @Override
     protected TLBaseModule init() { return this; }
+
+    @Override
+    protected void setModuleParams() {
+        if (params != null && params.get("enableTrace") != null) {
+            enableTrace = "true".equals(params.get("enableTrace"));
+        }
+    }
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -62,9 +130,90 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 return unregister(fromWho, msg);
             case "stopByRoot":
                 return stopByRoot(fromWho, msg);
+            case "recordStage":
+                return recordStage(fromWho, msg);
+            case "getLatestTrace":
+                return getLatestTrace(fromWho, msg);
             default:
                 return null;
         }
+    }
+
+    /** 轮次环节打点：内存保留最新轮 +（enableTrace 时）用户隔离落盘 JSONL */
+    private TLMsg recordStage(Object fromWho, TLMsg msg) {
+        String rootSid = msg.getStringParam("rootSessionId", "");
+        String roundId = msg.getStringParam(AI_P_ROUNDID, "");
+        if (rootSid.isEmpty() || roundId.isEmpty()) return null;
+
+        StageRecord rec = new StageRecord(
+                System.currentTimeMillis(),
+                msg.getStringParam("agentName", ""),
+                msg.getStringParam(AI_P_SESSIONID, ""),
+                roundId,
+                msg.getStringParam("stage", ""),
+                msg.getStringParam("detail", ""),
+                msg.getLongParam("durationMs", 0L));
+
+        latestRounds.computeIfAbsent(rootSid, k -> new LatestRound()).record(rec);
+
+        if (enableTrace) {
+            try {
+                appendTraceFile(msg.getStringParam("userId", "default"), rootSid, roundId, rec);
+            } catch (Exception e) {
+                putLog("recordStage: write trace failed: " + e.toString(), LogLevel.WARN);
+            }
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 查询某会话最新一轮的环节记录 */
+    private TLMsg getLatestTrace(Object fromWho, TLMsg msg) {
+        String rootSid = msg.getStringParam("rootSessionId", "");
+        LatestRound lr = rootSid.isEmpty() ? null : latestRounds.get(rootSid);
+        List<StageRecord> stages = lr != null ? lr.snapshot() : new ArrayList<>();
+        return createMsg().setParam(RESULT, true)
+                .setParam("stages", stages)
+                .setParam(AI_P_ROUNDID, lr != null ? lr.latestRoundId() : "");
+    }
+
+    /**
+     * detail 净化（登记/打点发送方调用）：压平成单行 + 截断到 200 字符。
+     * 多行任务文本/监理反馈等长内容在发送时即裁剪，不进消息、不进记录。
+     */
+    public static String sanitizeDetail(String detail) {
+        if (detail == null || detail.isEmpty()) return "";
+        String s = detail.replace("\r", " ").replace("\n", " ");
+        return s.length() > 200 ? s.substring(0, 200) + "..." : s;
+    }
+
+    /** 追加一行 JSONL 到 data/{userId}/traces/{rootSessionId}/{roundId}.jsonl（用户隔离） */
+    private void appendTraceFile(String userId, String rootSid, String roundId, StageRecord rec)
+            throws java.io.IOException {
+        String dir = "./data/" + safe(userId) + "/traces/" + safe(rootSid) + "/";
+        File f = new File(dir);
+        if (!f.exists() && !f.mkdirs()) {
+            putLog("recordStage: cannot create trace dir " + dir, LogLevel.WARN);
+            return;
+        }
+        String line = "{\"ts\":" + rec.ts
+                + ",\"agentName\":\"" + esc(rec.agentName)
+                + "\",\"sessionId\":\"" + esc(rec.sessionId)
+                + "\",\"roundId\":\"" + esc(rec.roundId)
+                + "\",\"stage\":\"" + esc(rec.stage)
+                + "\",\"detail\":\"" + esc(rec.detail)
+                + "\",\"durationMs\":" + rec.durationMs + "}\n";
+        try (FileWriter fw = new FileWriter(dir + safe(roundId) + ".jsonl", true)) {
+            fw.write(line);
+        }
+    }
+
+    private static String safe(String s) {
+        return s == null ? "" : s.replaceAll("[\\\\/:*?\"<>|]", "_");
+    }
+
+    private static String esc(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
     }
 
     /** doChat 入口登记 */

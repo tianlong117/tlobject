@@ -493,7 +493,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
      * @param durationMs   耗时（毫秒）
      */
     protected void traceLlmCall(String sessionId, String senderName, String requestBody,
-                                 String responseBody, int httpStatus, String model, long durationMs) {
+                                 String responseBody, int httpStatus, String model, long durationMs,
+                                 String roundId) {
         if (!debugMode) return;
         // sessionId 安全化：替换路径分隔符，防止路径穿越
         String safeSession = sessionId != null ? sessionId.replaceAll("[/\\\\:\"*?<>|]", "_") : "default";
@@ -511,6 +512,7 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             // 构建 trace 对象
             TLLlmTrace trace = new TLLlmTrace();
             trace.setSessionId(sessionId);
+            trace.setRoundId(roundId);
             trace.setSenderName(senderName);
             trace.setProviderName(getName());
             trace.setRequestBody(requestBody);
