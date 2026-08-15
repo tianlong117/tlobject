@@ -68,11 +68,9 @@
         <defaultMemoryStore value="longTermMemory"/>
 
         <!-- ===== HITL 审批机制 =====
-             approvalModule: 审批模块名（不配或配空字符串 = 不启用审批）
-             审批规则和审查人配置见 approvalGate_config.xml
-             设为 "approvalGate" 启用审批
+             审批由共享执行器全局配置启用（本测试应用未配置 toolExecutor_config.xml，不启用）。
+             规则和审查人配置见 approvalGate_config.xml
         -->
-        <approvalModule value=""/>
     </params>
 
     <!-- ===== LLM Providers ===== -->

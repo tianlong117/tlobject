@@ -13,6 +13,10 @@
                  若确有超长时间工具（>10分钟），请调大此值；不需要兜底则设为 0 禁用。 -->
         <executionTimeoutMs value="0"/>
         <staleStateTimeoutMs value="600000"/>
+        <!-- 审批门禁：共享执行器的全局配置。规则按工具名匹配（file_operation:delete/write 等
+             危险工具只在子 agent 上，天然审批下沉）；会话/用户隔离由审批请求消息携带的
+             sessionId/userId 保证。不配置 = 全应用不启用审批。 -->
+        <approvalModule value="approvalGate"/>
     </params>
     <beforeMsgTable>
         <action name="toolExecBatch">

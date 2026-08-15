@@ -2,7 +2,10 @@
 <moduleConfig>
     <!-- ===== HITL 人工审批模块配置 =====
          此模块为全局单例，所有 Agent 共享同一套审批规则。
-         各 Agent 通过各自 config 中的 <approvalModule value="approvalGate"/> 启用。
+         启用方式：共享工具执行器自身配置（toolExecutor_config.xml 的 approvalModule=approvalGate），
+         全应用统一启用；规则按工具名匹配——危险工具（file_operation/code_execution）只在子 agent
+         上，天然审批下沉，master 打不中规则不受影响。
+         会话/用户隔离由审批请求消息携带的 sessionId/userId 保证（拒绝记忆按会话键）。
 
          规则格式: "tool:op, tool:op, tool"（逗号分隔）
            tool:op → 该工具的指定操作需审批

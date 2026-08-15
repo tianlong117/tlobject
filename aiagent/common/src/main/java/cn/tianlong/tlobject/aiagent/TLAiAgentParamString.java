@@ -54,6 +54,10 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_GETDESCRIPTION = "getAgentDescription";
     /** 向子 agent 索取其贡献的工具定义（实现者如 MCP 返回 functionDefinitions + toolRoutes 展开为 N 个工具；未实现则 master 生成默认 delegate_to_xxx） */
     String AGENT_GETTOOLDEFS = "getToolDefinitions";
+    /** agent → 工具管理模块：索取 LLM 函数定义列表（黑盒消息接口之一，返回 AI_P_FUNCTIONDEFS） */
+    String AGENT_GETFUNCTIONDEFS = "getFunctionDefinitions";
+    /** agent → 工具管理模块：把 LLM 返回的 tool_calls 解析为可执行 ToolTask 列表（黑盒消息接口之二，返回 "tasks"） */
+    String AGENT_RESOLVETOOLCALLS = "resolveToolCalls";
     /** 委托任务给子Agent */
     String AGENT_DELEGATE = "delegateToAgent";
     /** 执行 msgTool（LLM 可调用的预定义消息） */

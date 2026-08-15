@@ -22,6 +22,7 @@
         <module name="chatConsole" agentModule="aiagent_master" sessionManager="dbSessionManager" />
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
         <module name="outputGuard" rules="amountLimit:10000;forbiddenTerms:不要谈论政治;maxLength:3000"/>
+        <module name="appAuthModule"   authModule="auth" userModule="demoUserModule" />
     </modulesParams>
     <modules>
         <!-- 主控Agent（独立模块名，避免递归） -->

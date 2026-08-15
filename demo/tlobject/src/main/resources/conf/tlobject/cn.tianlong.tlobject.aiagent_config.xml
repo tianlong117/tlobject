@@ -18,10 +18,8 @@
              清理阈值毫秒(默认600000=10分钟，0=禁用)，详见 toolExecutor_config.xml 注释 -->
         <module name="toolExecutor" classfile="cn.tianlong.tlobject.aiagent.TLToolExecutor"
                 singleton="true"/>
-        <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.AppAuthModule"
-                singleton="true"
-                userModule="demoUserModule"
-                authModule="auth" />
+        <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.TLAppAuthModule"
+                singleton="true"    />
         <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
@@ -35,6 +33,9 @@
         <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
                 singleton="false"/>
         <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.agent.builtin.TLPlanTaskAgent"
+                singleton="false"/>
+        <!-- 每 agent 私有函数表管理模块（TLAiAgent 经 getMyModule 自建实例，家族名=agent:toolManager） -->
+        <module name="toolManager" classfile="cn.tianlong.tlobject.aiagent.TLToolManager"
                 singleton="false"/>
         <module name="skillInstallerSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLSkillInstallerSkill"
                 singleton="true"/>

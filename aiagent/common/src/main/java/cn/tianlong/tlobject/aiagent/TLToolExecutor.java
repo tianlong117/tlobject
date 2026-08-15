@@ -18,9 +18,11 @@ import java.util.concurrent.TimeUnit;
  * - ToolExecutor 不持有 functions 表，不关心 tool 是 skill 还是 agent
  *
  * 线程安全：
- * - 所有 Agent 共用一个实例，通过 executionId 隔离不同调用
- * - 嵌套执行（master → sub-agent → ToolExecutor）各自独立 executionId，互不覆盖
+ * - 工厂共享单例，所有 Agent 共用（工具执行无状态，任务随消息传入）
+ * - executionId 隔离同一实例内的并发/嵌套调用（master → sub-agent → 同一 ToolExecutor），互不覆盖
  * - TODOOLECANCEL 按 sessionId 批量匹配，遍历 states 取消所有匹配的执行
+ * - 审批为全局公共门禁：审批模块名来自执行器自身配置，规则按工具名匹配（危险工具只在
+ *   子 agent，天然审批下沉）；会话/用户隔离由审批请求消息携带的 sessionId/userId 保证
  *
  * 创建日期：2026/8/8
  * 作者:tianlong
@@ -49,7 +51,6 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         public TLBaseModule module;         // 目标模块引用（Agent 已解析，null = 内建/错误）
         public String action;               // SKILL_EXECUTE / MCP_CALLTOOL / 自定义
         public Map<String, Object> args;    // LLM 传入的参数
-        public String userId;               // 用户隔离
         public String nativeName;           // MCP 原生工具名（非 MCP 时为 null，与 LLM 函数名可能不同）
         /** 单次执行超时（毫秒），0 = 不限时。通过 ThreadTask 的 taskTimeout 系统参数传递给执行线程 */
         public long timeoutMs = 0;
@@ -57,14 +58,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         public String precomputedOutput;
 
         public ToolTask() {}
+        /** userId 不经 ToolTask 携带——一批任务同一用户，执行/授权都从 TODOOLEXECUTE 消息读取 */
         public ToolTask(String toolCallId, TLBaseModule module, String action,
-                        Map<String, Object> args, String userId) {
+                        Map<String, Object> args) {
             this.toolCallId = toolCallId;
             this.module = module;
             this.moduleName = module != null ? module.getName() : "";
             this.action = action;
             this.args = args;
-            this.userId = userId;
         }
     }
 
@@ -114,9 +115,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
     // ======================== 审批 ========================
 
-    /** 审批模块引用（null = 未启用审批） */
+    /** 审批模块引用（null = 未启用审批；按名懒解析，approvalGate 为工厂单例故可缓存） */
     private volatile IObject approvalModule;
-    /** 审批模块名（从 XML params 读取） */
+    /** 审批模块名（共享执行器自身 XML 配置的全局默认，未配置 = 全 app 不启用审批） */
     private String approvalModuleName;
 
     // ======================== 构造函数 ========================
@@ -139,11 +140,6 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
     @Override
     protected TLBaseModule init() { return this; }
-
-    /** 设置审批模块名（由 TLAiAgent 在创建后注入） */
-    public void setApprovalModule(String name) {
-        this.approvalModuleName = name;
-    }
 
     // ======================== 消息分发 ========================
 
@@ -192,7 +188,6 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             for (int i = 0; i < n; i++) {
                 final int idx = i;
                 final ToolTask task = tasks.get(i);
-                task.userId = userId;
                 TLMsg execMsg = createMsg().setAction("_toolExecInternal")
                         .setParam("_task", task).setParam("_idx", idx)
                         .setParam("_fromWho", fromWho)

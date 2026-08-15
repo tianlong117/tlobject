@@ -7,7 +7,7 @@
         <defaultLlmProvider value="openAiProvider"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
-        <approvalModule value="approvalGate"/>
+        <!-- HITL 审批由共享执行器全局启用（toolExecutor_config.xml），规则按工具名匹配 -->
     </params>
 
     <providers>

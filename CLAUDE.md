@@ -90,6 +90,8 @@ Built-in modules extending `TLBaseModule`:
 | Module | Class | Purpose |
 |--------|-------|---------|
 | `aiagent` | `TLAiAgent` | 主控编排器，chat() 统一实现流/非流 |
+| `toolManager` | `TLToolManager` | 每 agent 私有工具管理模块（工具实例化/注册/热加载/重载/toolDefs 缓存；黑盒两条消息接口：getFunctionDefinitions + resolveToolCalls） |
+| `toolExecutor` | `TLToolExecutor` | 工具执行器（工厂共享单例，executionId 隔离运行态；审批为全局门禁见 HITL 段） |
 | `aiContext` | `TLAiContext` | 会话历史管理，自动裁剪 |
 | `openAiProvider` | `TLOpenAiProvider` | OpenAI/DeepSeek 兼容 Provider，SSE 流式 |
 | `claudeProvider` | `TLClaudeProvider` | Claude API Provider |
@@ -141,7 +143,8 @@ Built-in modules extending `TLBaseModule`:
 
 **HITL 审批 (`approvalGate`，全局单例):**
 - 规则键是 **LLM 函数名**（`file_operation:delete`），不是模块名（`fileOperationSkill`）——审批门禁按 `ToolTask.functionName` 匹配
-- 各 Agent 通过自身 config 的 `<approvalModule value="approvalGate"/>` 启用；审批下沉子 Agent（fileAgent/codeAgent 启用，master 不启用）
+- 启用方式：**共享工具执行器**（TLToolExecutor 为工厂单例）自身配置 `toolExecutor_config.xml` 的 `<approvalModule value="approvalGate"/>`，全应用统一启用；规则按工具名匹配——危险工具（file_operation/code_execution）只在子 agent（fileAgent/codeAgent）上，天然审批下沉，master 无危险工具打不中规则
+- 会话/用户隔离由审批请求消息携带的 `sessionId`/`userId` 保证（拒绝记忆按会话键）；执行器其余运行态按 `executionId` 隔离
 - **拒绝是结构化标志**：`doChat` 返回 `rejected`/`rejectReason` → `ToolExecutor` 识别子模块拒绝 → 父 agent 回滚 + 停止循环（不靠 LLM 读文案）
 - **会话级拒绝记忆**：同会话同参数被拒后自动拒绝，不再重复弹框
 - 审批框经 `msgBus` topic `approvalEvent` 发布，控制台 `registBus` 订阅渲染（零直接依赖）；注意 `TLMsgBus.onBus` 路由后必须清 `msg.destination` 防二次路由
