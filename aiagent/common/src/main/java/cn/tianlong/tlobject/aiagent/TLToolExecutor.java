@@ -233,6 +233,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             TLMsg response = createMsg().setParam(RESULT, true);
             List<ToolResult> results = new ArrayList<>();
             boolean hasPending = false, hasRejected = false, hasClarified = false, hasTimeout = false;
+            boolean hasFinal = false;
             String finalResponse = null, rejectReason = null, clarificationQuestion = null;
             String pendingApprovalId = null;
 
@@ -256,6 +257,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 } else if ("timeout".equals(tr.state)) {
                     hasTimeout = true;
                     finalResponse = tr.output;
+                } else if ("final".equals(tr.state)) {
+                    hasFinal = true;
+                    finalResponse = tr.output;
+                    results.add(tr);   // 直出结果也要进 results（history 写入/会话恢复依赖完整结果列表）
                 }
                 // 全链追踪：工具执行结束（含工具名/状态与耗时）
                 String toolState = tr.state == null ? "ok" : tr.state;
@@ -278,6 +283,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             response.setParam("rejected", hasRejected);
             response.setParam("clarified", hasClarified);
             response.setParam("hasTimeout", hasTimeout);
+            response.setParam(AI_P_FINALANSWER, hasFinal);
             if (finalResponse != null) response.setParam("finalResponse", finalResponse);
             if (rejectReason != null) response.setParam("rejectReason", rejectReason);
             if (clarificationQuestion != null) response.setParam("clarificationQuestion", clarificationQuestion);
@@ -405,6 +411,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 String reason = result.getStringParam("rejectReason", "用户拒绝");
                 putLog("<<< [Function] " + functionName + " 返回: REJECTED (" + reason + ")", LogLevel.WARN);
                 state.results.put(idx, new ToolResult(task.toolCallId, output, "rejected", reason));
+                return null;
+            }
+            // 直出标志（agent 配置 directOutput）：标记 final，上游 doChat 短路、不再 LLM 加工
+            if (result != null && result.parseBoolean(AI_P_FINALANSWER, false)) {
+                putLog("<<< [Function] " + functionName + " 返回: FINAL(直出)", LogLevel.DEBUG);
+                state.results.put(idx, new ToolResult(task.toolCallId, output, "final", null));
                 return null;
             }
             putLog("<<< [Function] " + functionName + " 返回 (前200字): "

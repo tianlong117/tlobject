@@ -77,6 +77,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 无历史模式：不向 context 载入/保存会话消息（每次白纸）。
      *  会话链（sid/rootSessionId/级联停止）不受影响；适合无记忆召回的独立任务子 agent */
     protected boolean noHistory = false;
+    /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
+    protected boolean directOutput = false;
 
     /** 是否走意图缓存（TLIntentCacheProvider）。带审批门禁工具的 agent 配置 intentCache=false，
      *  防止被拒/危险操作的轮次被学习并在重复请求时命中缓存 */
@@ -213,6 +215,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 defaultModel = params.get("defaultModel");
             if (params.get("noHistory") != null)
                 noHistory = "true".equals(params.get("noHistory"));
+            if (params.get("directOutput") != null)
+                directOutput = "true".equals(params.get("directOutput"));
             if (params.get("intentCache") != null)
                 intentCacheEnabled = "true".equals(params.get("intentCache"));
             if (params.get("defaultTemperature") != null) {
@@ -665,7 +669,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
         TLMsg result = chat(fromWho, chatMsg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
-        return createMsg().setParam(AI_P_SKILLOUTPUT, output);
+        TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, output);
+        // 直出标志：自身配置 directOutput，或下游已传 finalAnswer（链式传播——a→b→c 委托链中 c 的直出意图逐层上递）
+        if (directOutput || (result != null && result.parseBoolean(AI_P_FINALANSWER, false))) {
+            ret.setParam(AI_P_FINALANSWER, true);
+        }
+        return ret;
     }
 
     protected TLMsg stopChat(Object fromWho, TLMsg msg) {
@@ -807,6 +816,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean clarified = false; // 是否调用了 request_clarification 工具
             boolean pendingApproval = false; // 是否需要人工审批
             boolean rejected = false;       // 审批是否被拒绝
+            boolean finalDirect = false;    // 工具直出短路（下游 finalAnswer → 本层不再 LLM 加工）
             String rejectedReason = null;   // 拒绝原因（随返回消息传播给上游，供 ToolExecutor 识别）
             // 存储到 map 供 onStreamResult 使用，finally 中清理
             sessionMsgStartIdx.remove(sessionId);
@@ -1147,6 +1157,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     boolean execPending = execResult.parseBoolean("pendingApproval", false);
                     boolean execClarified = execResult.parseBoolean("clarified", false);
                     boolean execTimeout = execResult.parseBoolean("hasTimeout", false);
+                    boolean execFinal = execResult.parseBoolean(AI_P_FINALANSWER, false);
 
                     if (execAborted || cancelled.get()) { aborted = true; break; }
                     if (execRejected || execPending || execClarified || execTimeout) {
@@ -1188,6 +1199,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 "（工具执行超时：" + execResult.getStringParam("finalResponse", "")
                                         + "，请根据已有信息继续或重试。）"));
                         finalResponse = execResult.getStringParam("finalResponse", "");
+                        break;
+                    }
+                    // 直出短路：工具结果带 finalAnswer（下游 agent 配置 directOutput）——
+                    // 仅单工具轮生效（多工具并行轮维持正常汇总，不丢其他结果）；
+                    // 工具结果照常写 history + 直出文本作为本轮 assistant 最终消息（会话恢复/下轮上下文完整性），
+                    // 不再调 LLM 加工
+                    if (execFinal && toolCalls.size() == 1) {
+                        @SuppressWarnings("unchecked")
+                        List<TLToolExecutor.ToolResult> execResultsF =
+                                (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+                        if (execResultsF != null) {
+                            for (TLToolExecutor.ToolResult r : execResultsF) {
+                                history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
+                            }
+                        }
+                        finalResponse = execResult.getStringParam("finalResponse", "");
+                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                        finalDirect = true;
                         break;
                     }
                     // 全部正常：按顺序写入 history
@@ -1301,6 +1330,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 ret.setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) sessionCache[2]);
             }
             if (truncated) ret.setParam(AI_P_TRUNCATED, true);
+            // 直出短路轮：返回消息重打标志，把下游直出意图沿委托链向上传播（executeAsTool 透传）
+            if (finalDirect) ret.setParam(AI_P_FINALANSWER, true);
             // 推理内容：仅当开启且 visible 时暴露
             if (!"off".equals(effectiveReasoningMode) && effectiveReasoningVisible
                     && allReasoning.length() > 0) {
@@ -1516,6 +1547,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             return null;
                         }
+                        // 直出短路（流式路径）：单工具轮且带 finalAnswer → 全文直达，不再续跑 LLM
+                        if (execResult != null && execResult.parseBoolean(AI_P_FINALANSWER, false)
+                                && (toolCalls == null || toolCalls.size() == 1)) {
+                            forwardStreamFinal(resultAction, resultFor, sessionId,
+                                    execResult.getStringParam("finalResponse", ""));
+                            return null;
+                        }
 
                         // 非流式继续LLM循环（支持后续tool calls）
                         String finalResponse = null;
@@ -1570,6 +1608,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             if (handleStreamRejected(moreExecResult, history, sessionId)) {
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
+                                return null;
+                            }
+                            // 直出短路（流式续跑循环）：单工具轮且带 finalAnswer → 全文直达
+                            if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
+                                    && (moreTCs == null || moreTCs.size() == 1)) {
+                                forwardStreamFinal(resultAction, resultFor, sessionId,
+                                        moreExecResult.getStringParam("finalResponse", ""));
                                 return null;
                             }
                         }

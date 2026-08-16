@@ -57,6 +57,9 @@ public class TLAgentWorkflow extends TLBaseModule
     /** 工作流描述（作为子agent时返回给master） */
     private String description;
 
+    /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
+    private boolean directOutput = false;
+
     public TLAgentWorkflow() { super(); }
     public TLAgentWorkflow(String name) { super(name); }
     public TLAgentWorkflow(String name, TLObjectFactory factory) { super(name, factory); }
@@ -82,6 +85,9 @@ public class TLAgentWorkflow extends TLBaseModule
             }
             if (params.get("description") != null) {
                 description = params.get("description");
+            }
+            if (params.get("directOutput") != null) {
+                directOutput = "true".equals(params.get("directOutput"));
             }
             // XML 表达式模式：启动期编译一次并缓存（失败回退 XML nodes/edges）
             if (params.get("expression") != null) {
@@ -208,7 +214,9 @@ public class TLAgentWorkflow extends TLBaseModule
         }
         TLMsg result = doWorkflow(msg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
-        return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
+        TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
+        if (directOutput) ret.setParam(AI_P_FINALANSWER, true);
+        return ret;
     }
 
     private TLMsg doWorkflow(TLMsg msg) {

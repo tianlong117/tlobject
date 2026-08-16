@@ -1001,10 +1001,33 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             lines.add("最后一轮（round=" + roundId + "）暂无 LLM 调用记录");
             return ok("最后一轮 Agent 用量", lines);
         }
+        lines.add("当前会话最后一轮各 Agent token 用量 (round=" + roundId + "):");
+
+        // ── 逐次调用明细（时间序，像 /trace 的阶段记录） ──
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> calls = (List<Map<String, Object>>) r.getListParam("calls", new ArrayList<>());
+        if (!calls.isEmpty()) {
+            java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
+            lines.add("逐次 LLM 调用明细（完成时间序）:");
+            int cap = 50;
+            int shown = Math.min(calls.size(), cap);
+            for (int i = 0; i < shown; i++) {
+                Map<String, Object> cr = calls.get(i);
+                lines.add(String.format("  %s  %-24s 输入 %d / 输出 %d / 合计 %d | 缓存 命中 %d/未命中 %d",
+                        sdf.format(new java.util.Date(numOf(cr.get("ts")))),
+                        String.valueOf(cr.get("agentName")),
+                        numOf(cr.get(AI_P_PROMPTTOKENS)), numOf(cr.get(AI_P_COMPLETIONTOKENS)), numOf(cr.get(AI_P_TOTALTOKENS)),
+                        numOf(cr.get(AI_P_CACHEHITTOKENS)), numOf(cr.get(AI_P_CACHEMISSTOKENS))));
+            }
+            if (calls.size() > cap) lines.add("  ...（共 " + calls.size() + " 次，仅显示前 " + cap + " 次）");
+            lines.add("");
+        }
+
+        // ── 按 agent 汇总 ──
         List<Map<String, Object>> agents = (List<Map<String, Object>>) r.getListParam("agents", new ArrayList<>());
         List<Map<String, Object>> sorted = new ArrayList<>(agents);
         sorted.sort((a, b) -> Long.compare(numOf(b.get(AI_P_TOTALTOKENS)), numOf(a.get(AI_P_TOTALTOKENS))));
-        lines.add("当前会话最后一轮各 Agent token 用量 (round=" + roundId + "):");
+        lines.add("按 Agent 汇总（合计降序）:");
         if (sorted.isEmpty()) {
             lines.add("  本轮暂无 LLM 调用记录");
         } else {

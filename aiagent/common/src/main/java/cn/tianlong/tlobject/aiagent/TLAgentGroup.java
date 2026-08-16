@@ -56,6 +56,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
 
     /** 调度模式：sequential | parallel */
     protected String mode = "sequential";
+    /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
+    protected boolean directOutput = false;
 
     /** parallel 模式等待超时（毫秒） */
     protected int waitTime = 120000;
@@ -92,6 +94,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         if (params != null) {
             if (params.get("mode") != null)
                 mode = params.get("mode");
+            if (params.get("directOutput") != null)
+                directOutput = "true".equals(params.get("directOutput"));
             if (params.get("waitTime") != null) {
                 try { waitTime = Integer.parseInt(params.get("waitTime")); }
                 catch (NumberFormatException ignored) {}
@@ -379,7 +383,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         // 全链追踪：上游 roundId 透传——组的一轮就是上游的一轮
         if (msg.containsSystemParam(AI_P_ROUNDID)) chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
         TLMsg result = chat(fromWho, chatMsg);
-        return createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
+        TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
+        if (directOutput) ret.setParam(AI_P_FINALANSWER, true);
+        return ret;
     }
 
     protected TLMsg chat(Object fromWho, TLMsg msg) {

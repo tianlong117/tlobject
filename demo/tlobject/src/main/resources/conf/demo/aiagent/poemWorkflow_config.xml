@@ -73,6 +73,8 @@
     <params>
         <maxParallel value="5"/>
         <description value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
+        <!-- 直出：作为工具被调用时，完整汇总（诗A+诗B+评判全文）不经上游 LLM 再加工，原样返回用户 -->
+        <directOutput value="true"/>
         <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式" -->
         <expression value="(poetA &amp;&amp; poetB) -> poetc"/>
     </params>

@@ -149,12 +149,34 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         public final AtomicLong llmCalls = new AtomicLong();
     }
 
-    /** 某根会话最后一轮的 per-agent 用量（仅内存，每轮覆盖） */
+    /** 单次 LLM 调用记录（/stats agent 逐次明细；按到达序 = 完成时间序） */
+    public static class AgentCallRecord {
+        public final long ts;
+        public final String agentName;
+        public final String sessionId;
+        public final long promptTokens, completionTokens, totalTokens, cacheHitTokens, cacheMissTokens;
+
+        AgentCallRecord(long ts, String agentName, String sessionId,
+                        long p, long c, long t, long ch, long cm) {
+            this.ts = ts;
+            this.agentName = agentName != null ? agentName : "";
+            this.sessionId = sessionId != null ? sessionId : "";
+            this.promptTokens = p;
+            this.completionTokens = c;
+            this.totalTokens = t;
+            this.cacheHitTokens = ch;
+            this.cacheMissTokens = cm;
+        }
+    }
+
+    /** 某根会话最后一轮的 per-agent 用量 + 逐次调用明细（仅内存，每轮覆盖） */
     private static class LastRoundUsage {
         volatile String roundId = "";
         volatile String userId = "";
         /** key = sessionId（派生 sid 区分成员；工具型子 agent 与主 agent 共享 sid） */
         final ConcurrentHashMap<String, AgentRoundUsage> agents = new ConcurrentHashMap<>();
+        /** 逐次调用明细（到达序=完成时间序；clear/add 均在 synchronized(lr) 下，与轮切换重置原子） */
+        final List<AgentCallRecord> calls = new ArrayList<>();
     }
 
     /** rootSessionId → 最后一轮 per-agent 用量（仅内存，重启清零） */
@@ -321,6 +343,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 if (!curRound.equals(lr.roundId)) {
                     lr.roundId = curRound;
                     lr.agents.clear();
+                    lr.calls.clear();
                 }
             }
         }
@@ -339,6 +362,10 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         au.cacheHitTokens.addAndGet(ch);
         au.cacheMissTokens.addAndGet(cm);
         au.llmCalls.incrementAndGet();
+        // 逐次调用明细（与轮切换重置共用 lr 锁：clear/add 原子，防并行成员竞态）
+        synchronized (lr) {
+            lr.calls.add(new AgentCallRecord(System.currentTimeMillis(), au.agentName, sid, p, c, t, ch, cm));
+        }
         String uid = msg.getStringParam(AI_P_USERID, "");
         if (!uid.isEmpty()) lr.userId = uid;
         return null;
@@ -380,7 +407,23 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
             row.put(AI_P_LLMCALLS, au.llmCalls.get());
             list.add(row);
         }
-        return r.setParam("agents", list);
+        // 逐次调用明细（到达序 = 完成时间序）
+        List<Map<String, Object>> calls = new ArrayList<>();
+        synchronized (lr) {
+            for (AgentCallRecord cr : lr.calls) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("ts", cr.ts);
+                row.put("agentName", cr.agentName);
+                row.put(AI_P_SESSIONID, cr.sessionId);
+                row.put(AI_P_PROMPTTOKENS, cr.promptTokens);
+                row.put(AI_P_COMPLETIONTOKENS, cr.completionTokens);
+                row.put(AI_P_TOTALTOKENS, cr.totalTokens);
+                row.put(AI_P_CACHEHITTOKENS, cr.cacheHitTokens);
+                row.put(AI_P_CACHEMISSTOKENS, cr.cacheMissTokens);
+                calls.add(row);
+            }
+        }
+        return r.setParam("agents", list).setParam("calls", calls);
     }
 
     /** 进程级 token 总累计快照查询 */
@@ -396,51 +439,84 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 .setParam(AI_P_LLMCALLS, procLlmCalls.get());
     }
 
-    /** 查询指定会话的 token 统计（sessionId+userId 维度；无记录时 found=false） */
+    /** 查询指定会话的 token 统计（**按根会话聚合**：主 agent + workflow/group 成员全部计入，与 /stats all、DB 落户口径一致；无记录时 found=false） */
     private TLMsg getSessionTokenUsage(Object fromWho, TLMsg msg) {
         String sid = msg.getStringParam(AI_P_SESSIONID, "");
-        SessionStats ss = sid.isEmpty() ? null : sessionStats.get(sid);
         TLMsg r = createMsg().setParam(RESULT, true)
-                .setParam("found", ss != null)
+                .setParam("found", false)
                 .setParam(AI_P_SESSIONID, sid);
-        if (ss != null) {
+        if (sid.isEmpty()) return r;
+        long p = 0, c = 0, t = 0, cc = 0, ch = 0, cm = 0, calls = 0, rounds = 0;
+        String userId = "";
+        boolean found = false;
+        for (Map.Entry<String, SessionStats> e : sessionStats.entrySet()) {
+            SessionStats ss = e.getValue();
+            String root = (ss.rootSessionId != null && !ss.rootSessionId.isEmpty()) ? ss.rootSessionId : e.getKey();
+            if (!sid.equals(root)) continue;
+            found = true;
             long[] v = ss.snapshot();
-            r.setParam(AI_P_USERID, ss.userId)
-             .setParam(AI_P_ROOTSESSIONID, ss.rootSessionId)
-             .setParam(AI_P_PROMPTTOKENS, v[0])
-             .setParam(AI_P_COMPLETIONTOKENS, v[1])
-             .setParam(AI_P_TOTALTOKENS, v[2])
-             .setParam(AI_P_CACHECREATIONTOKENS, v[3])
-             .setParam(AI_P_CACHEHITTOKENS, v[4])
-             .setParam(AI_P_CACHEMISSTOKENS, v[5])
-             .setParam(AI_P_LLMCALLS, v[6])
-             .setParam(AI_P_CHATROUNDS, v[7]);
+            p += v[0]; c += v[1]; t += v[2]; cc += v[3]; ch += v[4]; cm += v[5]; calls += v[6]; rounds += v[7];
+            // userId：主会话 entry（key==sid）优先，其次任意非空
+            if (e.getKey().equals(sid) && !ss.userId.isEmpty()) userId = ss.userId;
+            else if (userId.isEmpty() && !ss.userId.isEmpty()) userId = ss.userId;
         }
-        return r;
+        if (!found) return r;
+        return r.setParam("found", true)
+                .setParam(AI_P_USERID, userId)
+                .setParam(AI_P_ROOTSESSIONID, sid)
+                .setParam(AI_P_PROMPTTOKENS, p)
+                .setParam(AI_P_COMPLETIONTOKENS, c)
+                .setParam(AI_P_TOTALTOKENS, t)
+                .setParam(AI_P_CACHECREATIONTOKENS, cc)
+                .setParam(AI_P_CACHEHITTOKENS, ch)
+                .setParam(AI_P_CACHEMISSTOKENS, cm)
+                .setParam(AI_P_LLMCALLS, calls)
+                .setParam(AI_P_CHATROUNDS, rounds);
     }
 
-    /** 内存中会话的 token 明细（/stats all 数据源；带 userId 参数时只列该用户，空=不过滤；重启清零） */
+    /** 内存中会话的 token 明细（/stats all 数据源；按 rootSessionId 聚合每会话一行——主 agent+workflow/group 成员合并，
+     *  per-agent 明细见 getLastRoundAgentUsage；带 userId 参数时只列该用户，空=不过滤；重启清零） */
     private TLMsg getAllSessionTokenUsage(Object fromWho, TLMsg msg) {
         String userId = msg.getStringParam(AI_P_USERID, "");
-        List<Map<String, Object>> list = new ArrayList<>();
+        Map<String, Map<String, Object>> byRoot = new LinkedHashMap<>();
         for (Map.Entry<String, SessionStats> e : sessionStats.entrySet()) {
             SessionStats ss = e.getValue();
             if (!userId.isEmpty() && !userId.equals(ss.userId)) continue;
+            String root = (ss.rootSessionId != null && !ss.rootSessionId.isEmpty()) ? ss.rootSessionId : e.getKey();
             long[] v = ss.snapshot();
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put(AI_P_SESSIONID, e.getKey());
-            row.put(AI_P_USERID, ss.userId);
-            row.put(AI_P_ROOTSESSIONID, ss.rootSessionId);
-            row.put(AI_P_PROMPTTOKENS, v[0]);
-            row.put(AI_P_COMPLETIONTOKENS, v[1]);
-            row.put(AI_P_TOTALTOKENS, v[2]);
-            row.put(AI_P_CACHEHITTOKENS, v[4]);
-            row.put(AI_P_CACHEMISSTOKENS, v[5]);
-            row.put(AI_P_LLMCALLS, v[6]);
-            row.put(AI_P_CHATROUNDS, v[7]);
-            list.add(row);
+            Map<String, Object> row = byRoot.computeIfAbsent(root, k -> {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put(AI_P_SESSIONID, root);
+                r.put(AI_P_USERID, "");
+                r.put(AI_P_ROOTSESSIONID, root);
+                r.put(AI_P_PROMPTTOKENS, 0L);
+                r.put(AI_P_COMPLETIONTOKENS, 0L);
+                r.put(AI_P_TOTALTOKENS, 0L);
+                r.put(AI_P_CACHEHITTOKENS, 0L);
+                r.put(AI_P_CACHEMISSTOKENS, 0L);
+                r.put(AI_P_LLMCALLS, 0L);
+                r.put(AI_P_CHATROUNDS, 0L);
+                return r;
+            });
+            row.put(AI_P_PROMPTTOKENS, num(row.get(AI_P_PROMPTTOKENS)) + v[0]);
+            row.put(AI_P_COMPLETIONTOKENS, num(row.get(AI_P_COMPLETIONTOKENS)) + v[1]);
+            row.put(AI_P_TOTALTOKENS, num(row.get(AI_P_TOTALTOKENS)) + v[2]);
+            row.put(AI_P_CACHEHITTOKENS, num(row.get(AI_P_CACHEHITTOKENS)) + v[4]);
+            row.put(AI_P_CACHEMISSTOKENS, num(row.get(AI_P_CACHEMISSTOKENS)) + v[5]);
+            row.put(AI_P_LLMCALLS, num(row.get(AI_P_LLMCALLS)) + v[6]);
+            row.put(AI_P_CHATROUNDS, num(row.get(AI_P_CHATROUNDS)) + v[7]);
+            // userId：主会话 entry（key==root）优先，其次任意非空
+            if (e.getKey().equals(root) && !ss.userId.isEmpty()) {
+                row.put(AI_P_USERID, ss.userId);
+            } else if ("".equals(String.valueOf(row.get(AI_P_USERID))) && !ss.userId.isEmpty()) {
+                row.put(AI_P_USERID, ss.userId);
+            }
         }
-        return createMsg().setParam(RESULT, true).setParam("sessions", list);
+        return createMsg().setParam(RESULT, true).setParam("sessions", new ArrayList<>(byRoot.values()));
+    }
+
+    private static long num(Object v) {
+        return v instanceof Number ? ((Number) v).longValue() : 0L;
     }
 
     /** DB 历史合计（跨重启，带 userId 参数时按用户过滤；persist 开关关/表缺失时返回 notEnabled 标志） */

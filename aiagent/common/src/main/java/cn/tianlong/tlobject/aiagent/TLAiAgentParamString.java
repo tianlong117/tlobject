@@ -237,6 +237,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_LLMCALLS = "llmCalls";
     /** 功能被配置开关禁用时的标志（如 persistTokenStats=false 时 DB 历史合计不可用） */
     String AI_P_NOTENABLED = "notEnabled";
+    /** 直出标志：工具结果不需 LLM 再加工，原样作为最终回复（agent 配置 directOutput=true 时产出；沿委托链向上传播） */
+    String AI_P_FINALANSWER = "finalAnswer";
 
     // Skill
     String AI_P_SKILLNAME = "skillName";

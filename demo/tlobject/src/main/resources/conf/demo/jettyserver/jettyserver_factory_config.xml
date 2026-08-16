@@ -5,6 +5,7 @@
     <params>
         <package value="cn.tianlong.java"/>
         <ifModuleMonitor value="false"/>
+        <defaultLogModule value="log4j"/>
         <applicationId value="jettyserver"/>
     </params>
     <modulesParams>

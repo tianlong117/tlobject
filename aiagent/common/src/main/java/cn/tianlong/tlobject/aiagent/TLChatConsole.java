@@ -784,11 +784,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             case "stats":
-                // /stats —— Token 统计三段；/stats all —— 内存会话明细；/stats agent —— 最后一轮各 agent 用量
+                // /stats —— Token 统计三段；/stats all —— 内存会话明细；/stats agent(s) —— 最后一轮各 agent 用量
                 if (parts.length > 1 && "all".equalsIgnoreCase(parts[1])) {
                     msg.setAction("statsAll").setParam(AI_P_USERID, userId);
-                } else if (parts.length > 1 && "agent".equalsIgnoreCase(parts[1])) {
+                } else if (parts.length > 1
+                        && ("agent".equalsIgnoreCase(parts[1]) || "agents".equalsIgnoreCase(parts[1]))) {
                     msg.setAction("statsAgent").setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
+                } else if (parts.length > 1) {
+                    System.out.println("未知子命令: /stats " + parts[1] + "（可用: /stats、/stats all、/stats agent）");
+                    return null;
                 } else {
                     msg.setAction("stats").setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
                 }
