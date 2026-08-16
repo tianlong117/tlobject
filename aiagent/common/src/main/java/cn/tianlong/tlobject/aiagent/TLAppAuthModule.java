@@ -79,7 +79,7 @@ public class TLAppAuthModule extends TLBaseModule {
 
         // userId 从原消息（TODOOLEXECUTE）读——消息流里一直带会话/用户 id，一批任务同一用户，
         // 不必存放在 Task 上（executeTools 也从同一消息取 userId）
-        String userId = originalMsg.getStringParam("userId", "default");
+        String userId = String.valueOf(originalMsg.getSystemParam("userId", "default"));
 
         Iterator<TLToolExecutor.ToolTask> it = tasks.iterator();
         while (it.hasNext()) {

@@ -186,7 +186,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
         try {
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, "test_basic")
+                    .setSystemParam(AI_P_SESSIONID, "test_basic")
                     .setParam(AI_P_USERMESSAGE, "你好，请简单回答：1+1等于几？");
 
             TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -227,7 +227,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 回合1: 告诉AI个人信息
             TLMsg turn1 = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, "记住：我叫王小明，今年30岁，是一名架构师。请回复'已记住'。");
 
             TLMsg resp1 = putMsg(M_AIAGENT, turn1);
@@ -240,7 +240,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 回合2: 询问之前的信息
             TLMsg turn2 = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, "我刚才告诉你我叫什么名字？做什么工作？");
 
             TLMsg resp2 = putMsg(M_AIAGENT, turn2);
@@ -278,7 +278,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 使用一个稳定的URL来测试tool call
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, "test_toolcall")
+                    .setSystemParam(AI_P_SESSIONID, "test_toolcall")
                     .setParam(AI_P_USERMESSAGE, "使用http_request工具GET请求 https://www.baidu.com ，然后告诉我返回的状态码是什么。只需要报告状态码。");
 
             TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -325,7 +325,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 发送流式请求
             TLMsg streamMsg = createMsg()
                     .setAction(AGENT_CHATSTREAM)
-                    .setParam(AI_P_SESSIONID, "test_stream")
+                    .setSystemParam(AI_P_SESSIONID, "test_stream")
                     .setParam(AI_P_USERMESSAGE, "从1数到5，每个数字一行。只输出数字，不需要解释。")
                     .setParam(RESULTFOR, "streamCallback")
                     .setParam(RESULTACTION, "onStreamChunk");
@@ -487,7 +487,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 7a: 用当前provider发送一条消息
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, "test_provider")
+                    .setSystemParam(AI_P_SESSIONID, "test_provider")
                     .setParam(AI_P_USERMESSAGE, "回复一个词：Hello");
 
             TLMsg response1 = putMsg(M_AIAGENT, chatMsg);
@@ -510,7 +510,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
                 // 用新provider再发一条
                 TLMsg chatMsg2 = createMsg()
                         .setAction(AGENT_CHAT)
-                        .setParam(AI_P_SESSIONID, "test_provider2")
+                        .setSystemParam(AI_P_SESSIONID, "test_provider2")
                         .setParam(AI_P_USERMESSAGE, "回复一个词：World");
 
                 TLMsg response2 = putMsg(M_AIAGENT, chatMsg2);
@@ -556,7 +556,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
             // 8a: 先建立上下文
             TLMsg chat1 = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, "记住：我最喜欢的颜色是蓝色。回复'已记住'即可。");
 
             putMsg(M_AIAGENT, chat1);
@@ -597,7 +597,7 @@ public class AiAgentDemoModule extends TLBaseModule implements TLAiAgentParamStr
                         String sessionId = "test_concurrent_" + index;
                         TLMsg chatMsg = createMsg()
                                 .setAction(AGENT_CHAT)
-                                .setParam(AI_P_SESSIONID, sessionId)
+                                .setSystemParam(AI_P_SESSIONID, sessionId)
                                 .setParam(AI_P_USERMESSAGE, "回复数字" + (index + 1) + "即可");
 
                         TLMsg response = putMsg(M_AIAGENT, chatMsg);

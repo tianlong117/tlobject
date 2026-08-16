@@ -15,6 +15,7 @@ import org.apache.commons.lang3.StringUtils;
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
 import java.io.File;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -132,82 +133,128 @@ public class uploadFile extends TLWServModule {
     }
 
     private TLMsg saveFile(Object fromWho, TLMsg msg) {
-        HashMap<String,String> fileNames = new HashMap<>();
-        HashMap<String,String> saveFiles = new HashMap<>();
+        HashMap<String, String> fileNames = new HashMap<>();
+        HashMap<String, String> saveFiles = new HashMap<>();
         List<FileItem> items = (List<FileItem>) msg.getParam(UPLOADFILE_R_UPLOADITEMS);
         Object newFileName = msg.getParam(UPLOADFILE_P_NEWFILENAME);
-        boolean changeName =msg.parseBoolean(UPLOADFILE_P_NOCHANGENAME,true);
+        boolean changeName = msg.parseBoolean(UPLOADFILE_P_NOCHANGENAME, true);
         int i = 0;
         int fileNums = items.size();
         TLMsg returnMsg = createMsg();
+
+        // 获取目标目录的规范路径（用于后续验证）
+        String filepath = (String) msg.getParam(UPLOADFILE_P_FILEPATH);
+        if (filepath == null) {
+            filepath = this.filePath;
+        }
+        HttpServletRequest request = getRequest();
+        ServletContext ctx = request.getServletContext();
+        String realPath = ctx.getRealPath(filepath);
+        if (realPath == null) {
+            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam(UPLOADFILE_P_FILEPATH, "error");
+        }
+        File targetDir = new File(realPath);
+        if (!targetDir.exists()) {
+            if (!targetDir.mkdirs()) {
+                return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                        .setParam(UPLOADFILE_P_FILEPATH, "mkdir failed");
+            }
+        }
+        // 获取目标目录的规范路径（用于验证）
+        String targetCanonicalPath;
+        try {
+            targetCanonicalPath = targetDir.getCanonicalPath();
+        } catch (IOException e) {
+            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam(UPLOADFILE_P_FILEPATH, "canonical path error");
+        }
+
         for (FileItem fileItem : items) {
             if (!fileItem.isFormField()) {
                 String fieldName = fileItem.getFieldName();
-                String fileName = sanitizeFileName(fileItem.getName());// 获取文件名并净化防止路径遍历
-                String fileType = fileItem.getContentType();// 获取文件类型
-                if(changeName){
-                    String type = StringUtils.substringAfterLast(fileName,  ".");
+                String originalFileName = fileItem.getName();
+                String fileName = sanitizeFileName(originalFileName);
+                // 如果净化后文件名为空，使用默认名
+                if (fileName == null || fileName.isEmpty()) {
+                    fileName = "unnamed_" + System.currentTimeMillis();
+                }
+                String fileType = fileItem.getContentType();
+
+                // --- 文件名生成逻辑（保持不变） ---
+                if (changeName) {
+                    String type = StringUtils.substringAfterLast(fileName, ".");
                     if (newFileName != null) {
                         if (newFileName instanceof String) {
-                            if (fileNums == 1)
+                            if (fileNums == 1) {
                                 fileName = newFileName + "." + type;
-                            else
+                            } else {
                                 fileName = newFileName + "_" + i + "." + type;
-                        } else if (newFileName instanceof ArrayList)
+                            }
+                        } else if (newFileName instanceof ArrayList) {
                             fileName = ((ArrayList) newFileName).get(i) + "." + type;
-                    }
-                    else
-                    {
-                        if(fileName.indexOf("/") !=-1)
-                            fileName =StringUtils.substringAfterLast(fileName,  "/") ;
-                        if(fileName.indexOf("\\") !=-1)
-                            fileName =StringUtils.substringAfterLast(fileName,  "\\") ;
-                        if(fileName.indexOf(".") !=-1)
-                            fileName=StringUtils.substringBeforeLast(fileName,  ".") ;
-                        if(type !=null && !type.isEmpty())
-                            fileName=fileName+"_"+TLDateUtils.getNowDateStr("yyyyMMddHHmmss") + "." + type;
-                        else
-                            fileName=fileName+"_"+TLDateUtils.getNowDateStr("yyyyMMddHHmmss") ;
+                        }
+                    } else {
+                        if (fileName.indexOf("/") != -1) {
+                            fileName = StringUtils.substringAfterLast(fileName, "/");
+                        }
+                        if (fileName.indexOf("\\") != -1) {
+                            fileName = StringUtils.substringAfterLast(fileName, "\\");
+                        }
+                        if (fileName.indexOf(".") != -1) {
+                            fileName = StringUtils.substringBeforeLast(fileName, ".");
+                        }
+                        if (type != null && !type.isEmpty()) {
+                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmss") + "." + type;
+                        } else {
+                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmss");
+                        }
                     }
                 }
+                // 最终文件名只保留文件名部分（无路径）
+                fileName = new File(fileName).getName(); // 再次净化，确保无路径分隔符
+
+                // --- 文件类型检查（保持不变） ---
                 String fileTypesStr = (String) msg.getParam(UPLOADFILE_P_FILETYPES);
-                HttpServletRequest request = getRequest();
-                ServletContext ctx = request.getServletContext();// 获取上下文应用
-                String filepath = (String) msg.getParam(UPLOADFILE_P_FILEPATH);
-                if (filepath == null)
-                    filepath = this.filePath;
-                String realPath = ctx.getRealPath(filepath);// 设置存储路径
-                if (realPath == null)
-                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_P_FILEPATH, "error");
-                File dir = new File(realPath);
-                if (!dir.exists()) {
-                    if (!dir.mkdirs())
-                        return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_P_FILEPATH, "error");
-                }
-                if (fileTypesStr != null && !fileTypesStr.isEmpty())
-                {
+                if (fileTypesStr != null && !fileTypesStr.isEmpty()) {
                     String[] fileTypes = fileTypesStr.split(FENHAO);
-                    if (fileTypes != null && fileTypes.length > 0 && !ifFileTypePermit(fileTypes, fileType))
-                        return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_R_FILETYPE, fileType);
+                    if (fileTypes.length > 0 && !ifFileTypePermit(fileTypes, fileType)) {
+                        return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                                .setParam(UPLOADFILE_R_FILETYPE, fileType);
+                    }
                 }
-                // 基于文件名后缀二次校验，防止客户端伪造 Content-Type
-                if (fileName != null && isDangerousExtension(fileName))
-                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_R_FILETYPE, "forbidden");
+                // 基于文件名后缀二次校验（保持不变）
+                if (fileName != null && isDangerousExtension(fileName)) {
+                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                            .setParam(UPLOADFILE_R_FILETYPE, "forbidden");
+                }
+
+                // --- 路径验证与保存 ---
                 String saveFilename = realPath + File.separator + fileName;
-                File file = new File(saveFilename);// 创建文件实例
+                File file = new File(saveFilename);
                 try {
-                    fileItem.write(file);// 写入数据到文件
-                    fileNames.put(fieldName,fileName);
-                    saveFiles.put(fieldName,saveFilename);
+                    // 验证最终路径是否在目标目录内
+                    String fileCanonicalPath = file.getCanonicalPath();
+                    if (!fileCanonicalPath.startsWith(targetCanonicalPath + File.separator)) {
+                        // 如果不在目标目录内，拒绝保存
+                        return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                                .setParam(UPLOADFILE_R_FILENAME, fileName)
+                                .setParam("error", "Invalid file path");
+                    }
+                    // 写入文件
+                    fileItem.write(file);
+                    fileNames.put(fieldName, fileName);
+                    saveFiles.put(fieldName, saveFilename);
                     i++;
                 } catch (Exception e) {
-                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true).setParam(UPLOADFILE_R_FILENAME, fileName);
+                    return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                            .setParam(UPLOADFILE_R_FILENAME, fileName);
                 }
             }
         }
-        return returnMsg.setParam(UPLOADFILE_R_FILENAMES, fileNames).setParam(UPLOADFILE_R_SAVEFILES, saveFiles);
+        return returnMsg.setParam(UPLOADFILE_R_FILENAMES, fileNames)
+                .setParam(UPLOADFILE_R_SAVEFILES, saveFiles);
     }
-
     private TLMsg upload(Object fromWho, TLMsg msg) {
         TLMsg returnMsg = parseRequest(fromWho, msg);
         if (returnMsg.getParam(UPLOADFILE_R_ERROR) != null)

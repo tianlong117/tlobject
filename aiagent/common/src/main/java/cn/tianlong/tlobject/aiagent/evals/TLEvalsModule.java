@@ -440,7 +440,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         try {
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, evalCase.getInput());
 
             TLMsg response = sendToTarget(targetModule, chatMsg);
@@ -596,7 +596,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             if (result == null) return toolNames;
 
             List<TLConversationHistory> history =
-                    (List<TLConversationHistory>) result.getParam("history", List.class);
+                    (List<TLConversationHistory>) result.getListParam(AI_P_MESSAGEHISTORY, null);
             if (history == null) return toolNames;
 
             for (TLConversationHistory entry : history) {

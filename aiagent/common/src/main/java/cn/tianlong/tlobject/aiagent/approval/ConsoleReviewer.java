@@ -26,6 +26,7 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
         this.promptTemplate = "\n╔══════════════════════════════════════╗\n"
                 + "║   ⚠️  操作需要人工审批                ║\n"
                 + "╠══════════════════════════════════════╣\n"
+                + "║  说明: {description}\n"
                 + "║  工具: {toolName}\n"
                 + "║  风险: {riskLevel}\n"
                 + "║  参数: {toolArgs}\n"
@@ -62,7 +63,10 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
                 .replace("{riskLevel}", request.getRiskLevel() != null ? request.getRiskLevel() : "-")
                 .replace("{toolArgs}", formatArgs(request.getToolArguments()))
                 .replace("{approvalId}", request.getApprovalId() != null ? request.getApprovalId() : "-")
-                .replace("{id}", request.getApprovalId() != null ? request.getApprovalId() : "-");
+                .replace("{id}", request.getApprovalId() != null ? request.getApprovalId() : "-")
+                .replace("{description}",
+                        request.getDescription() != null && !request.getDescription().isEmpty()
+                                ? request.getDescription() : "需要您的确认");
         // 经消息总线发布审批事件，由订阅者（控制台）自行渲染审批框+输入提示符；
         // 无订阅者（无控制台环境）时回退为直接打印
         if (owner == null || !owner.publishApprovalEvent(msg)) {

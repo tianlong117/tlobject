@@ -153,8 +153,7 @@ public class MapInDB extends TLBaseTableModle {
     }
 
     public boolean putAll(Map<String,Object> map){
-        if(cacheExptime > 0L)
-            writeCache(map);
+
         if(map instanceof  LinkedHashMap)
             return putAllByOneByOne( map) ;
         ArrayList<LinkedHashMap> datas= new ArrayList<>();
@@ -175,7 +174,15 @@ public class MapInDB extends TLBaseTableModle {
         int datasize =datas.size();
         String sql = " replace into  [table] ( id ,mid,mkey,value,type ) values(?,?,?,?,?)";
         int result =TLDBUtilis.batchInsertList(sql,datas, (TLTable) table);
-        return (result==datasize)?true : false ;
+        if(result==datasize)
+        {
+            if(cacheExptime > 0L)
+                writeCache(map);
+            return  true ;
+        }
+        else
+            return  false ;
+
     }
 
     public boolean putAllByOneByOne(Map<String,Object> map) {

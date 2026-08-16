@@ -299,12 +299,14 @@ public class TLWorkflowEngine implements TLParamString {
         // 合并后会把工作流级会话覆盖掉（sid 链污染）——此处恢复初始值
         if (context.getInput() != null) {
             TLMsg initial = context.getInput();
-            if (initial.containsParam("sessionId"))
-                input.setParam("sessionId", initial.getStringParam("sessionId", ""));
-            if (initial.containsParam("rootSessionId"))
-                input.setParam("rootSessionId", initial.getStringParam("rootSessionId", ""));
-            if (initial.containsParam("userId"))
-                input.setParam("userId", initial.getStringParam("userId", ""));
+            if (initial.containsSystemParam("sessionId"))
+                input.setSystemParam("sessionId", initial.getSystemParam("sessionId", ""));
+            if (initial.containsSystemParam("rootSessionId"))
+                input.setSystemParam("rootSessionId", initial.getSystemParam("rootSessionId", ""));
+            if (initial.containsSystemParam("userId"))
+                input.setSystemParam("userId", initial.getSystemParam("userId", ""));
+            if (initial.containsSystemParam("roundId"))
+                input.setSystemParam("roundId", initial.getSystemParam("roundId", ""));
         }
         return input;
     }

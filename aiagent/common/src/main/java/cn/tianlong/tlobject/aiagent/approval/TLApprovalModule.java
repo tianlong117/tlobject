@@ -6,8 +6,10 @@ import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
+import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.*;
 import java.util.concurrent.*;
@@ -53,6 +55,12 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     /** 通配规则前缀（tool:* → "tool:"，tool* → "tool"），按 startsWith 匹配函数名 */
     private final List<String> approvalRulePrefixes = new ArrayList<>();
 
+    /** 规则名 → description（结构化 &lt;rules&gt; 配置的人可读说明，弹框展示用） */
+    private final Map<String, String> ruleDescriptions = new LinkedHashMap<>();
+
+    /** 结构化 &lt;rules&gt; 段解析结果（myConfig.setConfig 填充）：规则名 → 属性（statup/action/rule/description） */
+    private HashMap<String, HashMap<String, String>> rulesConfig;
+
     // ======================== 审查人 ========================
 
     /** 审查人实例 */
@@ -95,14 +103,36 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     // ======================== 生命周期 ========================
 
+    /**
+     * 解析结构化 &lt;rules&gt; 段（与 TLAiAgent.myConfig 同款模式）：
+     * <pre>{@code
+     * <rules>
+     *     <rule name="file_operation" statup="true" description="删除/写入文件要审批" action="delete,write"/>
+     *     <rule name="priceTeam"      statup="true" description="写诗要审批"              rule="*"/>
+     * </rules>
+     * }</pre>
+     * action="a,b" = 指定操作；rule="*" 或两者都无 = 该工具全部操作；
+     * name 支持 tool:* / tool* 通配形式（同旧格式约定）。
+     */
+    @Override
+    protected Object setConfig() {
+        myConfig config = new myConfig(configFile, moduleFactory.getConfigDir());
+        mconfig = config;
+        super.setConfig();
+        rulesConfig = config.getRules();
+        return config;
+    }
+
     @Override
     protected void setModuleParams() {
         super.setModuleParams();
+        // 规则优先级：结构化 <rules> 段 > 旧 approvalRules 字符串（向后兼容）
+        if (rulesConfig != null && !rulesConfig.isEmpty()) {
+            applyStructuredRules();
+        } else if (params != null && params.get("approvalRules") != null) {
+            parseApprovalRules(params.get("approvalRules"));
+        }
         if (params != null) {
-            // 解析审批规则
-            if (params.get("approvalRules") != null) {
-                parseApprovalRules(params.get("approvalRules"));
-            }
             if (params.get("reviewerClass") != null) {
                 this.reviewerClass = params.get("reviewerClass");
             }
@@ -272,7 +302,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     @SuppressWarnings("unchecked")
     private TLMsg handleApprovalRequest(Object fromWho, TLMsg msg) {
         String toolName = msg.getStringParam("toolName", "");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "");
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, ""));
         String toolCallId = msg.getStringParam("toolCallId", "");
         String rationale = msg.getStringParam("rationale", "");
 
@@ -309,8 +339,11 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         // 3. 创建审批请求
         TLApprovalRequest request = new TLApprovalRequest(sessionId, toolName, toolArgs, toolCallId);
-        request.setRoundId(msg.getStringParam(AI_P_ROUNDID, ""));
-        request.setRootSessionId(msg.getStringParam("rootSessionId", sessionId));
+        request.setRoundId(String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")));
+        request.setRootSessionId(String.valueOf(msg.getSystemParam("rootSessionId", sessionId)));
+        // 命中规则的人可读说明（弹框展示）
+        String ruleDesc = findMatchedRuleDescription(toolName);
+        if (ruleDesc != null) request.setDescription(ruleDesc);
         request.setOperation(operation);
         request.setRiskLevel(riskLevel);
         request.setRationale(rationale);
@@ -606,6 +639,88 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         putLog("Approval rules parsed: " + approvalRules
                 + (approvalRulePrefixes.isEmpty() ? "" : " prefixes=" + approvalRulePrefixes), LogLevel.DEBUG);
+    }
+
+    /** 结构化 &lt;rules&gt; 段 → 匹配结构（复用旧结构的 approvalRules/approvalRulePrefixes + description 表） */
+    private void applyStructuredRules() {
+        approvalRules.clear();
+        approvalRulePrefixes.clear();
+        ruleDescriptions.clear();
+        for (Map.Entry<String, HashMap<String, String>> e : rulesConfig.entrySet()) {
+            String name = e.getKey().trim();
+            HashMap<String, String> attrs = e.getValue();
+            if (name.isEmpty()) continue;
+            if (!TLDataUtils.parseBoolean(attrs.get("statup"), true)) continue;
+
+            String desc = attrs.get("description");
+            if (desc != null && !desc.trim().isEmpty()) {
+                ruleDescriptions.put(name, desc.trim());
+            }
+
+            if (name.endsWith(":*")) {
+                // tool:* 通配：裸名全部操作 + 冒号风格函数名前缀
+                String tool = name.substring(0, name.length() - 2).trim();
+                approvalRulePrefixes.add(tool + ":");
+                approvalRules.putIfAbsent(tool, Collections.emptySet());
+                continue;
+            }
+            if (name.endsWith("*")) {
+                // tool* 前缀通配（MCP 的 agentName_toolName 函数名风格）
+                approvalRulePrefixes.add(name.substring(0, name.length() - 1));
+                continue;
+            }
+            String actionAttr = attrs.get("action");
+            if (actionAttr != null && !actionAttr.trim().isEmpty()) {
+                // action="delete,write" → 指定操作集合
+                Set<String> ops = new LinkedHashSet<>();
+                for (String op : actionAttr.split(",")) {
+                    String t = op.trim().toLowerCase();
+                    if (!t.isEmpty()) ops.add(t);
+                }
+                approvalRules.put(name, ops);
+            } else {
+                // rule="*" 或两者都无 → 该工具全部操作
+                approvalRules.put(name, Collections.emptySet());
+            }
+        }
+        putLog("Structured approval rules applied: " + approvalRules
+                + (approvalRulePrefixes.isEmpty() ? "" : " prefixes=" + approvalRulePrefixes), LogLevel.DEBUG);
+    }
+
+    /** 查命中规则的人可读说明（弹框展示）：前缀规则优先，其次精确名 */
+    private String findMatchedRuleDescription(String toolName) {
+        for (String prefix : approvalRulePrefixes) {
+            if (toolName.startsWith(prefix)) {
+                String ruleName = prefix.endsWith(":") ? prefix.substring(0, prefix.length() - 1) : prefix;
+                String d = ruleDescriptions.get(ruleName);
+                if (d != null) return d;
+            }
+        }
+        return ruleDescriptions.get(toolName);
+    }
+
+    // ======================== 内部配置解析类 ========================
+
+    /** 解析 &lt;rules&gt; 段（getHashMap 以 name 属性为键、其余属性为值） */
+    protected class myConfig extends TLModuleConfig {
+        private HashMap<String, HashMap<String, String>> rules;
+
+        public myConfig() {}
+        public myConfig(String configFile, String configDir) { super(configFile, configDir); }
+
+        public HashMap<String, HashMap<String, String>> getRules() { return rules; }
+
+        @Override
+        protected void myConfig(org.xmlpull.v1.XmlPullParser xpp) {
+            super.myConfig(xpp);
+            try {
+                if (xpp.getName().equals("rules")) {
+                    rules = getHashMap(xpp, "rules", "rule");
+                }
+            } catch (Throwable t) {
+                putLog("approvalGate rules parse error: " + t.toString(), LogLevel.WARN);
+            }
+        }
     }
 
     // ======================== 超时处理 ========================

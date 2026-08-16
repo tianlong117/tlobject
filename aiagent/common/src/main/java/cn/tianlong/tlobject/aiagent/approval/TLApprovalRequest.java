@@ -93,6 +93,12 @@ public class TLApprovalRequest {
     public String getRationale() { return rationale; }
     public void setRationale(String rationale) { this.rationale = rationale; }
 
+    /** 命中规则的 description（人可读说明，弹框展示；来自 <rules> 配置） */
+    private String description = "";
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
     public String getState() { return state; }
     public void setState(String state) { this.state = state; }
 
@@ -145,6 +151,7 @@ public class TLApprovalRequest {
         map.put("operation", operation);
         map.put("riskLevel", riskLevel);
         map.put("rationale", rationale);
+        map.put("description", description);
         map.put("state", state);
         map.put("toolArguments", toolArguments);
         map.put("modifiedArguments", modifiedArguments);
@@ -165,6 +172,7 @@ public class TLApprovalRequest {
         req.setOperation((String) map.get("operation"));
         req.setRiskLevel((String) map.get("riskLevel"));
         req.setRationale((String) map.get("rationale"));
+        req.setDescription((String) map.get("description"));
         req.setState((String) map.get("state"));
         req.setToolArguments((Map<String, Object>) map.get("toolArguments"));
         req.setModifiedArguments((Map<String, Object>) map.get("modifiedArguments"));

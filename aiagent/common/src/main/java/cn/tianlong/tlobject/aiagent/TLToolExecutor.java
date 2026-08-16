@@ -165,11 +165,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     @SuppressWarnings("unchecked")
     private TLMsg executeTools(Object fromWho, TLMsg msg) {
         List<ToolTask> tasks = (List<ToolTask>) msg.getListParam("tasks", null);
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        String userId = msg.getStringParam("userId", "default");
-        String executionId = msg.getStringParam("executionId", sessionId + "_" + System.nanoTime());
-        String rootSessionId = msg.getStringParam("rootSessionId", sessionId);
-        String roundId = msg.getStringParam(AI_P_ROUNDID, "");
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        String userId = String.valueOf(msg.getSystemParam("userId", "default"));
+        String executionId = String.valueOf(msg.getSystemParam("executionId", sessionId + "_" + System.nanoTime()));
+        String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
+        String roundId = String.valueOf(msg.getSystemParam(AI_P_ROUNDID, ""));
 
         if (tasks == null || tasks.isEmpty()) {
             return createMsg().setParam(RESULT, true)
@@ -193,11 +193,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 TLMsg execMsg = createMsg().setAction("_toolExecInternal")
                         .setParam("_task", task).setParam("_idx", idx)
                         .setParam("_fromWho", fromWho)
-                        .setParam("executionId", executionId)
-                        .setParam(AI_P_SESSIONID, sessionId)
-                        .setParam("userId", userId)
-                        .setParam("rootSessionId", rootSessionId)
-                        .setParam(AI_P_ROUNDID, roundId);
+                        .setSystemParam("executionId", executionId)
+                        .setSystemParam(AI_P_SESSIONID, sessionId)
+                        .setSystemParam("userId", userId)
+                        .setSystemParam("rootSessionId", rootSessionId)
+                        .setSystemParam(AI_P_ROUNDID, roundId);
                 // 每个 task 可单独设超时，传给 ThreadTask
                 if (task.timeoutMs > 0)
                     execMsg.setSystemParam(TASKTIMEOUT, task.timeoutMs);
@@ -303,7 +303,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     private TLMsg doToolExec(Object fromWho, TLMsg msg) {
         ToolTask task = (ToolTask) msg.getParam("_task");
         int idx = msg.getIntParam("_idx", -1);
-        String executionId = msg.getStringParam("executionId", "");
+        String executionId = String.valueOf(msg.getSystemParam("executionId", ""));
         ExecutionState state = states.get(executionId);
         if (state == null || task == null) {
             if (state == null) return null; // 已被 cancel 清理
@@ -321,11 +321,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
                     ? task.functionName : task.moduleName;
             TLMsg approvalResult = checkApprovalGate(task.toolCallId, task.args, approvalToolName,
-                    msg.getStringParam(AI_P_SESSIONID, "default"),
-                    msg.getStringParam("userId", "default"),
-                    msg.getStringParam(AI_P_ROUNDID, ""),
-                    msg.getStringParam("rootSessionId",
-                            msg.getStringParam(AI_P_SESSIONID, "default")));
+                    String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")),
+                    String.valueOf(msg.getSystemParam("userId", "default")),
+                    String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")),
+                    String.valueOf(msg.getSystemParam("rootSessionId",
+                            String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")))));
             if (approvalResult != null) {
                 String approvalState = approvalResult.getStringParam(AI_P_APPROVAL_STATE, "");
                 ToolResult tr = new ToolResult(task.toolCallId,
@@ -367,13 +367,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             for (Map.Entry<String, Object> entry : task.args.entrySet()) {
                 execMsg.setParam(entry.getKey(), entry.getValue());
             }
-            String toolUserId = msg.getStringParam("userId", null);
-            if (toolUserId != null) execMsg.setParam("userId", toolUserId);
-            // 会话信息透传（工具模块、before/after 钩子、级联停止、全链追踪可用）
-            execMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, "default"));
-            execMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId",
-                    msg.getStringParam(AI_P_SESSIONID, "default")));
-            execMsg.setParam(AI_P_ROUNDID, msg.getStringParam(AI_P_ROUNDID, ""));
+            Object toolUserId = msg.getSystemParam("userId", null);
+            if (toolUserId != null) execMsg.setSystemParam("userId", toolUserId);
+            // 会话信息透传（工具模块、before/after 钩子、级联停止、全链追踪可用）。
+            // 框架系统参数区：与 LLM 业务参数（args）分层，互不覆盖
+            execMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, "default"));
+            execMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId",
+                    msg.getSystemParam(AI_P_SESSIONID, "default")));
+            execMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
             TLMsg result = putMsg(task.module, execMsg);
             // 线程被中断 = Future 超时，即使工具返回了部分结果也标记为超时
             if (Thread.currentThread().isInterrupted()) {
@@ -465,11 +466,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             .setParam("toolName", toolName)
                             .setParam("toolArgs", toolArgs != null
                                     ? new LinkedHashMap<>(toolArgs) : new LinkedHashMap<>())
-                            .setParam(AI_P_SESSIONID, sessionId)
-                            .setParam("userId", userId)
+                            .setSystemParam(AI_P_SESSIONID, sessionId)
+                            .setSystemParam("userId", userId)
                             .setParam("toolCallId", toolCallId)
-                            .setParam(AI_P_ROUNDID, roundId)
-                            .setParam("rootSessionId", rootSessionId));
+                            .setSystemParam(AI_P_ROUNDID, roundId)
+                            .setSystemParam("rootSessionId", rootSessionId));
 
             if (result == null) return null;
             String state = result.getStringParam(AI_P_APPROVAL_STATE, "");

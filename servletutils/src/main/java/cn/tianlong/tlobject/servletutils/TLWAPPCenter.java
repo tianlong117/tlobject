@@ -45,11 +45,15 @@ public  class TLWAPPCenter extends TLWServModule {
             if( params.get("tlobjectPath")!=null && !params.get("tlobjectPath").isEmpty())
                 tlobjectPath=params.get("tlobjectPath");
         }
-        if(prefixUrl ==null)
-        {
-            ServletContext context= getContext();
-            String contextPath =context.getContextPath() ;
-            prefixUrl=contextPath+tlobjectPath;
+        // 在 setModuleParams() 中
+        if (prefixUrl == null) {
+            ServletContext context = getContext();
+            String contextPath = context.getContextPath();
+            prefixUrl = contextPath + (tlobjectPath != null ? tlobjectPath : "/");
+        }
+// 规范化：去掉末尾斜杠（但根路径 "/" 保留）
+        if (prefixUrl != null && prefixUrl.length() > 1 && prefixUrl.endsWith("/")) {
+            prefixUrl = prefixUrl.substring(0, prefixUrl.length() - 1);
         }
     }
     @Override
@@ -171,15 +175,26 @@ public  class TLWAPPCenter extends TLWServModule {
         return msg ;
     }
 
+
     protected TLMsg start(Object fromWho, TLMsg msg) {
-        String url= (String) msg.getParam("url");
-        if(url==null){
-            String uri  = (String) msg.getParam("uri");
-            if(uri ==null)
+        String url = (String) msg.getParam("url");
+        if (url == null) {
+            String uri = (String) msg.getParam("uri");
+            if (uri == null) {
                 return null;
-            url=uri.substring(prefixUrl.length());
+            }
+            // 安全截取：如果 prefixUrl 为空或长度超过 uri，则使用完整 uri
+            if (prefixUrl == null || prefixUrl.isEmpty() || uri.length() <= prefixUrl.length()) {
+                url = uri;
+            } else {
+                url = uri.substring(prefixUrl.length());
+            }
+            // 如果截取后为空，则设为根路径（"/"），保证后续路由能找到默认映射
+            if (url == null || url.isEmpty()) {
+                url = "/";
+            }
             msg.removeParam("uri");
         }
-      return   putMsg("urlMap",msg.setAction("doWithUrl").setParam("url",url));
+        return putMsg("urlMap", msg.setAction("doWithUrl").setParam("url", url));
     }
 }

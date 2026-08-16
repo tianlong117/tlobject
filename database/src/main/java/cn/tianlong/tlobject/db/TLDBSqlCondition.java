@@ -100,7 +100,7 @@ public class TLDBSqlCondition {
         }
 
         private String sqlOfIn() {
-            String [] array = (String[]) this.value;
+            String [] array = new String[]{this.value.toString()};
             int numb =array.length;
             int i=0;
             String insql=varName+" "+relation+" ( " ;

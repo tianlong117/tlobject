@@ -783,6 +783,17 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 msg.setAction("trace").setParam(AI_P_SESSIONID, sessionId);
                 break;
 
+            case "stats":
+                // /stats —— Token 统计三段；/stats all —— 内存会话明细；/stats agent —— 最后一轮各 agent 用量
+                if (parts.length > 1 && "all".equalsIgnoreCase(parts[1])) {
+                    msg.setAction("statsAll").setParam(AI_P_USERID, userId);
+                } else if (parts.length > 1 && "agent".equalsIgnoreCase(parts[1])) {
+                    msg.setAction("statsAgent").setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
+                } else {
+                    msg.setAction("stats").setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
+                }
+                break;
+
             case "mcp":
                 msg = parseMcpCommand(parts);
                 if (msg == null) return null;
@@ -1092,6 +1103,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     printModuleList(data, msg.getAction());
                     break;
                 case "trace":
+                case "stats":
+                case "statsAll":
+                case "statsAgent":
                     if (data instanceof List) {
                         for (Object l : (List<?>) data) System.out.println(l);
                     } else {
@@ -1489,6 +1503,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String tokenInfo = tt > 0
                             ? "，tokens 输入 " + pt + "/输出 " + ct + "/合计 " + tt + "，会话累计 " + accTotal
                             : "";
+                    TLMsg procUsage = queryProcessTokenUsage();
+                    if (procUsage != null) {
+                        tokenInfo += "，总累计 " + procUsage.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
+                    }
                     int cacheHit = response.getIntParam(AI_P_CACHEHITTOKENS, 0);
                     int cacheMiss = response.getIntParam(AI_P_CACHEMISSTOKENS, 0);
                     int cacheCreate = response.getIntParam(AI_P_CACHECREATIONTOKENS, 0);
@@ -1532,6 +1550,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         } catch (Exception ignore) {}
     }
 
+    /** 查询进程级 token 总累计（agentMonitor 未注册时返回 null，静默降级） */
+    private TLMsg queryProcessTokenUsage() {
+        try {
+            TLMsg m = createMsg().setAction(MONITOR_GETPROCESSTOKENUSAGE);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            return putMsg(M_AGENTMONITOR, m);
+        } catch (Exception e) { return null; }
+    }
+
     /** 流式 chunk 回调（非主线程）：拆成 CHUNK / STREAM_END 事件入队 */
     private void onStreamChunkEvent(TLMsg msg) {
         if (msg.containsParam(AI_P_CHUNK)) {
@@ -1570,6 +1597,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
             String tokenInfo = accTotal > 0 ? "，会话累计 tokens " + accTotal : "";
+            TLMsg procUsage = queryProcessTokenUsage();
+            if (procUsage != null) {
+                tokenInfo += "，总累计 " + procUsage.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
+            }
 
             TLMsg cacheStats = putMsg(serviceModule, createMsg().setAction("getCacheStats")
                     .setParam(AI_P_SESSIONID, sessionId));
@@ -1785,6 +1816,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println();
         System.out.println("全链追踪:");
         System.out.println("  /trace                  查看当前会话最新一轮的环节记录（agentMonitor 内存）");
+        System.out.println("  /stats                  当前会话 Token 统计 + 进程合计 + DB 历史合计");
+        System.out.println("  /stats all              列出内存中所有会话的 Token 明细");
+        System.out.println("  /stats agent            当前会话最后一轮各 Agent 的 token 用量");
         System.out.println();
         System.out.println("MCP 市场命令:");
         System.out.println("  /mcp search [keyword]   搜索 MCP 服务器，空参数列出全部精选");

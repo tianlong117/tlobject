@@ -7,23 +7,12 @@
          上，天然审批下沉，master 打不中规则不受影响。
          会话/用户隔离由审批请求消息携带的 sessionId/userId 保证（拒绝记忆按会话键）。
 
-         规则格式: "tool:op, tool:op, tool"（逗号分隔）
-           tool:op → 该工具的指定操作需审批
-           tool    → 该工具的所有操作都需审批（无冒号）
-
-         操作名提取逻辑（见 TLApprovalModule.extractOperation）:
+         规则为结构化 &lt;rules&gt; 段（见下方），操作名提取逻辑（见 TLApprovalModule.extractOperation）:
            file_operation → args.operation (read/write/delete/list/exists)
            http_request   → args.method (GET/POST/PUT/DELETE)
-           code_execution → 无操作参数，命中即审批
-           script_execution → 无操作参数，命中即审批
+           code_execution / script_execution → 无操作参数，命中即审批
     -->
     <params>
-        <!-- 当前审批规则:
-             - file_operation:delete → 删除文件必须审批
-             - file_operation:write  → 写入文件必须审批
-             - file_operation:read/list/exists → 自动放行 -->
-        <approvalRules value="file_operation:delete, file_operation:write"/>
-
         <!-- 审查人实现类（全限定名）
              ConsoleReviewer: 控制台同步阻塞，System.console().readLine() 等用户输入
                              输入格式: approve:ID  或  reject:ID:原因 -->
@@ -35,4 +24,20 @@
         <!-- 审批超时（毫秒），默认 300000 = 5 分钟 -->
         <approvalTimeoutMs value="300000"/>
     </params>
+
+    <!-- ===== 审批规则（结构化配置） =====
+         name        : 工具名（LLM 函数名）。支持通配：tool:* 冒号风格函数名前缀、tool* 任意前缀
+         statup      : true 启用 | false 跳过
+         description : 人可读说明（审批弹框中展示）
+         action      : 需审批的操作列表（逗号分隔，如 "delete,write"）；不配或 rule="*" = 全部操作 -->
+    <rules>
+        <rule name="file_operation"
+              statup="true"
+              description="删除/写入文件需要审批"
+              action="delete,write"/>
+        <rule name="priceTeam"
+              statup="true"
+              description="询价/下单需要审批"
+              rule="*"/>
+    </rules>
 </moduleConfig>

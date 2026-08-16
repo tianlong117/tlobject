@@ -122,6 +122,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 会话级 msgStartIdx: sessionId → 本轮消息起始位置（供 onStreamResult 使用） */
     private final Map<String, Integer> sessionMsgStartIdx = new ConcurrentHashMap<>();
 
+    /** 会话级 userId: sessionId → userId（供 onStreamResult 回调线程查表；doChat/chatStream 入口写入） */
+    private final Map<String, String> sessionUserIds = new ConcurrentHashMap<>();
+
     // ======================== Session 管理 ========================
 
     /** 会话管理模块名（SessionManager），Agent 通过发消息报告会话状态 */
@@ -620,10 +623,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return createMsg().setParam(AI_P_SKILLOUTPUT, "Error: msgId missing");
         }
         // 将关键参数注入 systemArgs，确保 msgTable 路由时 doMsgList 的 addSystemArgs 能传播给目标模块
-        if (msg.containsParam(AI_P_SESSIONID))
-            msg.setSystemParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
-        if (msg.containsParam("userId"))
-            msg.setSystemParam("userId", msg.getStringParam("userId", ""));
+        if (msg.containsSystemParam(AI_P_SESSIONID))
+            msg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
+        if (msg.containsSystemParam("userId"))
+            msg.setSystemParam("userId", msg.getSystemParam("userId", ""));
 
         TLMsg result = checkMsgId(msgId, fromWho, msg);
         String output;
@@ -649,16 +652,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             task = msg.getStringParam(AI_P_USERMESSAGE, "");
         }
         TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
-        // 转发会话上下文，保持级联停止、用户数据隔离、会话追踪
-        if (msg.containsParam(AI_P_SESSIONID))
-            chatMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
-        if (msg.containsParam("rootSessionId"))
-            chatMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
-        if (msg.containsParam("userId"))
-            chatMsg.setParam("userId", msg.getStringParam("userId", ""));
+        // 转发会话上下文（框架系统参数区）：保持级联停止、用户数据隔离、会话追踪，
+        // 与工具业务参数分层——上游经执行器以 systemArgs 传来，此处原样透传
+        if (msg.containsSystemParam(AI_P_SESSIONID))
+            chatMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
+        if (msg.containsSystemParam("rootSessionId"))
+            chatMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId", ""));
+        if (msg.containsSystemParam("userId"))
+            chatMsg.setSystemParam("userId", msg.getSystemParam("userId", ""));
         // 全链追踪：上游 roundId 透传——子 agent 的一轮就是上游的一轮
-        if (msg.containsParam(AI_P_ROUNDID))
-            chatMsg.setParam(AI_P_ROUNDID, msg.getStringParam(AI_P_ROUNDID, ""));
+        if (msg.containsSystemParam(AI_P_ROUNDID))
+            chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
         TLMsg result = chat(fromWho, chatMsg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
         return createMsg().setParam(AI_P_SKILLOUTPUT, output);
@@ -719,11 +723,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "LLM Provider 未就绪，请检查 API Key 和余额后重启");
         }
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        // 框架系统参数区：会话/用户/轮次 ID 由上游经 systemArgs 透传（未设置即上游没传——约定一致）
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         // 根会话 ID：控制台会话标识，在 spawn 子 agent 时透传，供监控模块级联停止
-        String rootSid = msg.getStringParam("rootSessionId", sessionId);
+        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
         currentRootSessionId.set(rootSid);
-        currentChatUserId.set(msg.getStringParam("userId", sessionId));
+        currentChatUserId.set(String.valueOf(msg.getSystemParam("userId", sessionId)));
+        sessionUserIds.put(sessionId, currentChatUserId.get());
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         // 固定任务前缀（配置的 task 参数）：普通 agent 配置后每次收到的消息都前置该任务指令；
         // 工作流下游节点同样经此生效（user 层指令权重最高，systemMessage 管人设，task 管本次工作）
@@ -758,14 +764,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, sessionId)
                 .setParam("rootSessionId", rootSid)
+                .setParam(AI_P_USERID, currentChatUserId.get())
                 .setParam("agentName", getName()));
         // 声明在 try 外：catch 收尾需访问；history 构建前异常时为 null，notifyChatError 内部判空
         List<TLConversationHistory> history = null;
         int msgStartIdx = 0;
         // 一轮 = 控制台发起对话到返回结果：上游（主 agent/工作流/组）传入的 roundId 沿用，
-        // 断点恢复用 resumeRoundId 继承，只有源头（控制台）才生成新的
-        String upstreamRoundId = msg.getStringParam(AI_P_ROUNDID, null);
-        String roundId = (upstreamRoundId != null && !upstreamRoundId.isEmpty())
+        // 断点恢复用 resumeRoundId 继承，只有源头（控制台）才生成新的。
+        // 注意用 Object 判断存在性：String.valueOf(null) 会得到字面量 "null"
+        Object upstreamObj = msg.getSystemParam(AI_P_ROUNDID, null);
+        String upstreamRoundId = upstreamObj != null ? String.valueOf(upstreamObj) : "";
+        String roundId = !upstreamRoundId.isEmpty()
                 ? upstreamRoundId
                 : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
         sessionRoundIds.put(sessionId, roundId);
@@ -849,11 +858,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         TLMsg singleExecResult = singleTask.isEmpty() ? null
                                 : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
                                         .setParam("tasks", singleTask)
-                                        .setParam("executionId", execId2)
-                                        .setParam(AI_P_SESSIONID, sessionId)
-                                        .setParam("userId", msg.getStringParam("userId", "default"))
-                                        .setParam("rootSessionId", rootSid)
-                                        .setParam(AI_P_ROUNDID, roundId));
+                                        .setSystemParam("executionId", execId2)
+                                        .setSystemParam(AI_P_SESSIONID, sessionId)
+                                        .setSystemParam("userId", msg.getSystemParam("userId", "default"))
+                                        .setSystemParam("rootSessionId", rootSid)
+                                        .setSystemParam(AI_P_ROUNDID, roundId));
                         String singleOutput;
                         if (singleExecResult != null) {
                             @SuppressWarnings("unchecked")
@@ -1040,15 +1049,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         return createMsg().setParam(RESULT, false)
                                 .setParam(AI_P_RESPONSE, errMsg);
                     }
-                    // Token 用量累加（Provider parseResponse 已解析 usage）
-                    turn[0] += llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
-                    turn[1] += llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
-                    turn[2] += llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
+                    // Token 用量累加（Provider parseResponse 已解析 usage）+ 进程级上报（每次 LLM 调用恰一次）
+                    long p = llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
+                    long c = llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
+                    long t = llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
+                    turn[0] += p; turn[1] += c; turn[2] += t;
 
                     // 缓存统计累加
-                    cacheTurn[0] += llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
-                    cacheTurn[1] += llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
-                    cacheTurn[2] += llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+                    long cc = llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
+                    long ch = llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
+                    long cm = llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+                    cacheTurn[0] += cc; cacheTurn[1] += ch; cacheTurn[2] += cm;
+                    reportProcessTokenUsage(new long[]{p, c, t}, new long[]{cc, ch, cm},
+                            sessionId, rootSid, currentChatUserId.get());
                     traceStage(sessionId, rootSid, roundId, "llmResponse",
                             "tokens=" + turn[1] + "/" + turn[2]
                                     + " cache=" + cacheTurn[1] + "/" + cacheTurn[0],
@@ -1115,15 +1128,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     }
 
                     String execId = sessionId + "_" + System.nanoTime();
-                    String usrId = msg.getStringParam("userId", "default");
+                    String usrId = String.valueOf(msg.getSystemParam("userId", "default"));
                     TLMsg execResult = putMsg(toolExecutor,
                             createMsg().setAction(TODOOLEXECUTE)
                                     .setParam("tasks", tasks)
-                                    .setParam("executionId", execId)
-                                    .setParam(AI_P_SESSIONID, sessionId)
-                                    .setParam("rootSessionId", rootSid)
-                                    .setParam("userId", usrId)
-                                    .setParam(AI_P_ROUNDID, roundId));
+                                    .setSystemParam("executionId", execId)
+                                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                                    .setSystemParam("rootSessionId", rootSid)
+                                    .setSystemParam("userId", usrId)
+                                    .setSystemParam(AI_P_ROUNDID, roundId));
 
                     if (execResult == null) {
                         putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
@@ -1318,6 +1331,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             currentRootSessionId.remove();
             currentChatUserId.remove();
             sessionRoundIds.remove(sessionId);
+            sessionUserIds.remove(sessionId);
             // 清除中断标志（可能来自 worker.interrupt() 或 provider 回调），
             // 防止返回 ThreadTask 后继续传播导致后续模块误抛 InterruptedException
             while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
@@ -1339,6 +1353,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         TLMsg sm = createMsg().setAction(LLM_COMPLETIONSTREAM)
                 .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_FUNCTIONDEFS, toolDefs)
                 .setParam(AI_P_MODEL, model).setParam(AI_P_SESSIONID, sessionId)
+                .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
                 .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, STREAM_ONCHUNK);
         putMsg(llmProvider, sm);
 
@@ -1375,7 +1390,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     @SuppressWarnings("unchecked")
     protected TLMsg chatStream(Object fromWho, TLMsg msg) {
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         // 最终回调目标（显示层）
         String resultFor = msg.getStringParam(RESULTFOR,
@@ -1388,6 +1403,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 生成 roundId + 保存转发目标，供 onStreamResult 使用
         String roundId = sessionId + "_" + System.currentTimeMillis();
         sessionRoundIds.put(sessionId, roundId);
+        // userId 入会话表（onStreamResult 跑在 provider 回调线程，ThreadLocal 不可用）
+        sessionUserIds.put(sessionId, String.valueOf(msg.getSystemParam(AI_P_USERID,
+                msg.getStringParam(AI_P_USERID, "default"))));
         if (!fwdTarget.equals(getName())) {
             streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
         }
@@ -1416,6 +1434,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_MESSAGEHISTORY, history)
                 .setParam(AI_P_FUNCTIONDEFS, toolDefs)
                 .setParam(AI_P_SESSIONID, sessionId)
+                .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
                 .setParam(RESULTFOR, getName())
                 .setParam(RESULTACTION, "onStreamResult");
 
@@ -1440,11 +1459,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return null; // 异步
     }
 
-    /** 统一清理流式会话状态（streamForwardMap/sessionRoundIds/sessionMsgStartIdx），异常路径也不泄漏 */
+    /** 统一清理流式会话状态（streamForwardMap/sessionRoundIds/sessionMsgStartIdx/sessionUserIds），异常路径也不泄漏 */
     private void cleanupStreamState(String sessionId) {
         streamForwardMap.remove(sessionId);
         sessionRoundIds.remove(sessionId);
         sessionMsgStartIdx.remove(sessionId);
+        sessionUserIds.remove(sessionId);
+        // 流式轮收尾：注销即触发 monitor 端该会话的 DB flush（chatStream 不 register，不影响 runningAgents 语义）
+        putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
+                .setParam(AI_P_SESSIONID, sessionId));
     }
 
     /**
@@ -1461,6 +1484,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 : msg.getStringParam("_streamResultFor", "caller");
         String resultAction = fwd != null ? fwd[1]
                 : msg.getStringParam("_streamResultAction", "onStreamChunk");
+        // userId 来源：sessionUserIds 表（chatStream/doChat 入口写入；本方法跑在 provider 回调线程，ThreadLocal 不可用）
+        String streamUserId = sessionUserIds.getOrDefault(sessionId,
+                msg.getStringParam(AI_P_USERID, "default"));
 
         // 转发chunk或完成信号给最终调用方（TLChatConsole 等）
         if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
@@ -1484,7 +1510,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
                         // 并行执行tool calls（含拒绝标志：被拒则停止续跑并转发拒绝文案）
                         TLMsg execResult = execToolsViaExecutor(toolCalls, fromWho, sessionId,
-                                history, msg.getStringParam("userId", "default"));
+                                history, streamUserId);
                         if (handleStreamRejected(execResult, history, sessionId)) {
                             forwardStreamFinal(resultAction, resultFor, sessionId,
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
@@ -1512,10 +1538,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             TLMsg llmResponse = putMsg(llmProvider, llmMsg);
                             if (!llmResponse.parseBoolean(RESULT, false)) break;
                             // Token 累加（流式后续的非流式循环；首个流式响应的 usage 需 include_usage，暂不覆盖）
-                            accumulateTokenUsage(sessionId, new long[]{
-                                    llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0),
-                                    llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0),
-                                    llmResponse.getIntParam(AI_P_TOTALTOKENS, 0)});
+                            long sp = llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
+                            long sc = llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
+                            long st = llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
+                            accumulateTokenUsage(sessionId, new long[]{sp, sc, st});
+                            reportProcessTokenUsage(new long[]{sp, sc, st},
+                                    new long[]{llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L),
+                                            llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L),
+                                            llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L)},
+                                    sessionId, sessionId,
+                                    sessionUserIds.getOrDefault(sessionId,
+                                            msg.getStringParam(AI_P_USERID, "default")));
 
                             boolean moreToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
                             List<TLToolCall> moreTCs = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
@@ -1533,7 +1566,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             history.add(aMsg2);
 
                             TLMsg moreExecResult = execToolsViaExecutor(moreTCs, fromWho, sessionId,
-                                    history, msg.getStringParam("userId", "default"));
+                                    history, streamUserId);
                             if (handleStreamRejected(moreExecResult, history, sessionId)) {
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
@@ -1547,7 +1580,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         notifySessionManager(createMsg()
                                 .setAction("chatFinished")
                                 .setParam("sessionId", sessionId)
-                                .setParam("userId", msg.getStringParam("userId", "default"))
+                                .setParam("userId", streamUserId)
                                 .setParam("agentName", name)
                                 .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
                                 .setParam("messages", deltaMessages(history, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
@@ -1555,7 +1588,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         try {
                             TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                                     .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                                    .setParam("userId", msg.getStringParam("userId", "default"))
+                                    .setParam("userId", streamUserId)
                                 .setParam("agentName", name)
                                     .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                                     .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
@@ -1719,8 +1752,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     @SuppressWarnings("unchecked")
     protected TLMsg recallAgentMemory(Object fromWho, TLMsg msg) {
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        String userId = msg.getStringParam("userId", sessionId);
+        // beforeMsgTable 钩子消息：doMsgList 会复制原 AGENT_CHAT 的 systemArgs，框架 ID 从系统参数区提
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        String userId = String.valueOf(msg.getSystemParam("userId", sessionId));
         String userMessage = msg.getStringParam(AI_P_MEMORYQUERY,
                 msg.getStringParam(AI_P_USERMESSAGE, ""));
         int topK = msg.getIntParam(AI_P_TOPK, defaultMemoryTopK);
@@ -1840,6 +1874,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             TLMsg traceMsg = createMsg().setAction("recordStage")
                     .setParam("agentName", name)
                     .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_USERID, currentChatUserId.get())
                     .setParam("rootSessionId", rootSid != null ? rootSid : sessionId)
                     .setParam(AI_P_ROUNDID, roundId)
                     .setParam("stage", stage)
@@ -1847,6 +1882,25 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("durationMs", durationMs);
             traceMsg.setSystemParam(IGNOREMODULEISNULL, true);
             putMsg(M_AGENTMONITOR, traceMsg);
+        } catch (Exception ignored) {}
+    }
+
+    /** 进程级+会话级 token 上报：每次真实 LLM 响应调用一次；全 0（意图缓存命中/mock fallback）视为非 LLM 调用，跳过 */
+    private void reportProcessTokenUsage(long[] usage, long[] cache, String sessionId, String rootSid, String userId) {
+        if (usage[0] + usage[1] + usage[2] + cache[0] + cache[1] + cache[2] <= 0) return;
+        try {
+            TLMsg m = createMsg().setAction(MONITOR_RECORDTOKENUSAGE)
+                    .setParam(AI_P_PROMPTTOKENS, usage[0])
+                    .setParam(AI_P_COMPLETIONTOKENS, usage[1])
+                    .setParam(AI_P_TOTALTOKENS, usage[2])
+                    .setParam(AI_P_CACHECREATIONTOKENS, cache[0])
+                    .setParam(AI_P_CACHEHITTOKENS, cache[1])
+                    .setParam(AI_P_CACHEMISSTOKENS, cache[2])
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_ROOTSESSIONID, rootSid != null ? rootSid : sessionId)
+                    .setParam(AI_P_USERID, userId != null ? userId : "");
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg(M_AGENTMONITOR, m);
         } catch (Exception ignored) {}
     }
 
@@ -1920,11 +1974,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         TLMsg execResult = putMsg(toolExecutor,
                 createMsg().setAction(TODOOLEXECUTE)
                         .setParam("tasks", tasks)
-                        .setParam("executionId", execId)
-                        .setParam(AI_P_SESSIONID, sessionId)
-                        .setParam("userId", userId != null ? userId : "default")
-                        .setParam("rootSessionId", currentRootSessionId.get())
-                        .setParam(AI_P_ROUNDID, sessionRoundIds.get(sessionId)));
+                        .setSystemParam("executionId", execId)
+                        .setSystemParam(AI_P_SESSIONID, sessionId)
+                        .setSystemParam("userId", userId != null ? userId : "default")
+                        .setSystemParam("rootSessionId", currentRootSessionId.get())
+                        .setSystemParam(AI_P_ROUNDID, sessionRoundIds.get(sessionId)));
         if (execResult == null) return null;
 
         List<TLToolExecutor.ToolResult> results =

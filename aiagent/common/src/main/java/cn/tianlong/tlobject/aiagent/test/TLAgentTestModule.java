@@ -327,7 +327,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, "test_mock_basic")
+                .setSystemParam(AI_P_SESSIONID, "test_mock_basic")
                 .setParam(AI_P_USERMESSAGE, "1+1等于几？");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -360,7 +360,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         // 回合 1
         TLMsg turn1 = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_USERMESSAGE, "我叫王小明，是架构师。");
         TLMsg r1 = putMsg(M_AIAGENT, turn1);
         if (!r1.parseBoolean(RESULT, false)) {
@@ -370,7 +370,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         // 回合 2
         TLMsg turn2 = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_USERMESSAGE, "我叫什么？做什么工作？");
         TLMsg r2 = putMsg(M_AIAGENT, turn2);
 
@@ -403,7 +403,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, "test_mock_singletool")
+                .setSystemParam(AI_P_SESSIONID, "test_mock_singletool")
                 .setParam(AI_P_USERMESSAGE, "请用 echo 工具输出 hello world");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -578,7 +578,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, "test_mock_parallel")
+                .setSystemParam(AI_P_SESSIONID, "test_mock_parallel")
                 .setParam(AI_P_USERMESSAGE, "请同时执行三个 echo 任务");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -639,7 +639,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, "test_mock_timeout")
+                .setSystemParam(AI_P_SESSIONID, "test_mock_timeout")
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "请 sleep 2000 毫秒");
 
@@ -684,7 +684,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             // 发送流式请求
             TLMsg streamMsg = createMsg()
                     .setAction(AGENT_CHATSTREAM)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, "请流式回复")
                     .setParam(RESULTFOR, "streamCallback")
                     .setParam(RESULTACTION, "onStreamChunk");
@@ -731,7 +731,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             Thread chatThread = new Thread(() -> {
                 TLMsg cMsg = createMsg()
                         .setAction(AGENT_CHAT)
-                        .setParam(AI_P_SESSIONID, sessionId)
+                        .setSystemParam(AI_P_SESSIONID, sessionId)
                         .setParam(AI_P_USERMESSAGE, "sleep 5 秒");
                 chatResult.set(putMsg(M_AIAGENT, cMsg));
             }, "test-cancel-chat");
@@ -790,7 +790,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, "test_mock_batch_timeout")
+                .setSystemParam(AI_P_SESSIONID, "test_mock_batch_timeout")
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "并行 sleep 5 秒 x 3");
 
@@ -830,8 +830,8 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, sessionId)
-                .setParam("userId", "test_user")
+                .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam("userId", "test_user")
                 .setParam(AI_P_USERMESSAGE, "执行 checkpoint 测试");
 
         TLMsg r1 = putMsg(M_AIAGENT, chatMsg);
@@ -862,7 +862,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         mp.enqueueResponse(mp.textResponse("第二轮继续，上下文保持。"));
         TLMsg chatMsg2 = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_USERMESSAGE, "继续对话");
         TLMsg r2 = putMsg(M_AIAGENT, chatMsg2);
 
@@ -895,7 +895,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             // 发送流式请求
             TLMsg streamMsg = createMsg()
                     .setAction(AGENT_CHATSTREAM)
-                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
                     .setParam(AI_P_USERMESSAGE, "请流式回复")
                     .setParam(RESULTFOR, "streamCallback")
                     .setParam(RESULTACTION, "onStreamChunk");
@@ -1060,7 +1060,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     Map<String, Object> chatCfg = (Map<String, Object>) c.get("chat");
                     String target = str(chatCfg, "targetAgent", M_AIAGENT);
                     TLMsg chatMsg = createMsg().setAction(AGENT_CHAT)
-                            .setParam(AI_P_SESSIONID, str(chatCfg, "sessionId", "case_" + caseName))
+                            .setSystemParam(AI_P_SESSIONID, str(chatCfg, "sessionId", "case_" + caseName))
                             .setParam(AI_P_USERMESSAGE, str(chatCfg, "userMessage", ""));
                     if (chatCfg.containsKey("model")) chatMsg.setParam(AI_P_MODEL, str(chatCfg, "model", null));
                     if (chatCfg.containsKey("temperature"))

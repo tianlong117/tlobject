@@ -3,13 +3,8 @@ package cn.tianlong.tlobject.network.server.jetty;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-
-
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.servletutils.TLServletDispatch;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.*;
@@ -21,295 +16,291 @@ import org.eclipse.jetty.webapp.WebAppContext;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ThreadPool;
 
-import javax.servlet.ServletException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 
 import static java.lang.Thread.sleep;
 
-
 /**
- * 创建日期：2018/4/23 on 21:00
- * 描述:
- * 作者:tianlong
+ * Jetty 嵌入式服务器模块。
+ * 使用公共 TLServletDispatch 处理请求。
+ *
+ * @author tianlong
  */
-
 public class TLJettyServer extends TLBaseModule {
-    protected  String host ="0.0.0.0";
-    protected  int port =8080;
-    protected  int httpsPort =8443;
-    protected  Server server;
-    protected  String serverName;
-    protected  String resourceBase;
-    protected  String contextPath ="/";
-    protected  String servletPath ="/";
-    protected  String sslCerFile ="/" ;
-    protected  String sslCerFilePwd ="/" ;
-    protected  String connector="http";
-    protected  int minThreads =10;
-    protected  int maxThreads =200 ;
-    protected  int idleTimeout =30000 ;
-    private TLServletDispatch servletdispatch ;
-    public TLJettyServer(){
+    protected String host = "0.0.0.0";
+    protected int port = 8080;
+    protected int httpsPort = 8443;
+    protected Server server;
+    protected String serverName;
+    protected String resourceBase;
+    protected String contextPath = "/";
+    protected String servletPath = "/";
+    protected String sslCerFile = "/";
+    protected String sslCerFilePwd = "/";
+    protected String connector = "http";
+    protected int minThreads = 10;
+    protected int maxThreads = 200;
+    protected int idleTimeout = 30000;
+    private TLServletDispatch servletdispatch;
+
+    public TLJettyServer() {
         super();
     }
-    public TLJettyServer(String name ){
+
+    public TLJettyServer(String name) {
         super(name);
     }
-    public TLJettyServer(String name , TLObjectFactory modulefactory){
-        super(name,modulefactory);
+
+    public TLJettyServer(String name, TLObjectFactory modulefactory) {
+        super(name, modulefactory);
     }
 
     @Override
-    protected void setModuleParams()
-    {
-        if(params!=null  ){
-            if( params.get("serverName")!=null)
+    protected void setModuleParams() {
+        if (params != null) {
+            if (params.get("serverName") != null)
                 serverName = params.get("serverName");
-            if( params.get("connector")!=null)
-                connector =params.get("connector");
-            if( params.get(host)!=null)
-                host =params.get(host);
-            minThreads =(params.get("minThreads")!=null && !params.get("minThreads").isEmpty())
-                    ?Integer.parseInt(params.get("minThreads")):minThreads;
-            maxThreads =(params.get("maxThreads")!=null&& !params.get("maxThreads").isEmpty())
-                    ?Integer.parseInt(params.get("maxThreads")):maxThreads;
-            idleTimeout =(params.get("idleTimeout")!=null&& !params.get("idleTimeout").isEmpty())
-                    ?Integer.parseInt(params.get("idleTimeout")):idleTimeout;
-            port =(params.get("port")!=null && !params.get("port").isEmpty())
-                    ?Integer.parseInt(params.get("port")):port;
-            httpsPort =(params.get("httpsPort")!=null && !params.get("httpsPort").isEmpty())
-                    ?Integer.parseInt(params.get("httpsPort")):httpsPort;
-            if( params.get("resourceBase")!=null)
+            if (params.get("connector") != null)
+                connector = params.get("connector");
+            // 修复：使用 "host" 作为配置键
+            if (params.get("host") != null)
+                host = params.get("host");
+            if (params.get("minThreads") != null && !params.get("minThreads").isEmpty())
+                minThreads = Integer.parseInt(params.get("minThreads"));
+            if (params.get("maxThreads") != null && !params.get("maxThreads").isEmpty())
+                maxThreads = Integer.parseInt(params.get("maxThreads"));
+            if (params.get("idleTimeout") != null && !params.get("idleTimeout").isEmpty())
+                idleTimeout = Integer.parseInt(params.get("idleTimeout"));
+            if (params.get("port") != null && !params.get("port").isEmpty())
+                port = Integer.parseInt(params.get("port"));
+            if (params.get("httpsPort") != null && !params.get("httpsPort").isEmpty())
+                httpsPort = Integer.parseInt(params.get("httpsPort"));
+            if (params.get("resourceBase") != null)
                 resourceBase = params.get("resourceBase");
-            if( params.get("contextPath")!=null)
+            if (params.get("contextPath") != null)
                 contextPath = params.get("contextPath");
-            if( params.get("servletPath")!=null)
+            if (params.get("servletPath") != null)
                 servletPath = params.get("servletPath");
-            if( params.get(SSL_SCERFILE)!=null)
-                sslCerFile =params.get(SSL_SCERFILE);
-            if( params.get(SSL_SCERFILE_PWD)!=null)
-                sslCerFilePwd =params.get(SSL_SCERFILE_PWD);
-
+            if (params.get(SSL_SCERFILE) != null)
+                sslCerFile = params.get(SSL_SCERFILE);
+            if (params.get(SSL_SCERFILE_PWD) != null)
+                sslCerFilePwd = params.get(SSL_SCERFILE_PWD);
         }
     }
+
     @Override
     protected TLBaseModule init() {
         initServer();
-        return this ;
+        return this;
     }
 
     protected void initServer() {
         server = createServer();
-        ServletContextHandler  context =initContext();
-        context.setResourceBase(resourceBase);
+        ServletContextHandler context = initContext();
+        if (resourceBase != null) {
+            context.setResourceBase(resourceBase);
+        }
         context.setContextPath(contextPath);
         server.setHandler(context);
-        if(!(context instanceof WebAppContext)){
+        if (!(context instanceof WebAppContext)) {
             initServletDispatch(context);
         }
     }
 
     private Server createServer() {
-        server =  new Server(createThreadPool());
-        Connector[] connectors =getConnector();
-        server.setConnectors(connectors);
-        return server ;
+        server = new Server(createThreadPool());
+        Connector[] connectors = getConnectors();
+        if (connectors != null && connectors.length > 0) {
+            server.setConnectors(connectors);
+        }
+        return server;
     }
+
     private ThreadPool createThreadPool() {
         QueuedThreadPool threadPool = new QueuedThreadPool();
         threadPool.setMinThreads(minThreads);
         threadPool.setMaxThreads(maxThreads);
+        threadPool.setIdleTimeout(idleTimeout);
         return threadPool;
     }
-    private Connector[] getConnector() {
-        ArrayList<String> connectorList =TLDataUtils.splitStrToList(connector,";");
-        // HTTP Configuration
-        // HttpConfiguration is a collection of configuration information
-        // appropriate for http and https. The default scheme for http is
-        // <code>http</code> of course, as the default for secured http is
-        // <code>https</code> but we show setting the scheme to show it can be
-        // done. The port for secured communication is also set here.
+
+    private Connector[] getConnectors() {
+        ArrayList<String> connectorList = TLDataUtils.splitStrToList(connector, ";");
         HttpConfiguration httpConfig = new HttpConfiguration();
         httpConfig.setSecureScheme("https");
         httpConfig.setSecurePort(httpsPort);
         httpConfig.setOutputBufferSize(32768);
 
-        // HTTP connector
-        // The first server connector we create is the one for http, passing in
-        // the http configuration we configured above so it can get things like
-        // the output buffer size, etc. We also set the port (8080) and
-        // configure an idle timeout.
         ServerConnector http = null;
-        if(connectorList.contains("http"))
-        {
-            http = new ServerConnector(server,
-                    new HttpConnectionFactory(httpConfig));
+        if (connectorList.contains("http")) {
+            http = new ServerConnector(server, new HttpConnectionFactory(httpConfig));
             http.setHost(host);
             http.setPort(port);
             http.setIdleTimeout(idleTimeout);
-            putLog("jetty server http connector :"+host+ ":"+port,LogLevel.INFO);
+            putLog("Jetty HTTP Connector: " + host + ":" + port, LogLevel.INFO);
         }
+
         ServerConnector https = null;
-        if(connectorList.contains("https"))
-        {
-        // SSL Context Factory for HTTPS
-        // SSL requires a certificate so we configure a factory for ssl contents
-        // with information pointing to what keystore the ssl connection needs
-        // to know about. Much more configuration is available the ssl context,
-        // including things like choosing the particular certificate out of a
-        // keystore to be used.
-        Path keystore = Paths.get(sslCerFile).toAbsolutePath();
-        SslContextFactory sslContextFactory = new SslContextFactory.Server();
-        sslContextFactory.setKeyStorePath(keystore.toString());
-        sslContextFactory.setKeyStorePassword(sslCerFilePwd);
-        sslContextFactory.setKeyManagerPassword(sslCerFilePwd);
+        if (connectorList.contains("https")) {
+            try {
+                Path keystore = Paths.get(sslCerFile).toAbsolutePath();
+                SslContextFactory.Server sslContextFactory = new SslContextFactory.Server();
+                sslContextFactory.setKeyStorePath(keystore.toString());
+                sslContextFactory.setKeyStorePassword(sslCerFilePwd);
+                sslContextFactory.setKeyManagerPassword(sslCerFilePwd);
 
-        // OPTIONAL: Un-comment the following to use Conscrypt for SSL instead of
-        // the native JSSE implementation.
+                HttpConfiguration httpsConfig = new HttpConfiguration(httpConfig);
+                SecureRequestCustomizer src = new SecureRequestCustomizer();
+                src.setStsMaxAge(2000);
+                src.setStsIncludeSubDomains(true);
+                httpsConfig.addCustomizer(src);
 
-        //Security.addProvider(new OpenSSLProvider());
-        //sslContextFactory.setProvider("Conscrypt");
-
-        // HTTPS Configuration
-        // A new HttpConfiguration object is needed for the next connector and
-        // you can pass the old one as an argument to effectively clone the
-        // contents. On this HttpConfiguration object we add a
-        // SecureRequestCustomizer which is how a new connector is able to
-        // resolve the https connection before handing control over to the Jetty
-        // Server.
-
-            HttpConfiguration httpsConfig = new HttpConfiguration(httpConfig);
-            SecureRequestCustomizer src = new SecureRequestCustomizer();
-            src.setStsMaxAge(2000);
-            src.setStsIncludeSubDomains(true);
-            httpsConfig.addCustomizer(src);
-
-            // HTTPS connector
-            // We create a second ServerConnector, passing in the http configuration
-            // we just made along with the previously created ssl context factory.
-            // Next we set the port and a longer idle timeout.
-            https = new ServerConnector(server,
-                    new SslConnectionFactory(sslContextFactory, HttpVersion.HTTP_1_1.asString()),
-                    new HttpConnectionFactory(httpsConfig));
-            https.setHost(host);
-            https.setPort(httpsPort);
-            https.setIdleTimeout(idleTimeout);
-            putLog("jetty server https connector :"+host+ ":"+httpsPort,LogLevel.INFO);
+                https = new ServerConnector(server,
+                        new SslConnectionFactory(sslContextFactory, HttpVersion.HTTP_1_1.asString()),
+                        new HttpConnectionFactory(httpsConfig));
+                https.setHost(host);
+                https.setPort(httpsPort);
+                https.setIdleTimeout(idleTimeout);
+                putLog("Jetty HTTPS Connector: " + host + ":" + httpsPort, LogLevel.INFO);
+            } catch (Exception e) {
+                putLog("SSL 配置错误: " + e.getMessage(), LogLevel.ERROR);
+                e.printStackTrace();
+            }
         }
 
-        // Here you see the server having multiple connectors registered with
-        // it, now requests can flow into the server from both http and https
-        // urls to their respective ports and be processed accordingly by jetty.
-        // A simple handler is also registered with the server so the example
-        // has something to pass requests off to.
-
-        // Set the connectors
-        if(http !=null && https !=null)
-          return new Connector[]{http, https};
-        else if(http !=null)
+        if (http != null && https != null)
+            return new Connector[]{http, https};
+        else if (http != null)
             return new Connector[]{http};
-        else if(https !=null)
+        else if (https != null)
             return new Connector[]{https};
         else
-            return null ;
+            return null;
     }
 
-    private void initServletDispatch(ServletContextHandler  context) {
-        servletdispatch = new TLServletDispatch(name,moduleFactory);
+    private void initServletDispatch(ServletContextHandler context) {
+        // 空值保护
+        if (servletPath == null || servletPath.isEmpty()) {
+            servletPath = "/";
+        }
+        if (!servletPath.startsWith("/")) {
+            servletPath = "/" + servletPath;
+        }
+
+        servletdispatch = new TLServletDispatch(name, moduleFactory);
         try {
             servletdispatch.init();
-        } catch (ServletException e) {
+        } catch (Exception e) {
+            putLog("Servlet 初始化失败: " + e.getMessage(), LogLevel.ERROR);
             e.printStackTrace();
+            return;
         }
-        String lastChar = (String)servletPath.substring(servletPath.length()-1,servletPath.length());
-        String path ;
-        if(lastChar.equals("/"))
-            path=servletPath+"*";
-        else
-            path=servletPath+"/*";
-        context.addServlet(new ServletHolder(servletdispatch), path);
-        // 添加 default servlet
-        context.addServlet(DefaultServlet.class, contextPath);
+
+        // 动态路径：如果 servletPath 是 "/" 改为 "/app/*" 避免与静态资源冲突
+        String dynamicPath = servletPath;
+        if (dynamicPath.equals("/")) {
+            dynamicPath = "/app/*";
+        } else {
+            if (!dynamicPath.endsWith("/*")) {
+                dynamicPath = dynamicPath.endsWith("/") ? dynamicPath + "*" : dynamicPath + "/*";
+            }
+        }
+        context.addServlet(new ServletHolder(servletdispatch), dynamicPath);
+        // 静态资源由 DefaultServlet 处理
+        context.addServlet(DefaultServlet.class, "/*");
+        putLog("Servlet 映射: " + dynamicPath + " -> TLServletDispatch, /* -> DefaultServlet", LogLevel.DEBUG);
     }
 
     protected ServletContextHandler initContext() {
         ServletContextHandler context;
-        if(params.get("contextType") ==null || !params.get("contextType").equals("webapp"))
-          context = new ServletContextHandler(ServletContextHandler.SESSIONS);
-        else
-        {
-            context = new WebAppContext();
-            ((WebAppContext)context).setDescriptor("/WEB-INF/web.xml");
+        if (params.get("contextType") == null || !params.get("contextType").equals("webapp")) {
+            context = new ServletContextHandler(ServletContextHandler.SESSIONS);
+        } else {
+            WebAppContext webapp = new WebAppContext();
+            webapp.setDescriptor("/WEB-INF/web.xml");
+            context = webapp;
         }
-        return context ;
+        return context;
     }
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case "run":
-                returnMsg=run( fromWho,  msg);
-                break;
-            case "stop" :
-                returnMsg=stop( fromWho,  msg);
-                break;
-            default:              ;
+                return run(fromWho, msg);
+            case "stop":
+                return doStop();
+            default:
+                return null;
         }
-        return returnMsg;
     }
 
-    private TLMsg stop(Object fromWho, TLMsg msg) {
-        if(server !=null)
-        {
-            servletdispatch.setIsStartup(false);
-            int number =  servletdispatch.getNowRequestNumber();
-            Long  startTime = System.currentTimeMillis();
-            while (number >0){
-                try {
-                    sleep(2000);
-                    Long nowTime = System.currentTimeMillis();
-                    if((nowTime - startTime)>180000)
+    private TLMsg doStop() {
+        if (server != null && server.isRunning()) {
+            if (servletdispatch != null) {
+                servletdispatch.setIsStartup(false);
+                int number = servletdispatch.getNowRequestNumber();
+                long startTime = System.currentTimeMillis();
+                while (number > 0) {
+                    try {
+                        sleep(2000);
+                        if ((System.currentTimeMillis() - startTime) > 180000)
+                            break;
+                        number = servletdispatch.getNowRequestNumber();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
                         break;
-                    number =  servletdispatch.getNowRequestNumber();
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
+                    }
                 }
             }
             try {
                 server.stop();
-                return createMsg().setParam(RESULT,true) ;
+                putLog("Jetty server stopped", LogLevel.INFO);
+                return createMsg().setParam(RESULT, true);
             } catch (Exception e) {
+                putLog("停止 Jetty 失败: " + e.getMessage(), LogLevel.ERROR);
                 e.printStackTrace();
-                return createMsg().setParam(RESULT,false) ;
+                return createMsg().setParam(RESULT, false);
             }
         }
-        return createMsg().setParam(RESULT,false) ;
+        return createMsg().setParam(RESULT, false);
     }
 
     private TLMsg run(Object fromWho, TLMsg msg) {
         try {
             server.start();
         } catch (Exception e) {
+            putLog("Jetty server start failure: " + host + ":" + port, LogLevel.ERROR);
             e.printStackTrace();
-            putLog("jetty server start up failure :"+host+ ":"+port,LogLevel.INFO);
-            return null;
+            return createMsg().setParam(RESULT, false);
         }
-        ArrayList<String> connectorList =TLDataUtils.splitStrToList(connector,";");
-        if(connectorList.contains("http"))
-            putLog("jetty server start http :"+host+ ":"+port,LogLevel.INFO);
-        if(connectorList.contains("https"))
-            putLog("jetty server start https :"+host+ ":"+httpsPort,LogLevel.INFO);
-        try {
-            server.join();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        return null;
+
+        ArrayList<String> connectorList = TLDataUtils.splitStrToList(connector, ";");
+        if (connectorList.contains("http"))
+            putLog("Jetty HTTP started: " + host + ":" + port, LogLevel.INFO);
+        if (connectorList.contains("https"))
+            putLog("Jetty HTTPS started: " + host + ":" + httpsPort, LogLevel.INFO);
+
+        // 异步等待，避免阻塞消息线程
+        Thread waitThread = new Thread(() -> {
+            try {
+                server.join();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                putLog("Jetty wait interrupted", LogLevel.WARN);
+            }
+            putLog("Jetty server stopped", LogLevel.INFO);
+        }, "jetty-wait-" + name);
+        waitThread.setDaemon(true);
+        waitThread.start();
+
+        return createMsg().setParam(RESULT, true);
     }
 
+    @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
-
-        return  super.destroy(fromWho,msg);
+        return doStop();
     }
-
 }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 全链追踪落盘开关（默认 false：仅内存保留最新轮） -->
+        <enableTrace value="true"/>
+        <!-- 每轮结束时将会话 token 累计同步 upsert 到 ai_token_stats（默认 false：仅进程内统计） -->
+        <persistTokenStats value="true"/>
+    </params>
+</moduleConfig>

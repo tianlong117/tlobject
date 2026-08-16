@@ -258,13 +258,17 @@ public class TLAgentWorkflow extends TLBaseModule
             input.setParam("userMessage", userMessage);
         }
         input.addArgs(msg.getArgs());
-        // 转发会话上下文，保持级联停止、用户数据隔离（与 TLAiAgent.executeAsTool 同款）
-        if (msg.containsParam(AI_P_SESSIONID))
-            input.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
-        if (msg.containsParam("rootSessionId"))
-            input.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
-        if (msg.containsParam("userId"))
-            input.setParam("userId", msg.getStringParam("userId", ""));
+        // 转发会话上下文（框架系统参数区），保持级联停止、用户数据隔离（与 executeAsTool 同款）
+        if (msg.containsSystemParam(AI_P_SESSIONID))
+            input.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
+        if (msg.containsSystemParam("rootSessionId"))
+            input.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId", ""));
+        if (msg.containsSystemParam("userId"))
+            input.setSystemParam("userId", msg.getSystemParam("userId", ""));
+        // 全链追踪：上游 roundId 透传——工作流节点的一轮就是上游（控制台）的一轮。
+        // 缺了它节点各自生成 roundId，追踪记录会互相清空（截断）
+        if (msg.containsSystemParam(AI_P_ROUNDID))
+            input.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
 
         return executeWorkflow(workflowNodes, workflowEdges, input);
     }
@@ -353,16 +357,20 @@ public class TLAgentWorkflow extends TLBaseModule
         ret.setParam("nodeOutputs", result.getParam("nodeOutputs"));
         ret.setParam("nodeStatus", result.getParam("nodeStatus"));
 
-        // 汇总文本：将所有完成节点的产出拼接
+        // 汇总文本：按节点声明顺序拼接 AGENT 节点产出。
+        // JOIN/FANOUT/CONDITION 是管线节点——其 output 为 addArgs 覆盖式合并的上游产物，
+        // 混入汇总会产生【__eN】冗余段（内容还是最后上游的 aiResponse 重复）；
+        // 且 nodeOutputs 是 ConcurrentHashMap，迭代顺序随机，必须按声明序遍历
         StringBuilder summary = new StringBuilder();
         Map<String, TLMsg> outputs = context.getNodeOutputs();
-        for (Map.Entry<String, TLMsg> e : outputs.entrySet()) {
-            TLMsg v = e.getValue();
+        for (String nid : workflowNodes.keySet()) {
+            TLWorkflowNode node = workflowNodes.get(nid);
+            if (node.getType() != TLWorkflowNodeType.AGENT) continue;
+            TLMsg v = outputs.get(nid);
             if (v != null) {
-                String resp = v.getStringParam("aiResponse",
-                        v.getStringParam(RESULT, ""));
-                if (resp != null && !resp.isEmpty() && !"true".equals(resp)) {
-                    summary.append("【").append(e.getKey()).append("】\n").append(resp).append("\n\n");
+                String resp = v.getStringParam("aiResponse", "");
+                if (resp != null && !resp.isEmpty()) {
+                    summary.append("【").append(nid).append("】\n").append(resp).append("\n\n");
                 }
             }
         }
@@ -479,19 +487,19 @@ public class TLAgentWorkflow extends TLBaseModule
         // 会话上下文透传：与 TLAgentGroup 同模式。rootSessionId 保持 stopByRoot 级联停止能力；
         // 节点用独立 sid（并行节点不互相污染 aiContext）。sid 照常继承父会话——链不断；
         // 历史是否跨运行累积由节点的 noHistory 配置控制（见 TLAiAgent）
-        String baseSession = nodeInput != null ? nodeInput.getStringParam(AI_P_SESSIONID, "") : "";
-        String rootSid = nodeInput != null ? nodeInput.getStringParam("rootSessionId", "") : "";
+        String baseSession = nodeInput != null ? String.valueOf(nodeInput.getSystemParam(AI_P_SESSIONID, "")) : "";
+        String rootSid = nodeInput != null ? String.valueOf(nodeInput.getSystemParam("rootSessionId", "")) : "";
         if (!rootSid.isEmpty()) {
-            msg.setParam("rootSessionId", rootSid);
+            msg.setSystemParam("rootSessionId", rootSid);
         }
-        msg.setParam(AI_P_SESSIONID, name + "_" + nid + ":"
+        msg.setSystemParam(AI_P_SESSIONID, name + "_" + nid + ":"
                 + (baseSession.isEmpty() ? System.currentTimeMillis() : baseSession));
-        if (nodeInput != null && nodeInput.containsParam("userId")) {
-            msg.setParam("userId", nodeInput.getStringParam("userId", ""));
+        if (nodeInput != null && nodeInput.containsSystemParam("userId")) {
+            msg.setSystemParam("userId", nodeInput.getSystemParam("userId", ""));
         }
         // 全链追踪：上游 roundId 透传——工作流节点的一轮就是上游（控制台）的一轮
-        if (nodeInput != null && nodeInput.containsParam(AI_P_ROUNDID)) {
-            msg.setParam(AI_P_ROUNDID, nodeInput.getStringParam(AI_P_ROUNDID, ""));
+        if (nodeInput != null && nodeInput.containsSystemParam(AI_P_ROUNDID)) {
+            msg.setSystemParam(AI_P_ROUNDID, nodeInput.getSystemParam(AI_P_ROUNDID, ""));
         }
 
         // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例。

@@ -78,6 +78,18 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_CHECKPROVIDER = "checkProvider";
     /** 查询指定 session 的累计 token 用量 */
     String AGENT_GETTOKENUSAGE = "getTokenUsage";
+    /** 上报单次 LLM 调用的 token 用量（→ agentMonitor 进程级累计） */
+    String MONITOR_RECORDTOKENUSAGE = "recordTokenUsage";
+    /** 查询进程级 token 总累计（→ agentMonitor） */
+    String MONITOR_GETPROCESSTOKENUSAGE = "getProcessTokenUsage";
+    /** 查询指定会话的 token 统计（→ agentMonitor，sessionId+userId 维度） */
+    String MONITOR_GETSESSIONTOKENUSAGE = "getSessionTokenUsage";
+    /** 查询内存中所有会话的 token 明细（→ agentMonitor） */
+    String MONITOR_GETALLSESSIONTOKENUSAGE = "getAllSessionTokenUsage";
+    /** 查询 DB 历史合计（→ agentMonitor，persistTokenStats 关时返回 notEnabled） */
+    String MONITOR_GETDBTOKENUSAGE = "getDbTokenUsage";
+    /** 查询当前会话最后一轮的 per-agent token 用量（→ agentMonitor，仅内存每轮覆盖） */
+    String MONITOR_GETLASTROUNDAGENTUSAGE = "getLastRoundAgentUsage";
     /** 运行时切换skill启用状态（不删实例） */
     String AGENT_SETSKILLENABLED = "setSkillEnabled";
     /** 更新已注册skill的tool定义（描述/参数schema） */
@@ -159,6 +171,10 @@ public interface TLAiAgentParamString extends TLParamString {
 
     // 会话/上下文
     String AI_P_SESSIONID = "sessionId";
+    /** 用户 ID（新代码统一用此常量；存量 "userId" 字面量不动） */
+    String AI_P_USERID = "userId";
+    /** 根会话 ID（子 agent/group 成员的聚合键） */
+    String AI_P_ROOTSESSIONID = "rootSessionId";
     /** 轮次 ID（doChat 每轮生成，SessionManager 按轮落盘；全链追踪的关联键） */
     String AI_P_ROUNDID = "roundId";
     String AI_P_USERMESSAGE = "userMessage";
@@ -207,6 +223,20 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_CACHEHITTOKENS_TOTAL = "cacheHitTokensTotal";
     /** 会话累计缓存未命中 tokens */
     String AI_P_CACHEMISSTOKENS_TOTAL = "cacheMissTokensTotal";
+
+    /** 进程级累计参数键（agentMonitor 内存态，重启清零；不复用 _TOTAL 避免与会话级歧义） */
+    String AI_P_PROMPTTOKENS_PROCESS = "promptTokensProcess";
+    String AI_P_COMPLETIONTOKENS_PROCESS = "completionTokensProcess";
+    String AI_P_TOTALTOKENS_PROCESS = "totalTokensProcess";
+    String AI_P_CACHECREATIONTOKENS_PROCESS = "cacheCreationTokensProcess";
+    String AI_P_CACHEHITTOKENS_PROCESS = "cacheHitTokensProcess";
+    String AI_P_CACHEMISSTOKENS_PROCESS = "cacheMissTokensProcess";
+    /** 聊天轮次数（doChat 入口 register 计数） */
+    String AI_P_CHATROUNDS = "chatRounds";
+    /** 真实 LLM 调用次数（全零 usage 的意图缓存命中/mock 不计） */
+    String AI_P_LLMCALLS = "llmCalls";
+    /** 功能被配置开关禁用时的标志（如 persistTokenStats=false 时 DB 历史合计不可用） */
+    String AI_P_NOTENABLED = "notEnabled";
 
     // Skill
     String AI_P_SKILLNAME = "skillName";

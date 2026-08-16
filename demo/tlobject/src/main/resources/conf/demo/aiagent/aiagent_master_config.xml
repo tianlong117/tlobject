@@ -171,7 +171,7 @@
         <agent name="poemWorkflow"
                sameClassAs="agentWorkflow"
                statup="true"
-               configfile="demoWorkflow_config.xml"
+               configfile="poemWorkflow_config.xml"
                description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。"/>
 
         <agent name="dbAgent"

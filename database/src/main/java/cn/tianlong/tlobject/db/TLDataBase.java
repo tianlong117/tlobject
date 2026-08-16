@@ -12,10 +12,7 @@ import org.apache.commons.dbutils.handlers.*;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
 
 
 /**
@@ -324,71 +321,140 @@ public class TLDataBase extends TLBaseModule {
         return createMsg().setParam(RESULT,result);
     }
 
+    /**
+     事务模式下调用：
+
+     java
+     // 构建消息列表
+     ArrayList<TLMsg> msgList = new ArrayList<>();
+     msgList.add(createMsg()
+     .setAction(DB_INSERT)
+     .setParam(DB_P_TABLENAME, "user")
+     .setParam(DB_P_PARAMS, userData));
+     msgList.add(createMsg()
+     .setAction(DB_UPDATE)
+     .setParam(DB_P_TABLENAME, "account")
+     .setParam(DB_P_PARAMS, accountData));
+
+     // 开启事务
+     TLMsg txMsg = createMsg()
+     .setAction(DB_STARTTRANSACTION)
+     .setParam(DB_P_MSGLIST, msgList);
+
+     TLMsg result = putMsg(DEFAULTDATABASE, txMsg);
+     boolean success = result.parseBoolean(RESULT, false);
+     */
     private TLMsg startTranscation(Object fromWho, TLMsg msg) throws SQLException {
-        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getListParam(DB_P_MSGLIST,null);
-        if(msgList ==null)
-            return createMsg().setParam(RESULT,false) ;
-        ArrayList<Connection> connections= new ArrayList<>();
-        for(int i = 0 ; i< msgList.size() ; i ++)
-        {
-            TLMsg uMsg = msgList.get(i);
-            TLMsg tMsg =new TLMsg().copyFrom(uMsg);
-            if(tMsg.isNull(DB_P_TABLENAME))
-            {
-                putLog("no tableName",LogLevel.ERROR,"startTranscation");
-                return createMsg().setParam(RESULT,false) ;
-            }
-            TLMsg tableMsg =getTable(this,tMsg);
-            TLBaseModule table = (TLBaseModule) tableMsg.getParam(INSTANCE);
-            tMsg.setParam(DB_P_IFTRANSACTION,true) ;
-            tMsg.setParam(DB_P_IFCLOSECONNECTION,false) ;
-            tMsg.removeParam(DB_P_TABLENAME);
-            TLMsg returnMsg =putMsg(table, tMsg);
-            if(returnMsg.parseBoolean(RESULT,true)==false)
-            {
-                trancsationRollbak(0,connections);
-                return createMsg().setParam(RESULT,false).setParam("number",i);
-            }
-            Connection connection = (Connection) returnMsg.getParam(DB_R_CONN);
-            if(!connections.contains(connection))
-                connections.add(connection);
+        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getListParam(DB_P_MSGLIST, null);
+        if (msgList == null || msgList.isEmpty()) {
+            return createMsg().setParam(RESULT, false);
         }
-        for(int i = 0 ; i< connections.size() ; i ++)
-        {
-            Connection conn=connections.get(i);
-            try {
-                conn.commit();
-            } catch (Exception e) {
-                putLog("transcation is error",LogLevel.ERROR,"startTranscation");
-                trancsationRollbak(i,connections);
-                return createMsg().setParam(RESULT,false).setParam("number",i);
+
+        ArrayList<Connection> connections = new ArrayList<>();
+        int successCount = 0;
+
+        try {
+            for (int i = 0; i < msgList.size(); i++) {
+                TLMsg uMsg = msgList.get(i);
+                TLMsg tMsg = new TLMsg().copyFrom(uMsg);
+
+                String tableName = tMsg.getStringParam(DB_P_TABLENAME, "");
+                if (tableName.isEmpty()) {
+                    putLog("no tableName", LogLevel.ERROR, "startTranscation");
+                    return createMsg().setParam(RESULT, false);
+                }
+
+                // 获取表模块
+                TLMsg tableMsg = getTable(this, tMsg);
+                TLBaseModule table = (TLBaseModule) tableMsg.getParam(INSTANCE);
+                if (table == null) {
+                    putLog("table not found: " + tableName, LogLevel.ERROR, "startTranscation");
+                    return createMsg().setParam(RESULT, false);
+                }
+
+                // 设置事务参数
+                tMsg.setParam(DB_P_IFTRANSACTION, true);
+                tMsg.setParam(DB_P_IFCLOSECONNECTION, false);
+                tMsg.removeParam(DB_P_TABLENAME);
+
+                // 执行
+                TLMsg returnMsg = putMsg(table, tMsg);
+
+                if (!returnMsg.parseBoolean(RESULT, true)) {
+                    // 执行失败，回滚所有已成功的操作
+                    rollbackAll(connections);
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("number", i)
+                            .setParam("error", returnMsg.getStringParam("error", ""));
+                }
+
+                // 收集连接（去重）
+                Connection conn = (Connection) returnMsg.getParam(DB_R_CONN);
+                if (conn != null && !connections.contains(conn)) {
+                    connections.add(conn);
+                }
+                successCount++;
             }
-            conn.close();
+
+            // 全部成功：提交所有连接
+            for (Connection conn : connections) {
+                try {
+                    if (conn != null && !conn.isClosed()) {
+                        conn.commit();
+                    }
+                } catch (SQLException e) {
+                    putLog("commit error: " + e.getMessage(), LogLevel.ERROR, "startTranscation");
+                    rollbackAll(connections);
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("number", connections.indexOf(conn));
+                }
+            }
+
+            // 关闭所有连接
+            for (Connection conn : connections) {
+                try {
+                    if (conn != null && !conn.isClosed()) {
+                        conn.close();
+                    }
+                } catch (SQLException e) {
+                    putLog("close connection error: " + e.getMessage(), LogLevel.WARN, "startTranscation");
+                }
+            }
+
+            return createMsg().setParam(RESULT, true);
+
+        } catch (Exception e) {
+            putLog("transaction error: " + e.getMessage(), LogLevel.ERROR, "startTranscation");
+            rollbackAll(connections);
+            return createMsg().setParam(RESULT, false);
         }
-        return createMsg().setParam(RESULT,true);
     }
 
-    private void trancsationRollbak(int i , ArrayList<Connection> connections){
-        if(i ==connections.size())
-            return;
-        Connection conn =connections.get(i);
-        if(conn ==null)
-            return;
-        try {
-            conn.rollback();
-        } catch (SQLException e) {
-            e.printStackTrace();
+    /**
+     * 回滚所有连接
+     */
+    private void rollbackAll(ArrayList<Connection> connections) {
+        for (Connection conn : connections) {
+            if (conn != null) {
+                try {
+                    if (!conn.isClosed()) {
+                        conn.rollback();
+                    }
+                } catch (SQLException e) {
+                    putLog("rollback error: " + e.getMessage(), LogLevel.WARN, "rollbackAll");
+                }
+                try {
+                    if (!conn.isClosed()) {
+                        conn.close();
+                    }
+                } catch (SQLException e) {
+                    putLog("close connection error: " + e.getMessage(), LogLevel.WARN, "rollbackAll");
+                }
+            }
         }
-        try {
-            conn.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        if(i ==connections.size()-1)
-            return;
-        i=i+1;
-        trancsationRollbak(i ,connections);
+        connections.clear();
     }
+
 
     private String selectDbServer(TLMsg msg){
         String dbserver = msg.getStringParam(DB_P_SERVERNAME,"");
@@ -488,13 +554,18 @@ public class TLDataBase extends TLBaseModule {
         QueryRunner runner = new QueryRunner();
         putLog(sql + " 进程id: " + Thread.currentThread().getName(), LogLevel.DEBUG);
         Object result;
-        Object[] sqlParams =null ;
-        if (sqlParamsMap != null)
-        {
+        // 处理 [in] 参数
+        Object[] sqlParams = null;
+        Map<String, Object> processed = processInParams(sql, sqlParamsMap);
+        if (processed != null) {
+            sql = (String) processed.get("sql");
+            sqlParams = (Object[]) processed.get("params");
+        } else if (sqlParamsMap != null) {
+            // 如果没有处理，则从 map 构建参数数组
             sqlParams = new Object[sqlParamsMap.size()];
             int i = 0;
-            for (String key1 : sqlParamsMap.keySet()) {
-                sqlParams[i] = sqlParamsMap.get(key1);
+            for (String key : sqlParamsMap.keySet()) {
+                sqlParams[i] = sqlParamsMap.get(key);
                 i++;
             }
         }
@@ -526,7 +597,73 @@ public class TLDataBase extends TLBaseModule {
         returnMsg .setParam(DB_R_RESULT, result);
         return returnMsg;
     }
+    /**
+     * 处理 SQL 中的 [in] 参数，返回处理后的 SQL 和参数数组
+     * @param sql 原始 SQL
+     * @param paramsMap 参数 Map
+     * @return 包含处理后的 SQL 和参数数组的 Map，或 null
+     */
+    private Map<String, Object> processInParams(String sql, Map<String, Object> paramsMap) {
+        if (sql == null || paramsMap == null || paramsMap.isEmpty()) {
+            return null;
+        }
+        boolean hasIn = false;
+        for (String key : paramsMap.keySet()) {
+            if (key.indexOf("[in]") >= 0) {
+                hasIn = true;
+                break;
+            }
+        }
+        if (!hasIn) return null;
 
+        StringBuilder sqlBuilder = new StringBuilder(sql);
+        List<Object> paramList = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : paramsMap.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            if (key.indexOf("[in]") >= 0) {
+                if (value instanceof Collection) {
+                    Collection<?> coll = (Collection<?>) value;
+                    if (coll.isEmpty()) {
+                        int idx = sqlBuilder.indexOf(key);
+                        if (idx != -1) sqlBuilder.replace(idx, idx + key.length(), "1=0");
+                    } else {
+                        String placeholders = String.join(",", Collections.nCopies(coll.size(), "?"));
+                        int idx = sqlBuilder.indexOf(key);
+                        if (idx != -1) {
+                            sqlBuilder.replace(idx, idx + key.length(), placeholders);
+                            paramList.addAll(coll);
+                        }
+                    }
+                } else if (value instanceof Object[]) {
+                    Object[] arr = (Object[]) value;
+                    if (arr.length == 0) {
+                        int idx = sqlBuilder.indexOf(key);
+                        if (idx != -1) sqlBuilder.replace(idx, idx + key.length(), "1=0");
+                    } else {
+                        String placeholders = String.join(",", Collections.nCopies(arr.length, "?"));
+                        int idx = sqlBuilder.indexOf(key);
+                        if (idx != -1) {
+                            sqlBuilder.replace(idx, idx + key.length(), placeholders);
+                            paramList.addAll(Arrays.asList(arr));
+                        }
+                    }
+                } else {
+                    int idx = sqlBuilder.indexOf(key);
+                    if (idx != -1) {
+                        sqlBuilder.replace(idx, idx + key.length(), "?");
+                        paramList.add(value);
+                    }
+                }
+            } else {
+                paramList.add(value);
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("sql", sqlBuilder.toString());
+        result.put("params", paramList.toArray());
+        return result;
+    }
     private Object execSql(Connection conn ,QueryRunner runner,String sql ,String action ,ResultSetHandler rsh ,Object[] sqlParams) throws SQLException {
         if( action ==null ){
             if (sqlParams == null)

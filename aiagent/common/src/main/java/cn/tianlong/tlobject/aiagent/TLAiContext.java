@@ -164,9 +164,8 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
      * 获取session对话轮次
      */
     protected TLMsg getTurnCount(Object fromWho, TLMsg msg) {
-        // msgTable 路由时 params 不传播，systemArgs 会；双源读取兜底
-        String sessionId = msg.getStringParam(AI_P_SESSIONID,
-                String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")));
+        // msgTool 链路：executeMsgTool 已将 sessionId 复制进 systemArgs（msgTable 路由时 systemArgs 会传播）
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         List<TLConversationHistory> history = sessions.get(sessionId);
         int count = (history != null) ? history.size() : 0;
         return createMsg().setParam("turnCount", count);

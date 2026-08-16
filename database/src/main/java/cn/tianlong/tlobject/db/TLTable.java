@@ -359,7 +359,7 @@ public class TLTable extends TLBaseDataUnit {
                         i++;
                     }
                     sqlParams = newParams;
-                    sql = sql.replace(key1, makeQuestionMark(indatas.size()));
+                    sql = sql.replaceAll(key1, makeQuestionMark(indatas.size()));
                 } else {
                     sqlParams[i] = sqlParamsList.get(key1);
                     i++;
@@ -521,8 +521,8 @@ public class TLTable extends TLBaseDataUnit {
             putLog("数据库没有连接", LogLevel.ERROR, "insertAndupdateAndDelete");
             return createMsg().setParam(RESULT,false);
         }
-        if(msg.parseBoolean(DB_P_IFTRANSACTION,false) == true)
-        {
+        boolean isTransaction = msg.parseBoolean(DB_P_IFTRANSACTION, false);
+        if (isTransaction) {
             try {
                 wconn.setAutoCommit(false);
             } catch (SQLException e) {
@@ -530,6 +530,7 @@ public class TLTable extends TLBaseDataUnit {
                 return createMsg().setParam(RESULT, false);
             }
         }
+
         String sql = (String) msg.getParam(DB_P_SQL);
         sql = sql.replace("[table]", dbtable);
         QueryRunner runner = new QueryRunner();
@@ -575,8 +576,15 @@ public class TLTable extends TLBaseDataUnit {
         }
         else
             return createMsg().setParam(DB_R_RESULT, 0).setParam(RESULT,false);
-        connClose(wconn,msg);
-        return msg.setParam(DB_R_RESULT, sucessNumb).setParam(RESULT,true);
+        if (isTransaction) {
+            // 事务模式下：不关闭连接，将连接放入 msg 返回给调用方
+            msg.setParam(DB_R_CONN, wconn);
+            // 不执行 connClose
+        } else {
+            connClose(wconn, msg);
+        }
+
+        return msg.setParam(DB_R_RESULT, sucessNumb).setParam(RESULT, true);
     }
     private boolean insertData(Connection wconn,QueryRunner runner ,LinkedHashMap<String,Object> data,String sql){
         Object[] sqlParams = new Object[data.size()];
@@ -595,30 +603,31 @@ public class TLTable extends TLBaseDataUnit {
          return true ;
     }
 
-    protected void connClose(Connection conn ,TLMsg msg) {
-        if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
-        {
+    protected void connClose(Connection conn, TLMsg msg) {
+        if (msg.parseBoolean(DB_P_IFCLOSECONNECTION, true) == true) {
             try {
-                conn.close();
+                if (conn != null && !conn.isClosed()) {
+                    conn.close();
+                }
             } catch (SQLException e) {
-                putLog("connClose", LogLevel.WARN);
+                putLog("connClose error: " + e.getMessage(), LogLevel.WARN);
             }
-        } else
-        {
-            msg.setParam(DB_R_CONN,conn) ;
-            return;
+        } else {
+            // 不关闭连接，返回给调用方
+            msg.setParam(DB_R_CONN, conn);
         }
     }
 
-    protected void readconnClose(Connection readconn,TLMsg msg) {
-        if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true) {
+    protected void readconnClose(Connection readconn, TLMsg msg) {
+        if (msg.parseBoolean(DB_P_IFCLOSECONNECTION, true) == true) {
             try {
-                readconn.close();
+                if (readconn != null && !readconn.isClosed()) {
+                    readconn.close();
+                }
             } catch (SQLException e) {
-                putLog("connClose", LogLevel.WARN);
+                putLog("readconnClose error: " + e.getMessage(), LogLevel.WARN);
             }
-        } else
-            return;
+        }
     }
 
     protected String makeSqlCondition(TLDBSqlCondition sqlconditon) {

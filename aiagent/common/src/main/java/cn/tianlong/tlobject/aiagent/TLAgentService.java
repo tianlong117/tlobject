@@ -68,6 +68,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
         ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
         ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
+        ACTION_REGISTRY.put("stats", "Token 统计：当前会话 + 进程合计 + DB 历史合计");
+        // 注册表键即补全列表里的命令形态——带空格，与 /help 一致（dispatch 仍用 statsAll/statsAgent 字面量）
+        ACTION_REGISTRY.put("stats all", "列出内存中所有会话的 Token 明细");
+        ACTION_REGISTRY.put("stats agent", "当前会话最后一轮各 Agent 的 token 用量");
     }
 
     public TLAgentService() { super(); }
@@ -131,6 +135,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 全链追踪 ──
             case "trace":           return doTrace(fromWho, msg);
+            case "stats":           return doStats(fromWho, msg);
+            case "statsAll":        return doStatsAll(fromWho, msg);
+            case "statsAgent":      return doStatsAgent(fromWho, msg);
 
             // ── 状态查询 ──
             case "getTokenUsage":   return doGetTokenUsage(fromWho, msg);
@@ -232,8 +239,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setParam(AI_P_SESSIONID, sessionId)
-                .setParam("userId", userId)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam("userId", userId)
                 .setParam(AI_P_USERMESSAGE, userMessage);
         if (resume) chatMsg.setParam("resume", true);
 
@@ -309,8 +316,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String agent = targetAgent(msg);
         TLMsg streamMsg = createMsg()
                 .setAction(AGENT_CHATSTREAM)
-                .setParam(AI_P_SESSIONID, sessionId)
-                .setParam("userId", userId)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam("userId", userId)
                 .setParam(AI_P_USERMESSAGE, userMessage)
                 .setParam(RESULTFOR, agent)
                 .setParam(RESULTACTION, "onStreamResult")
@@ -864,11 +871,152 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         for (Object s : stages) {
             if (!(s instanceof TLAgentMonitor.StageRecord)) continue;
             TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) s;
-            lines.add(String.format("  %s %-16s %-16s %s%s",
+            lines.add(String.format("  %s %-14s %-12s %s%s",
                     sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
                     rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
         }
         return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
+    }
+
+    /** /stats 命令：三段输出——当前会话 + 进程级合计 + DB 历史合计 */
+    private TLMsg doStats(Object fromWho, TLMsg msg) {
+        List<String> lines = new ArrayList<>();
+
+        // ── 1. 当前会话 ──
+        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+        TLMsg s = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETSESSIONTOKENUSAGE)
+                .setParam(AI_P_SESSIONID, sid));
+        lines.add("当前会话 Token 统计:");
+        if (s == null) {
+            lines.add("  agentMonitor 未注册");
+        } else if (!s.parseBoolean("found", false)) {
+            lines.add("  当前会话暂无 token 统计（本会话尚未产生 LLM 调用）");
+        } else {
+            long hitMiss = s.getLongParam(AI_P_CACHEHITTOKENS, 0L) + s.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+            lines.add("  会话ID:   " + sid);
+            lines.add("  用户:     " + s.getStringParam(AI_P_USERID, ""));
+            lines.add("  tokens:   输入 " + s.getLongParam(AI_P_PROMPTTOKENS, 0L)
+                    + " / 输出 " + s.getLongParam(AI_P_COMPLETIONTOKENS, 0L)
+                    + " / 合计 " + s.getLongParam(AI_P_TOTALTOKENS, 0L));
+            lines.add("  缓存:     命中 " + s.getLongParam(AI_P_CACHEHITTOKENS, 0L)
+                    + " / 未命中 " + s.getLongParam(AI_P_CACHEMISSTOKENS, 0L)
+                    + (hitMiss > 0 ? "（命中率 " + String.format("%.1f%%", 100.0 * s.getLongParam(AI_P_CACHEHITTOKENS, 0L) / hitMiss) + "）" : ""));
+            lines.add("  LLM 调用: " + s.getLongParam(AI_P_LLMCALLS, 0L) + " 次 / 聊天轮次 " + s.getLongParam(AI_P_CHATROUNDS, 0L));
+        }
+        lines.add("");
+
+        // ── 2. 进程级合计（所有会话） ──
+        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETPROCESSTOKENUSAGE));
+        if (result == null) {
+            lines.add("所有会话合计: agentMonitor 未注册");
+        } else {
+            long p = result.getLongParam(AI_P_PROMPTTOKENS_PROCESS, 0L);
+            long c = result.getLongParam(AI_P_COMPLETIONTOKENS_PROCESS, 0L);
+            long t = result.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
+            long cc = result.getLongParam(AI_P_CACHECREATIONTOKENS_PROCESS, 0L);
+            long ch = result.getLongParam(AI_P_CACHEHITTOKENS_PROCESS, 0L);
+            long cm = result.getLongParam(AI_P_CACHEMISSTOKENS_PROCESS, 0L);
+            long rounds = result.getLongParam(AI_P_CHATROUNDS, 0L);
+            long calls = result.getLongParam(AI_P_LLMCALLS, 0L);
+            long hitMiss = ch + cm;
+            double hitRate = hitMiss > 0 ? 100.0 * ch / hitMiss : 0.0;
+            lines.add("所有会话合计（自进程启动以来）:");
+            lines.add("  总输入 tokens:  " + p);
+            lines.add("  总输出 tokens:  " + c);
+            lines.add("  合计 tokens:    " + t);
+            lines.add("  聊天轮次:       " + rounds + "（doChat 轮次，流式聊天轮未计入）");
+            lines.add("  LLM 调用次数:   " + calls);
+            lines.add("  缓存: 命中 " + ch + " / 未命中 " + cm + "（命中率 " + String.format("%.1f%%", hitRate) + "）");
+            if (cc > 0) lines.add("  缓存写入 tokens: " + cc);
+        }
+        lines.add("");
+
+        // ── 3. DB 历史合计（跨重启，按当前用户） ──
+        TLMsg db = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETDBTOKENUSAGE)
+                .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
+        if (db == null) {
+            lines.add("DB 历史合计: agentMonitor 未注册");
+        } else if (db.parseBoolean(AI_P_NOTENABLED, false)) {
+            lines.add("DB 历史合计: 历史未保存（persistTokenStats=false，仅进程内统计）");
+        } else {
+            long dch = db.getLongParam("dbCacheHitTokens", 0L);
+            long dcm = db.getLongParam("dbCacheMissTokens", 0L);
+            lines.add("DB 历史合计（跨重启累计，" + db.getLongParam("dbSessionCount", 0L) + " 个会话）:");
+            lines.add("  合计 tokens: 输入 " + db.getLongParam("dbPromptTokens", 0L)
+                    + " / 输出 " + db.getLongParam("dbCompletionTokens", 0L)
+                    + " / 合计 " + db.getLongParam("dbTotalTokens", 0L));
+            lines.add("  缓存: 命中 " + dch + " / 未命中 " + dcm);
+        }
+        return ok("Token 统计", lines);
+    }
+
+    /** /stats all 命令：内存中当前用户的会话 token 明细（按合计降序，上限 50 行） */
+    @SuppressWarnings("unchecked")
+    private TLMsg doStatsAll(Object fromWho, TLMsg msg) {
+        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETALLSESSIONTOKENUSAGE)
+                .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
+        if (result == null) return fail("agentMonitor 未注册");
+        List<Map<String, Object>> sessions = (List<Map<String, Object>>) result.getListParam("sessions", new ArrayList<>());
+        List<Map<String, Object>> sorted = new ArrayList<>(sessions);
+        sorted.sort((a, b) -> Long.compare(numOf(b.get(AI_P_TOTALTOKENS)), numOf(a.get(AI_P_TOTALTOKENS))));
+        List<String> lines = new ArrayList<>();
+        lines.add("内存会话 Token 明细（共 " + sorted.size() + " 条，进程重启清零）:");
+        int shown = 0;
+        for (Map<String, Object> row : sorted) {
+            if (numOf(row.get(AI_P_TOTALTOKENS)) <= 0 && numOf(row.get(AI_P_LLMCALLS)) <= 0) continue; // 跳过仅 register 无调用的会话
+            if (shown >= 50) break;
+            lines.add(String.format("  %-28s user=%-10s 输入 %d / 输出 %d / 合计 %d | 缓存 命中 %d/未命中 %d | 调用 %d | 轮次 %d",
+                    String.valueOf(row.get(AI_P_SESSIONID)), String.valueOf(row.get(AI_P_USERID)),
+                    numOf(row.get(AI_P_PROMPTTOKENS)), numOf(row.get(AI_P_COMPLETIONTOKENS)), numOf(row.get(AI_P_TOTALTOKENS)),
+                    numOf(row.get(AI_P_CACHEHITTOKENS)), numOf(row.get(AI_P_CACHEMISSTOKENS)),
+                    numOf(row.get(AI_P_LLMCALLS)), numOf(row.get(AI_P_CHATROUNDS))));
+            shown++;
+        }
+        if (shown < sorted.size()) {
+            lines.add("  ...（仅显示前 50 条，共 " + sorted.size() + " 条，用 /stats 查看合计）");
+        }
+        return ok("内存会话 Token 明细", lines);
+    }
+
+    private static long numOf(Object v) {
+        if (v == null) return 0L;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(String.valueOf(v)); } catch (Exception e) { return 0L; }
+    }
+
+    /** /stats agent 命令：当前会话最后一轮各 Agent 的 token 用量（仅内存每轮覆盖，用户隔离） */
+    @SuppressWarnings("unchecked")
+    private TLMsg doStatsAgent(Object fromWho, TLMsg msg) {
+        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+        TLMsg r = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETLASTROUNDAGENTUSAGE)
+                .setParam(AI_P_ROOTSESSIONID, sid)
+                .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
+        List<String> lines = new ArrayList<>();
+        if (r == null || !r.parseBoolean("found", false)) {
+            lines.add("当前会话暂无轮次统计（尚无产生 LLM 调用的轮次）");
+            return ok("最后一轮 Agent 用量", lines);
+        }
+        String roundId = r.getStringParam(AI_P_ROUNDID, "");
+        if (r.parseBoolean("stale", false)) {
+            lines.add("最后一轮（round=" + roundId + "）暂无 LLM 调用记录");
+            return ok("最后一轮 Agent 用量", lines);
+        }
+        List<Map<String, Object>> agents = (List<Map<String, Object>>) r.getListParam("agents", new ArrayList<>());
+        List<Map<String, Object>> sorted = new ArrayList<>(agents);
+        sorted.sort((a, b) -> Long.compare(numOf(b.get(AI_P_TOTALTOKENS)), numOf(a.get(AI_P_TOTALTOKENS))));
+        lines.add("当前会话最后一轮各 Agent token 用量 (round=" + roundId + "):");
+        if (sorted.isEmpty()) {
+            lines.add("  本轮暂无 LLM 调用记录");
+        } else {
+            for (Map<String, Object> row : sorted) {
+                lines.add(String.format("  %-24s 输入 %d / 输出 %d / 合计 %d | 缓存 命中 %d/未命中 %d | 调用 %d",
+                        String.valueOf(row.get("agentName")),
+                        numOf(row.get(AI_P_PROMPTTOKENS)), numOf(row.get(AI_P_COMPLETIONTOKENS)), numOf(row.get(AI_P_TOTALTOKENS)),
+                        numOf(row.get(AI_P_CACHEHITTOKENS)), numOf(row.get(AI_P_CACHEMISSTOKENS)),
+                        numOf(row.get(AI_P_LLMCALLS))));
+            }
+        }
+        return ok("最后一轮 Agent 用量", lines);
     }
 
     // ======================== 状态查询 ========================

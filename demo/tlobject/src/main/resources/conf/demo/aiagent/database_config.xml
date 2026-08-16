@@ -225,6 +225,41 @@
   UNIQUE KEY `uk_session_round` (`session_id`, `round_id`),
   KEY `idx_session_id` (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
+
+        <!-- Token 会话累计表（agentMonitor 每轮结束按 rootSessionId 聚合 upsert，每会话一行；/stats DB 历史合计数据源） -->
+        <table name="aiTokenStats" dbtable="ai_token_stats" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_token_stats (
+  session_id TEXT PRIMARY KEY,
+  user_id TEXT DEFAULT '',
+  prompt_tokens INTEGER DEFAULT 0,
+  completion_tokens INTEGER DEFAULT 0,
+  total_tokens INTEGER DEFAULT 0,
+  cache_creation_tokens INTEGER DEFAULT 0,
+  cache_hit_tokens INTEGER DEFAULT 0,
+  cache_miss_tokens INTEGER DEFAULT 0,
+  llm_calls INTEGER DEFAULT 0,
+  chat_rounds INTEGER DEFAULT 0,
+  update_time INTEGER DEFAULT 0
+);"/>
+
+        <table name="aiTokenStats_mysql" dbtable="ai_token_stats" dbserver="dbserver1" statup="false"
+               ifCreate="create"
+               createSql="CREATE TABLE `ai_token_stats` (
+  `session_id` varchar(255) NOT NULL,
+  `user_id` varchar(255) DEFAULT '',
+  `prompt_tokens` bigint DEFAULT 0,
+  `completion_tokens` bigint DEFAULT 0,
+  `total_tokens` bigint DEFAULT 0,
+  `cache_creation_tokens` bigint DEFAULT 0,
+  `cache_hit_tokens` bigint DEFAULT 0,
+  `cache_miss_tokens` bigint DEFAULT 0,
+  `llm_calls` bigint DEFAULT 0,
+  `chat_rounds` bigint DEFAULT 0,
+  `update_time` bigint DEFAULT 0,
+  PRIMARY KEY (`session_id`),
+  KEY `idx_token_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
     </tables>
     <!--
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。

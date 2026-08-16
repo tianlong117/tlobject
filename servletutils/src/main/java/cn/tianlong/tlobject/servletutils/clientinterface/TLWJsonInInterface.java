@@ -44,6 +44,8 @@ public class TLWJsonInInterface extends TLWDirectInInterface {
         LinkedTreeMap<String, Object> contentmap;
         try {
             contentmap = gson.fromJson(jstr, type);
+            // 将解析后的数据存入线程上下文，供后续模块使用
+            setThreadData("jsonRequestBody", contentmap);
         }catch (JsonSyntaxException e){
             putLog("客户端发送非json字符;"+jstr,LogLevel.WARN,"getContentFromUser");
             return null ;

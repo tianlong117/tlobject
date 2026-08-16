@@ -372,11 +372,12 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         String task = (args != null && args.containsKey("task")) ? String.valueOf(args.get("task")) : "";
         if (task.isEmpty()) task = msg.getStringParam(AI_P_USERMESSAGE, "");
         TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
-        if (msg.containsParam(AI_P_SESSIONID)) chatMsg.setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
-        if (msg.containsParam("rootSessionId")) chatMsg.setParam("rootSessionId", msg.getStringParam("rootSessionId", ""));
-        if (msg.containsParam("userId")) chatMsg.setParam("userId", msg.getStringParam("userId", ""));
+        // 框架系统参数区透传（与 TLAiAgent.executeAsTool 同款）
+        if (msg.containsSystemParam(AI_P_SESSIONID)) chatMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
+        if (msg.containsSystemParam("rootSessionId")) chatMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId", ""));
+        if (msg.containsSystemParam("userId")) chatMsg.setSystemParam("userId", msg.getSystemParam("userId", ""));
         // 全链追踪：上游 roundId 透传——组的一轮就是上游的一轮
-        if (msg.containsParam(AI_P_ROUNDID)) chatMsg.setParam(AI_P_ROUNDID, msg.getStringParam(AI_P_ROUNDID, ""));
+        if (msg.containsSystemParam(AI_P_ROUNDID)) chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
         TLMsg result = chat(fromWho, chatMsg);
         return createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
     }
@@ -387,8 +388,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     .setParam(AI_P_RESPONSE, "Error: group " + name + " has no members");
         }
         String task = msg.getStringParam(AI_P_USERMESSAGE, "");
-        String baseSession = msg.getStringParam(AI_P_SESSIONID, String.valueOf(System.currentTimeMillis()));
-        String rootSessionId = msg.getStringParam("rootSessionId", baseSession);
+        String baseSession = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, String.valueOf(System.currentTimeMillis())));
+        String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", baseSession));
+        String gUserId = String.valueOf(msg.getSystemParam(AI_P_USERID, ""));
 
         putLog(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames)
                 + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.INFO);
@@ -398,20 +400,21 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, baseSession)
                 .setParam("rootSessionId", rootSessionId)
+                .setParam(AI_P_USERID, gUserId)
                 .setParam("agentName", getName()));
         try {
             LinkedHashMap<String, String> results;
             String plainAnswer;   // 无监理时的返回内容
             // 全链追踪：上游 roundId 透传给成员/监理——组的一轮就是上游的一轮
-            String roundId = msg.getStringParam(AI_P_ROUNDID, "");
+            String roundId = String.valueOf(msg.getSystemParam(AI_P_ROUNDID, ""));
             if ("parallel".equals(mode)) {
                 LinkedHashMap<String, String> tasks = new LinkedHashMap<>();
                 for (String mName : memberNames) tasks.put(mName, task);
-                results = runParallel(tasks, baseSession, rootSessionId, roundId);
+                results = runParallel(tasks, baseSession, rootSessionId, roundId, gUserId);
                 plainAnswer = mergeResults(results);
             } else {
                 results = new LinkedHashMap<>();
-                TLMsg err = runSequential(task, baseSession, rootSessionId, roundId, results);
+                TLMsg err = runSequential(task, baseSession, rootSessionId, roundId, results, gUserId);
                 if (err != null) return err;
                 // sequential 无监理时维持原语义：返回链条最后一步输出
                 String last = "";
@@ -419,7 +422,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 plainAnswer = last;
             }
             if (supervisorName != null)
-                return supervise(task, results, baseSession, rootSessionId, roundId);
+                return supervise(task, results, baseSession, rootSessionId, roundId, gUserId);
             return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, plainAnswer);
         } finally {
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
@@ -432,7 +435,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      * @return 成员失败时返回错误 TLMsg，全部成功返回 null
      */
     protected TLMsg runSequential(String task, String baseSession, String rootSessionId,
-                                  String roundId, LinkedHashMap<String, String> results) {
+                                  String roundId, LinkedHashMap<String, String> results, String userId) {
         String currentInput = task;
         for (String mName : memberNames) {
             mName = mName.trim();
@@ -445,9 +448,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             String sid = name + "_" + mName + ":" + baseSession;
             putLog("  → [Group-seq] " + mName, LogLevel.DEBUG);
             TLMsg result = putMsg(member, createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, currentInput).setParam(AI_P_SESSIONID, sid)
-                    .setParam("rootSessionId", rootSessionId)
-                    .setParam(AI_P_ROUNDID, roundId));
+                    .setParam(AI_P_USERMESSAGE, currentInput).setSystemParam(AI_P_SESSIONID, sid)
+                    .setSystemParam("rootSessionId", rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, roundId)
+                    .setSystemParam(AI_P_USERID, userId));
             if (result == null || !result.parseBoolean(RESULT, false)) {
                 String err = result != null ? result.getStringParam(AI_P_RESPONSE, "unknown") : "no response";
                 return createMsg().setParam(RESULT, false)
@@ -470,15 +474,16 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
     @SuppressWarnings("unchecked")
     protected LinkedHashMap<String, String> runParallel(LinkedHashMap<String, String> memberTasks,
                                                         String baseSession, String rootSessionId,
-                                                        String roundId) {
+                                                        String roundId, String userId) {
         List<String> order = new ArrayList<>(memberTasks.keySet());
         List<TLMsg> msgList = new ArrayList<>();
         for (String mName : order) {
             String sid = name + "_" + mName + ":" + baseSession;
             msgList.add(createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, memberTasks.get(mName)).setParam(AI_P_SESSIONID, sid)
-                    .setParam("rootSessionId", rootSessionId)
-                    .setParam(AI_P_ROUNDID, roundId)
+                    .setParam(AI_P_USERMESSAGE, memberTasks.get(mName)).setSystemParam(AI_P_SESSIONID, sid)
+                    .setSystemParam("rootSessionId", rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, roundId)
+                    .setSystemParam(AI_P_USERID, userId)
                     .setDestination(mName));
         }
 
@@ -515,7 +520,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      * - 轮次用尽仍不达标 / 监理不可用 → 返回当前拼接结果（不把 JSON 指令返给 master），WARN
      */
     protected TLMsg supervise(String task, LinkedHashMap<String, String> results,
-                              String baseSession, String rootSessionId, String roundId) {
+                              String baseSession, String rootSessionId, String roundId, String userId) {
         TLBaseModule supervisor = (TLBaseModule) getModule(supervisorName);
         if (supervisor == null) {
             putLog("Group supervisor not found: " + supervisorName + ", fallback to merged results", LogLevel.WARN);
@@ -532,9 +537,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     + "{\"retry\":{\"成员名\":\"具体反馈意见\"}}";
             putLog("  → [Group-supervisor] " + supervisorName + " 审核 (round " + (round + 1) + ")", LogLevel.DEBUG);
             TLMsg r = putMsg(supervisor, createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, reviewInput).setParam(AI_P_SESSIONID, sid)
-                    .setParam("rootSessionId", rootSessionId)
-                    .setParam(AI_P_ROUNDID, roundId));
+                    .setParam(AI_P_USERMESSAGE, reviewInput).setSystemParam(AI_P_SESSIONID, sid)
+                    .setSystemParam("rootSessionId", rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, roundId)
+                    .setSystemParam(AI_P_USERID, userId));
             if (r == null || !r.parseBoolean(RESULT, false)) {
                 putLog("Group supervisor chat failed, fallback to merged results", LogLevel.WARN);
                 return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
@@ -562,12 +568,12 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     putLog("Group supervisor named unknown members: " + retry.keySet(), LogLevel.WARN);
                     break;
                 }
-                results.putAll(runParallel(retryTasks, baseSession, rootSessionId, roundId));
+                results.putAll(runParallel(retryTasks, baseSession, rootSessionId, roundId, userId));
             } else {
                 // sequential 链条有依赖，整链重跑，任务追加全部反馈
                 String fbTask = task + "\n\n[监理反馈] " + String.join("；", retry.values());
                 LinkedHashMap<String, String> rerun = new LinkedHashMap<>();
-                TLMsg err = runSequential(fbTask, baseSession, rootSessionId, roundId, rerun);
+                TLMsg err = runSequential(fbTask, baseSession, rootSessionId, roundId, rerun, userId);
                 if (err != null) {
                     putLog("Group sequential rerun failed, keep previous results", LogLevel.WARN);
                     break;

@@ -124,7 +124,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
 
         String response = chatResult.getStringParam(AI_P_RESPONSE, "");
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "");
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, ""));
 
         if (targetAgentName == null) {
             putLog("reviewChat: cannot determine target agent, pass through", LogLevel.WARN);
@@ -141,7 +141,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
             TLMsg reviewResult = putMsg(this,
                     createMsg().setAction(AGENT_CHAT)
                             .setParam(AI_P_USERMESSAGE, reviewPrompt)
-                            .setParam(AI_P_SESSIONID, sessionId + "_review_" + round));
+                            .setSystemParam(AI_P_SESSIONID, sessionId + "_review_" + round));
 
             String verdict = reviewResult != null
                     ? reviewResult.getStringParam(AI_P_RESPONSE, "") : "";
@@ -172,7 +172,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
             TLMsg correctionMsg = createMsg()
                     .setAction(AGENT_CHAT)
                     .setParam(AI_P_USERMESSAGE, correctionPrompt)
-                    .setParam(AI_P_SESSIONID, sessionId + "_fix_" + round);
+                    .setSystemParam(AI_P_SESSIONID, sessionId + "_fix_" + round);
             correctionMsg.setSystemParam(IGNOREAFTER, true);
 
             TLMsg corrected = putMsg(targetAgent, correctionMsg);

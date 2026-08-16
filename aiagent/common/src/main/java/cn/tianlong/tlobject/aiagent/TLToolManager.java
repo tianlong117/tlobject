@@ -819,6 +819,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 TLToolExecutor.ToolTask clarifyTask = new TLToolExecutor.ToolTask(
                         tc.getId(), null, AGENT_REQUESTCLARITY, new LinkedHashMap<>());
                 clarifyTask.precomputedOutput = "⚠️ 需要确认: " + question;
+                clarifyTask.functionName = AGENT_REQUESTCLARITY;   // 追踪锚点可辨认
                 tasks.add(clarifyTask);
                 continue;
             }
@@ -829,6 +830,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 TLToolExecutor.ToolTask errTask = new TLToolExecutor.ToolTask(
                         tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>());
                 errTask.precomputedOutput = "Error: Function not found: " + functionName;
+                errTask.functionName = "unknown_function";   // 追踪锚点可辨认
                 tasks.add(errTask);
                 continue;
             }
@@ -848,6 +850,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                                 tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>());
                         valFailTask.precomputedOutput = "Validation error: "
                                 + vResult.getStringParam("error", "unknown");
+                        valFailTask.functionName = functionName;   // 追踪锚点可对应到具体工具
                         tasks.add(valFailTask);
                         continue;
                     }
