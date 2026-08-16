@@ -407,8 +407,9 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
             row.put(AI_P_LLMCALLS, au.llmCalls.get());
             list.add(row);
         }
-        // 逐次调用明细（到达序 = 完成时间序）
+        // 逐次调用明细（到达序 = 完成时间序）+ 本轮汇总（行内显示用：整轮全部 agent 的用量）
         List<Map<String, Object>> calls = new ArrayList<>();
+        long rp = 0, rc = 0, rt = 0, rch = 0, rcm = 0;
         synchronized (lr) {
             for (AgentCallRecord cr : lr.calls) {
                 Map<String, Object> row = new LinkedHashMap<>();
@@ -421,9 +422,16 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 row.put(AI_P_CACHEHITTOKENS, cr.cacheHitTokens);
                 row.put(AI_P_CACHEMISSTOKENS, cr.cacheMissTokens);
                 calls.add(row);
+                rp += cr.promptTokens; rc += cr.completionTokens; rt += cr.totalTokens;
+                rch += cr.cacheHitTokens; rcm += cr.cacheMissTokens;
             }
         }
-        return r.setParam("agents", list).setParam("calls", calls);
+        return r.setParam("agents", list).setParam("calls", calls)
+                .setParam(AI_P_PROMPTTOKENS, rp)
+                .setParam(AI_P_COMPLETIONTOKENS, rc)
+                .setParam(AI_P_TOTALTOKENS, rt)
+                .setParam(AI_P_CACHEHITTOKENS, rch)
+                .setParam(AI_P_CACHEMISSTOKENS, rcm);
     }
 
     /** 进程级 token 总累计快照查询 */

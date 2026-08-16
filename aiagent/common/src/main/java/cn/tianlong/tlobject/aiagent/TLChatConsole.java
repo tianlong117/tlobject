@@ -1504,16 +1504,28 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     int ct = response.getIntParam(AI_P_COMPLETIONTOKENS, 0);
                     int tt = response.getIntParam(AI_P_TOTALTOKENS, 0);
                     int accTotal = response.getIntParam(AI_P_TOTALTOKENS_TOTAL, 0);
-                    String tokenInfo = tt > 0
-                            ? "，tokens 输入 " + pt + "/输出 " + ct + "/合计 " + tt + "，会话累计 " + accTotal
-                            : "";
-                    TLMsg procUsage = queryProcessTokenUsage();
-                    if (procUsage != null) {
-                        tokenInfo += "，总累计 " + procUsage.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
-                    }
                     int cacheHit = response.getIntParam(AI_P_CACHEHITTOKENS, 0);
                     int cacheMiss = response.getIntParam(AI_P_CACHEMISSTOKENS, 0);
                     int cacheCreate = response.getIntParam(AI_P_CACHECREATIONTOKENS, 0);
+                    // 本轮完整用量（含 workflow/group 成员）：monitor 最后一轮汇总优先，不可用/stale 时回退 agent 自身值。
+                    // 注意 monitor 存的是 Long——getIntParam 只认 Integer 会静默返回 0，必须用 getLongParam
+                    TLMsg roundUsage = queryLastRoundUsage();
+                    if (roundUsage != null && roundUsage.parseBoolean("found", false)
+                            && !roundUsage.parseBoolean("stale", false)) {
+                        pt = roundUsage.getLongParam(AI_P_PROMPTTOKENS, 0L).intValue();
+                        ct = roundUsage.getLongParam(AI_P_COMPLETIONTOKENS, 0L).intValue();
+                        tt = roundUsage.getLongParam(AI_P_TOTALTOKENS, 0L).intValue();
+                        cacheHit = roundUsage.getLongParam(AI_P_CACHEHITTOKENS, 0L).intValue();
+                        cacheMiss = roundUsage.getLongParam(AI_P_CACHEMISSTOKENS, 0L).intValue();
+                    }
+                    // 会话累计统一根会话口径（含成员消耗，与 /stats 当前会话一致）；monitor 不可用时回退 agent 自身累计
+                    TLMsg sessUsage = querySessionTokenUsage();
+                    if (sessUsage != null && sessUsage.parseBoolean("found", false)) {
+                        accTotal = sessUsage.getLongParam(AI_P_TOTALTOKENS, 0L).intValue();
+                    }
+                    String tokenInfo = tt > 0
+                            ? "，tokens 输入 " + pt + "/输出 " + ct + "/合计 " + tt + "，会话累计 " + accTotal
+                            : "";
                     StringBuilder cacheInfo = new StringBuilder();
                     long cacheTotal = cacheHit + cacheMiss;
                     if (cacheTotal > 0) {
@@ -1527,6 +1539,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     }
                     if (cacheCreate > 0 && cacheTotal > 0) {
                         cacheInfo.append(" 写入 ").append(cacheCreate);
+                    }
+                    TLMsg procUsage = queryProcessTokenUsage();
+                    if (procUsage != null) {
+                        tokenInfo += "，总累计 " + procUsage.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
                     }
                     System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms" + tokenInfo + cacheInfo + ")");
                 }
@@ -1560,6 +1576,27 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             TLMsg m = createMsg().setAction(MONITOR_GETPROCESSTOKENUSAGE);
             m.setSystemParam(IGNOREMODULEISNULL, true);
             return putMsg(M_AGENTMONITOR, m);
+        } catch (Exception e) { return null; }
+    }
+
+    /** 查询当前会话的 token 累计（根会话口径：主 agent + workflow/group 成员，与 /stats 当前会话一致；不可用时返回 null 静默降级） */
+    private TLMsg querySessionTokenUsage() {
+        try {
+            TLMsg m = createMsg().setAction(MONITOR_GETSESSIONTOKENUSAGE)
+                    .setParam(AI_P_SESSIONID, sessionId);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            return putMsg(M_AGENTMONITOR, m);
+        } catch (Exception e) { return null; }
+    }
+
+    /** 查询当前会话最后一轮的完整用量（根会话口径，含成员；found=false/stale 时返回 null 表示降级用 agent 自身值） */
+    private TLMsg queryLastRoundUsage() {
+        try {
+            TLMsg m = createMsg().setAction(MONITOR_GETLASTROUNDAGENTUSAGE)
+                    .setParam(AI_P_ROOTSESSIONID, sessionId);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg(M_AGENTMONITOR, m);
+            return (r != null && r.parseBoolean("found", false)) ? r : null;
         } catch (Exception e) { return null; }
     }
 
@@ -1599,6 +1636,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (ud != null && ud.get(AI_P_TOTALTOKENS_TOTAL) instanceof Integer) {
                     accTotal = (Integer) ud.get(AI_P_TOTALTOKENS_TOTAL);
                 }
+            }
+            // 会话累计统一根会话口径（含成员消耗，与 /stats 当前会话一致）；monitor 不可用时回退 agent 自身累计
+            TLMsg sessUsage = querySessionTokenUsage();
+            if (sessUsage != null && sessUsage.parseBoolean("found", false)) {
+                accTotal = sessUsage.getLongParam(AI_P_TOTALTOKENS, 0L).intValue();
             }
             String tokenInfo = accTotal > 0 ? "，会话累计 tokens " + accTotal : "";
             TLMsg procUsage = queryProcessTokenUsage();
