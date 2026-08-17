@@ -28,3 +28,36 @@ oss.py
 
 !.gitignore
 !okhttputils-2_6_2.jar
+
+# ===== 2026-08-17 追加：个人分析文档与运行产物 =====
+# 个人分析/研究文档（不提交）
+README_scraper.md
+analysis_structure.txt
+deepseek*.txt
+docs/a2a_protocol_design_analysis.md
+# 运行期/测试产物
+hamburger_order.txt
+pizza_order.txt
+headlines_found.txt
+json_ld.txt
+love_poems.txt
+love_poems_1.txt
+test_run_out.txt
+_tmp_out2/
+host_scanner/
+logs/
+memory/
+zaobao_headlines.py
+# 个人变体启动脚本（机器相关路径）
+aistart_dq.bat
+aistart_tl.bat
+aistart_xm.bat
+# 遗留 readme（git 已删除，本地保留）
+demo/readme.txt
+demo/tlobject/readme.txt
+# IDE 模块文件
+*.iml
+# 中文名运行输出
+不好意思，小强！浏览器工具这边出了点技术问题，暂时打不开百度网页。
+爱情诗歌.txt
+诗1.txt
