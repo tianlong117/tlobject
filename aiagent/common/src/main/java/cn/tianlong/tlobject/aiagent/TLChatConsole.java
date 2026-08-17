@@ -88,6 +88,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private ThreadTask currentTask;
     private boolean paused = false;
 
+    /** 思考动画（非流式聊天等待期间显示，busy 结束/中断时停止） */
+    private volatile boolean thinking = false;
+    private Thread thinkingThread;
+
     /** JLine 终端引用（异步输出后强制 flush，修复 raw 模式下"结果按回车才出来"的显示延迟） */
     private Terminal terminal;
     private long lastEscTime = 0;
@@ -564,6 +568,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // busy 状态下只响应 /stop 和 /approve
         if (busy) {
             if (input.equalsIgnoreCase("/stop")) {
+                stopThinking();
                 if (paused && currentTask != null) {
                     currentTask.cancelTask();
                     paused = false;
@@ -1045,6 +1050,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 发送命令到 agentService 并打印结果 */
     private void executeServiceCommand(TLMsg msg) {
         if (msg == null) return;
+        // 命令执行前的运行提示（/test /eval 等可能耗时）
+        System.out.println("⏳ 执行中...");
+        System.out.flush();
 
         // 特殊处理：/resume（无断点，回退到恢复最近会话）
         if ("resume".equals(msg.getAction()) && pendingCheckpointSessionId == null) {
@@ -1413,6 +1421,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (!busy) return;
         long now = System.currentTimeMillis();
         if (!paused) {
+            stopThinking();
             if (currentTask != null) currentTask.pauseTask();
             paused = true;
             lastEscTime = now;
@@ -1420,6 +1429,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             System.out.print("⏸ 已暂停（再按 ESC 恢复，连按两下中断）");
             System.out.flush();
         } else if (now - lastEscTime <= DOUBLE_ESC_WINDOW) {
+            stopThinking();
             paused = false;
             if (currentTask != null) currentTask.cancelTask();
             stopChat();
@@ -1468,6 +1478,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (target != null) {
                 TLMsg taskResult = putMsgNoWait(target, msg);
                 currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+                // 等待期间显示思考动画（结果到达时 stopThinking 清行）
+                startThinking("AI >");
             } else {
                 System.out.println("AI > [错误] 找不到 agentService 模块");
                 busy = false;
@@ -1475,6 +1487,41 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.flush();
             }
         }
+    }
+
+    // ======================== 思考动画 ========================
+
+    /** 启动旋转思考动画（\r 重写当前行；busy 结束/中断时调用 stopThinking 停止并清行） */
+    private void startThinking(String prefix) {
+        stopThinking();
+        thinking = true;
+        final String[] frames = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
+        thinkingThread = new Thread(() -> {
+            int i = 0;
+            try {
+                while (thinking) {
+                    System.out.print("\r" + prefix + " " + frames[i % frames.length] + " 思考中");
+                    System.out.flush();
+                    i++;
+                    Thread.sleep(200);
+                }
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
+        }, "chat-thinking");
+        thinkingThread.setDaemon(true);
+        thinkingThread.start();
+    }
+
+    /** 停止思考动画并清空当前行 */
+    private void stopThinking() {
+        thinking = false;
+        if (thinkingThread != null) {
+            thinkingThread.interrupt();
+            thinkingThread = null;
+        }
+        System.out.print("\r\033[K");
+        System.out.flush();
     }
 
     /** 停止对话 */
@@ -1487,6 +1534,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 非流式结果事件（主线程打印） */
     private void onChatResult(TLMsg response) {
+        stopThinking();
         if (response != null) {
             String aiResponse = response.getStringParam(AI_P_RESPONSE, "");
             boolean cancelled = response.parseBoolean(AI_P_CANCELLED, false);
@@ -1620,6 +1668,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 流式结束事件（主线程收尾） */
     private void onStreamEnd(String error, String reasoning) {
+        stopThinking();
         if (reasoning != null && !reasoning.isEmpty()) {
             displayReasoning(reasoning);
         }
