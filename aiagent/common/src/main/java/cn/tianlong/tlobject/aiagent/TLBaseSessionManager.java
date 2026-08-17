@@ -175,9 +175,24 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
                 .setParam("history", history);
     }
 
-    /** 删除会话 */
+    /** 删除会话（先校验存在性，避免删除不存在的会话也返回成功） */
+    @SuppressWarnings("unchecked")
     private TLMsg doDeleteSession(Object fromWho, TLMsg msg) {
-        deleteSessionData(msg.getStringParam("sessionId", ""), msg.getStringParam("userId", null));
+        String sessionId = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", null);
+        if (sessionId.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", "sessionId 必填");
+        // 存在性校验：在用户会话列表中查找（只允许删自己的会话）
+        boolean exists = false;
+        try {
+            java.util.List<java.util.Map<String, Object>> sessions = listSessionsMeta(userId);
+            if (sessions != null) {
+                for (java.util.Map<String, Object> s : sessions) {
+                    if (sessionId.equals(s.get("sessionId"))) { exists = true; break; }
+                }
+            }
+        } catch (Exception ignored) {}
+        if (!exists) return createMsg().setParam(RESULT, false).setParam("error", "会话不存在: " + sessionId);
+        deleteSessionData(sessionId, userId);
         return createMsg().setParam(RESULT, true);
     }
 
