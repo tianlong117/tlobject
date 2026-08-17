@@ -50,8 +50,8 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
     private final Map<String, String> passwords = new HashMap<>();
     /** userId:sessionId → 流式 writer */
     private final Map<String, TLWebChannel> streamWriters = new ConcurrentHashMap<>();
-    /** userId → 事件通道（/api/events） */
-    private final Map<String, TLWebChannel> eventChannels = new ConcurrentHashMap<>();
+    /** userId → 事件通道列表（多标签页并存，全部收到推送） */
+    private final Map<String, java.util.concurrent.CopyOnWriteArrayList<TLWebChannel>> eventChannels = new ConcurrentHashMap<>();
     /** sessionId → userId（审批事件定位属主） */
     private final Map<String, String> sessionOwner = new ConcurrentHashMap<>();
 
@@ -133,6 +133,7 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
         if (params != null) {
             for (Map.Entry<String, Object> e : params.entrySet()) msg.setParam(e.getKey(), e.getValue());
         }
+        if (!msg.containsParam("userId") && userId != null) msg.setParam("userId", userId);
         TLMsg result;
         try {
             result = putMsg(serviceModule, msg);
@@ -185,11 +186,12 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
     public Map<String, Object> beginChatStream(String userId, String sessionId, String message,
                                                String reasoningMode, TLWebChannel channel) {
         String key = streamKey(userId, sessionId);
-        TLWebChannel existing = streamWriters.putIfAbsent(key, channel);
-        if (existing != null) {
+        TLWebChannel existing = streamWriters.get(key);
+        if (existing != null && existing.isOpen()) {
             channel.close();
             return failMap("该会话已有进行中的对话，请先停止");
         }
+        streamWriters.put(key, channel);
         sessionOwner.put(sessionId, userId);
         try {
             TLMsg msg = createMsg().setAction("chatStream")
@@ -230,19 +232,20 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
 
     // ======================== 事件通道（SSE）=======================
 
-    /** 注册 /api/events 通道（userId 级，可多标签页并存） */
+    /** 注册 /api/events 通道（userId 级，多标签页并存） */
     public void registerEventsChannel(String userId, TLWebChannel channel) {
-        eventChannels.put(userId, channel);
+        eventChannels.computeIfAbsent(userId, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(channel);
     }
 
     public void unregisterEventsChannel(String userId, TLWebChannel channel) {
-        eventChannels.remove(userId, channel);
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list != null) { list.remove(channel); if (list.isEmpty()) eventChannels.remove(userId); }
     }
 
     /** 退出登录：关闭该用户的全部事件通道 */
     public void closeEventsChannel(String userId) {
-        TLWebChannel c = eventChannels.remove(userId);
-        if (c != null) c.close();
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.remove(userId);
+        if (list != null) for (TLWebChannel c : list) c.close();
     }
 
     // ======================== 内部 ========================
@@ -272,6 +275,7 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
             evt.put("tokens", tokens);
             channel.write(GSON.toJson(evt));
             streamWriters.remove(streamKey(userId, sessionId));
+            sessionOwner.remove(sessionId);
             channel.close();
             return;
         }
@@ -292,11 +296,15 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
         evt.put("args", msg.getStringParam("args", "{}"));
         String json = GSON.toJson(evt);
         if (owner != null) {
-            TLWebChannel c = eventChannels.get(owner);
-            if (c != null && c.isOpen()) c.write(json);
-        } else {
-            for (TLWebChannel c : eventChannels.values()) {
+            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(owner);
+            if (list != null) for (TLWebChannel c : list) {
                 if (c.isOpen()) c.write(json);
+            }
+        } else {
+            for (java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list : eventChannels.values()) {
+                for (TLWebChannel c : list) {
+                    if (c.isOpen()) c.write(json);
+                }
             }
         }
     }

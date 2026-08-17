@@ -1444,7 +1444,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (llmProvider == null) {
             cleanupStreamState(sessionId);
             TLMsg errMsg = createMsg().setAction(fwdAction)
-                    .setParam(AI_P_STREAMERROR, "No LLM provider configured");
+                    .setParam(AI_P_STREAMERROR, "No LLM provider configured")
+                    .setParam(AI_P_SESSIONID, sessionId);
             putMsg(fwdTarget, errMsg);
             return null;
         }
@@ -1481,7 +1482,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             cleanupStreamState(sessionId);
             try {
                 TLMsg errMsg = createMsg().setAction(fwdAction)
-                        .setParam(AI_P_STREAMERROR, "Stream start failed: " + e.getMessage());
+                        .setParam(AI_P_STREAMERROR, "Stream start failed: " + e.getMessage())
+                        .setParam(AI_P_SESSIONID, sessionId);
                 putMsg(fwdTarget, errMsg);
             } catch (Exception ignored) {
                 // 转发失败不再抛出，调用方通过无回调获知
@@ -1662,7 +1664,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         putLog("Stream tool call continuation error: " + e.toString(), LogLevel.ERROR);
                         TLMsg errMsg = createMsg()
                                 .setAction(resultAction)
-                                .setParam(AI_P_STREAMERROR, "Tool call processing error: " + e.getMessage());
+                                .setParam(AI_P_STREAMERROR, "Tool call processing error: " + e.getMessage())
+                                .setParam(AI_P_SESSIONID, sessionId);
                         putMsg(resultFor, errMsg);
                     }
                 } else {
@@ -1688,7 +1691,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             cleanupStreamState(sessionId);
             TLMsg errMsg = createMsg()
                     .setAction(resultAction)
-                    .setParam(AI_P_STREAMERROR, msg.getParam(AI_P_STREAMERROR));
+                    .setParam(AI_P_STREAMERROR, msg.getParam(AI_P_STREAMERROR))
+                    .setParam(AI_P_SESSIONID, sessionId);
             putMsg(resultFor, errMsg);
         } else if (msg.containsParam(AI_P_CHUNK)) {
             // 转发chunk（中间事件，无生命周期状态需清理）
