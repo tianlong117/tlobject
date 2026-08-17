@@ -101,6 +101,8 @@ table.tbl th, table.tbl td { border: 1px solid #2a2f3d; padding: 5px 8px; text-a
 table.tbl th { background: #232838; color: #93c5fd; }
 table.tbl td button { padding: 2px 8px; font-size: 12px; border-radius: 4px; border: 1px solid #2a2f3d; background: #232838; color: #d8dde6; cursor: pointer; margin-right: 4px; }
 table.tbl td button:hover { background: #2d3345; }
+table.tbl td button.del { color: #f87171; }
+table.tbl td button.del:hover { background: #3f1d1d; }
 table.tbl tr.cur td { background: #1a2138; }
 hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .ok-msg { color: #4ade80; font-size: 13px; }

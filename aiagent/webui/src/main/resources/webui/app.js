@@ -435,8 +435,9 @@ async function loadSessions() {
       const td = document.createElement('td');
       const b1 = document.createElement('button'); b1.textContent = '继续'; b1.onclick = () => continueSession(sid);
       const b2 = document.createElement('button'); b2.textContent = '切换'; b2.onclick = () => switchSession(sid);
-      const b3 = document.createElement('button'); b3.textContent = '清除'; b3.onclick = () => clearSession(sid);
-      td.appendChild(b1); td.appendChild(b2); td.appendChild(b3);
+      const b3 = document.createElement('button'); b3.textContent = '清除上下文'; b3.onclick = () => clearSession(sid);
+      const b4 = document.createElement('button'); b4.textContent = '删除'; b4.className = 'del'; b4.onclick = () => deleteSessionBtn(sid);
+      td.appendChild(b1); td.appendChild(b2); td.appendChild(b3); td.appendChild(b4);
       tr.appendChild(td);
     });
     return r.data || [];
@@ -486,6 +487,24 @@ async function clearSession(sid) {
   try {
     const r = await apiCommand('clear', { sessionId: sid });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
+  } catch (e) { toast(e.message, 'err'); }
+}
+/** 删除会话：确认后删除该会话全部记录（DB/文件，不可恢复） */
+async function deleteSessionBtn(sid) {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
+  if (!confirm('确认删除会话 ' + sid + ' ？\n将删除该会话的全部历史记录，不可恢复。')) return;
+  try {
+    const r = await apiCommand('deleteSession', { sessionId: sid });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success && state.sessionId === sid) {
+      // 当前会话被删：切换到新会话
+      state.sessionId = null;
+      localStorage.removeItem('tlweb_session');
+      $('#sessionId').value = '';
+      $('#msgList').innerHTML = '';
+      newSession();
+    }
+    if (r.success) loadSessions();
   } catch (e) { toast(e.message, 'err'); }
 }
 async function resumeCheckpoint() {

@@ -54,6 +54,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("resume", "恢复断点会话");
         ACTION_REGISTRY.put("clear", "清除会话上下文");
         ACTION_REGISTRY.put("session", "切换当前会话ID");
+        ACTION_REGISTRY.put("deleteSession", "删除会话（记录 + 上下文，不可恢复）");
         ACTION_REGISTRY.put("approve", "审批操作（批准/拒绝）");
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
@@ -123,6 +124,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "resume":          return doResume(fromWho, msg);
             case "clear":           return doClearContext(fromWho, msg);
             case "session":         return doSwitchSession(fromWho, msg);
+            case "deleteSession":   return doDeleteSession(fromWho, msg);
 
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
@@ -706,6 +708,25 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         data.put("savedAt", incompleteResult.getLongParam("savedAt", 0L));
         data.put("iteration", incompleteResult.getIntParam("round", 0));
         return ok("找到断点会话", data);
+    }
+
+    /** 删除会话：清 agent 内存上下文 + 删除 sessionManager 记录（DB/文件） */
+    private TLMsg doDeleteSession(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sessionId == null || sessionId.isEmpty()) return fail("sessionId 参数必填");
+        String userId = msg.getStringParam("userId", null);
+        // 1. 清 agent 内存上下文（避免删除后残留）
+        putMsg(targetAgent(msg), createMsg().setAction(AGENT_CLEARCONTEXT)
+                .setParam(AI_P_SESSIONID, sessionId));
+        // 2. 删除会话记录（DB 版：ai_sessions + ai_session_rounds；文件版：对应文件）
+        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("deleteSession")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", userId));
+        if (result != null && result.parseBoolean(RESULT, false)) {
+            return ok("会话已删除: " + sessionId);
+        }
+        return fail(result != null ? result.getStringParam("error", "删除失败") : "sessionManager 无响应");
     }
 
     /** 清除会话上下文 */
