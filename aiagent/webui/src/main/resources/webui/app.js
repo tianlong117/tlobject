@@ -387,6 +387,7 @@ async function loadSessions() {
   }
 }
 async function continueSession(sid) {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
     if (r.success && r.data) {
@@ -403,8 +404,10 @@ async function continueSession(sid) {
   } catch (e) { toast(e.message, 'err'); }
 }
 async function switchSession(sid) {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('session', { sessionId: sid });
+    if (!r.success) { toast(r.error || r.message, 'err'); return; }
     state.sessionId = sid;
     localStorage.setItem('tlweb_session', sid);
     $('#sessionId').value = sid;
@@ -412,36 +415,43 @@ async function switchSession(sid) {
   } catch (e) { toast(e.message, 'err'); }
 }
 async function clearSession(sid) {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('clear', { sessionId: sid });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
   } catch (e) { toast(e.message, 'err'); }
 }
 async function resumeCheckpoint() {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('resume', { userId: state.userId });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
     const d = r.data || {};
     toast('找到断点会话 ' + d.sessionId + '，正在恢复执行...', 'info');
-    // 断点恢复 = 以断点时的用户消息发起 resume chat
-    const cr = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: d.userMessage || '', sessionId: d.sessionId, resume: true })
-    }).then(x => x.json());
-    state.sessionId = d.sessionId || state.sessionId;
-    localStorage.setItem('tlweb_session', state.sessionId);
-    $('#sessionId').value = state.sessionId;
-    if (cr.success) {
-      appendMsg('user', d.userMessage || '（断点消息）');
-      const holder = startAssistantMsg();
-      // FIX: 先移除光标再追加文本（原计划 firstChild.textContent 会把回复写进光标后被 remove 丢失）
-      holder.cursor.remove();
-      holder.el.appendChild(document.createTextNode(cr.response || ''));
-      if (cr.reasoning) appendReasoning(holder.el, cr.reasoning);
-      scrollChat();
-    } else {
-      appendMsg('system', '[错误] ' + (cr.error || cr.response || ''));
+    // 断点恢复 = 以断点时的用户消息发起 resume chat（阻塞式，加 busy 保护防重入）
+    setBusy(true);
+    try {
+      const cr = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: d.userMessage || '', sessionId: d.sessionId, resume: true })
+      }).then(x => x.json());
+      state.sessionId = d.sessionId || state.sessionId;
+      localStorage.setItem('tlweb_session', state.sessionId);
+      $('#sessionId').value = state.sessionId;
+      if (cr.success) {
+        appendMsg('user', d.userMessage || '（断点消息）');
+        const holder = startAssistantMsg();
+        // FIX: 先移除光标再追加文本（原计划 firstChild.textContent 会把回复写进光标后被 remove 丢失）
+        holder.cursor.remove();
+        holder.el.appendChild(document.createTextNode(cr.response || ''));
+        if (cr.reasoning) appendReasoning(holder.el, cr.reasoning);
+        scrollChat();
+      } else {
+        appendMsg('system', '[错误] ' + (cr.error || cr.response || ''));
+      }
+    } finally {
+      setBusy(false);
     }
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -454,8 +464,7 @@ async function loadAgents() {
     const r = await apiCommand('agents', {});
     const rows = (r.data || []).map(m => {
       const key = m.key != null ? m.key : (m.name || '?');
-      const inst = m.instance;
-      const cls = inst && inst.className ? inst.className.split('.').pop() : (m.className || '?');
+      const cls = m.className ? m.className.split('.').pop() : '?';
       return { key, cls };
     });
     renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
@@ -466,10 +475,11 @@ async function loadSkills() {
   box.innerHTML = '<div class="empty">加载中...</div>';
   try {
     const r = await apiCommand('skills', {});
-    const rows = (r.data || []).map(m => ({
-      key: m.key != null ? m.key : (m.name || '?'),
-      cls: m.instance && m.instance.className ? m.instance.className.split('.').pop() : (m.className || '?')
-    }));
+    const rows = (r.data || []).map(m => {
+      const key = m.key != null ? m.key : (m.name || '?');
+      const cls = m.className ? m.className.split('.').pop() : '?';
+      return { key, cls };
+    });
     renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
@@ -542,7 +552,7 @@ async function mcpSearch() {
   const box = $('#mcpSearchBox');
   box.innerHTML = '<div class="empty">搜索中...</div>';
   try {
-    const r = await apiCommand('mcpSearch', kw ? { keyword: kw } : {});
+    const r = await apiCommand('mcpSearch', kw ? { mcpKeyword: kw } : {});
     box.innerHTML = '';
     const list = r.data || [];
     if (!list.length) { box.innerHTML = '<div class="empty">（无结果）</div>'; return; }
@@ -569,7 +579,7 @@ async function mcpSearch() {
 async function mcpInfo(pkg) {
   const box = $('#mcpSearchBox');
   try {
-    const r = await apiCommand('mcpInfo', { package: pkg });
+    const r = await apiCommand('mcpInfo', { mcpPackage: pkg });
     if (!r.success) { box.innerHTML = '<div class="fail-msg">' + esc(r.error || r.message) + '</div>'; return; }
     const i = r.data || {};
     const lines = [];
@@ -587,7 +597,7 @@ async function mcpInfo(pkg) {
 }
 async function mcpInstall(pkg) {
   try {
-    const r = await apiCommand('mcpInstall', { package: pkg });
+    const r = await apiCommand('mcpInstall', { mcpPackage: pkg });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
     if (r.success) mcpList();
   } catch (e) { toast(e.message, 'err'); }
@@ -621,7 +631,7 @@ async function mcpList() {
 }
 async function mcpRemove(name) {
   try {
-    const r = await apiCommand('mcpRemove', { name });
+    const r = await apiCommand('mcpRemove', { agentName: name });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
     if (r.success) mcpList();
   } catch (e) { toast(e.message, 'err'); }

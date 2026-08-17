@@ -602,7 +602,11 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         java.util.List<Map<String, Object>> filtered = new java.util.ArrayList<>();
         for (Map<String, Object> m : modules) {
             Object inst = m.get(INSTANCE);
-            if (inst instanceof IAgentCapable) filtered.add(m);
+            if (inst instanceof IAgentCapable) {
+                Map<String, Object> enriched = new LinkedHashMap<>(m);
+                enriched.put("className", inst.getClass().getName());
+                filtered.add(enriched);
+            }
         }
         return ok("Agent (" + filtered.size() + ")", filtered);
     }
@@ -622,7 +626,11 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         java.util.List<Map<String, Object>> filtered = new java.util.ArrayList<>();
         for (Map<String, Object> m : modules) {
             Object inst = m.get(INSTANCE);
-            if (inst instanceof TLBaseSkill) filtered.add(m);
+            if (inst instanceof TLBaseSkill) {
+                Map<String, Object> enriched = new LinkedHashMap<>(m);
+                enriched.put("className", inst.getClass().getName());
+                filtered.add(enriched);
+            }
         }
         return ok("Skill (" + filtered.size() + ")", filtered);
     }
