@@ -920,7 +920,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history = noHistory ? new ArrayList<>() : getContextHistory(sessionId);
                 msgStartIdx = history.size();
                 sessionMsgStartIdx.put(sessionId, msgStartIdx);
-                if (memoryContext != null && !memoryContext.isEmpty()) {
+                // 记忆只注入"新会话首轮"：会话已有对话历史时跳过（历史已在上下文中，
+                // 重复注入记忆会让 LLM 把历史任务摘要误当新指令——如"写诗"被算进下一轮）
+                boolean hasUserHistory = false;
+                for (TLConversationHistory h : history) {
+                    if (h.getRole() == TLConversationHistory.Role.user) { hasUserHistory = true; break; }
+                }
+                if (!hasUserHistory && memoryContext != null && !memoryContext.isEmpty()) {
                     history.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
                 }
                 history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
@@ -1461,8 +1467,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionMsgStartIdx.put(sessionId, history.size());
         // ==== 记忆召回注入（流式路径；非流式在 doChat 同逻辑） ====
         // beforeMsgTable 钩子（chatStream → recallAgentMemory）的返回经 PRERESULT 进入 systemArgs
+        // 只注入新会话首轮：会话已有 user 历史时跳过（历史已在上下文中，重复注入会让 LLM 把
+        // 历史任务摘要误当新指令——如"写诗"被算进下一轮）
+        boolean hasUserHistory = false;
+        for (TLConversationHistory h : history) {
+            if (h.getRole() == TLConversationHistory.Role.user) { hasUserHistory = true; break; }
+        }
         TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
-        if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
+        if (!hasUserHistory && beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
             List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
                     beforeResult.getListParam(AI_P_MEMORYRESULT, null);
             if (entries != null && !entries.isEmpty()) {
