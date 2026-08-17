@@ -726,6 +726,17 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
                 break;
 
+            case "sessiondel":
+            case "sd":
+                if (parts.length < 2) {
+                    System.out.println("用法: /sessiondel <会话ID>");
+                    return null;
+                }
+                msg.setAction("deleteSession")
+                        .setParam(AI_P_SESSIONID, parts[1])
+                        .setParam("userId", userId);
+                break;
+
             case "agents":
                 msg.setAction("agents");
                 if (parts.length > 1) msg.setParam("filter", parts[1]);
@@ -1818,6 +1829,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/help", "显示帮助信息");
         commandCache.put("/?", "显示帮助信息");
         commandCache.put("/mcp", "MCP 服务器市场 (search/info/install/list/remove)");
+        commandCache.put("/sessiondel", "删除会话记录（不可恢复）");
 
         try {
             TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
@@ -1872,6 +1884,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /resume        恢复未完成的 mid-loop 断点会话");
         System.out.println("  /continue [id] 继续某个历史会话（加载历史记忆，接着上次聊；不带 id 则恢复最近）");
         System.out.println("  /session <id>  切换会话ID（只换记录归属，不加载历史；新 id=开新会话，已存在的 id 会追加写入）");
+        System.out.println("  /sessiondel <id> 删除会话记录（DB/文件，不可恢复；别名 /sd）");
         System.out.println("  /sessions      列出所有历史会话");
         System.out.println("  /stream        切换流式/非流式模式");
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
