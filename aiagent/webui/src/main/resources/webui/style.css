@@ -52,6 +52,8 @@ main { display: flex; flex: 1; min-height: 0; }
 .msg .reasoning summary { cursor: pointer; color: #93c5fd; }
 .msg .cursor { display: inline-block; width: 8px; height: 16px; background: #93c5fd; vertical-align: text-bottom; animation: blink 1s infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+.msg .thinking { color: #8b93a5; font-size: 12px; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
 .chat-input { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #2a2f3d; align-items: flex-end; }
 .chat-input textarea {
   flex: 1; resize: none; background: #12141a; border: 1px solid #2a2f3d; color: #d8dde6;

@@ -226,16 +226,22 @@ async function sendMessage() {
   else await plainChat(msg);
 }
 async function plainChat(msg) {
+  // 立即创建占位气泡（等待期间有可见反馈），完成后填充
+  const holder = startAssistantMsg();
+  holder.cursor.remove();
+  const thinking = document.createElement('span');
+  thinking.className = 'thinking';
+  thinking.textContent = '🤔 思考中';
+  holder.el.appendChild(thinking);
   setBusy(true);
   try {
     const r = await apiJson('/api/chat', { message: msg, sessionId: state.sessionId });
     if (r.sessionId) { state.sessionId = r.sessionId; $('#sessionId').value = r.sessionId; localStorage.setItem('tlweb_session', r.sessionId); }
     if (r.success) {
-      const holder = startAssistantMsg();
+      thinking.remove();
       if (r.reasoning) appendReasoning(holder.el, r.reasoning);
       // FIX: 原计划用 holder.el.firstChild.textContent —— 无推理时 firstChild 是光标（随后被 remove 导致回复丢失）、有推理时是 details 元素（被 textContent 摧毁）。
       // 修正：先移除光标，再在推理块之后追加文本节点
-      holder.cursor.remove();
       holder.el.appendChild(document.createTextNode(r.response || ''));
       if (r.tokens && r.tokens.total) {
         const meta = document.createElement('div');
@@ -245,9 +251,11 @@ async function plainChat(msg) {
       }
       scrollChat();
     } else {
+      holder.el.remove();
       appendMsg('system', '[错误] ' + (r.error || r.response || '无响应'));
     }
   } catch (e) {
+    holder.el.remove();
     appendMsg('system', '[错误] ' + e.message);
   } finally {
     setBusy(false);
@@ -278,6 +286,26 @@ async function streamChat(msg) {
     let buf = '';
     let reasoningBuf = '';
     let t0 = Date.now();
+    // 空闲检测：长时间无 chunk（LLM 思考 / 工具调用循环）时显示"⏳ 思考中"
+    let idleTimer = null;
+    let idleSpan = null;
+    const clearIdle = () => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (idleSpan) { idleSpan.remove(); idleSpan = null; }
+    };
+    const armIdle = () => {
+      clearIdle();
+      idleTimer = setTimeout(() => {
+        if (!idleSpan && holder.el.isConnected) {
+          idleSpan = document.createElement('span');
+          idleSpan.className = 'thinking';
+          idleSpan.textContent = ' ⏳ 思考中';
+          holder.el.appendChild(idleSpan);
+          scrollChat();
+        }
+      }, 4000);
+    };
+    armIdle();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -292,12 +320,15 @@ async function streamChat(msg) {
           try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
           if (evt.hb) continue;
           if (evt.chunk) {
+            clearIdle();
             if (holder.cursor.parentNode) holder.cursor.remove();
             holder.el.textContent = (holder.el.textContent || '') + evt.chunk;
             scrollChat();
+            armIdle();
           }
           if (evt.reasoning) reasoningBuf = evt.reasoning;
           if (evt.done) {
+            clearIdle();
             evt.ms = Date.now() - t0;
             if (!evt.reasoning && reasoningBuf) evt.reasoning = reasoningBuf;
             finishAssistantMsg(holder, evt);
@@ -308,6 +339,7 @@ async function streamChat(msg) {
       }
     }
     // 流意外结束
+    clearIdle();
     buf += dec.decode();  // 冲刷流尾可能残留的半字符
     finishAssistantMsg(holder, { ms: Date.now() - t0 });
   } catch (e) {
