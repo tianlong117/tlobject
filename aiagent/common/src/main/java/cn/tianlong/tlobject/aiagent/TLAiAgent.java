@@ -1577,6 +1577,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         TLMsg execResult = execToolsViaExecutor(toolCalls, fromWho, sessionId,
                                 history, streamUserId);
                         if (handleStreamRejected(execResult, history, sessionId)) {
+                            // 拒绝收尾：保存上下文，避免本轮 tool 结果丢失导致下一轮上下文不完整
+                            saveContextHistory(sessionId, history);
                             forwardStreamFinal(resultAction, resultFor, sessionId,
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             return null;
@@ -1584,6 +1586,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         // 直出短路（流式路径）：单工具轮且带 finalAnswer → 全文直达，不再续跑 LLM
                         if (execResult != null && execResult.parseBoolean(AI_P_FINALANSWER, false)
                                 && (toolCalls == null || toolCalls.size() == 1)) {
+                            // 直出前保存上下文（此前缺失：直出直接 return 跳过保存，
+                            // 导致下一轮 getContextHistory 拿不到本轮完整 history——LLM 只能靠记忆，
+                            // 把上轮任务（如写诗）误当新指令）
+                            saveContextHistory(sessionId, history);
                             forwardStreamFinal(resultAction, resultFor, sessionId,
                                     execResult.getStringParam("finalResponse", ""));
                             return null;
@@ -1640,6 +1646,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             TLMsg moreExecResult = execToolsViaExecutor(moreTCs, fromWho, sessionId,
                                     history, streamUserId);
                             if (handleStreamRejected(moreExecResult, history, sessionId)) {
+                                saveContextHistory(sessionId, history);
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                                 return null;
@@ -1647,6 +1654,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             // 直出短路（流式续跑循环）：单工具轮且带 finalAnswer → 全文直达
                             if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
                                     && (moreTCs == null || moreTCs.size() == 1)) {
+                                saveContextHistory(sessionId, history);
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", ""));
                                 return null;
