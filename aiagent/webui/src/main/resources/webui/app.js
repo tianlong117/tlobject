@@ -133,10 +133,30 @@ function enterChat() {
   $('#userTag').textContent = '👤 ' + state.userId;
   $('#sessionId').value = state.sessionId;
   $('#msgList').innerHTML = '';
-  appendSysMsg('已登录：' + state.userId + '，会话 ' + state.sessionId + '（管理命令在右侧面板）');
+  appendSysMsg('已登录：' + state.userId + '（管理命令在右侧面板）');
   showView('chat');
   openEvents();
-  loadSessions();
+  autoResumeLast();
+}
+
+/** 登录后自动接续最近的历史会话（有则恢复上下文并渲染历史；无则提示新开始） */
+async function autoResumeLast() {
+  try {
+    const sessions = await loadSessions();
+    const last = (sessions || []).find(s => s.sessionId && s.count > 0 && s.state === 'completed');
+    if (!last) {
+      appendSysMsg('💡 暂无历史会话，已开始新会话 ' + state.sessionId + '，直接输入消息即可');
+      return;
+    }
+    const ok = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
+    if (ok) {
+      appendSysMsg('💡 已自动接续最近会话，可在右侧『会话』面板切换其他历史会话');
+    } else {
+      appendSysMsg('💡 自动接续失败，已开始新会话 ' + state.sessionId + '（可在右侧『会话』面板手动继续）');
+    }
+  } catch (e) {
+    appendSysMsg('💡 历史会话恢复失败（' + e.message + '），已开始新会话 ' + state.sessionId);
+  }
 }
 
 // ======================== 聊天渲染 ========================
@@ -382,12 +402,15 @@ async function loadSessions() {
       td.appendChild(b1); td.appendChild(b2); td.appendChild(b3);
       tr.appendChild(td);
     });
+    return r.data || [];
   } catch (e) {
     box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>';
+    return [];
   }
 }
-async function continueSession(sid) {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
+/** 继续历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续）不弹 toast。返回是否成功 */
+async function continueSession(sid, silent) {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return false; }
   try {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
     if (r.success && r.data) {
@@ -400,8 +423,9 @@ async function continueSession(sid) {
         if (h && h.role !== 'system' && h.content) appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
       });
     }
-    toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
-  } catch (e) { toast(e.message, 'err'); }
+    if (!silent) toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
+    return !!r.success;
+  } catch (e) { if (!silent) toast(e.message, 'err'); return false; }
 }
 async function switchSession(sid) {
   if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
@@ -547,8 +571,10 @@ async function doReload() {
 }
 
 // ======================== 面板：MCP ========================
+let mcpLastKw = '';   // 最近一次搜索关键词（详情页返回时恢复）
 async function mcpSearch() {
   const kw = $('#mcpKw').value.trim();
+  mcpLastKw = kw;
   const box = $('#mcpSearchBox');
   box.innerHTML = '<div class="empty">搜索中...</div>';
   try {
@@ -592,8 +618,15 @@ async function mcpInfo(pkg) {
     if (i.homepage) lines.push('\n主页: ' + i.homepage);
     if (i.repository) lines.push('仓库: ' + i.repository);
     if (i.env) lines.push('\n环境变量: ' + i.env);
-    renderPre(box, lines);
+    // 详情视图 + 返回按钮（返回时用上次关键词重跑搜索）
+    box.innerHTML = '<div class="btn-row"><button onclick="mcpBackToList()">← 返回列表</button></div>'
+      + '<pre class="out">' + esc(lines.join('\n')) + '</pre>';
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+/** 详情 → 返回列表：用上次关键词重新搜索 */
+function mcpBackToList() {
+  $('#mcpKw').value = mcpLastKw;
+  mcpSearch();
 }
 async function mcpInstall(pkg) {
   try {

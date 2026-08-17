@@ -114,6 +114,7 @@ public class TLWebChatServlet extends HttpServlet {
             return;
         }
         resp.setStatus(200);
+        resp.setHeader("Cache-Control", "no-cache");   // 前端迭代期禁止缓存，刷新即得最新代码
         String ct = contentType(resource);
         resp.setContentType(ct + ";charset=UTF-8");
         resp.setCharacterEncoding("UTF-8");
