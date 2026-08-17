@@ -1457,6 +1457,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 获取上下文并构建流式请求
         List<TLConversationHistory> history = getContextHistory(sessionId);
+        // 记录本轮增量起点（chatFinished 的 messages 只存本轮新增，避免全量累积导致恢复重复）
+        sessionMsgStartIdx.put(sessionId, history.size());
         // ==== 记忆召回注入（流式路径；非流式在 doChat 同逻辑） ====
         // beforeMsgTable 钩子（chatStream → recallAgentMemory）的返回经 PRERESULT 进入 systemArgs
         TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
