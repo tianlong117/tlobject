@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<moduleConfig>
-    <!-- UniAgent 核心配置 -->
-    <!-- 参数通过 modulesParams 在 moduleFactory 中设置 -->
-    <!-- 工具由 ToolFactory 管理（见 toolFactory_config.xml） -->
-    <!-- 子 Agent 由 ToolFactory 统一作为工具管理 -->
-</moduleConfig>

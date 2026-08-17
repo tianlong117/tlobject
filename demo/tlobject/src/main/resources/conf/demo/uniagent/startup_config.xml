@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<moduleConfig>
-    <!-- 启动配置：定义 app 入口模块为 uniagent -->
-    <params>
-        <param name="appModule" value="uniagent"/>
-    </params>
-</moduleConfig>
