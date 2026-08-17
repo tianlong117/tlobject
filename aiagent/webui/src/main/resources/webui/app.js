@@ -148,11 +148,11 @@ async function autoResumeLast() {
       appendSysMsg('💡 暂无历史会话，已开始新会话 ' + state.sessionId + '，直接输入消息即可');
       return;
     }
-    const ok = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
-    if (ok) {
+    const res = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
+    if (res.ok) {
       appendSysMsg('💡 已自动接续最近会话，可在右侧『会话』面板切换其他历史会话');
     } else {
-      appendSysMsg('💡 自动接续失败，已开始新会话 ' + state.sessionId + '（可在右侧『会话』面板手动继续）');
+      appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在右侧『会话』面板手动继续）');
     }
   } catch (e) {
     appendSysMsg('💡 历史会话恢复失败（' + e.message + '），已开始新会话 ' + state.sessionId);
@@ -408,9 +408,12 @@ async function loadSessions() {
     return [];
   }
 }
-/** 继续历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续）不弹 toast。返回是否成功 */
+/** 继续历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续）不弹 toast。返回 {ok, error} */
 async function continueSession(sid, silent) {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return false; }
+  if (state.busy) {
+    if (!silent) toast('有进行中的对话，请先停止', 'err');
+    return { ok: false, error: '有进行中的对话，请先停止' };
+  }
   try {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
     if (r.success && r.data) {
@@ -424,8 +427,11 @@ async function continueSession(sid, silent) {
       });
     }
     if (!silent) toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
-    return !!r.success;
-  } catch (e) { if (!silent) toast(e.message, 'err'); return false; }
+    return { ok: !!r.success, error: r.success ? null : (r.error || r.message || '未知错误') };
+  } catch (e) {
+    if (!silent) toast(e.message, 'err');
+    return { ok: false, error: e.message };
+  }
 }
 async function switchSession(sid) {
   if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
