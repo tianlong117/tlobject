@@ -46,6 +46,10 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     @Override
     @SuppressWarnings("unchecked")
     protected void storeRound(Map<String, Object> roundData) {
+        // 惰性重试：init() 时数据库可能未就绪（多实例并发写 SQLite 时表模块初始化可能失败），
+        // 每次保存前重试获取，就绪后自然恢复（否则会话汇总会静默丢失）
+        if (roundsTable == null) roundsTable = TLDataBase.getTable("aiSessionRounds", this);
+        if (sessTable == null) sessTable = TLDataBase.getTable("aiSessions", this);
         if (!enableCheckpoint || roundsTable == null) return;
         try {
             String sessionId = (String) roundData.getOrDefault("sessionId", "");
@@ -109,6 +113,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
                 sessParams.put("last_active", System.currentTimeMillis());
                 sessParams.put("created_at", System.currentTimeMillis());
                 putMsg(sessTable, createMsg()
+                        .setAction(DB_INSERT)   // 必须带 action，否则 TLTable 无法分发（历史 bug：新会话行从未由 storeRound 创建）
                         .setParam(DB_P_SQL, "insert or ignore into [table] "
                                 + "(session_id,user_id,agent_name,state,user_message,msg_count,last_active,created_at) "
                                 + "values (?,?,?,?,?,?,?,?)")

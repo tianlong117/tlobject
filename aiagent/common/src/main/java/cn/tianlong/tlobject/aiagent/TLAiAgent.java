@@ -126,6 +126,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 会话级 userId: sessionId → userId（供 onStreamResult 回调线程查表；doChat/chatStream 入口写入） */
     private final Map<String, String> sessionUserIds = new ConcurrentHashMap<>();
+    /** 会话级 userMessage: sessionId → 本轮用户消息（供 onStreamResult 收尾 chatFinished 使用，与 sessionUserIds 对称） */
+    private final Map<String, String> sessionUserMessages = new ConcurrentHashMap<>();
 
     // ======================== Session 管理 ========================
 
@@ -740,6 +742,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         currentChatUserId.set(String.valueOf(msg.getSystemParam("userId", sessionId)));
         sessionUserIds.put(sessionId, currentChatUserId.get());
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
+        sessionUserMessages.put(sessionId, userMessage);
         // 固定任务前缀（配置的 task 参数）：普通 agent 配置后每次收到的消息都前置该任务指令；
         // 工作流下游节点同样经此生效（user 层指令权重最高，systemMessage 管人设，task 管本次工作）
         if (params != null && params.get("task") != null && !params.get("task").trim().isEmpty()) {
@@ -1437,6 +1440,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // userId 入会话表（onStreamResult 跑在 provider 回调线程，ThreadLocal 不可用）
         sessionUserIds.put(sessionId, String.valueOf(msg.getSystemParam(AI_P_USERID,
                 msg.getStringParam(AI_P_USERID, "default"))));
+        // 本轮用户消息入会话表（收尾 chatFinished 保存会话时用）
+        sessionUserMessages.put(sessionId, userMessage);
         if (!fwdTarget.equals(getName())) {
             streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
         }
@@ -1510,6 +1515,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionRoundIds.remove(sessionId);
         sessionMsgStartIdx.remove(sessionId);
         sessionUserIds.remove(sessionId);
+        sessionUserMessages.remove(sessionId);
         // 流式轮收尾：注销即触发 monitor 端该会话的 DB flush（chatStream 不 register，不影响 runningAgents 语义）
         putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                 .setParam(AI_P_SESSIONID, sessionId));
@@ -1643,6 +1649,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 .setParam("agentName", name)
                                 .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
                                 .setParam("messages", deltaMessages(history, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
+                                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
                                 .setParam("response", finalResponse != null ? finalResponse : streamedText));
                         try {
                             TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
@@ -1687,6 +1694,29 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         currentHistory.add(new TLConversationHistory(
                                 TLConversationHistory.Role.assistant, streamedText));
                         saveContextHistory(sessionId, currentHistory);
+                    }
+                    // 收尾：通知 SessionManager 保存会话（与 tool call 路径对称）+ 保存长期记忆
+                    notifySessionManager(createMsg()
+                            .setAction("chatFinished")
+                            .setParam("sessionId", sessionId)
+                            .setParam("userId", streamUserId)
+                            .setParam("agentName", name)
+                            .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
+                            .setParam("messages", deltaMessages(currentHistory,
+                                    sessionMsgStartIdx.getOrDefault(sessionId, 0)))
+                            .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
+                            .setParam("response", streamedText));
+                    try {
+                        TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
+                                .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                                .setParam("userId", streamUserId)
+                                .setParam("agentName", name)
+                                .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
+                                .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + streamedText)
+                                .setParam(AI_P_MEMORYTAG, "chat_history");
+                        saveAgentMemory(fromWho, saveMsg);
+                    } catch (Exception e) {
+                        putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
                     }
                     TLMsg doneMsg = createMsg()
                             .setAction(resultAction)
