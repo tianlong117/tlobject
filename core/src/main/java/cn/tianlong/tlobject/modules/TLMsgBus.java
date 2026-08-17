@@ -52,6 +52,7 @@ public class TLMsgBus extends TLBaseModule {
     private void unRegistBus(Object fromWho, TLMsg msg) {
         String destination = (String) msg.getParam("destination");
         Object object = msg.getParam("object");
+        if (destination == null) return;   // ConcurrentHashMap 禁 null key
         CopyOnWriteArrayList<Object> list = receivers.get(destination);
         if (list == null) return;
         if (object == null) {
@@ -70,6 +71,7 @@ public class TLMsgBus extends TLBaseModule {
 
     private TLMsg onBus(Object fromWho, TLMsg msg) {
         String destination = msg.getDestination();
+        if (destination == null) return null;   // ConcurrentHashMap 禁 null key；无 destination 非总线消息（如 shutdown 的 destroy 消息）
         CopyOnWriteArrayList<Object> list = receivers.get(destination);
         if(list ==null || list.isEmpty())
             return null ;
@@ -86,7 +88,7 @@ public class TLMsgBus extends TLBaseModule {
     private void regsitBus(Object fromWho, TLMsg msg) {
         String destination = (String) msg.getParam("destination");
         Object object=msg.getParam("object");
-        if (object == null) return;
+        if (object == null || destination == null) return;   // ConcurrentHashMap 禁 null key
         receivers.computeIfAbsent(destination, k -> new CopyOnWriteArrayList<>()).add(object);
     }
 }
