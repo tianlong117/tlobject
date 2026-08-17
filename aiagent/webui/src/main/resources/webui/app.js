@@ -139,11 +139,13 @@ function enterChat() {
   autoResumeLast();
 }
 
-/** 登录后自动接续最近的历史会话（有则恢复上下文并渲染历史；无则提示新开始） */
+/** 登录后自动接续最近活跃的会话（有则恢复上下文并渲染历史；无则提示新开始） */
 async function autoResumeLast() {
   try {
     const sessions = await loadSessions();
-    const last = (sessions || []).find(s => s.sessionId && s.count > 0 && s.state === 'completed');
+    // 列表按 last_active 倒序：取第一个非当前会话（即最近一次用过的会话，不论内容多少——
+    // 不用 count/state 过滤，msg_count 可能被空轮覆盖为 0 导致误跳过）
+    const last = (sessions || []).find(s => s.sessionId && s.sessionId !== state.sessionId);
     if (!last) {
       appendSysMsg('💡 暂无历史会话，已开始新会话 ' + state.sessionId + '，直接输入消息即可');
       return;
