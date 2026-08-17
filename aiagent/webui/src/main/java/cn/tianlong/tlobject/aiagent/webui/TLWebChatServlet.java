@@ -198,7 +198,8 @@ public class TLWebChatServlet extends HttpServlet {
     private void handleLogout(HttpServletRequest req, HttpServletResponse resp, String userId) throws IOException {
         TLWebChatModule mod = module();
         if (mod != null) mod.closeEventsChannel(userId);
-        if (mod != null) mod.stopChat(userId, "");
+        // 退出登录不停止进行中的任务（与关闭浏览器一致）：agent 继续跑完，结果照常落库；
+        // 期间触发审批会因无人在线而超时自动拒绝（安全默认）
         HttpSession s = req.getSession(false);
         if (s != null) s.invalidate();
         writeJson(resp, 200, json("success", true, "message", "已退出"));
