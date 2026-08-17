@@ -44,6 +44,8 @@ public class TLJettyServer extends TLBaseModule {
     protected int maxThreads = 200;
     protected int idleTimeout = 30000;
     private TLServletDispatch servletdispatch;
+    /** 额外 servlet 注册：path=类名;path=类名（类需有 (String, TLObjectFactory) 构造或默认构造） */
+    protected String extraServlets;
 
     public TLJettyServer() {
         super();
@@ -87,6 +89,8 @@ public class TLJettyServer extends TLBaseModule {
                 sslCerFile = params.get(SSL_SCERFILE);
             if (params.get(SSL_SCERFILE_PWD) != null)
                 sslCerFilePwd = params.get(SSL_SCERFILE_PWD);
+            if (params.get("extraServlets") != null)
+                extraServlets = params.get("extraServlets");
         }
     }
 
@@ -210,7 +214,41 @@ public class TLJettyServer extends TLBaseModule {
         context.addServlet(new ServletHolder(servletdispatch), dynamicPath);
         // 静态资源由 DefaultServlet 处理
         context.addServlet(DefaultServlet.class, "/*");
+        addExtraServlets(context);
         putLog("Servlet 映射: " + dynamicPath + " -> TLServletDispatch, /* -> DefaultServlet", LogLevel.DEBUG);
+    }
+
+    /**
+     * 注册额外 servlet（extraServlets 参数，格式 "path=类名;path=类名"）。
+     * 优先使用 (String, TLObjectFactory) 构造器（同 TLServletDispatch 模式），失败回退默认构造器。
+     */
+    private void addExtraServlets(ServletContextHandler context) {
+        if (extraServlets == null || extraServlets.trim().isEmpty()) return;
+        for (String pair : extraServlets.split(";")) {
+            pair = pair.trim();
+            if (pair.isEmpty()) continue;
+            int eq = pair.indexOf('=');
+            if (eq <= 0 || eq == pair.length() - 1) {
+                putLog("extraServlets 配置错误: " + pair + "（格式 path=类名）", LogLevel.WARN);
+                continue;
+            }
+            String path = pair.substring(0, eq).trim();
+            String cls = pair.substring(eq + 1).trim();
+            try {
+                Class<?> clazz = Class.forName(cls);
+                Object servlet;
+                try {
+                    servlet = clazz.getConstructor(String.class, TLObjectFactory.class)
+                            .newInstance(name + "-" + cls.substring(cls.lastIndexOf('.') + 1), moduleFactory);
+                } catch (NoSuchMethodException nsme) {
+                    servlet = clazz.getDeclaredConstructor().newInstance();
+                }
+                context.addServlet(new ServletHolder((javax.servlet.Servlet) servlet), path);
+                putLog("extra servlet: " + path + " -> " + cls, LogLevel.INFO);
+            } catch (Exception e) {
+                putLog("extraServlets 实例化失败: " + cls + " - " + e.getMessage(), LogLevel.ERROR);
+            }
+        }
     }
 
     protected ServletContextHandler initContext() {
