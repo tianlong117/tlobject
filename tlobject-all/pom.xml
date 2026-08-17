@@ -63,6 +63,11 @@
         </dependency>
         <dependency>
             <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-server-jettyee8</artifactId>
+            <version>1.0</version>
+        </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
             <artifactId>tlobject-network-server-tomcat</artifactId>
             <version>1.0</version>
         </dependency>
