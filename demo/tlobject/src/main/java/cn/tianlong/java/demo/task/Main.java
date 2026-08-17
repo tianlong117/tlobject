@@ -20,7 +20,7 @@ public class Main extends TLAppStartUp {
         argsMap.put("factoryConfigFile","moduleFactory_config.xml");
         argsMap.put("configFile","");
         TLAppStartUp.main0(argsMap);
-        TLAppStartUp.shutdown();
+
     }
 
 }

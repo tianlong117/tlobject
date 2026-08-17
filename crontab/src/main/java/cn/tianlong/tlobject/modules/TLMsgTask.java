@@ -4,579 +4,715 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+
 import org.quartz.CronExpression;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.text.ParseException;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
 
 /**
- * 创建日期：2018/4/23 on 21:00
- * 描述:
- * 作者:tianlong
- */
-
-/**
- 消息计划任务模块
+ * 消息计划任务模块（重构版）
+ * <p>
+ * 核心设计：
+ * <ul>
+ *   <li><b>统一调度</b>：固定延迟用 scheduleAtFixedRate，Cron 用 schedule 动态调度</li>
+ *   <li><b>状态集中</b>：所有任务状态在 TaskRuntime 中管理，taskMsgTable 只存配置</li>
+ *   <li><b>无控制消息</b>：直接调度任务执行，不需要 controlMsg 绕一圈</li>
+ * </ul>
+ *
+ * @author tianlong
  */
 public class TLMsgTask extends TLBaseModule {
-    protected String cronDelay ="100";
-    protected ScheduledExecutorService executor;
-    protected Map<String, TLMsg>  taskMsgTable = new ConcurrentHashMap<>();
-    protected Map<String, HashMap<String, Object>> taskDatas = new ConcurrentHashMap<>();
-    protected int poolSize = 0;
-    protected TLMsg denyMsg = new TLMsg().setSystemParam(MODULE_DONEXTMSG,false);
 
-    public TLMsgTask() {
-        super();
+    // ======================== 状态常量 ========================
+    private static final String STATUS_INIT = "init";
+    private static final String STATUS_RUNNING = "run";
+    private static final String STATUS_STOPPED = "stopped";
+    private static final String STATUS_ERROR = "error";
+
+    // ======================== 配置字段 ========================
+    private int poolSize = 4;
+    private long defaultDelay = 60;           // 默认延迟（秒）
+    private long defaultPeriod = 60;          // 默认周期（秒）
+    private int defaultMaxTimes = 0;          // 默认执行次数（0=不限）
+    private long cronCheckInterval = 1000;    // Cron 检查间隔（毫秒）
+
+    // ======================== 运行时字段 ========================
+    private final Map<String, TLMsg> taskConfigs = new ConcurrentHashMap<>();
+    private final Map<String, TaskRuntime> taskRuntimes = new ConcurrentHashMap<>();
+    private ScheduledExecutorService executor;
+    private final AtomicBoolean destroyed = new AtomicBoolean(false);
+
+    // ======================== 内部类 ========================
+
+    /**
+     * 任务运行时状态（所有字段都在这里，集中管理）
+     */
+    private static class TaskRuntime {
+        final String taskId;
+        final TLMsg config;                    // 配置引用
+        final ScheduledFuture<?> future;       // 调度 Future
+        final AtomicInteger executedCount = new AtomicInteger(0);
+        volatile String status;
+        volatile Date lastExecuteTime;
+        volatile Date nextExecuteTime;
+        volatile String lastError;
+
+        TaskRuntime(String taskId, TLMsg config, ScheduledFuture<?> future, String status) {
+            this.taskId = taskId;
+            this.config = config;
+            this.future = future;
+            this.status = status;
+        }
+
+        boolean isRunning() {
+            return STATUS_RUNNING.equals(status) && future != null && !future.isCancelled() && !future.isDone();
+        }
+
+        boolean isStopped() {
+            return STATUS_STOPPED.equals(status) || STATUS_ERROR.equals(status);
+        }
+
+        void stop(boolean cancelFuture) {
+            status = STATUS_STOPPED;
+            if (cancelFuture && future != null && !future.isCancelled()) {
+                future.cancel(false);
+            }
+        }
+
+        void error(String errorMsg) {
+            status = STATUS_ERROR;
+            lastError = errorMsg;
+            if (future != null && !future.isCancelled()) {
+                future.cancel(false);
+            }
+        }
     }
 
-    public TLMsgTask(String name) {
-        super(name);
-    }
+    // ======================== 构造器 ========================
 
-    public TLMsgTask(String name, TLObjectFactory modulefactory) {
-        super(name, modulefactory);
-    }
+    public TLMsgTask() { super(); }
+    public TLMsgTask(String name) { super(name); }
+    public TLMsgTask(String name, TLObjectFactory factory) { super(name, factory); }
+
+    // ======================== 生命周期 ========================
 
     @Override
     protected Object setConfig() {
-        myConfig config = new myConfig(configFile,moduleFactory.getConfigDir());
+        myConfig config = new myConfig(configFile, moduleFactory.getConfigDir());
         mconfig = config;
         super.setConfig();
+
         ArrayList<TLMsg> taskMsgs = config.getTaskMsgTable();
-        if(taskMsgs !=null)
-        {
-            for (TLMsg msg : taskMsgs)
-                taskMsgTable.put(getTaskid(msg),msg);
+        if (taskMsgs != null) {
+            for (TLMsg msg : taskMsgs) {
+                String taskId = generateTaskId(msg);
+                msg.setParam(TASK_P_TASKID, taskId);
+                if (msg.getParam(TASK_P_STATUS) == null) {
+                    msg.setParam(TASK_P_STATUS, STATUS_INIT);
+                }
+                taskConfigs.put(taskId, msg);
+            }
         }
         return config;
     }
 
     @Override
-    protected void initProperty() {
-        super.initProperty();
-        if (params != null && params.get("poolSize") != null)
-                poolSize = Integer.parseInt(params.get("poolSize"));
+    protected void setModuleParams() {
+        super.setModuleParams();
+        if (params == null) return;
+
+        if (params.get("poolSize") != null) {
+            try { poolSize = Math.max(1, Integer.parseInt(params.get("poolSize"))); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (params.get("defaultDelay") != null) {
+            try { defaultDelay = Long.parseLong(params.get("defaultDelay")); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (params.get("defaultPeriod") != null) {
+            try { defaultPeriod = Long.parseLong(params.get("defaultPeriod")); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (params.get("defaultMaxTimes") != null) {
+            try { defaultMaxTimes = Integer.parseInt(params.get("defaultMaxTimes")); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (params.get("cronCheckInterval") != null) {
+            try { cronCheckInterval = Long.parseLong(params.get("cronCheckInterval")); }
+            catch (NumberFormatException ignored) {}
+        }
     }
 
     @Override
     protected TLBaseModule init() {
-        if(poolSize ==0)
-           poolSize =taskMsgTable.size();
-        if (taskMsgTable == null || taskMsgTable.isEmpty())
-            return this ;
-        if (executor == null)
+        if (executor == null) {
             executor = Executors.newScheduledThreadPool(poolSize);
-        return this ;
+            putLog("任务调度器初始化，线程池大小: " + poolSize, LogLevel.INFO);
+        }
+        return this;
     }
+
     @Override
     public void runStartMsg() {
         super.runStartMsg();
-        if(taskMsgTable !=null && !taskMsgTable.isEmpty())
-        {
-            for (String taskid:taskMsgTable.keySet())
-            {
-                TLMsg msg = taskMsgTable.get(taskid);
-                String status = (String) msg.getParam("status");
-                if (status == null || status.equals("run")) {
-                    runTask(msg);
-                }
-                else  if(status.equals("stop"))
-                    stopTask(msg);
+        if (taskConfigs.isEmpty()) {
+            putLog("无预定义任务", LogLevel.DEBUG);
+            return;
+        }
+
+        putLog("启动预定义任务，共 " + taskConfigs.size() + " 个", LogLevel.INFO);
+        for (Map.Entry<String, TLMsg> entry : taskConfigs.entrySet()) {
+            String taskId = entry.getKey();
+            TLMsg config = entry.getValue();
+            String status = config.getStringParam(TASK_P_STATUS, STATUS_INIT);
+
+            if (STATUS_RUNNING.equals(status) || STATUS_INIT.equals(status)) {
+                startTask(taskId);
             }
         }
     }
+
     @Override
     protected void reConfig() {
-        if (params != null) {
-            if (params.get("status") != null && params.get("status").equals("shutdown")) {
-                poolShutdown();
-                return;
-            }
-            if (params.get("status") != null && params.get("status").equals("stop")) {
-                for (String taskid:taskMsgTable.keySet()) {
-                    TLMsg msg = taskMsgTable.get(taskid);
-                    stopTask(msg);;
-                }
-                return;
-            }
-        }
-        if (taskMsgTable == null || taskMsgTable.isEmpty())
+        super.reConfig();
+        if (params == null) return;
+
+        // 全局关闭
+        if ("shutdown".equals(params.get("status"))) {
+            shutdownAllTasks();
             return;
-        for (String taskid:taskMsgTable.keySet())
-        {
-            TLMsg tmsg = taskMsgTable.get(taskid);
-            String status = (String) tmsg.getParam("status");
-            if (status == null)
-                continue;
-            if (status.equals("restart"))
-                restartTask(taskid, tmsg);
-            else {
-                HashMap<String, Object> nowTaskdata = taskDatas.get(taskid);
-                if(nowTaskdata == null)
-                {
-                    if (status.equals("run"))
-                        runTask(tmsg);
-                    else if(status.equals("stop"))
-                        stopTask(tmsg);
-                }
+        }
+
+        if ("stop".equals(params.get("status"))) {
+            stopAllTasks();
+            return;
+        }
+
+        // 逐个任务处理
+        for (Map.Entry<String, TLMsg> entry : taskConfigs.entrySet()) {
+            String taskId = entry.getKey();
+            TLMsg config = entry.getValue();
+            String status = config.getStringParam(TASK_P_STATUS, null);
+            if (status == null) continue;
+
+            switch (status) {
+                case "restart":
+                    restartTask(taskId);
+                    break;
+                case STATUS_RUNNING:
+                    if (!isTaskRunning(taskId)) startTask(taskId);
+                    break;
+                case STATUS_STOPPED:
+                    stopTask(taskId);
+                    break;
             }
         }
     }
 
-    private Boolean runTask(TLMsg taskMsg){
-        HashMap<String, Object> nowTaskdata = taskDatas.get(taskMsg.getParam(TASK_P_TASKID));
-        if (nowTaskdata == null)
-        {
-            if (!taskMsg.isNull(TASK_P_CRON) )
-                taskMsg.setParam("delay", cronDelay).setParam("timeUnit", "ms");
-            startTask(taskMsg);
-            return true;
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        if (destroyed.compareAndSet(false, true)) {
+            shutdownAllTasks();
+            if (executor != null) {
+                executor.shutdown();
+                try {
+                    if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                        executor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    executor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+                executor = null;
+            }
+            putLog("任务调度器已销毁", LogLevel.INFO);
         }
-        String status =  taskMsg.getStringParam(TASK_P_STATUS,null);
-        if(status !=null && status.equals("stoping"))
-        {
-            taskMsg.setParam("status","run");
-            return true;
-        }
-        else
-            return false ;
+        return super.destroy(fromWho, msg);
     }
 
-    private void startTask(TLMsg taskMsg) {
-        String taskid = getTaskid(taskMsg);
-        if (taskDatas.get(taskid) != null)
+    // ======================== 消息分发 ========================
+
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        String action = msg.getAction();
+        if (action == null) return null;
+
+        switch (action) {
+            case TASK_REGISTTASK:  return doRegistTask(msg);
+            case TASK_UNREGISTTASK: return doUnregistTask(msg);
+            case TASK_STARTTASK:   return doStartTask(msg);
+            case TASK_STOPTASK:    return doStopTask(msg);
+            case TASK_GETTASK:     return doGetTask(msg);
+            case TASK_SHUTDOWN:    return doShutdown(msg);
+            default:               return null;
+        }
+    }
+
+    // ======================== 消息处理 ========================
+
+    private TLMsg doRegistTask(TLMsg msg) {
+        TLMsg config = (TLMsg) msg.getParam(TASK_P_TASKMSG);
+        if (config == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "缺少 TASK_P_TASKMSG");
+        }
+
+        String taskId = generateTaskId(config);
+        config.setParam(TASK_P_TASKID, taskId);
+        taskConfigs.put(taskId, config);
+
+        if (STATUS_RUNNING.equals(config.getStringParam(TASK_P_STATUS, null))) {
+            startTask(taskId);
+        }
+
+        return createMsg().setParam(RESULT, true).setParam(TASK_P_TASKID, taskId);
+    }
+
+    private TLMsg doUnregistTask(TLMsg msg) {
+        String taskId = msg.getStringParam(TASK_P_TASKID, null);
+        if (taskId == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "缺少 taskId");
+        }
+
+        stopTask(taskId);
+        taskConfigs.remove(taskId);
+        taskRuntimes.remove(taskId);
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private TLMsg doStartTask(TLMsg msg) {
+        String taskId = msg.getStringParam(TASK_P_TASKID, null);
+        if (taskId != null) {
+            startTask(taskId);
+        } else {
+            for (String id : taskConfigs.keySet()) startTask(id);
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private TLMsg doStopTask(TLMsg msg) {
+        String taskId = msg.getStringParam(TASK_P_TASKID, null);
+        if (taskId != null) {
+            stopTask(taskId);
+        } else {
+            stopAllTasks();
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private TLMsg doGetTask(TLMsg msg) {
+        String taskId = msg.getStringParam(TASK_P_TASKID, null);
+        if (taskId != null) {
+            TLMsg config = taskConfigs.get(taskId);
+            if (config == null) {
+                return createMsg().setParam(RESULT, false).setParam("error", "任务不存在");
+            }
+            TLMsg result = createMsg().copyFrom(config);
+            TaskRuntime rt = taskRuntimes.get(taskId);
+            if (rt != null) {
+                result.setParam("runtimeStatus", rt.status);
+                result.setParam("executedCount", rt.executedCount.get());
+                if (rt.nextExecuteTime != null) result.setParam("nextExecuteTime", rt.nextExecuteTime);
+                if (rt.lastExecuteTime != null) result.setParam("lastExecuteTime", rt.lastExecuteTime);
+                if (rt.lastError != null) result.setParam("lastError", rt.lastError);
+            }
+            return result;
+        }
+
+        // 返回所有任务摘要
+        Map<String, Object> all = new LinkedHashMap<>();
+        for (Map.Entry<String, TLMsg> e : taskConfigs.entrySet()) {
+            Map<String, Object> info = new LinkedHashMap<>();
+            info.put("destination", e.getValue().getDestination());
+            info.put("action", e.getValue().getAction());
+            info.put("msgId", e.getValue().getMsgId());
+            info.put("status", taskRuntimes.containsKey(e.getKey()) ?
+                    taskRuntimes.get(e.getKey()).status : STATUS_STOPPED);
+            all.put(e.getKey(), info);
+        }
+        return createMsg().setParam("tasks", all);
+    }
+
+    private TLMsg doShutdown(TLMsg msg) {
+        String taskId = msg.getStringParam(TASK_P_TASKID, null);
+        if (taskId != null) {
+            stopTask(taskId);
+        } else {
+            shutdownAllTasks();
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    // ======================== 核心调度方法 ========================
+
+    /**
+     * 启动任务（核心入口）
+     */
+    private void startTask(String taskId) {
+        if (destroyed.get()) {
+            putLog("模块已销毁，无法启动任务: " + taskId, LogLevel.WARN);
             return;
-        TLMsg controlMsg = createMsg().setAction("taskControl");
-        TLMsg runTaskMsg = createMsg().copyFrom(taskMsg);
-        controlMsg.setParam(TASK_P_TASKID, taskid);
-        controlMsg.setParam("taskMsg", taskMsg);
-        controlMsg.setNextMsg(runTaskMsg);
-        if (!taskMsg.isNull(TASK_P_CRON) )
-        {
-            CronExpression cron ;
+        }
+
+        TLMsg config = taskConfigs.get(taskId);
+        if (config == null) {
+            putLog("任务配置不存在: " + taskId, LogLevel.ERROR);
+            return;
+        }
+
+        // 如果已在运行，先停止
+        if (isTaskRunning(taskId)) {
+            stopTask(taskId);
+        }
+
+        // 移除旧的运行时状态
+        taskRuntimes.remove(taskId);
+
+        // 解析调度参数
+        String cronExp = config.getStringParam(TASK_P_CRON, null);
+        long delay = getLongParam(config, TASK_P_DELAYTIME, defaultDelay);
+        long period = getLongParam(config, "period", defaultPeriod);
+        int maxTimes = getIntParam(config, TASK_P_RUNTIMES, defaultMaxTimes);
+        TimeUnit timeUnit = parseTimeUnit(config.getStringParam(TASK_P_TIMEUNIT, TASK_V_TIMEUNIT_S));
+
+        // 计算初始延迟
+        long initialDelay = delay;
+        String beginStr = config.getStringParam(TASK_P_BEGINTIME, null);
+        if (beginStr != null) {
             try {
-                cron = new CronExpression((String) taskMsg.getParam(TASK_P_CRON));
-            } catch (ParseException e) {
-                putLog("cronExp error ", LogLevel.ERROR);
-                return;
-            }
-            Date now = new Date();
-            controlMsg.setParam("cron", cron)
-                    .setParam("startTime", now)
-                    .setParam("lastDisplayTime", 0);
+                long begin = Long.parseLong(beginStr);
+                long now = System.currentTimeMillis();
+                if (begin > now) initialDelay = Math.max(0, begin - now);
+                else initialDelay = 0;
+            } catch (NumberFormatException ignored) {}
         }
-        executeTask(controlMsg);
+
+        ScheduledFuture<?> future;
+
+        if (cronExp != null && !cronExp.isEmpty()) {
+            // Cron 模式：动态调度
+            future = scheduleCronTask(taskId, config, cronExp, initialDelay, timeUnit, maxTimes);
+        } else {
+            // 固定延迟模式
+            if (period <= 0) period = 60;
+            future = executor.scheduleAtFixedRate(
+                    createTaskRunnable(taskId, config, maxTimes),
+                    initialDelay, period, timeUnit
+            );
+        }
+
+        // 保存运行时状态
+        TaskRuntime rt = new TaskRuntime(taskId, config, future, STATUS_RUNNING);
+        taskRuntimes.put(taskId, rt);
+
+        config.setParam(TASK_P_STATUS, STATUS_RUNNING);
+        putLog("任务 [" + taskId + "] 已启动" +
+                (cronExp != null ? "，Cron: " + cronExp : "，周期: " + period + " " + timeUnit) +
+                (maxTimes > 0 ? "，最多执行 " + maxTimes + " 次" : ""), LogLevel.INFO);
     }
 
-    private void executeTask(TLMsg controlMsg) {
-        Long begin = Long.valueOf(0);
-        TLMsg taskMsg = controlMsg.getNextMsg();
-        String taskid = (String) controlMsg.getParam(TASK_P_TASKID);
-        String sbegin = (String) taskMsg.getParam(TASK_P_BEGINTIME);
-        if (sbegin != null)
-            begin = Long.parseLong(sbegin);
-        String sdelay = (String) taskMsg.getParam(TASK_P_DELAYTIME);
-        if (sdelay == null) {
-            putLog("no set delay,taskid" + taskid, LogLevel.ERROR);
-            return;
+    /**
+     * Cron 模式调度：每次执行后重新调度下一次
+     */
+    private ScheduledFuture<?> scheduleCronTask(String taskId, TLMsg config,
+                                                String cronExp, long initialDelay,
+                                                TimeUnit timeUnit, int maxTimes) {
+        CronExpression cron;
+        try {
+            cron = new CronExpression(cronExp);
+        } catch (ParseException e) {
+            putLog("Cron 表达式解析失败: " + cronExp, LogLevel.ERROR);
+            config.setParam(TASK_P_STATUS, STATUS_ERROR);
+            return null;
         }
-        Long delay = Long.parseLong(sdelay);
-        String timeUnitStr = (String) taskMsg.getParam(TASK_P_TIMEUNIT);
-        if (timeUnitStr == null)
-            timeUnitStr = TASK_V_TIMEUNIT_S;
-        TimeUnit timeUnit = getTimeUnit(timeUnitStr);
+
+        // 计算首次执行时间
+        Date now = new Date();
+        Date firstExec = cron.getTimeAfter(now);
+        if (firstExec == null) {
+            putLog("Cron 表达式永远不会触发: " + cronExp, LogLevel.ERROR);
+            config.setParam(TASK_P_STATUS, STATUS_ERROR);
+            return null;
+        }
+
+        long firstDelay = Math.max(0, firstExec.getTime() - System.currentTimeMillis());
+        if (initialDelay > 0 && initialDelay < firstDelay) {
+            firstDelay = initialDelay;
+        }
+
+        // 用单次调度 + 递归调度实现 Cron
+        return executor.schedule(() -> {
+            // 检查是否应该停止
+            if (!isTaskRunning(taskId)) return;
+            if (maxTimes > 0 && getExecutedCount(taskId) >= maxTimes) {
+                stopTask(taskId);
+                return;
+            }
+
+            // 执行任务
+            TaskRuntime rt = taskRuntimes.get(taskId);
+            if (rt == null) return;
+
+            try {
+                executeTask(taskId, config);
+                rt.executedCount.incrementAndGet();
+                rt.lastExecuteTime = new Date();
+
+                // 计算下一次执行时间
+                Date next = cron.getTimeAfter(rt.lastExecuteTime);
+                if (next == null) {
+                    putLog("任务 [" + taskId + "] 已完成所有调度", LogLevel.INFO);
+                    stopTask(taskId);
+                    return;
+                }
+                rt.nextExecuteTime = next;
+                config.setParam("nextDatetime", next);
+
+                // 如果任务还在运行，调度下一次
+                if (isTaskRunning(taskId)) {
+                    long delayMs = Math.max(cronCheckInterval, next.getTime() - System.currentTimeMillis());
+                    executor.schedule(this::runCronCycle, delayMs, TimeUnit.MILLISECONDS);
+                }
+
+            } catch (Exception e) {
+                handleTaskError(taskId, e);
+            }
+        }, firstDelay, timeUnit);
+    }
+
+    /**
+     * Cron 单次执行循环
+     */
+    private void runCronCycle() {
+        String taskId = null;
+        // 遍历找到第一个需要执行的 Cron 任务
+        for (Map.Entry<String, TaskRuntime> entry : taskRuntimes.entrySet()) {
+            TaskRuntime rt = entry.getValue();
+            if (rt.status.equals(STATUS_RUNNING) && rt.config.getStringParam(TASK_P_CRON, null) != null) {
+                taskId = entry.getKey();
+                break;
+            }
+        }
+        if (taskId != null) {
+            TLMsg config = taskConfigs.get(taskId);
+            if (config != null) {
+                String cronExp = config.getStringParam(TASK_P_CRON, null);
+                int maxTimes = getIntParam(config, TASK_P_RUNTIMES, defaultMaxTimes);
+                scheduleCronTask(taskId, config, cronExp, 0, TimeUnit.MILLISECONDS, maxTimes);
+            }
+        }
+    }
+
+    // ======================== 任务执行 ========================
+
+    /**
+     * 创建任务执行 Runnable
+     */
+    private Runnable createTaskRunnable(String taskId, TLMsg config, int maxTimes) {
+        return () -> {
+            if (!isTaskRunning(taskId)) return;
+            if (maxTimes > 0 && getExecutedCount(taskId) >= maxTimes) {
+                putLog("任务 [" + taskId + "] 达到执行次数上限 " + maxTimes + "，自动停止", LogLevel.INFO);
+                stopTask(taskId);
+                return;
+            }
+
+            try {
+                executeTask(taskId, config);
+                TaskRuntime rt = taskRuntimes.get(taskId);
+                if (rt != null) {
+                    rt.executedCount.incrementAndGet();
+                    rt.lastExecuteTime = new Date();
+                }
+            } catch (Exception e) {
+                handleTaskError(taskId, e);
+            }
+        };
+    }
+
+    /**
+     * 执行实际任务
+     */
+    private void executeTask(String taskId, TLMsg config) {
+        TLMsg taskMsg = createMsg();
+        taskMsg.copyFrom(config);
+
+        // 移除调度控制参数
+        taskMsg.removeParam(TASK_P_TASKID);
         taskMsg.removeParam(TASK_P_DELAYTIME);
         taskMsg.removeParam(TASK_P_BEGINTIME);
-        taskMsg.removeParam(TASK_P_TASKID);
         taskMsg.removeParam(TASK_P_RUNTIMES);
         taskMsg.removeParam(TASK_P_STATUS);
         taskMsg.removeParam(TASK_P_TIMEUNIT);
         taskMsg.removeParam(TASK_P_CRON);
-        TLMsg taskMsgInTable =taskMsgTable.get(taskid);
-        taskMsgInTable.setParam(TASK_P_STATUS, TASK_V_STATUS_RUN);
-        Runnable task = getMsgTask(this, controlMsg);
-        if (executor == null)
-            executor = Executors.newScheduledThreadPool(poolSize);
-        ScheduledFuture<?> sf = executor.scheduleAtFixedRate(task, begin, delay, timeUnit);
-        HashMap<String, Object> taskData = new HashMap<>();
-        taskData.put(TASK_P_RUNTIMES, 0);
-        taskData.put("future", sf);
-        taskDatas.put(taskid, taskData);
-        putLog("taskid: " + taskid + "  start ", LogLevel.DEBUG,"start");
+
+        // 设置执行元数据
+        taskMsg.setParam("execDatetime", new Date());
+        taskMsg.setParam("execTimes", getExecutedCount(taskId) + 1);
+
+        // 发送消息执行任务（使用非阻塞方式，防止任务阻塞调度）
+        putMsgNoWait(this, taskMsg);
+
+        putLog("任务 [" + taskId + "] 执行中，第 " + (getExecutedCount(taskId) + 1) + " 次",
+                LogLevel.DEBUG);
     }
 
-    private Boolean stopTask(TLMsg taskMsg){
-        HashMap<String, Object> nowTaskdata = taskDatas.get(taskMsg.getParam(TASK_P_TASKID));
-        if (nowTaskdata == null)
-        {
-            taskMsg.setParam("status","shutdown");
-            return false ;
+    // ======================== 任务管理 ========================
+
+    private void stopTask(String taskId) {
+        TaskRuntime rt = taskRuntimes.get(taskId);
+        if (rt == null) return;
+
+        rt.stop(true);
+        TLMsg config = taskConfigs.get(taskId);
+        if (config != null) {
+            config.setParam(TASK_P_STATUS, STATUS_STOPPED);
+            config.setParam("datetime", new Date());
+            config.removeParam("nextDatetime");
         }
-        String status = (String) taskMsg.getParam("status");
-        if(status.equals("run"))
-        {
-            taskMsg.setParam("status","stop");
-            return true;
-        }
-        else
-            return false ;
+        taskRuntimes.remove(taskId);
+        putLog("任务 [" + taskId + "] 已停止，共执行 " + rt.executedCount.get() + " 次", LogLevel.INFO);
     }
 
-    private TLMsg taskControl(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-        if (nowTaskMsg == null)
-            return null;
-        String status =  nowTaskMsg.getStringParam("status",null);
-        if (status != null && status.equals("error")) {
-            putLog("taskid:" + nowTaskid + " has error,task has shutdown", LogLevel.ERROR, "error");
-            shutdownTask(nowTaskid);
-            nowTaskMsg.setParam("status", "error");
-            return denyMsg;
+    private void stopAllTasks() {
+        for (String taskId : new ArrayList<>(taskRuntimes.keySet())) {
+            stopTask(taskId);
         }
-        if (status != null && status.equals("shutdown")) {
-            shutdownTask(nowTaskid);
-            return denyMsg;
-        }
-        if (status != null && status.equals("stop")) {
-            nowTaskMsg.setParam("status", "stoping");
-            putLog("taskid:" + nowTaskid + " stop", LogLevel.WARN, "stop");
-            nowTaskMsg.setParam("datetime", new Date());
-            return denyMsg;
-        }
-        if (status != null && status.equals("stoping"))
-            return denyMsg;
-        HashMap<String, Object> nowTaskdata = taskDatas.get(nowTaskid);
-        int nowTimes =0;
-        if(nowTaskdata !=null && nowTaskdata.containsKey("times"))
-            nowTimes = (int) nowTaskdata.get("times");
-        String timesLimit =  nowTaskMsg.getStringParam("times",null);
-        if (timesLimit != null) {
-            int times = Integer.parseInt(timesLimit);
-            if (times > 0) {
-                if (times == nowTimes) {
-                    nowTaskMsg.setParam("status", "stoping");
-                    putLog("taskid:" + nowTaskid + " stop,runing times:" + nowTimes, LogLevel.WARN, "stop");
-                    shutdownTask(nowTaskid);
-                    return denyMsg;
+        putLog("所有任务已停止", LogLevel.INFO);
+    }
+
+    private void shutdownAllTasks() {
+        for (String taskId : new ArrayList<>(taskRuntimes.keySet())) {
+            TaskRuntime rt = taskRuntimes.get(taskId);
+            if (rt != null) {
+                rt.stop(true);
+                TLMsg config = taskConfigs.get(taskId);
+                if (config != null) {
+                    config.setParam(TASK_P_STATUS, STATUS_STOPPED);
+                    config.setParam("datetime", new Date());
                 }
             }
+            taskRuntimes.remove(taskId);
         }
-        if (msg.getParam("cron") != null) {
-            Date startTime = (Date) msg.getParam("startTime");
-            CronExpression cron = (CronExpression) msg.getParam("cron");
-            Long now = System.currentTimeMillis();
-            Date execDate = cron.getTimeAfter(startTime);
-            if (execDate == null) {
-                ScheduledFuture<?> sf = (ScheduledFuture<?>) nowTaskdata.get("future");
-                putLog("taskid:" + nowTaskid + " is work over,session shutdown", LogLevel.WARN, "shutdown");
-                taskDatas.remove(nowTaskid);
-                sf.cancel(true);
-                nowTaskMsg.setParam("status", "shutdown");
-                nowTaskMsg.setParam("datetime", new Date());
-                return denyMsg;
-            }
-            long execTime = execDate.getTime();
-            long timeUntilExec = execTime - now;
-            if (timeUntilExec > 0) {
-                displayTimeUntil(nowTaskid, timeUntilExec / 1000, msg);
-                nowTaskMsg.setParam("nextDatetime", execDate);
-                return denyMsg;
-            } else
-                msg.setParam("startTime", new Date());
-        }
-        nowTimes++;
-        nowTaskdata.put("times", nowTimes);
-        nowTaskMsg.setParam("execDatetime", new Date());
-        nowTaskMsg.setParam("execTimes",nowTimes);
-        putLog("taskid:" + nowTaskid + "  has runing times:" + nowTimes, LogLevel.DEBUG, "runing");
-        return null;
-    }
-    @Override
-    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        TLMsg returnMsg = null;
-        switch (msg.getAction()) {
-            case TASK_REGISTTASK:
-                registTask(fromWho, msg);
-                break;
-            case TASK_SETTASKSTATUS:
-                setTaskStatus(fromWho, msg);
-                break;
-            case TASK_UNREGISTTASK:
-                unRegistTask(fromWho, msg);
-                break;
-            case TASK_STARTTASK:
-                startTask(fromWho, msg);
-                break;
-            case TASK_GETTASK:
-                returnMsg = getTasks(fromWho, msg);
-                break;
-            case "taskControl":
-                returnMsg = taskControl(fromWho, msg);
-                break;
-            case TASK_SHUTDOWN:
-                shutdown(fromWho, msg);
-                break;
-            case TASK_STOPTASK:
-                stopTask(fromWho, msg);
-                break;
-            case TASK_RUNTASK:
-                runTask(fromWho, msg);
-                break;
-            default:
-        }
-        return returnMsg;
+        putLog("所有任务已关闭", LogLevel.INFO);
     }
 
-    private void runTask(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        if (nowTaskid != null) {
-            TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-            if(nowTaskMsg !=null)
-                runTask(nowTaskMsg);
+    private void restartTask(String taskId) {
+        stopTask(taskId);
+        // 重置配置状态
+        TLMsg config = taskConfigs.get(taskId);
+        if (config != null) {
+            config.setParam(TASK_P_STATUS, STATUS_INIT);
+        }
+        startTask(taskId);
+        putLog("任务 [" + taskId + "] 已重启", LogLevel.DEBUG);
+    }
+
+    private void handleTaskError(String taskId, Exception e) {
+        putLog("任务 [" + taskId + "] 执行异常: " + e.getMessage(), LogLevel.ERROR);
+        putLog(e, LogLevel.ERROR, "taskError");
+
+        TLMsg config = taskConfigs.get(taskId);
+        if (config != null) {
+            config.setParam(TASK_P_STATUS, STATUS_ERROR);
+            config.setParam("error", e.getMessage());
+            config.setParam("errorTime", new Date());
+        }
+
+        TaskRuntime rt = taskRuntimes.get(taskId);
+        if (rt != null) {
+            rt.error(e.getMessage());
+        }
+        // 不自动停止，让用户决定是否重启
+    }
+
+    // ======================== 辅助方法 ========================
+
+    private boolean isTaskRunning(String taskId) {
+        TaskRuntime rt = taskRuntimes.get(taskId);
+        return rt != null && rt.isRunning();
+    }
+
+    private int getExecutedCount(String taskId) {
+        TaskRuntime rt = taskRuntimes.get(taskId);
+        return rt != null ? rt.executedCount.get() : 0;
+    }
+
+    private String generateTaskId(TLMsg config) {
+        String taskId = config.getStringParam(TASK_P_TASKID, null);
+        if (taskId != null && !taskId.isEmpty()) return taskId;
+
+        String dest = config.getDestination();
+        if (dest == null || dest.isEmpty()) dest = "unknown";
+
+        String action = config.getAction();
+        String msgId = config.getMsgId();
+
+        if (action != null && !action.isEmpty()) {
+            taskId = dest + "_" + action;
+        } else if (msgId != null && !msgId.isEmpty()) {
+            taskId = dest + "_" + msgId;
         } else {
-            for (String taskid:taskMsgTable.keySet())
-            {
-                TLMsg tmsg = taskMsgTable.get(taskid);
-                runTask(tmsg);
-            }
+            taskId = dest + "_" + System.currentTimeMillis();
+        }
+
+        // 去重
+        if (taskConfigs.containsKey(taskId) || taskRuntimes.containsKey(taskId)) {
+            taskId = taskId + "_" + System.currentTimeMillis();
+        }
+        return taskId;
+    }
+
+    private long getLongParam(TLMsg msg, String key, long defaultValue) {
+        String val = msg.getStringParam(key, null);
+        if (val == null) return defaultValue;
+        try { return Long.parseLong(val); }
+        catch (NumberFormatException e) { return defaultValue; }
+    }
+
+    private int getIntParam(TLMsg msg, String key, int defaultValue) {
+        String val = msg.getStringParam(key, null);
+        if (val == null) return defaultValue;
+        try { return Integer.parseInt(val); }
+        catch (NumberFormatException e) { return defaultValue; }
+    }
+
+    private TimeUnit parseTimeUnit(String unit) {
+        if (unit == null) return TimeUnit.SECONDS;
+        switch (unit) {
+            case TASK_V_TIMEUNIT_MS: return TimeUnit.MILLISECONDS;
+            case TASK_V_TIMEUNIT_S:  return TimeUnit.SECONDS;
+            case TASK_V_TIMEUNIT_M:  return TimeUnit.MINUTES;
+            case TASK_V_TIMEUNIT_H:  return TimeUnit.HOURS;
+            default:                 return TimeUnit.SECONDS;
         }
     }
 
-    private void  stopTask(Object fromWho, TLMsg msg) {
-        String nowTaskid =  msg.getStringParam(TASK_P_TASKID,null);
-        if (nowTaskid != null) {
-            TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-            if(nowTaskMsg !=null)
-                stopTask(nowTaskMsg);
-        } else {
-            for (String taskid:taskMsgTable.keySet())
-            {
-                TLMsg tmsg = taskMsgTable.get(taskid);
-                stopTask(tmsg);
-            }
-        }
-    }
-
-    private void shutdown(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        if (nowTaskid != null) {
-            HashMap<String, Object> nowTaskdata = taskDatas.get(nowTaskid);
-            if (nowTaskdata != null)
-                shutdownTask(nowTaskid);
-        } else {
-            String pool = (String) msg.getParam("pool");
-            if(pool !=null)
-                poolShutdown();
-            else
-                for (String taskid : taskDatas.keySet()) {
-                shutdownTask(taskid);
-                }
-        }
-    }
-
-    protected TLMsg destroy(Object fromWho, TLMsg msg) {
-        executor.shutdown();
-        executor=null;
-        return null ;
-    }
-
-    private void poolShutdown(){
-        executor.shutdown();
-        executor=null;
-        for (String taskid:taskMsgTable.keySet()) {
-            TLMsg tmsg = taskMsgTable.get(taskid);
-            tmsg.setParam("status", "shutdown");
-            tmsg.setParam("datetime", new Date());
-            tmsg.removeParam("nextDatetime");
-        }
-        taskDatas.clear();
-        putLog("session pool shutdown", LogLevel.WARN,"shutdown");
-    }
-
-    private void startTask(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        if (nowTaskid != null) {
-            TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-            if(nowTaskMsg !=null)
-                restartTask(nowTaskid, nowTaskMsg);
-        } else {
-            for (String taskid:taskMsgTable.keySet())
-            {
-                TLMsg tmsg = taskMsgTable.get(taskid);
-                restartTask(taskid, tmsg);
-            }
-        }
-    }
-
-    private TLMsg getTasks(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        if (nowTaskid != null) {
-            return   taskMsgTable.get(nowTaskid);
-        } else
-            return createMsg().setParam("tasks", taskMsgTable);
-    }
-
-    private void setTaskStatus(Object fromWho, TLMsg msg) {
-        String nowTaskid = (String) msg.getParam(TASK_P_TASKID);
-        if (nowTaskid == null) {
-            putLog("taskid is not set", LogLevel.ERROR);
-            return;
-        }
-        TLMsg nowTaskMsg = taskMsgTable.get(nowTaskid);
-        if (nowTaskMsg == null)
-            return;
-        msg.removeParam(TASK_P_TASKID);
-        nowTaskMsg.addArgs(msg.getArgs());
-        String status = (String) msg.getParam("status");
-        if (status != null && status.equals("restart"))
-            restartTask(nowTaskid, nowTaskMsg);
-    }
-
-    private void restartTask(String taskid, TLMsg tmsg) {
-        HashMap<String, Object> nowTaskdata = taskDatas.get(taskid);
-        if (nowTaskdata != null)
-            shutdownTask(taskid);
-        if (tmsg.getParam(TASK_P_CRON) != null)
-            tmsg.setParam("delay", cronDelay).setParam("timeUnit", "ms");
-        startTask(tmsg);
-    }
-
-    private void shutdownTask(String taskid) {
-        HashMap<String, Object> nowTaskdata = taskDatas.get(taskid);
-        if (nowTaskdata == null) {
-            putLog("shutdown error, no taskid:" + taskid, LogLevel.ERROR);
-            return;
-        }
-        ScheduledFuture<?> sf = (ScheduledFuture<?>) nowTaskdata.get("future");
-        putLog("taskid:" + taskid + " shutdown", LogLevel.WARN, "shutdown");
-        taskDatas.remove(taskid);
-        sf.cancel(true);
-        TLMsg nowTaskMsg = taskMsgTable.get(taskid);
-        nowTaskMsg.setParam("status", "shutdown");
-        nowTaskMsg.setParam("datetime", new Date());
-        nowTaskMsg.removeParam("nextDatetime");
-    }
-
-    private void displayTimeUntil(String taskid, Long time, TLMsg msg) {
-        int lastDisplayTime = (int) msg.getParam("lastDisplayTime");
-        String logContent = null;
-        if (time < 60 && lastDisplayTime > 100)
-            logContent = time + "s";
-        else if (60 <= time && lastDisplayTime > 600)
-            logContent = time / 60 + "m";
-        if (logContent != null) {
-            putLog("taskid:" + taskid + "  waiting:" + logContent, LogLevel.DEBUG, "waiting");
-            msg.setParam("lastDisplayTime", 0);
-        } else
-            msg.setParam("lastDisplayTime", lastDisplayTime + 1);
-    }
-
-    private void registTask(Object fromWho, TLMsg msg) {
-        TLMsg tmsg = (TLMsg) msg.getParam(TASK_P_TASKMSG);
-        taskMsgTable.put(getTaskid(tmsg),tmsg);
-        if (tmsg.getParam(TASK_P_STATUS) != null && tmsg.getParam(TASK_P_STATUS).equals(TASK_V_STATUS_RUN))
-            executeTask(tmsg);
-    }
-
-    private void unRegistTask(Object fromWho, TLMsg msg) {
-        String taskid = (String) msg.getStringParam(TASK_P_TASKID,null);
-        if(taskid !=null)
-           taskMsgTable.remove(taskid);
-    }
-
-    private String getTaskid(TLMsg taskMsg) {
-        String taskid =  taskMsg.getStringParam(TASK_P_TASKID,null);
-        if (taskid == null )
-        {
-            taskid = taskMsg.getDestination();
-            if(taskMsg.getAction() !=null)
-                taskid =  taskid + "_"+taskMsg.getAction();
-            else   if(taskMsg.getMsgId() !=null)
-                taskid =  taskid + "_"+ taskMsg.getMsgId() ;
-            taskMsg.setParam(TASK_P_TASKID,taskid);
-        }
-        return taskid;
-    }
-
-    private TimeUnit getTimeUnit(String timeUnitStr) {
-        TimeUnit timeUnit;
-        switch (timeUnitStr) {
-            case TASK_V_TIMEUNIT_MS:
-                timeUnit = TimeUnit.MILLISECONDS;
-                break;
-            case TASK_V_TIMEUNIT_S:
-                timeUnit = TimeUnit.SECONDS;
-                break;
-            case TASK_V_TIMEUNIT_M:
-                timeUnit = TimeUnit.MINUTES;
-                break;
-            case TASK_V_TIMEUNIT_H:
-                timeUnit = TimeUnit.HOURS;
-                break;
-            default:
-                timeUnit = TimeUnit.SECONDS;
-        }
-        return timeUnit;
-    }
-
-    private Runnable getMsgTask(final TLMsgTask object, final TLMsg msg) {
-        Runnable task = new Runnable() {
-
-            @Override
-            public void run() {
-                TLMsg returnMsg=null ;
-                try{
-                    returnMsg= object.getMsg(object, msg);
-                } catch (Exception e) {
-                    object.catchExp((String) msg.getParam("taskid"),e);
-                }
-                if(returnMsg !=null && !returnMsg.isNull(EXCEPTIONHANDLER_P_MSG))
-                {
-                    String taskid = (String) msg.getParam(TASK_P_TASKID);
-                    TLMsg taskMsg = taskMsgTable.get(taskid);
-                    taskMsg.setParam("status","error");
-                }
-            }
-        };
-        return task;
-    }
-    protected void catchExp(String taskid,Exception e){
-        TLMsg taskMsg = taskMsgTable.get(taskid);
-        taskMsg.setParam("status","error");
-        putLog(e,LogLevel.ERROR,"catchExp");
-    }
+    // ======================== 内部配置类 ========================
 
     protected class myConfig extends TLModuleConfig {
-        protected ArrayList<TLMsg> taskMsgTable;
-        public myConfig(String configFile ,String configDir) {
-            super(configFile,configDir);
-        }
-        public myConfig() {
+        private ArrayList<TLMsg> taskMsgTable;
 
-        }
+        public myConfig() { super(); }
+        public myConfig(String configFile, String configDir) { super(configFile, configDir); }
 
-        public ArrayList<TLMsg> getTaskMsgTable() {
-            return taskMsgTable;
-        }
+        public ArrayList<TLMsg> getTaskMsgTable() { return taskMsgTable; }
 
+        @Override
         protected void myConfig(XmlPullParser xpp) {
             super.myConfig(xpp);
             try {
                 if (xpp.getName().equals("taskMsgTable")) {
                     taskMsgTable = getMsgList(xpp, "taskMsgTable");
                 }
-
             } catch (Throwable t) {
-
+                putLog("解析 taskMsgTable 异常: " + t, LogLevel.WARN);
             }
         }
-
     }
 }

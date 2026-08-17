@@ -9,6 +9,7 @@
         <ifLog value="true"/>
     </params>
     <!--
+
        定时任务表。
        taskid：任务id，每个id唯一，用于标识不同的任务
        status:任务状态，是否运行、停止。run:运行 、stop：停止、不运行
@@ -18,11 +19,14 @@
        begin:程序运行后延迟的任务开始时间
        delay：定时间隔
        times：运行次数
+        <taskMsgTable>
      -->
     <taskMsgTable>
+    <!-- 固定延迟任务：每 5 秒执行一次，最多执行 5 次 -->
         <msg destination="pcboy1" action="eat"   taskid="pcboy1_eat" status="run" timeUnit="s" times="5" delay="5"/>
         <msg destination="pcboy2" action="play"  status="run" timeUnit="s"  delay="5"/>
         <msg destination="pcboy1" action="mysleep" taskid="pcboy1_sleep" status="run" timeUnit="s" times="1" begin="10" delay="5"/>
+        <!-- Cron 任务：每 2 分钟执行一次 -->
         <msg destination="pcboy2" action="study" taskid="pcboy2_study"  status="run" cronExp="0 0/2 * * * ? "/>
         <!--msg destination="pcboy1" action="sleep" taskid="pcboy1_sleep" status="run" cronExp="0 6 21 16 2 ? 2019"/-->
     </taskMsgTable>
