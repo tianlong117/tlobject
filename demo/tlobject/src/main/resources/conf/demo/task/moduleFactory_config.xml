@@ -5,6 +5,7 @@
     <params>
         <ifLog value="true"/>
         <loglevel value="debug"/>
+        <defaultLogModule value="log4j"/>
         <package value="cn.tianlong.java.demo"/>
         <ifModuleMonitor value="false"/>
         <applicationId value="demo"/>

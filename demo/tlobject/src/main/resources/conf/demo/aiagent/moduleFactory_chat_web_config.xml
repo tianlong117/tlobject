@@ -6,7 +6,7 @@
 -->
 <moduleConfig>
     <include file="CLASSPATH/conf/demo/aiagent/moduleFactory_chat_config.xml"/>
-
+    <include file="CLASSPATH/conf/tlobject/cn.tianlong.tlobject.servletutils_config.xml" includeUnit="modules"/>
     <commonParams>
         <ifLog value="true"/>
         <logWait value="false" />
