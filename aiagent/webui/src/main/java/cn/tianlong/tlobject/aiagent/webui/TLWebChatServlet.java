@@ -88,7 +88,7 @@ public class TLWebChatServlet extends HttpServlet {
             }
             writeJson(resp, 404, json("success", false, "error", "not found: " + path));
         } catch (Exception e) {
-            writeJson(resp, 500, json("success", false, "error", "服务器内部错误: " + e.getMessage()));
+            try { writeJson(resp, 500, json("success", false, "error", "服务器内部错误")); } catch (Exception ignored) {}
         }
     }
 
@@ -138,12 +138,12 @@ public class TLWebChatServlet extends HttpServlet {
 
     /** /api/events SSE 长连接：注册通道 + 心跳 + 阻塞至关闭 */
     private void handleEvents(HttpServletRequest req, HttpServletResponse resp, String userId) throws IOException {
+        TLWebChatModule mod = module();
+        if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
         resp.setStatus(200);
         resp.setContentType("text/event-stream;charset=UTF-8");
         resp.setCharacterEncoding("UTF-8");
         resp.setHeader("Cache-Control", "no-cache");
-        TLWebChatModule mod = module();
-        if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
         ServletChannel channel = new ServletChannel(resp.getWriter());
         mod.registerEventsChannel(userId, channel);
         Thread hb = startHeartbeat(channel, "webui-hb-" + userId);
@@ -176,7 +176,7 @@ public class TLWebChatServlet extends HttpServlet {
                 default: writeJson(resp, 404, json("success", false, "error", "not found: " + path));
             }
         } catch (Exception e) {
-            writeJson(resp, 500, json("success", false, "error", "服务器内部错误: " + e.getMessage()));
+            try { writeJson(resp, 500, json("success", false, "error", "服务器内部错误")); } catch (Exception ignored) {}
         }
     }
 
@@ -189,7 +189,7 @@ public class TLWebChatServlet extends HttpServlet {
         if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
         Map<String, Object> r = mod.login(userId, password);
         if (Boolean.TRUE.equals(r.get("success"))) {
-            req.getSession(true).setAttribute(SESSION_USER, userId);
+            req.getSession(true).setAttribute(SESSION_USER, r.get("userId"));
         }
         writeJson(resp, Boolean.TRUE.equals(r.get("success")) ? 200 : 401, r);
     }
@@ -197,6 +197,7 @@ public class TLWebChatServlet extends HttpServlet {
     private void handleLogout(HttpServletRequest req, HttpServletResponse resp, String userId) throws IOException {
         TLWebChatModule mod = module();
         if (mod != null) mod.closeEventsChannel(userId);
+        if (mod != null) mod.stopChat(userId, "");
         HttpSession s = req.getSession(false);
         if (s != null) s.invalidate();
         writeJson(resp, 200, json("success", true, "message", "已退出"));
@@ -296,6 +297,7 @@ public class TLWebChatServlet extends HttpServlet {
 
     @SuppressWarnings("unchecked")
     private static Map<String, Object> readJson(HttpServletRequest req) throws IOException {
+        req.setCharacterEncoding("UTF-8");
         StringBuilder sb = new StringBuilder();
         String line;
         try (BufferedReader br = req.getReader()) {
@@ -337,13 +339,15 @@ public class TLWebChatServlet extends HttpServlet {
             if (!open) return;
             writer.print("data: " + data + "\n\n");
             writer.flush();
+            if (writer.checkError()) { close(); return; }
         }
 
-        /** 心跳帧（空 data 行，前端忽略） */
+        /** 心跳帧（前端按 hb 标志忽略） */
         synchronized void writeHeartbeat() {
             if (!open) return;
             writer.print("data: {\"hb\":true}\n\n");
             writer.flush();
+            if (writer.checkError()) { close(); return; }
         }
 
         @Override
