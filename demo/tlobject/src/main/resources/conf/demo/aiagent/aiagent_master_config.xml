@@ -284,6 +284,11 @@
             <msg action="recallAgentMemory" destination="aiagent_master"
                  paramsFromMsg="sessionId;userId;userMessage"/>
         </action>
+        <!-- 流式路径同样召回长期记忆（Web 默认流式；缺此钩子会导致流式对话无跨会话记忆） -->
+        <action name="chatStream">
+            <msg action="recallAgentMemory" destination="aiagent_master"
+                 paramsFromMsg="sessionId;userId;userMessage"/>
+        </action>
     </beforeMsgTable>
     <afterMsgTable>
         <action name="chat" >

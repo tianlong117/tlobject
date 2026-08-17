@@ -1452,6 +1452,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // 获取上下文并构建流式请求
         List<TLConversationHistory> history = getContextHistory(sessionId);
+        // ==== 记忆召回注入（流式路径；非流式在 doChat 同逻辑） ====
+        // beforeMsgTable 钩子（chatStream → recallAgentMemory）的返回经 PRERESULT 进入 systemArgs
+        TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
+        if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
+            List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
+                    beforeResult.getListParam(AI_P_MEMORYRESULT, null);
+            if (entries != null && !entries.isEmpty()) {
+                StringBuilder ctx = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
+                for (TLMemoryEntry e : entries) ctx.append("- ").append(e.getValue()).append("\n");
+                history.add(new TLConversationHistory(TLConversationHistory.Role.system, ctx.toString()));
+            }
+        }
         history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
         // 立即保存含用户消息的上下文，确保 msgTool（如 getTurnCount）能读到当前会话
         saveContextHistory(sessionId, history);
