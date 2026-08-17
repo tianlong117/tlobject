@@ -64,6 +64,7 @@ function renderTable(container, headers, rows, curKey) {
   container.innerHTML = h + '</table>';
 }
 function newSession() {
+  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   state.sessionId = 'webchat_' + state.userId + '_' + Date.now();
   localStorage.setItem('tlweb_session', state.sessionId);
   $('#sessionId').value = state.sessionId;
@@ -242,7 +243,7 @@ async function streamChat(msg) {
       body: JSON.stringify({ message: msg, sessionId: state.sessionId }),
       signal: ctrl.signal
     });
-    if (resp.status === 401) { showLogin(); return; }
+    if (resp.status === 401) { holder.el.remove(); showLogin(); return; }
     if (!resp.ok) {
       let err = 'HTTP ' + resp.status;
       try { const j = await resp.json(); err = j.error || err; } catch (e) { /* ignore */ }
@@ -276,16 +277,23 @@ async function streamChat(msg) {
           if (evt.reasoning) reasoningBuf = evt.reasoning;
           if (evt.done) {
             evt.ms = Date.now() - t0;
+            if (!evt.reasoning && reasoningBuf) evt.reasoning = reasoningBuf;
             finishAssistantMsg(holder, evt);
+            if (evt.error) appendMsg('system', '[流式错误] ' + evt.error);
             return;
           }
         }
       }
     }
     // 流意外结束
+    buf += dec.decode();  // 冲刷流尾可能残留的半字符
     finishAssistantMsg(holder, { ms: Date.now() - t0 });
   } catch (e) {
-    if (e.name !== 'AbortError') {
+    if (e.name === 'AbortError') {
+      holder.cursor.remove();
+      holder.el.appendChild(document.createTextNode('（已停止）'));
+      scrollChat();
+    } else {
       holder.el.remove();
       appendMsg('system', '[错误] ' + e.message);
     }
@@ -328,10 +336,12 @@ function bindEvents() {
   $('#sendBtn').onclick = sendMessage;
   $('#stopBtn').onclick = stopChat;
   $('#chatInput').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;   // IME 组合中不发送
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
   $('#streamToggle').onchange = e => { state.streamEnabled = e.target.checked; };
   $('#sessionId').onchange = e => {
+    if (state.busy) { toast('有进行中的对话，请先停止', 'err'); e.target.value = state.sessionId; return; }
     const v = e.target.value.trim();
     if (v && v !== state.sessionId) { state.sessionId = v; localStorage.setItem('tlweb_session', v); toast('已切换会话ID: ' + v, 'ok'); }
   };
