@@ -212,10 +212,28 @@ public class TLJettyServer extends TLBaseModule {
             }
         }
         context.addServlet(new ServletHolder(servletdispatch), dynamicPath);
-        // 静态资源由 DefaultServlet 处理
-        context.addServlet(DefaultServlet.class, "/*");
+        // 静态资源由 DefaultServlet 处理。
+        // 注意：若 extraServlets 配置了根路径映射（"/"），则跳过 DefaultServlet 注册——
+        // Jetty 不允许两个 servlet 映射同一 path（Multiple servlets map to path /），
+        // 且 Servlet 规范中 "/*" 前缀映射优先于 "/" 默认映射，会抢占根路径导致其失效；
+        // 此时根路径由业务 servlet 全权接管（含静态资源与重定向）。
+        if (!hasRootMapping()) {
+            context.addServlet(DefaultServlet.class, "/*");
+        }
         addExtraServlets(context);
         putLog("Servlet 映射: " + dynamicPath + " -> TLServletDispatch, /* -> DefaultServlet", LogLevel.DEBUG);
+    }
+
+    /** extraServlets 是否配置了根路径映射（"/"） */
+    private boolean hasRootMapping() {
+        if (extraServlets == null || extraServlets.trim().isEmpty()) return false;
+        for (String pair : extraServlets.split(";")) {
+            pair = pair.trim();
+            if (pair.isEmpty()) continue;
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).trim().equals("/")) return true;
+        }
+        return false;
     }
 
     /**

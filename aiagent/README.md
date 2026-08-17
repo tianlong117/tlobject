@@ -1315,3 +1315,20 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 | `/sessions` | 列出所有历史会话 |
 | `/continue [id]` | 继续历史会话（不带 id 恢复最近） |
 | `/resume` | 恢复未完成的 mid-loop 断点会话 |
+
+### Web 交互窗口（aiagent/webui）
+
+`AIStart -web`（或 `aistart-web.bat`）同进程同时启动控制台与 Web 窗口：
+浏览器打开 `http://localhost:8080/webui/chat.html`（端口在 `moduleFactory_chat_web_config.xml` 的 jettyServer 参数修改）。
+
+- 登录：`webui` 模块的 `passwords` 参数（demo 默认 admin/tianlong，密码 123456）；不配置密码则任意非空 userId 可登录
+- 聊天：流式（fetch-SSE）/非流式，推理过程可折叠，结束行显示 token 统计
+- 命令面板（图形化，全部经 agentService 现有 action）：
+  - 会话：列表/继续/切换/清除/断点恢复
+  - Agent/Skill：列表、/param 参数查看、安装（skill/agent/baseSkill）、卸载、重载
+  - MCP 市场：search/info/install/list/remove
+  - 评测：suite/list/quick/run/cascade；测试：list/全部/单用例
+  - 追踪：/trace、/stats、/stats all、/stats agent
+- 审批：审批请求经 SSE 推送到浏览器弹框，可编辑参数后批准或拒绝
+- 用户隔离：登录身份透传 agentService，data/{uid}/ 会话与记忆按用户隔离
+- 实现：TLWebChatModule（业务）+ TLWebChatServlet（IO 适配，TLJettyServer extraServlets 挂载），静态页内嵌 jar classpath
