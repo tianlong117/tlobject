@@ -368,12 +368,11 @@ async function loadSessions() {
     const r = await apiCommand('sessions', { userId: state.userId });
     const rows = (r.data || []).map(s => ({
       sessionId: s.sessionId, agent: s.agentName || '', time: fmtTs(s.savedAt),
-      count: (s.count == null ? '' : s.count) + '条', state: s.state || '',
-      cur: s.sessionId === state.sessionId
+      count: (s.count == null ? '' : s.count) + '条', state: s.state || ''
     }));
-    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '时间'], ['count', '轮次'], ['state', '状态']], rows);
+    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '时间'], ['count', '轮次'], ['state', '状态']], rows, 'sessionId');
     // 每行加操作按钮
-    [...box.querySelectorAll('table.tbl tr')].forEach((tr, i) => {
+    [...box.querySelectorAll('table.tbl tr')].slice(1).forEach((tr, i) => {
       const sid = rows[i] && rows[i].sessionId;
       if (!sid) return;
       const td = document.createElement('td');
@@ -606,7 +605,7 @@ async function mcpList() {
       desc: m.description || ''
     }));
     renderTable(box, [['name', '家族名'], ['state', '状态'], ['desc', '描述']], rows);
-    [...box.querySelectorAll('table.tbl tr')].forEach((tr, i) => {
+    [...box.querySelectorAll('table.tbl tr')].slice(1).forEach((tr, i) => {
       const name = rows[i] && rows[i].name;
       if (!name) return;
       const td = document.createElement('td');
