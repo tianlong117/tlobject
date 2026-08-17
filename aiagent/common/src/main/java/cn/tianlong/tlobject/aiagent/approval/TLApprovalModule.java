@@ -267,14 +267,34 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /**
      * 经消息总线发布审批事件（ConsoleReviewer 打印审批框前调用）。
-     * 订阅者（如 TLChatConsole，按 destination="approvalEvent" 注册到 msgBus）自行渲染，
-     * 审批模块不直接依赖控制台。无总线/订阅者时返回 false，调用方回退为直接打印。
+     * 订阅者（如 TLChatConsole、TLWebChatModule）自行渲染；text 为渲染好的展示文本，
+     * 结构化参数（approvalId/toolName/description/sessionId/args）供 Web 端弹框按钮使用，
+     * 控制台只读 text，向后兼容。
      */
     public boolean publishApprovalEvent(String text) {
+        return publishApprovalEvent(text, null);
+    }
+
+    /**
+     * 经消息总线发布审批事件（ConsoleReviewer 打印审批框前调用）。
+     * 订阅者（如 TLChatConsole、TLWebChatModule）自行渲染；text 为渲染好的展示文本，
+     * 结构化参数（approvalId/toolName/description/sessionId/args）供 Web 端弹框按钮使用，
+     * 控制台只读 text，向后兼容。
+     */
+    public boolean publishApprovalEvent(String text, TLApprovalRequest request) {
         try {
             Object bus = getModuleInFactory("msgBus");
             if (!(bus instanceof IObject)) return false;
             TLMsg evt = createMsg().setAction("approvalEvent").setParam("text", text);
+            if (request != null) {
+                evt.setParam("approvalId", request.getApprovalId());
+                evt.setParam("toolName", request.getToolName());
+                evt.setParam("description", request.getDescription());
+                evt.setParam("sessionId", request.getSessionId() != null ? request.getSessionId() : request.getRootSessionId());
+                if (request.getToolArguments() != null) {
+                    evt.setParam("args", new com.google.gson.Gson().toJson(request.getToolArguments()));
+                }
+            }
             evt.setDestination("approvalEvent");  // 总线按 destination 路由到订阅者
             TLMsg ack = putMsg((IObject) bus, evt);
             return ack != null;  // 订阅者返回 ack 表示已处理

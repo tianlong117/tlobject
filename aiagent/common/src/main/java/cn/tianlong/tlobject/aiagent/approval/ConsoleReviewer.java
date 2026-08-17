@@ -69,7 +69,7 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
                                 ? request.getDescription() : "需要您的确认");
         // 经消息总线发布审批事件，由订阅者（控制台）自行渲染审批框+输入提示符；
         // 无订阅者（无控制台环境）时回退为直接打印
-        if (owner == null || !owner.publishApprovalEvent(msg)) {
+        if (owner == null || !owner.publishApprovalEvent(msg, request)) {
             System.out.println(msg);
             System.out.flush();
         }
