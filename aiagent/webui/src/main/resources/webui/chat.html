@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent Web</title>
+<link rel="stylesheet" href="/webui/style.css">
+</head>
+<body>
+
+<!-- ===== 登录视图 ===== -->
+<div id="loginView">
+  <div class="login-box">
+    <h1>🤖 AI Agent Web</h1>
+    <p class="sub">消息框架 Web 交互窗口</p>
+    <input id="loginUser" placeholder="用户ID" autocomplete="username">
+    <input id="loginPwd" type="password" placeholder="密码（如已配置）" autocomplete="current-password">
+    <button id="loginBtn">登 录</button>
+    <div id="loginErr" class="err hidden"></div>
+  </div>
+</div>
+
+<!-- ===== 主界面 ===== -->
+<div id="chatView" class="hidden">
+  <header>
+    <span class="brand">🤖 AI Agent Web</span>
+    <span id="userTag" class="tag"></span>
+    <span class="sess">会话 <input id="sessionId" size="26" title="当前会话ID（可改，改后按新ID开新会话）"></span>
+    <label class="toggle"><input type="checkbox" id="streamToggle" checked> 流式</label>
+    <span id="connState" class="conn" title="事件通道连接状态">●</span>
+    <button id="logoutBtn" class="ghost">退出</button>
+  </header>
+  <main>
+    <!-- 聊天窗口 -->
+    <section id="chatPane">
+      <div id="msgList"></div>
+      <div class="chat-input">
+        <textarea id="chatInput" rows="2" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <div class="chat-btns">
+          <button id="sendBtn">发送</button>
+          <button id="stopBtn" class="hidden danger">■ 停止</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 命令面板 -->
+    <aside id="panelPane">
+      <nav id="tabBar">
+        <button data-tab="tab-sessions" class="active">会话</button>
+        <button data-tab="tab-agents">Agent/Skill</button>
+        <button data-tab="tab-mcp">MCP</button>
+        <button data-tab="tab-eval">评测/测试</button>
+        <button data-tab="tab-trace">追踪</button>
+      </nav>
+
+      <section id="tab-sessions" class="tab-panel active">
+        <div class="btn-row">
+          <button class="primary" onclick="loadSessions()">刷新会话列表</button>
+          <button onclick="resumeCheckpoint()">断点恢复</button>
+          <button onclick="newSession()">新会话</button>
+        </div>
+        <div id="sessionsBox" class="box"></div>
+      </section>
+
+      <section id="tab-agents" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="loadAgents()">Agents</button>
+          <button onclick="loadSkills()">Skills</button>
+        </div>
+        <div id="agentsBox" class="box"></div>
+        <details class="mini">
+          <summary>工具参数查看 (/param)</summary>
+          <div class="row"><input id="paramTool" placeholder="工具名/家族名 (如 priceTeam)"><button onclick="loadParam()">查看</button></div>
+          <div id="paramBox" class="box"></div>
+        </details>
+        <details class="mini">
+          <summary>安装</summary>
+          <div class="row">
+            <select id="installType">
+              <option value="skill">Skill(脚本目录)</option>
+              <option value="agent">Agent</option>
+              <option value="baseSkill">BaseSkill(Java类)</option>
+            </select>
+            <input id="installName" placeholder="名称/目录">
+          </div>
+          <div class="row">
+            <input id="installRef" placeholder="sameClassAs 或 classFile(含. 的视为类名，可选)">
+            <input id="installTarget" placeholder="目标Agent (默认 aiagent_master)">
+          </div>
+          <button class="primary" onclick="doInstall()">安装</button>
+        </details>
+        <details class="mini">
+          <summary>卸载 / 重载</summary>
+          <div class="row">
+            <select id="opType">
+              <option value="skill">Skill</option>
+              <option value="agent">Agent</option>
+              <option value="baseSkill">BaseSkill</option>
+            </select>
+            <input id="opName" placeholder="名称/家族名 (如 aiagent_master:myAgent)">
+          </div>
+          <div class="row">
+            <button class="primary" onclick="doUninstall()">卸载</button>
+            <button onclick="doReload()">重载</button>
+          </div>
+        </details>
+        <div id="opMsg" class="box"></div>
+      </section>
+
+      <section id="tab-mcp" class="tab-panel">
+        <div class="row">
+          <input id="mcpKw" placeholder="搜索关键词 (空=全部精选)">
+          <button class="primary" onclick="mcpSearch()">搜索</button>
+        </div>
+        <div id="mcpSearchBox" class="box"></div>
+        <div class="btn-row">
+          <button onclick="mcpList()">已安装列表</button>
+        </div>
+        <div id="mcpListBox" class="box"></div>
+      </section>
+
+      <section id="tab-eval" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="evalCmd('suite')">suite 全部</button>
+          <button onclick="evalCmd('list')">list 用例</button>
+          <button onclick="evalCmd('quick')">quick 自检</button>
+        </div>
+        <div class="row">
+          <input id="evalCase" placeholder="caseId"><button onclick="evalCmd('run')">run</button>
+          <input id="evalAgent" placeholder="agent(可选)"><button onclick="evalCmd('cascade')">cascade</button>
+        </div>
+        <div id="evalBox" class="box"></div>
+        <hr>
+        <div class="btn-row">
+          <button class="primary" onclick="testCmd('list')">测试用例列表</button>
+          <button onclick="testCmd('all')">运行全部</button>
+        </div>
+        <div class="row">
+          <input id="testCase" placeholder="用例名 (如 basicChat)"><button onclick="testCmd('one')">运行</button>
+        </div>
+        <div id="testBox" class="box"></div>
+      </section>
+
+      <section id="tab-trace" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="doTrace()">/trace 环节记录</button>
+          <button onclick="doStats()">/stats 会话统计</button>
+          <button onclick="doStatsAll()">/stats all</button>
+          <button onclick="doStatsAgent()">/stats agent</button>
+        </div>
+        <div id="traceBox" class="box"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<!-- ===== 审批弹框 ===== -->
+<div id="approvalModal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="apTitle"></h3>
+    <div id="apDesc" class="ap-desc"></div>
+    <label class="lbl">工具参数（可编辑后批准）</label>
+    <textarea id="apArgs" rows="6" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button class="ok" id="apApproveBtn">✓ 批准</button>
+      <button class="no" id="apRejectBtn">✗ 拒绝</button>
+    </div>
+    <input id="apReason" placeholder="拒绝原因（可选）">
+    <div id="apMsg" class="err hidden"></div>
+  </div>
+</div>
+
+<div id="toastBox"></div>
+
+<script src="/webui/app.js"></script>
+</body>
+</html>
