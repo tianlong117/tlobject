@@ -136,6 +136,11 @@
             <artifactId>tlobject-aiagent-memory-store</artifactId>
             <version>1.0</version>
         </dependency>
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-aiagent-webui</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
     </dependencies>
 

@@ -19,6 +19,7 @@
         <module>skill-builtin</module>
         <module>agent-builtin</module>
         <module>memory-store</module>
+        <module>webui</module>
     </modules>
 
     <build>
