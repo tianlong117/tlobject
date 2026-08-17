@@ -360,4 +360,409 @@ document.addEventListener('DOMContentLoaded', () => {
   initSession();
 });
 
-// ===== 第二部分（面板函数）在 Task 9 追加 =====
+// ======================== 面板：会话 ========================
+async function loadSessions() {
+  const box = $('#sessionsBox');
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const r = await apiCommand('sessions', { userId: state.userId });
+    const rows = (r.data || []).map(s => ({
+      sessionId: s.sessionId, agent: s.agentName || '', time: fmtTs(s.savedAt),
+      count: (s.count == null ? '' : s.count) + '条', state: s.state || '',
+      cur: s.sessionId === state.sessionId
+    }));
+    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '时间'], ['count', '轮次'], ['state', '状态']], rows);
+    // 每行加操作按钮
+    [...box.querySelectorAll('table.tbl tr')].forEach((tr, i) => {
+      const sid = rows[i] && rows[i].sessionId;
+      if (!sid) return;
+      const td = document.createElement('td');
+      const b1 = document.createElement('button'); b1.textContent = '继续'; b1.onclick = () => continueSession(sid);
+      const b2 = document.createElement('button'); b2.textContent = '切换'; b2.onclick = () => switchSession(sid);
+      const b3 = document.createElement('button'); b3.textContent = '清除'; b3.onclick = () => clearSession(sid);
+      td.appendChild(b1); td.appendChild(b2); td.appendChild(b3);
+      tr.appendChild(td);
+    });
+  } catch (e) {
+    box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>';
+  }
+}
+async function continueSession(sid) {
+  try {
+    const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
+    if (r.success && r.data) {
+      state.sessionId = r.data.sessionId || sid;
+      localStorage.setItem('tlweb_session', state.sessionId);
+      $('#sessionId').value = state.sessionId;
+      $('#msgList').innerHTML = '';
+      appendSysMsg('已恢复会话 ' + state.sessionId + ' (' + (r.data.count || 0) + ' 条历史)');
+      (r.data.history || []).forEach(h => {
+        if (h && h.role !== 'system' && h.content) appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
+      });
+    }
+    toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function switchSession(sid) {
+  try {
+    const r = await apiCommand('session', { sessionId: sid });
+    state.sessionId = sid;
+    localStorage.setItem('tlweb_session', sid);
+    $('#sessionId').value = sid;
+    toast(r.message || sid, 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function clearSession(sid) {
+  try {
+    const r = await apiCommand('clear', { sessionId: sid });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function resumeCheckpoint() {
+  try {
+    const r = await apiCommand('resume', { userId: state.userId });
+    if (!r.success) { toast(r.error || r.message, 'err'); return; }
+    const d = r.data || {};
+    toast('找到断点会话 ' + d.sessionId + '，正在恢复执行...', 'info');
+    // 断点恢复 = 以断点时的用户消息发起 resume chat
+    const cr = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: d.userMessage || '', sessionId: d.sessionId, resume: true })
+    }).then(x => x.json());
+    state.sessionId = d.sessionId || state.sessionId;
+    localStorage.setItem('tlweb_session', state.sessionId);
+    $('#sessionId').value = state.sessionId;
+    if (cr.success) {
+      appendMsg('user', d.userMessage || '（断点消息）');
+      const holder = startAssistantMsg();
+      // FIX: 先移除光标再追加文本（原计划 firstChild.textContent 会把回复写进光标后被 remove 丢失）
+      holder.cursor.remove();
+      holder.el.appendChild(document.createTextNode(cr.response || ''));
+      if (cr.reasoning) appendReasoning(holder.el, cr.reasoning);
+      scrollChat();
+    } else {
+      appendMsg('system', '[错误] ' + (cr.error || cr.response || ''));
+    }
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ======================== 面板：Agent/Skill ========================
+async function loadAgents() {
+  const box = $('#agentsBox');
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const r = await apiCommand('agents', {});
+    const rows = (r.data || []).map(m => {
+      const key = m.key != null ? m.key : (m.name || '?');
+      const inst = m.instance;
+      const cls = inst && inst.className ? inst.className.split('.').pop() : (m.className || '?');
+      return { key, cls };
+    });
+    renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function loadSkills() {
+  const box = $('#agentsBox');
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const r = await apiCommand('skills', {});
+    const rows = (r.data || []).map(m => ({
+      key: m.key != null ? m.key : (m.name || '?'),
+      cls: m.instance && m.instance.className ? m.instance.className.split('.').pop() : (m.className || '?')
+    }));
+    renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function loadParam() {
+  const tool = $('#paramTool').value.trim();
+  const box = $('#paramBox');
+  if (!tool) { toast('请输入工具名', 'err'); return; }
+  try {
+    const r = await apiCommand('param', { toolName: tool });
+    box.innerHTML = '';
+    if (r.success) {
+      const p = r.data || {};
+      const entries = Object.entries(p);
+      if (!entries.length) { box.innerHTML = '<div class="empty">（无参数）</div>'; return; }
+      renderTable(box, [['k', '参数'], ['v', '值']], entries.map(([k, v]) => ({ k, v: typeof v === 'object' ? JSON.stringify(v) : v })));
+    } else {
+      box.innerHTML = '<div class="fail-msg">' + esc(r.error || r.message) + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doInstall() {
+  const type = $('#installType').value;
+  const name = $('#installName').value.trim();
+  const ref = $('#installRef').value.trim();
+  const target = $('#installTarget').value.trim();
+  const msgBox = $('#opMsg');
+  if (!name) { toast('请输入名称/目录', 'err'); return; }
+  const params = { type, name };
+  if (ref) {
+    if (type === 'skill') params.targetAgent = ref;
+    else if (type === 'agent') params.classRef = ref;
+    else params.classFile = ref;
+  }
+  if (target) params.targetAgent = target;
+  try {
+    const r = await apiCommand('install', params);
+    msgBox.innerHTML = r.success
+      ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
+      : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+  } catch (e) { msgBox.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doUninstall() {
+  const type = $('#opType').value;
+  const name = $('#opName').value.trim();
+  const msgBox = $('#opMsg');
+  if (!name) { toast('请输入名称/家族名', 'err'); return; }
+  try {
+    const r = await apiCommand('uninstall', { type, name });
+    msgBox.innerHTML = r.success
+      ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
+      : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+  } catch (e) { msgBox.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doReload() {
+  const type = $('#opType').value;
+  const name = $('#opName').value.trim();
+  const msgBox = $('#opMsg');
+  if (!name) { toast('请输入名称/家族名', 'err'); return; }
+  try {
+    const r = await apiCommand('reload', { type, name });
+    msgBox.innerHTML = r.success
+      ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
+      : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+  } catch (e) { msgBox.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+
+// ======================== 面板：MCP ========================
+async function mcpSearch() {
+  const kw = $('#mcpKw').value.trim();
+  const box = $('#mcpSearchBox');
+  box.innerHTML = '<div class="empty">搜索中...</div>';
+  try {
+    const r = await apiCommand('mcpSearch', kw ? { keyword: kw } : {});
+    box.innerHTML = '';
+    const list = r.data || [];
+    if (!list.length) { box.innerHTML = '<div class="empty">（无结果）</div>'; return; }
+    list.forEach((it, i) => {
+      const d = document.createElement('div');
+      d.className = 'box';
+      d.innerHTML = '<div class="ok-msg">' + (i + 1) + '. ' + esc(it.name) + ' [' + esc(it.runtime || '?') + '/' + esc(it.category || '?') + ']</div>' +
+        '<div class="empty">' + esc(it.description || '') + '</div>' +
+        '<div class="empty">包: ' + esc(it.package) + ' 安装: ' + esc(it.installCmd || '') + (it.env ? ' 环境变量: ' + esc(it.env) : '') + '</div>';
+      const b = document.createElement('button');
+      b.textContent = '安装';
+      b.onclick = () => mcpInstall(it.package);
+      const d2 = document.createElement('div');
+      d2.appendChild(b);
+      const b2 = document.createElement('button');
+      b2.textContent = '详情';
+      b2.onclick = () => mcpInfo(it.package);
+      d2.appendChild(b2);
+      d.appendChild(d2);
+      box.appendChild(d);
+    });
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function mcpInfo(pkg) {
+  const box = $('#mcpSearchBox');
+  try {
+    const r = await apiCommand('mcpInfo', { package: pkg });
+    if (!r.success) { box.innerHTML = '<div class="fail-msg">' + esc(r.error || r.message) + '</div>'; return; }
+    const i = r.data || {};
+    const lines = [];
+    lines.push((i.name || i.package || pkg) + '  包: ' + (i.package || ''));
+    if (i.version) lines.push('版本: ' + i.version);
+    lines.push('运行时: ' + (i.runtime || '?') + ' / ' + (i.command || '?'));
+    if (i.description) lines.push('\n【功能说明】\n' + i.description);
+    if (i.keywords) lines.push('\n关键词: ' + i.keywords);
+    if (i.tools) lines.push('\n【主要工具】\n' + i.tools);
+    if (i.homepage) lines.push('\n主页: ' + i.homepage);
+    if (i.repository) lines.push('仓库: ' + i.repository);
+    if (i.env) lines.push('\n环境变量: ' + i.env);
+    renderPre(box, lines);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function mcpInstall(pkg) {
+  try {
+    const r = await apiCommand('mcpInstall', { package: pkg });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success) mcpList();
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function mcpList() {
+  const box = $('#mcpListBox');
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const r = await apiCommand('mcpList', {});
+    const list = r.data || [];
+    if (!list.length) { box.innerHTML = '<div class="empty">（无已安装 MCP Agent）</div>'; return; }
+    const rows = list.map(m => ({
+      name: m.familyName || m.name || '?',
+      state: m.initialized ? 'OK' : '--',
+      desc: m.description || ''
+    }));
+    renderTable(box, [['name', '家族名'], ['state', '状态'], ['desc', '描述']], rows);
+    [...box.querySelectorAll('table.tbl tr')].forEach((tr, i) => {
+      const name = rows[i] && rows[i].name;
+      if (!name) return;
+      const td = document.createElement('td');
+      const b = document.createElement('button');
+      b.textContent = '卸载';
+      b.onclick = () => {
+        if (confirm('确认卸载 MCP Agent ' + name + ' ?')) mcpRemove(name);
+      };
+      td.appendChild(b);
+      tr.appendChild(td);
+    });
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function mcpRemove(name) {
+  try {
+    const r = await apiCommand('mcpRemove', { name });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success) mcpList();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ======================== 面板：评测/测试 ========================
+async function evalCmd(sub, arg) {
+  const box = $('#evalBox');
+  box.innerHTML = '<div class="empty">执行中...</div>';
+  const params = { subAction: sub };
+  if (sub === 'run') params.caseId = $('#evalCase').value.trim();
+  if (sub === 'cascade' && $('#evalAgent').value.trim()) params.agent = $('#evalAgent').value.trim();
+  if (sub === 'run' && !params.caseId) { toast('请输入 caseId', 'err'); box.innerHTML = ''; return; }
+  try {
+    const r = await apiCommand('eval', params);
+    box.innerHTML = '';
+    if (r.success) {
+      if (sub === 'list') {
+        const rows = (r.data || []).map(c => ({ c: typeof c === 'string' ? c : JSON.stringify(c) }));
+        renderTable(box, [['c', '用例']], rows);
+      } else if (r.data && typeof r.data === 'object') {
+        const d = r.data;
+        let html = '<div class="ok-msg">✓ 评测完成: ' + d.passed + '/' + d.total + ' 通过' +
+          (d.passRate ? ' (' + Math.round(d.passRate * 100) + '%)' : '') + '</div>';
+        if (d.reportPath) html += '<div class="empty">报告: ' + esc(d.reportPath) + '</div>';
+        box.innerHTML = html;
+      } else {
+        box.innerHTML = '<div class="ok-msg">✓ ' + esc(r.message) + '</div>';
+      }
+    } else {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function testCmd(mode) {
+  const box = $('#testBox');
+  box.innerHTML = '<div class="empty">执行中...</div>';
+  try {
+    let params = {};
+    if (mode === 'list') params = { caseName: 'list' };
+    else if (mode === 'one') {
+      const c = $('#testCase').value.trim();
+      if (!c) { toast('请输入用例名', 'err'); box.innerHTML = ''; return; }
+      params = { caseName: c };
+    }
+    const r = await apiCommand('test', params);
+    box.innerHTML = '';
+    if (!r.success) { box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>'; return; }
+    if (mode === 'list') {
+      const rows = (r.data || []).map(c => ({ c }));
+      renderTable(box, [['c', '用例']], rows);
+    } else {
+      const d = r.data || {};
+      box.innerHTML = '<div class="ok-msg">✓ 测试完成: ' + d.passed + '/' + d.total + ' 通过' +
+        (d.failed ? '，失败 ' + d.failed : '') + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+
+// ======================== 面板：追踪/统计 ========================
+async function doTrace() {
+  const box = $('#traceBox');
+  box.innerHTML = '<div class="empty">查询中...</div>';
+  try {
+    const r = await apiCommand('trace', { sessionId: state.sessionId });
+    box.innerHTML = '';
+    if (r.success) {
+      const lines = r.data;
+      if (Array.isArray(lines) && lines.length) renderPre(box, lines);
+      else renderPre(box, ['（无环节记录）']);
+    } else {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doStats() {
+  const box = $('#traceBox');
+  box.innerHTML = '<div class="empty">统计中...</div>';
+  try {
+    const r = await apiCommand('stats', { sessionId: state.sessionId, userId: state.userId });
+    renderPre(box, r.success ? (Array.isArray(r.data) ? r.data : [r.message]) : [r.error || r.message]);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doStatsAll() {
+  const box = $('#traceBox');
+  box.innerHTML = '<div class="empty">统计中...</div>';
+  try {
+    const r = await apiCommand('statsAll', { userId: state.userId });
+    renderPre(box, r.success ? (Array.isArray(r.data) ? r.data : [r.message]) : [r.error || r.message]);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+async function doStatsAgent() {
+  const box = $('#traceBox');
+  box.innerHTML = '<div class="empty">统计中...</div>';
+  try {
+    const r = await apiCommand('statsAgent', { sessionId: state.sessionId, userId: state.userId });
+    renderPre(box, r.success ? (Array.isArray(r.data) ? r.data : [r.message]) : [r.error || r.message]);
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+
+// ======================== 审批弹框 ========================
+let currentApproval = null;
+function showApprovalModal(evt) {
+  currentApproval = evt;
+  $('#apTitle').textContent = '⚠ 审批请求：' + (evt.toolName || '未知工具');
+  $('#apDesc').textContent = evt.description || '需要您的确认';
+  $('#apArgs').value = evt.args || '{}';
+  $('#apReason').value = '';
+  $('#apMsg').classList.add('hidden');
+  $('#approvalModal').classList.remove('hidden');
+}
+async function approveAction() {
+  const evt = currentApproval;
+  if (!evt) return;
+  let modifiedArgs = null;
+  try {
+    modifiedArgs = JSON.parse($('#apArgs').value);
+  } catch (e) {
+    $('#apMsg').textContent = '参数 JSON 格式错误：' + e.message;
+    $('#apMsg').classList.remove('hidden');
+    return;
+  }
+  try {
+    const r = await apiCommand('approve', { subAction: 'approve', approvalId: evt.approvalId, approvalModifiedArguments: modifiedArgs });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success) $('#approvalModal').classList.add('hidden');
+  } catch (e) { toast(e.message, 'err'); }
+}
+async function rejectAction() {
+  const evt = currentApproval;
+  if (!evt) return;
+  const reason = $('#apReason').value.trim() || '用户拒绝';
+  try {
+    const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success) $('#approvalModal').classList.add('hidden');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+// ======================== 命令辅助 ========================
+async function apiCommand(action, params) {
+  return await apiJson('/api/command', { action, params: params || {} });
+}
