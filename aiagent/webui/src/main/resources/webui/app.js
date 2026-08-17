@@ -305,6 +305,8 @@ async function streamChat(msg) {
         }
       }, 4000);
     };
+    // 提交后立即显示"思考中"（不等 4 秒），chunk 到来时消失；长等待（>4s 无 chunk）再次出现
+    showIdle();
     armIdle();
     for (;;) {
       const { done, value } = await reader.read();
