@@ -1570,6 +1570,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (handleStreamRejected(execResult, history, sessionId)) {
                             // 拒绝收尾：保存上下文，避免本轮 tool 结果丢失导致下一轮上下文不完整
                             saveContextHistory(sessionId, history);
+                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
+                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             forwardStreamFinal(resultAction, resultFor, sessionId,
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             return null;
@@ -1581,6 +1583,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             // 导致下一轮 getContextHistory 拿不到本轮完整 history——LLM 只能靠记忆，
                             // 把上轮任务（如写诗）误当新指令）
                             saveContextHistory(sessionId, history);
+                            // 收尾通知 SessionManager + 记忆（直出路径此前缺 chatFinished → 恢复会话时该轮缺失）
+                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
+                                    execResult.getStringParam("finalResponse", ""));
                             forwardStreamFinal(resultAction, resultFor, sessionId,
                                     execResult.getStringParam("finalResponse", ""));
                             return null;
@@ -1638,6 +1643,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     history, streamUserId);
                             if (handleStreamRejected(moreExecResult, history, sessionId)) {
                                 saveContextHistory(sessionId, history);
+                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
+                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                                 return null;
@@ -1646,6 +1653,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
                                     && (moreTCs == null || moreTCs.size() == 1)) {
                                 saveContextHistory(sessionId, history);
+                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
+                                        moreExecResult.getStringParam("finalResponse", ""));
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
                                         moreExecResult.getStringParam("finalResponse", ""));
                                 return null;
@@ -1953,6 +1962,37 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 发送会话通知给 SessionManager。由 Agent 的 enableCheckpoint 决定是否通知。 */
     private void notifySessionManager(TLMsg notificationMsg) {
         if (enableCheckpoint) putMsg(sessionManagerName, notificationMsg);
+    }
+
+    /**
+     * 流式直出/拒绝路径的收尾：通知 SessionManager 保存本轮 + 保存长期记忆。
+     * 正常收尾在 onStreamResult 主流程；直出/拒绝直接 return 会跳过，导致该轮不入 rounds
+     * （恢复会话时历史缺失）。
+     */
+    private void notifyStreamChatFinished(Object fromWho, String sessionId,
+                                          List<TLConversationHistory> history,
+                                          String streamUserId, String response) {
+        notifySessionManager(createMsg()
+                .setAction("chatFinished")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", streamUserId)
+                .setParam("agentName", name)
+                .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
+                .setParam("messages", deltaMessages(history, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
+                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
+                .setParam("response", response));
+        try {
+            TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
+                    .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                    .setParam("userId", streamUserId)
+                    .setParam("agentName", name)
+                    .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
+                    .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + response)
+                    .setParam(AI_P_MEMORYTAG, "chat_history");
+            saveAgentMemory(fromWho, saveMsg);
+        } catch (Exception e) {
+            putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
+        }
     }
 
     /** LLM 失败/异常路径收尾：把本轮存为 completed（含错误文案），避免已发 sessionUpdated 的 checkpoint 轮次残留 */
