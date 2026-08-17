@@ -343,13 +343,13 @@ public  class TLModuleConfig extends TLBaseModule {
                     String[] includeModulesParams=checkUnit(includeUnits);
                     modulesParams =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
                         modulesParams != null ? modulesParams : new ConcurrentHashMap<>(),
-                        config.getModulesClass(),includeModulesParams);
+                        config.getModulesParams(),includeModulesParams);
                     break;
                 case "paramsModules":
                     String[] includeParamsModules=checkUnit(includeUnits);
-                    modulesParams =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
+                    paramsModules =(ConcurrentHashMap<String, HashMap<String, String>>) mapCopy(
                         paramsModules != null ? paramsModules : new ConcurrentHashMap<>(),
-                        config.getModulesClass(),includeParamsModules);
+                        config.getParamsModules(),includeParamsModules);
                     break;
                 case "params":
                     String[] includeParams=checkUnit(includeUnits);
@@ -358,27 +358,32 @@ public  class TLModuleConfig extends TLBaseModule {
                 case "initMsg":
                     if(initMsgTable ==null)
                         initMsgTable=new ArrayList<>();
-                    initMsgTable.addAll(config.getInitMsg());
+                    if(config.getInitMsg()!=null)
+                        initMsgTable.addAll(config.getInitMsg());
                     break;
                 case "startMsg":
                     if(startMsgTable ==null)
                         startMsgTable=new ArrayList<>();
-                    startMsgTable.addAll(config.getStartMsgTable());
+                    if(config.getStartMsgTable()!=null)
+                        startMsgTable.addAll(config.getStartMsgTable());
                     break;
                 case "msgTable":
                     if(msgTable ==null)
                         msgTable=new ConcurrentHashMap<>();
-                    msgTable.putAll(config.getMsgTable());
+                    if(config.getMsgTable()!=null)
+                        msgTable.putAll(config.getMsgTable());
                     break;
                 case "beforeMsgTable":
                     if(beforeMsgTable ==null)
                         beforeMsgTable=new ConcurrentHashMap<>();
-                    beforeMsgTable.putAll(config.getBeforeMsgTable());
+                    if(config.getBeforeMsgTable()!=null)
+                        beforeMsgTable.putAll(config.getBeforeMsgTable());
                     break;
                 case "afterMsgTable":
                     if(afterMsgTable ==null)
                         afterMsgTable=new ConcurrentHashMap<>();
-                    afterMsgTable.putAll(config.getAfterMsgTable());
+                    if(config.getAfterMsgTable()!=null)
+                        afterMsgTable.putAll(config.getAfterMsgTable());
                     break;
                 default:
                    ;
@@ -399,6 +404,8 @@ public  class TLModuleConfig extends TLBaseModule {
     private Map mapCopy( Map map , Map source , String[] keys){
         if(map ==null)
             map =new HashMap();
+        if(source ==null)
+            return map ;
         if(keys==null || keys.length==0)
             map.putAll(source);
         else{

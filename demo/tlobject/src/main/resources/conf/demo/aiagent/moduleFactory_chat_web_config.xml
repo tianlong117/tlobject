@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    AI Agent 控制台 + Web 交互窗口 双入口配置（AIStart -web 使用）
+    通过 include 合并 moduleFactory_chat_config.xml 的全部单位；
+    factoryBoot 非 include 单位，此处必须自带完整启动序列。
+-->
+<moduleConfig>
+    <include file="CLASSPATH/conf/demo/aiagent/moduleFactory_chat_config.xml"/>
+
+    <commonParams>
+        <ifLog value="true"/>
+        <logWait value="false" />
+        <loglevel value="trace"/>
+    </commonParams>
+
+    <!-- Web UI 模块 + Jetty 参数 -->
+    <modules>
+        <module name="webui" classfile="cn.tianlong.tlobject.aiagent.webui.TLWebChatModule" singleton="true"/>
+    </modules>
+    <modulesParams>
+        <module name="webui" userModule="demoUserModule" passwords="admin:123456;guest:123456"/>
+        <module name="jettyServer" port="8080" connector="http" servletPath="/"
+                 extraServlets="/=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet;/api/*=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet;/webui/*=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet"/>
+    </modulesParams>
+
+    <!-- 完整启动序列：chat 原 boot + webui/jettyServer -->
+    <factoryBoot>webChat
+        <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="database"      usePreReturnMsg="false" />
+        <msg action="getModule" destination="moduleFactory" moduleName="dbSessionManager"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentService"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
+        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
+        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
+        <!-- Web 窗口：先起模块（订阅审批事件），再起 Jetty -->
+        <msg action="getModule" destination="moduleFactory" moduleName="webui"/>
+        <msg action="startWeb" destination="webui" waitFlag="false" usePreReturnMsg="false"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="jettyServer" usePreReturnMsg="false"/>
+        <msg action="run" destination="jettyServer" waitFlag="false" usePreReturnMsg="false"/>
+    </factoryBoot>
+</moduleConfig>
