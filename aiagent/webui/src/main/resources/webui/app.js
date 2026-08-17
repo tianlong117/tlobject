@@ -289,21 +289,22 @@ async function streamChat(msg) {
     // 空闲检测：长时间无 chunk（LLM 思考 / 工具调用循环）时显示"⏳ 思考中"
     let idleTimer = null;
     let idleSpan = null;
+    const showIdle = () => {
+      if (!idleSpan && holder.el.isConnected) {
+        idleSpan = document.createElement('span');
+        idleSpan.className = 'thinking';
+        idleSpan.textContent = ' ⏳ 思考中';
+        holder.el.appendChild(idleSpan);
+        scrollChat();
+      }
+    };
     const clearIdle = () => {
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
       if (idleSpan) { idleSpan.remove(); idleSpan = null; }
     };
     const armIdle = () => {
       clearIdle();
-      idleTimer = setTimeout(() => {
-        if (!idleSpan && holder.el.isConnected) {
-          idleSpan = document.createElement('span');
-          idleSpan.className = 'thinking';
-          idleSpan.textContent = ' ⏳ 思考中';
-          holder.el.appendChild(idleSpan);
-          scrollChat();
-        }
-      }, 4000);
+      idleTimer = setTimeout(showIdle, 4000);
     };
     // 提交后立即显示"思考中"（不等 4 秒），chunk 到来时消失；长等待（>4s 无 chunk）再次出现
     showIdle();
