@@ -543,6 +543,11 @@ public class TLObjectFactory extends TLBaseModule {
             return module;
         }
     }
+
+    /** 模块表是否已注册（仅查实例表，不触发 getModule 未命中时的类加载尝试与错误日志） */
+    public boolean containsModule(String moduleName) {
+        return modules != null && modules.containsKey(moduleName);
+    }
     private String getModuleName(String moduleName){
         if(moduleName==null || moduleName.isEmpty())
             return moduleName ;

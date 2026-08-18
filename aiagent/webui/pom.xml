@@ -17,6 +17,20 @@
             <artifactId>tlobject-aiagent-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 框架 web 层：TLWServModule 基类 / TLWebChannel / uploadFile 常量 -->
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-servletutils</artifactId>
+            <version>${project.version}</version>
+            <!-- 排除 servletutils 传递的 servlet-api 2.3（无 setCharacterEncoding），
+                 统一用下方 javax.servlet-api 4.0.1（provided，由 Jetty 12 EE8 提供） -->
+            <exclusions>
+                <exclusion>
+                    <groupId>javax.servlet</groupId>
+                    <artifactId>servlet-api</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
         <!-- servlet 由宿主（Jetty）提供 -->
         <dependency>
             <groupId>javax.servlet</groupId>

@@ -67,6 +67,18 @@ main { display: flex; flex: 1; min-height: 0; }
 .chat-btns button:hover { background: #2563eb; }
 .chat-btns button.danger { background: #dc2626; }
 .chat-btns button.danger:hover { background: #b91c1c; }
+.chat-btns button#attachBtn { background: #232838; color: #d8dde6; border: 1px solid #2a2f3d; font-size: 16px; padding: 10px 12px; }
+.chat-btns button#attachBtn:hover { background: #2d3345; }
+
+/* ===== 上传文件名条 ===== */
+#uploadBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 14px;
+  border-top: 1px solid #2a2f3d; background: #1b1e27; font-size: 12px; color: #9aa3b2; }
+#uploadBar .ub-label { color: #93c5fd; }
+.ub-chip { background: #232838; border: 1px solid #2a2f3d; border-radius: 10px; padding: 2px 10px;
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#uploadBar button.ub-clear { background: none; border: 1px solid #2a2f3d; color: #f87171;
+  padding: 2px 8px; border-radius: 8px; cursor: pointer; }
+#uploadBar button.ub-clear:hover { border-color: #f87171; }
 
 /* ===== 命令面板 ===== */
 #panelPane { width: 420px; display: flex; flex-direction: column; min-height: 0; }

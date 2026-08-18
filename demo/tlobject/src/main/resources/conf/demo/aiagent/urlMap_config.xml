@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!--
+    webui 框架路由表（TLServletDispatch → TLWAPPCenter → TLWUrlMap）。
+    appCenter 的 prefixUrl = contextPath("/") + tlobjectPath("/api") = "/api"，
+    因此 url 为 uri 去掉 "/api" 前缀后的路径（如 /api/chat → /chat）。
+
+    认证说明：不走 beforeMsgTable 的 webauth 策略链（TLWAuth 拒绝输出为 200 纯文本
+    "no auth"，与 webui 前端 401 JSON 约定不符）；登录校验由 webui 模块各 action
+    内自检（HttpSession "userId"，与 TLWebChatServlet 同一会话约定）。
+-->
+<moduleConfig>
+    <url-mapping>
+        <url  value="/session">
+            <msg action="session" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/login">
+            <msg action="login" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/logout">
+            <msg action="logout" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/command">
+            <msg action="command" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/chat">
+            <msg action="chat" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/stopChat">
+            <msg action="stopChat" destination="webui" clientType="jsonClient"/>
+        </url>
+        <!-- 上传：multipart body 不能配 clientType/clientVars——
+             jsonInInterface 会提前 readLine 消费请求流，uploadFile 将拿不到文件。
+             模块输出时自行 setThreadData("client","jsonClient")。 -->
+        <url  value="/upload">
+            <msg action="upload" destination="webui"/>
+        </url>
+        <!-- SSE 流式聊天：clientVars="*" 显式配置（sseClient 不会自动补 clientVars），
+             jsonInInterface 读 JSON body 输入；输出走 sseOutInterface 注册长连接 -->
+        <url  value="/chatStream">
+            <msg action="chatStream" destination="webui" clientType="sseClient" clientVars="*"/>
+        </url>
+        <!-- SSE 审批事件推送：GET 无 body，不配 clientVars（不读 body） -->
+        <url  value="/events">
+            <msg action="events" destination="webui" clientType="sseClient"/>
+        </url>
+    </url-mapping>
+</moduleConfig>

@@ -6,8 +6,12 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.servletutils.TLWServModule;
+import cn.tianlong.tlobject.servletutils.clientinterface.TLWebChannel;
 import com.google.gson.Gson;
 
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpSession;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -15,37 +19,48 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILESIZE;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILEPATH;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_R_ERROR;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_R_FILENAMES;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_R_FILETYPE;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_R_FILESIZEMAX;
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
+
 /**
  * AI Agent Web 交互模块——浏览器 UI 与 Agent 框架之间的桥接层。
  *
  * <p>职责：登录校验、命令分发（JSON → TLMsg → agentService）、流式聊天转发（SSE writer）、
  * 审批事件经 msgBus 订阅后按 sessionId 定位属主推送给对应 SSE 连接。</p>
  *
- * <p>IO 适配由 TLWebChatServlet 完成（HTTP ↔ 本模块方法调用）；本模块只与框架消息交互。</p>
+ * <p>双入口：</p>
+ * <ul>
+ *   <li>框架路由（TLServletDispatch → TLWUrlMap → checkMsgAction 的
+ *       session/login/logout/command/chat/stopChat/upload/chatStream/events action，
+ *       输出经 sseClient/jsonClient → out-interface）</li>
+ *   <li>servlet 直连（TLWebChatServlet 调用 login/handleCommand/chat/beginChatStream 等方法，
+ *       回退路径，保留不动）</li>
+ * </ul>
  *
  * <p>配置参数 (XML params):</p>
  * <ul>
  *   <li>serviceModule — agentService 模块名，默认 "agentService"</li>
  *   <li>userModule    — 用户信息模块（getUserInfo 契约），默认 "demoUserModule"</li>
  *   <li>passwords     — 登录密码表 "uid:pwd;uid:pwd"（配置后登录必须匹配；不配则任意非空 userId 可登录）</li>
+ *   <li>uploadSizeMaxMB — 上传大小上限（MB），默认 50；请求参数覆盖 uploadFile 模块的 fileSizeMax</li>
  * </ul>
  *
  * @author tianlong
  * @date 2026/8/17
  */
-public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamString {
-
-    /** SSE 写入通道（Servlet 端实现，包装 HttpServletResponse writer） */
-    public interface TLWebChannel {
-        void write(String data);
-        boolean isOpen();
-        void close();
-    }
+public class TLWebChatModule extends TLWServModule implements TLAiAgentParamString {
 
     private static final Gson GSON = new Gson();
 
     private String serviceModule = "agentService";
     private String userModule = "demoUserModule";
+    /** 上传大小上限（MB），请求参数覆盖 uploadFile 模块的 fileSizeMax 配置 */
+    private int uploadSizeMaxMB = 50;
     /** uid:pwd 表（配置了才做密码校验） */
     private final Map<String, String> passwords = new HashMap<>();
     /** userId:sessionId → 流式 writer */
@@ -68,6 +83,9 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
         if (params == null) return;
         if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
         if (params.get("userModule") != null) userModule = params.get("userModule");
+        if (params.get("uploadSizeMaxMB") != null) {
+            try { uploadSizeMaxMB = Integer.parseInt(params.get("uploadSizeMaxMB")); } catch (NumberFormatException ignored) {}
+        }
         if (params.get("passwords") != null) {
             for (String entry : params.get("passwords").split(";")) {
                 int c = entry.indexOf(':');
@@ -88,6 +106,27 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
             case "approvalEvent":
                 onApprovalEvent(msg);
                 return createMsg().setParam(RESULT, true);  // ack：发布方据此确认有订阅者处理
+            // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
+            case "session":
+                return doSession();
+            case "login":
+                return doLogin(msg);
+            case "logout":
+                return doLogout();
+            case "command":
+                return doCommand(msg);
+            case "chat":
+                return doChat(msg);
+            case "stopChat":
+                return doStopChat(msg);
+            case "upload":
+                return doUpload();
+            case "chatStream":
+                return doChatStream(msg);
+            case "events":
+                return doEvents();
+            case "registerSseChannel":
+                return onRegisterSseChannel(msg);
         }
         return null;
     }
@@ -228,6 +267,233 @@ public class TLWebChatModule extends TLBaseModule implements TLAiAgentParamStrin
         out.put("success", true);
         out.put("message", "已发送停止信号");
         return out;
+    }
+
+    // ======================== 框架路由（TLServletDispatch → TLWUrlMap）=======================
+
+    /** 当前登录用户：HttpSession attribute "userId"（与 TLWebChatServlet 同一会话约定） */
+    private String currentUserId() {
+        HttpServletRequest req = getRequest();
+        if (req == null) return null;
+        HttpSession s = req.getSession(false);
+        return s != null ? (String) s.getAttribute("userId") : null;
+    }
+
+    /** 统一 JSON 输出：outData → jsonClient → jsonDataOutInterface；httpStatus 可选（如 401） */
+    private TLMsg outJson(Map<String, Object> data, Integer httpStatus) {
+        setThreadData("client", "jsonClient");   // 未配 clientType 的 url（如 /upload）也走 JSON 输出
+        outData od = creatOutDataMsg();
+        od.addMapData(data);
+        TLMsg moduleMsg = createMsg().setAction("putOutData").setParam("outData", od);
+        if (httpStatus != null) moduleMsg.setParam("httpStatus", httpStatus);
+        return putMsg(getClient(), moduleMsg);
+    }
+
+    private TLMsg notLogin() {
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("success", false);
+        e.put("error", "未登录");
+        return outJson(e, 401);
+    }
+
+    private TLMsg doSession() {
+        String userId = currentUserId();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("loggedIn", userId != null);
+        if (userId != null) out.put("userId", userId);
+        return outJson(out, null);
+    }
+
+    private TLMsg doLogin(TLMsg msg) {
+        String userId = msg.getParam("userId") != null ? String.valueOf(msg.getParam("userId")) : null;
+        String password = msg.getParam("password") != null ? String.valueOf(msg.getParam("password")) : null;
+        Map<String, Object> r = login(userId, password);
+        if (Boolean.TRUE.equals(r.get("success"))) {
+            getRequest().getSession(true).setAttribute("userId", r.get("userId"));
+            return outJson(r, null);
+        }
+        return outJson(r, 401);
+    }
+
+    private TLMsg doLogout() {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        closeEventsChannel(userId);
+        HttpSession s = getRequest().getSession(false);
+        if (s != null) s.invalidate();
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", true);
+        out.put("message", "已退出");
+        return outJson(out, null);
+    }
+
+    @SuppressWarnings("unchecked")
+    private TLMsg doCommand(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String action = msg.getParam("action") != null ? String.valueOf(msg.getParam("action")) : null;
+        Map<String, Object> params = msg.getParam("params") instanceof Map
+                ? (Map<String, Object>) msg.getParam("params") : new LinkedHashMap<>();
+        return outJson(handleCommand(userId, action, params), null);
+    }
+
+    private TLMsg doChat(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String message = msg.getParam("message") != null ? String.valueOf(msg.getParam("message")) : "";
+        String sessionId = msg.getParam("sessionId") != null ? String.valueOf(msg.getParam("sessionId")) : null;
+        if (sessionId == null || sessionId.isEmpty())
+            sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
+        boolean resume = msg.parseBoolean("resume", false);
+        String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
+        Map<String, Object> r = chat(userId, sessionId, message, reasoningMode, resume);
+        r.put("sessionId", sessionId);
+        return outJson(r, null);
+    }
+
+    private TLMsg doStopChat(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String sessionId = msg.getParam("sessionId") != null ? String.valueOf(msg.getParam("sessionId")) : "";
+        return outJson(stopChat(userId, sessionId), null);
+    }
+
+    /** 上传：multipart 由 uploadFile 模块解析（TLServletDispatch 已绑定请求线程），此处仅包装输出 */
+    private TLMsg doUpload() {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        try {
+            String filePath = "data/" + userId + "/uploads";   // 相对启动目录，uploadFile 的 getRealPath 回退修复后可用
+            TLMsg r = putMsg("uploadFile", createMsg().setAction(UPLOADFILE_UPLOAD)
+                    .setParam(UPLOADFILE_P_FILESIZE, uploadSizeMaxMB * 1024 * 1024)   // int 字节，覆盖模块默认 1MB
+                    .setParam(UPLOADFILE_P_FILEPATH, filePath));                     // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
+            if (r == null) return outJson(failMap("上传模块无响应"), null);
+            if (r.parseBoolean(UPLOADFILE_R_ERROR, false)) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("success", false);
+                if (r.containsParam(UPLOADFILE_R_FILESIZEMAX))
+                    e.put("error", "文件超过大小限制(" + uploadSizeMaxMB + "MB)");
+                else if (r.containsParam(UPLOADFILE_R_FILETYPE))
+                    e.put("error", "forbidden".equals(r.getStringParam(UPLOADFILE_R_FILETYPE, ""))
+                            ? "文件类型不允许（危险扩展名）" : "文件类型不允许: " + r.getStringParam(UPLOADFILE_R_FILETYPE, ""));
+                else if (r.containsParam(UPLOADFILE_P_FILEPATH))
+                    e.put("error", "保存目录不可用: " + r.getStringParam(UPLOADFILE_P_FILEPATH, ""));
+                else e.put("error", "上传失败");
+                return outJson(e, null);
+            }
+            Map<String, String> filenames = r.getMapParam(UPLOADFILE_R_FILENAMES, null);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("success", true);
+            out.put("filenames", sortedFilenames(filenames));
+            return outJson(out, null);
+        } catch (Exception ex) {
+            return outJson(failMap("上传失败: " + ex.getMessage()), null);
+        }
+    }
+
+    /**
+     * 流式聊天（框架路由）：先经 sseOutInterface 注册 SSE 长连接通道，再提交 agent 任务。
+     * 注册同步完成后提交，保证 agent 首帧回调时通道已在 map 中（无丢帧）。
+     * 提交后返回 null（不写普通输出），请求线程释放、连接由通道持有。
+     */
+    private TLMsg doChatStream(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String message = msg.getParam("message") != null ? String.valueOf(msg.getParam("message")) : "";
+        String sessionId = msg.getParam("sessionId") != null ? String.valueOf(msg.getParam("sessionId")) : null;
+        if (sessionId == null || sessionId.isEmpty())
+            sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
+        String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
+        String key = streamKey(userId, sessionId);
+        TLMsg reg = openSseChannel(getName(), key, "stream");
+        if (reg == null || !reg.parseBoolean(RESULT, false)) {
+            return outJson(failMap("SSE 通道注册失败"), null);
+        }
+        TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
+        sessionOwner.put(sessionId, userId);
+        try {
+            TLMsg submit = createMsg().setAction("chatStream")
+                    .setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("userId", userId)
+                    .setParam(AI_P_USERMESSAGE, message)
+                    .setParam("streamTarget", getName())
+                    .setParam("streamAction", STREAM_ONCHUNK);
+            if (reasoningMode != null && !reasoningMode.isEmpty()) submit.setParam(AI_P_REASONING_MODE, reasoningMode);
+            TLMsg result = putMsg(serviceModule, submit);
+            if (result == null || !result.parseBoolean("success", false)) {
+                closeStreamChannel(key);
+                return outJson(failMap(result != null ? result.getStringParam("error", "") : "agentService 无响应"), null);
+            }
+        } catch (Exception e) {
+            closeStreamChannel(key);
+            return outJson(failMap("流式提交异常: " + e.getMessage()), null);
+        }
+        // 请求线程挂起等待流结束（done 帧 → onStreamChunk close 通道 → latch 释放），
+        // 保持 HTTP 连接不提交；期间 SSE 帧由 agent 线程经 STREAM_ONCHUNK 写入
+        if (channel != null) channel.awaitClosed();
+        return null;
+    }
+
+    /** 审批事件推送（框架路由）：注册 SSE 长连接通道，挂起等待关闭（登出时 closeEventsChannel 触发） */
+    private TLMsg doEvents() {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        TLMsg reg = openSseChannel(getName(), userId, "event");
+        if (reg == null || !reg.parseBoolean(RESULT, false)) {
+            return outJson(failMap("SSE 通道注册失败"), null);
+        }
+        TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
+        if (channel != null) channel.awaitClosed();
+        return null;
+    }
+
+    /** 经 sseClient → sseOutInterface 创建 SSE 通道并注册回本模块（同步完成） */
+    private TLMsg openSseChannel(String owner, String key, String type) {
+        setThreadData("client", "sseClient");
+        TLMsg moduleMsg = createMsg().setAction("putOutData")
+                .setParam("sseRegister", true)
+                .setParam("sseOwner", owner)
+                .setParam("sseKey", key)
+                .setParam("sseType", type);
+        return putMsg(getClient(), moduleMsg);
+    }
+
+    /** TLWSSEOutInterface 回调：接收创建的 SSE 通道，按类型注册到对应 map；返回 channel 供调用方 awaitClosed */
+    private TLMsg onRegisterSseChannel(TLMsg msg) {
+        String key = (String) msg.getParam("sseKey");
+        TLWebChannel channel = (TLWebChannel) msg.getParam("channel");
+        if (key == null || channel == null) return createMsg().setParam(RESULT, false);
+        String type = (String) msg.getParam("sseType");
+        if ("event".equals(type)) {
+            eventChannels.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(channel);
+        } else {
+            streamWriters.put(key, channel);
+        }
+        return createMsg().setParam(RESULT, true).setParam("channel", channel);
+    }
+
+    private void closeStreamChannel(String key) {
+        TLWebChannel c = streamWriters.remove(key);
+        if (c != null) c.close();
+    }
+
+    /** filenames 是 Map<fieldName, savedName>（HashMap 无序），按 file_ 下标排序还原前端选择顺序 */
+    private static List<String> sortedFilenames(Map<String, String> filenames) {
+        List<String> names = new ArrayList<>();
+        if (filenames != null) {
+            filenames.entrySet().stream()
+                    .sorted(java.util.Comparator.comparingInt(e -> {
+                        String k = e.getKey();
+                        int idx = k.lastIndexOf('_');
+                        try {
+                            return idx >= 0 ? Integer.parseInt(k.substring(idx + 1)) : 0;
+                        } catch (NumberFormatException nfe) {
+                            return 0;
+                        }
+                    }))
+                    .forEach(e -> names.add(e.getValue()));
+        }
+        return names;
     }
 
     // ======================== 事件通道（SSE）=======================

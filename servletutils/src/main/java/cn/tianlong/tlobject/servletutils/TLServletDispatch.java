@@ -58,14 +58,30 @@ public class TLServletDispatch extends GenericServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        requestMap = new ConcurrentHashMap<>(initialCapacity);
-        responseMap = new ConcurrentHashMap<>(initialCapacity);
-        threadDatas = new ConcurrentHashMap<>(initialCapacity);
         ServletContext context = getServletContext();
+        // 多实例共享同一组线程 Map（如 /app/* 与 /api/* 各挂一个 TLServletDispatch）：
+        // 后启动的实例复用已注册的 Map，避免覆盖注册导致 getRequest()/getResponse()
+        // 取到另一实例的空 Map（线程名隔离，共享安全）。
+        // 用 containsModule 探测（getModule 未命中会尝试按类名加载并打 ERROR 日志）
+        if (moduleFactory.containsModule("servletRequest")) {
+            requestMap = (Map<String, HttpServletRequest>) moduleFactory.getModule("servletRequest");
+        } else {
+            requestMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletRequest", requestMap);
+        }
+        if (moduleFactory.containsModule("servletResponse")) {
+            responseMap = (Map<String, HttpServletResponse>) moduleFactory.getModule("servletResponse");
+        } else {
+            responseMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletResponse", responseMap);
+        }
+        if (moduleFactory.containsModule("threadDatas")) {
+            threadDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("threadDatas");
+        } else {
+            threadDatas = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "threadDatas", threadDatas);
+        }
         registInfactory(moduleFactory, "servletContext", context);
-        registInfactory(moduleFactory, "servletRequest", requestMap);
-        registInfactory(moduleFactory, "servletResponse", responseMap);
-        registInfactory(moduleFactory, "threadDatas", threadDatas);
         moduleFactory.putLog(name + " is startup", LogLevel.INFO, "servletDispatch");
 
         try {

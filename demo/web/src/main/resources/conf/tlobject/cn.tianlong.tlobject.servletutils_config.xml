@@ -24,6 +24,8 @@
         <module name="uploadInInterface"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWUploadInInterface" />
         <module name="directOutInterface"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWDirectOutInterface" />
         <module name="jsonDataOutInterface" classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWJsonDataOutInterface" charset="text/html;charset=utf-8" />
+        <module name="sseOutInterface" classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWSSEOutInterface" charset="utf-8" />
+        <module name="sseClient" sameClassAs="webClient" inInterface="jsonInInterface" outInterface="sseOutInterface"/>
         <module name="velocity"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLWVelocityOutInterface" />
         <module name="thymeleaf"  classfile="cn.tianlong.tlobject.servletutils.clientinterface.TLThymeleafOutInterface" />
         <module name="webauth" sameClassAs="auth"  configfile="auth_config.xml"/>

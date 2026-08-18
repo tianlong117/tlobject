@@ -8,7 +8,8 @@ const state = {
   streamEnabled: true,
   busy: false,           // 有活跃 chat
   abort: null,           // AbortController（流式聊天）
-  events: null           // EventSource
+  events: null,          // EventSource
+  uploads: []            // 已上传文件名 [{name}]（输入框上方显示条）
 };
 
 // ======================== 基础工具 ========================
@@ -370,6 +371,43 @@ function setBusy(b) {
   $('#stopBtn').classList.toggle('hidden', !b);
 }
 
+// ======================== 文件上传 ========================
+async function uploadFiles(files) {
+  const fd = new FormData();
+  // 不同字段名 file_0/file_1...：uploadFile 的 filenames 是 Map<fieldName, savedName>，同 key 会互相覆盖
+  files.forEach((f, i) => fd.append('file_' + i, f));
+  let resp;
+  try { resp = await fetch('/api/upload', { method: 'POST', body: fd }); }  // 不设 Content-Type，浏览器自动带 boundary
+  catch (e) { toast('上传失败：' + e.message, 'err'); return; }
+  let data = null;
+  try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
+  if (resp.status === 401) { showLogin(); toast('未登录', 'err'); return; }
+  if (!resp.ok || !data || data.success !== true) {
+    toast((data && data.error) || ('上传失败 HTTP ' + resp.status), 'err');
+    return;
+  }
+  const saved = data.filenames || [];
+  files.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name }); });
+  renderUploadBar();
+  toast('上传成功 ' + saved.length + ' 个文件', 'ok');
+}
+function renderUploadBar() {
+  const bar = $('#uploadBar');
+  if (!state.uploads.length) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  $('#uploadChips').innerHTML = state.uploads
+    .map(u => '<span class="ub-chip" title="' + esc(u.name) + '">' + esc(u.name) + '</span>').join('');
+}
+function bindUpload() {
+  $('#attachBtn').onclick = () => $('#fileInput').click();
+  $('#fileInput').addEventListener('change', () => {
+    const files = Array.from($('#fileInput').files || []);
+    $('#fileInput').value = '';          // 允许连续选择同一文件
+    if (files.length) uploadFiles(files);
+  });
+  $('#clearUploads').onclick = () => { state.uploads = []; renderUploadBar(); };
+}
+
 // ======================== 事件通道（审批推送）=======================
 function openEvents() {
   if (state.events) state.events.close();
@@ -410,6 +448,7 @@ function bindEvents() {
   });
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
+  bindUpload();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

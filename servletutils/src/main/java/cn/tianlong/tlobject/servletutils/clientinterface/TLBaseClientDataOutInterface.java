@@ -59,6 +59,10 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
             charset =this.charset ;
         PrintWriter out;
         HttpServletResponse response =getResponse();
+        if (response == null) {
+            // 请求上下文已失效（服务关闭瞬间线程回收）：放弃输出，避免 NPE
+            return createMsg().setParam(CLIENT_R_OUTCONTENT, content);
+        }
         response.setContentType("text/html;charset=" + (charset != null ? charset : "UTF-8"));
         try {
             out = response.getWriter();

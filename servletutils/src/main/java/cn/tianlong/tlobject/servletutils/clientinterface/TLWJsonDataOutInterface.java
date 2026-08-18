@@ -23,6 +23,16 @@ public class TLWJsonDataOutInterface extends TLWDirectOutInterface {
     @Override
     protected TLMsg putDataToUser(Object fromWho, TLMsg msg) {
         outData outData = (TLWServModule.outData) msg.getParam("outData");
+        // 可选 HTTP 状态码（如未登录 401）：msg 带 httpStatus 参数时设置，无则默认 200
+        Object httpStatus = msg.getParam("httpStatus");
+        if (httpStatus != null) {
+            int code = -1;
+            if (httpStatus instanceof Number) code = ((Number) httpStatus).intValue();
+            else {
+                try { code = Integer.parseInt(String.valueOf(httpStatus)); } catch (NumberFormatException ignored) {}
+            }
+            if (code > 0) getResponse().setStatus(code);
+        }
         LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam("outData");
         String  outContent = gsonBuilder.serializeNulls().create().toJson(datas);
         return  responseWrite(outContent,(String) msg.getParam(CHARSET));

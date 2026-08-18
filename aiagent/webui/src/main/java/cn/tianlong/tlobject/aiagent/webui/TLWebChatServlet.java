@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.webui;
 
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.servletutils.clientinterface.TLWebChannel;
 import com.google.gson.Gson;
 
 import javax.servlet.http.HttpServlet;
@@ -329,7 +330,7 @@ public class TLWebChatServlet extends HttpServlet {
     }
 
     /** SSE 通道实现：写 "data: {json}\n\n"，关闭时唤醒等待线程 */
-    static class ServletChannel implements TLWebChatModule.TLWebChannel {
+    static class ServletChannel implements TLWebChannel {
         private final PrintWriter writer;
         private final CountDownLatch latch = new CountDownLatch(1);
         private volatile boolean open = true;
@@ -362,7 +363,8 @@ public class TLWebChatServlet extends HttpServlet {
         @Override
         public boolean isOpen() { return open; }
 
-        void awaitClosed() {
+        @Override
+        public void awaitClosed() {
             try { latch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }
     }

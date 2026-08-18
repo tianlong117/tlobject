@@ -151,8 +151,11 @@ public class uploadFile extends TLWServModule {
         ServletContext ctx = request.getServletContext();
         String realPath = ctx.getRealPath(filepath);
         if (realPath == null) {
-            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
-                    .setParam(UPLOADFILE_P_FILEPATH, "error");
+            // Jetty 内嵌 ServletContextHandler 无 resourceBase → getRealPath 返回 null：
+            // 绝对路径直接用；相对路径相对启动目录（user.dir）解析
+            File fp = new File(filepath);
+            realPath = fp.isAbsolute() ? fp.getPath()
+                    : new File(System.getProperty("user.dir"), filepath).getPath();
         }
         File targetDir = new File(realPath);
         if (!targetDir.exists()) {

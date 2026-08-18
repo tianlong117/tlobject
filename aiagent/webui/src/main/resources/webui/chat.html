@@ -34,9 +34,16 @@
     <!-- 聊天窗口 -->
     <section id="chatPane">
       <div id="msgList"></div>
+      <!-- 上传成功文件名条 -->
+      <div id="uploadBar" class="hidden">
+        <span class="ub-label">📎 已上传</span>
+        <span id="uploadChips"></span>
+        <button id="clearUploads" type="button" class="ub-clear">✕ 清除</button>
+      </div>
       <div class="chat-input">
         <textarea id="chatInput" rows="2" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
         <div class="chat-btns">
+          <button id="attachBtn" type="button" title="上传文件（可多选，单个 ≤50MB）">📎</button>
           <button id="sendBtn">发送</button>
           <button id="stopBtn" class="hidden danger">■ 停止</button>
         </div>
@@ -171,6 +178,7 @@
 </div>
 
 <div id="toastBox"></div>
+<input type="file" id="fileInput" multiple hidden>
 
 <script src="/webui/app.js"></script>
 </body>

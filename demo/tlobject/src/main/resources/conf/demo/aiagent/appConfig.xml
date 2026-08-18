@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<appConfig>
+    <params>
+        <charset value="UTF-8"/>
+        <!-- 框架 url 路径：与 extraServlets 的 /api/* 前缀一致；
+             prefixUrl = contextPath("/") + "/api"，uri="/api/chat" → url="/chat" -->
+        <tlobjectPath value="/api"/>
+        <!-- 默认用户类（本应用认证在 webui 模块内自检，此处仅满足框架默认参数） -->
+        <defaultClientUser value="webUser"/>
+    </params>
+</appConfig>
