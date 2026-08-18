@@ -344,6 +344,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String sessionId = msg.getParam("sessionId") != null ? String.valueOf(msg.getParam("sessionId")) : null;
         if (sessionId == null || sessionId.isEmpty())
             sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
+        sessionId = ensureSessionOwner(sessionId, userId);   // 防串用户：webchat_ 前缀会话必须属于当前用户
         boolean resume = msg.parseBoolean("resume", false);
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
         Map<String, Object> r = chat(userId, sessionId, message, reasoningMode, resume);
@@ -403,6 +404,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String sessionId = msg.getParam("sessionId") != null ? String.valueOf(msg.getParam("sessionId")) : null;
         if (sessionId == null || sessionId.isEmpty())
             sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
+        sessionId = ensureSessionOwner(sessionId, userId);   // 防串用户：webchat_ 前缀会话必须属于当前用户
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
         String key = streamKey(userId, sessionId);
         TLMsg reg = openSseChannel(getName(), key, "stream");
@@ -475,6 +477,18 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private void closeStreamChannel(String key) {
         TLWebChannel c = streamWriters.remove(key);
         if (c != null) c.close();
+    }
+
+    /**
+     * 防串用户：webui 生成的会话 ID 固定为 webchat_{userId}_ 前缀（历史/断点会话同格式）。
+     * 前端传入的 sessionId 若带 webchat_ 前缀但不属于当前用户，说明沿用了上一用户的
+     * 残留会话（换用户登录/直接调 API），重置为新会话；非 webchat_ 前缀（用户自定义）不校验。
+     */
+    private static String ensureSessionOwner(String sessionId, String userId) {
+        if (sessionId.startsWith("webchat_") && !sessionId.startsWith("webchat_" + userId + "_")) {
+            return "webchat_" + userId + "_" + System.currentTimeMillis();
+        }
+        return sessionId;
     }
 
     /** filenames 是 Map<fieldName, savedName>（HashMap 无序），按 file_ 下标排序还原前端选择顺序 */

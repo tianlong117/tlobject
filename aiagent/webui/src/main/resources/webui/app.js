@@ -115,6 +115,11 @@ async function doLogin() {
   try {
     const r = await apiJson('/api/login', { userId, password });
     state.userId = r.userId;
+    // 换用户登录：重置会话与上传状态，避免沿用上一用户的 sessionId / 文件名
+    state.sessionId = null;
+    localStorage.removeItem('tlweb_session');
+    state.uploads = [];
+    renderUploadBar();
     $('#loginErr').classList.add('hidden');
     enterChat();
   } catch (e) {
