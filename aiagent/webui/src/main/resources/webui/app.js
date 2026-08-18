@@ -377,13 +377,26 @@ function setBusy(b) {
 }
 
 // ======================== 文件上传 ========================
+const UPLOAD_MAX_MB = 50;   // 与后端 uploadSizeMaxMB 保持一致
 async function uploadFiles(files) {
+  // 本地立即校验大小：超限文件不发请求，直接提示（大文件不上传，省流量）
+  const over = files.filter(f => f.size > UPLOAD_MAX_MB * 1024 * 1024);
+  const okFiles = files.filter(f => f.size <= UPLOAD_MAX_MB * 1024 * 1024);
+  if (over.length) {
+    toast('以下文件超过 ' + UPLOAD_MAX_MB + 'MB 限制，已跳过：' + over.map(f => f.name).join('、'), 'err');
+  }
+  if (!okFiles.length) return;
   const fd = new FormData();
   // 不同字段名 file_0/file_1...：uploadFile 的 filenames 是 Map<fieldName, savedName>，同 key 会互相覆盖
-  files.forEach((f, i) => fd.append('file_' + i, f));
+  okFiles.forEach((f, i) => fd.append('file_' + i, f));
   let resp;
-  try { resp = await fetch('/api/upload', { method: 'POST', body: fd }); }  // 不设 Content-Type，浏览器自动带 boundary
-  catch (e) { toast('上传失败：' + e.message, 'err'); return; }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);   // 上传超时兜底（大文件慢速传输）
+  try { resp = await fetch('/api/upload', { method: 'POST', body: fd, signal: ctrl.signal }); }  // 不设 Content-Type，浏览器自动带 boundary
+  catch (e) {
+    toast('上传失败：' + (e.name === 'AbortError' ? '上传超时（120秒）' : e.message), 'err');
+    return;
+  } finally { clearTimeout(timer); }
   let data = null;
   try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
   if (resp.status === 401) { showLogin(); toast('未登录', 'err'); return; }
@@ -392,7 +405,7 @@ async function uploadFiles(files) {
     return;
   }
   const saved = data.filenames || [];
-  files.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name }); });
+  okFiles.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name }); });
   renderUploadBar();
   toast('上传成功 ' + saved.length + ' 个文件', 'ok');
 }
