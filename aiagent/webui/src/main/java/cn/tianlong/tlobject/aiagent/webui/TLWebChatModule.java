@@ -319,6 +319,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String userId = currentUserId();
         if (userId == null) return notLogin();
         closeEventsChannel(userId);
+        rejectPendingApprovals(userId);   // 退出即拒该用户未决审批（不等 5 分钟超时，安全默认）
         HttpSession s = getRequest().getSession(false);
         if (s != null) s.invalidate();
         Map<String, Object> out = new LinkedHashMap<>();
@@ -436,7 +437,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return null;
     }
 
-    /** 审批事件推送（框架路由）：注册 SSE 长连接通道，挂起等待关闭（登出时 closeEventsChannel 触发） */
+    /** 审批事件推送（框架路由）：注册 SSE 长连接通道，重放未决审批，挂起等待关闭（登出时 closeEventsChannel 触发） */
     private TLMsg doEvents() {
         String userId = currentUserId();
         if (userId == null) return notLogin();
@@ -445,8 +446,62 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             return outJson(failMap("SSE 通道注册失败"), null);
         }
         TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
+        // 重进/重连：审批事件只发布一次，断线后补推该用户的未决审批（弹框重现）
+        replayPendingApprovals(userId, channel);
         if (channel != null) channel.awaitClosed();
         return null;
+    }
+
+    /** 查询 approvalGate 未决审批并按会话归属过滤（webchat_{userId}_ 前缀），返回结构化列表 */
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> pendingApprovalsOf(String userId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        try {
+            TLMsg r = putMsg("approvalGate", createMsg().setAction(APPROVAL_PENDINGLIST));
+            Object listObj = r != null ? r.getParam("pendingList") : null;
+            if (!(listObj instanceof List)) return result;
+            for (Object o : (List<?>) listObj) {
+                if (!(o instanceof Map)) continue;
+                Map<String, Object> m = (Map<String, Object>) o;
+                String sid = String.valueOf(m.get("sessionId"));
+                // 归属过滤：仅处理 webchat_ 前缀会话（webchat_{userId}_）；自定义会话无法归属，不动
+                if (!sid.startsWith("webchat_")) continue;
+                if (!sid.startsWith("webchat_" + userId + "_")) continue;
+                result.add(m);
+            }
+        } catch (Exception e) {
+            putLog("查询未决审批失败: " + e, LogLevel.WARN);
+        }
+        return result;
+    }
+
+    /** 退出登录：拒绝该用户的全部未决审批（agent 立即继续，不用等超时） */
+    private void rejectPendingApprovals(String userId) {
+        for (Map<String, Object> m : pendingApprovalsOf(userId)) {
+            try {
+                putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+                        .setParam(AI_P_APPROVAL_ID, String.valueOf(m.get("approvalId")))
+                        .setParam(AI_P_APPROVAL_REJECTREASON, "用户退出登录"));
+            } catch (Exception e) {
+                putLog("拒绝审批失败: " + e, LogLevel.WARN);
+            }
+        }
+    }
+
+    /** 事件通道建立后重放该用户未决审批（与 onApprovalEvent 同格式，前端弹框重现） */
+    private void replayPendingApprovals(String userId, TLWebChannel channel) {
+        if (channel == null) return;
+        for (Map<String, Object> m : pendingApprovalsOf(userId)) {
+            Map<String, Object> evt = new LinkedHashMap<>();
+            evt.put("type", "approval");
+            evt.put("text", String.valueOf(m.get("text")));
+            evt.put("approvalId", String.valueOf(m.get("approvalId")));
+            evt.put("toolName", String.valueOf(m.get("toolName")));
+            evt.put("description", String.valueOf(m.get("description")));
+            evt.put("sessionId", String.valueOf(m.get("sessionId")));
+            evt.put("args", String.valueOf(m.get("args")));
+            channel.write(GSON.toJson(evt));
+        }
     }
 
     /** 经 sseClient → sseOutInterface 创建 SSE 通道并注册回本模块（同步完成） */

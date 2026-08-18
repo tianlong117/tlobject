@@ -398,6 +398,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String APPROVAL_REJECT = "approvalReject";
     /** 查询审批状态 */
     String APPROVAL_QUERY = "approvalQuery";
+    /** 查询全部未决审批列表（用户重连时重放审批弹框用） */
+    String APPROVAL_PENDINGLIST = "approvalPendingList";
     /** 审批状态：pending/approved/rejected/expired */
     String AI_P_APPROVAL_STATE = "_approvalState";
     /** 审批 ID（UUID 短码） */

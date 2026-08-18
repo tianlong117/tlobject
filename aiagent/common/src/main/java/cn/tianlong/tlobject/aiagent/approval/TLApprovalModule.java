@@ -225,6 +225,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 return handleReject(fromWho, msg);
             case APPROVAL_QUERY:
                 return handleQuery(fromWho, msg);
+            case APPROVAL_PENDINGLIST:
+                return handlePendingList(fromWho, msg);
             default:
                 return null;
         }
@@ -488,6 +490,27 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         }
 
         return buildApprovalResponse(request, null);
+    }
+
+    /**
+     * 查询全部未决审批（PENDING）的结构化列表。
+     * 用户重连 /api/events 时 Web 端调用，重放审批弹框（审批事件只发布一次，断线后需补推）。
+     */
+    private TLMsg handlePendingList(Object fromWho, TLMsg msg) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (TLApprovalRequest request : pendingApprovals.values()) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) continue;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("approvalId", request.getApprovalId());
+            m.put("toolName", request.getToolName());
+            m.put("description", request.getDescription() != null ? request.getDescription() : "");
+            m.put("sessionId", request.getSessionId() != null ? request.getSessionId() : request.getRootSessionId());
+            m.put("args", request.getToolArguments() != null
+                    ? new com.google.gson.Gson().toJson(request.getToolArguments()) : "{}");
+            m.put("text", buildPendingPrompt(request));
+            list.add(m);
+        }
+        return createMsg().setParam("pendingList", list);
     }
 
     // ======================== 规则匹配 ========================
