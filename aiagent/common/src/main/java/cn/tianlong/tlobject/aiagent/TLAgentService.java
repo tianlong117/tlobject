@@ -403,6 +403,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private TLMsg installAgent(String agentName, String classRef, String targetAgent) {
         TLBaseModule parent = findAgentInstance(targetAgent);
         if (parent == null) return fail("Agent 未找到: " + targetAgent);
+        if (classRef.equals(agentName)) {
+            return fail("classRef 不能与 agentName 相同（self 引用）: " + agentName);
+        }
         HashMap<String, String> cfg = new HashMap<>();
         if (classRef.contains(".")) {
             cfg.put("classfile", classRef);

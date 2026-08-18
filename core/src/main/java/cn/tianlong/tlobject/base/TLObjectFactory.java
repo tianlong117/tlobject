@@ -689,9 +689,16 @@ public class TLObjectFactory extends TLBaseModule {
         if (moduleConfig != null)
         {
             String sameClassAs = moduleConfig.get(MODULE_SameClassAs);
-            if (sameClassAs != null && !sameClassAs.isEmpty())
-                classFilename = modulesClass.get(sameClassAs).get(MODULE_CLASSFILE);
-            else
+            if (sameClassAs != null && !sameClassAs.isEmpty()) {
+                // sameClassAs 指向的配置不存在（自引用/安装错误等）时回退模块自身配置，
+                // 交由后续类加载失败优雅报错，避免 NPE 打崩系统
+                HashMap<String, String> sameConfig = modulesClass.get(sameClassAs);
+                String sameClassFile = sameConfig != null ? sameConfig.get(MODULE_CLASSFILE) : null;
+                if (sameClassFile != null && !sameClassFile.isEmpty())
+                    classFilename = sameClassFile;
+                else
+                    classFilename = moduleConfig.get(MODULE_CLASSFILE);
+            } else
                 classFilename = moduleConfig.get(MODULE_CLASSFILE);
         } else
             classFilename = moduleName;
