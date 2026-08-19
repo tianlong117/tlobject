@@ -69,6 +69,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
         ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
         ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
+        ACTION_REGISTRY.put("traceLlm", "查看最新一轮完整 LLM 链路（messages → LLM 响应 → 最终输出）");
         ACTION_REGISTRY.put("stats", "Token 统计：当前会话 + 进程合计 + DB 历史合计");
         // 注册表键即补全列表里的命令形态——带空格，与 /help 一致（dispatch 仍用 statsAll/statsAgent 字面量）
         ACTION_REGISTRY.put("stats all", "列出内存中所有会话的 Token 明细");
@@ -137,6 +138,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 全链追踪 ──
             case "trace":           return doTrace(fromWho, msg);
+            case "traceLlm":        return doTraceLlm(fromWho, msg);
             case "stats":           return doStats(fromWho, msg);
             case "statsAll":        return doStatsAll(fromWho, msg);
             case "statsAgent":      return doStatsAgent(fromWho, msg);
@@ -906,6 +908,32 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             lines.add(String.format("  %s %-14s %-12s %s%s",
                     sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
                     rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
+        }
+        return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
+    }
+
+    /** /trace llm 命令：同 getLatestTrace，另渲染每条记录的完整内容载荷（payload，缩进展示） */
+    private TLMsg doTraceLlm(Object fromWho, TLMsg msg) {
+        String rootSid = msg.getStringParam(AI_P_SESSIONID, "default");
+        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
+                .setParam("rootSessionId", rootSid));
+        if (result == null) return fail("agentMonitor 未注册");
+        List<?> stages = result.getListParam("stages", new ArrayList<>());
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
+        List<String> lines = new ArrayList<>();
+        lines.add("最新一轮完整链路 (" + stages.size() + " 条, root=" + rootSid
+                + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + "):");
+        for (Object s : stages) {
+            if (!(s instanceof TLAgentMonitor.StageRecord)) continue;
+            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) s;
+            lines.add(String.format("  %s %-14s %-12s %s%s",
+                    sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
+                    rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
+            if (rec.payload != null && !rec.payload.isEmpty()) {
+                for (String pl : rec.payload.split("\n", -1)) {
+                    lines.add("    " + pl);
+                }
+            }
         }
         return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
     }

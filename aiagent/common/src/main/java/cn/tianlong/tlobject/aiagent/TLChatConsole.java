@@ -795,8 +795,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             case "trace":
-                // /trace —— 查询当前会话最新一轮的环节记录（agentMonitor 内存）
-                msg.setAction("trace").setParam(AI_P_SESSIONID, sessionId);
+                // /trace —— 环节骨架；/trace llm —— 完整 LLM 链路（含 messages/响应/最终输出内容）
+                if (parts.length > 1 && "llm".equalsIgnoreCase(parts[1])) {
+                    msg.setAction("traceLlm").setParam(AI_P_SESSIONID, sessionId);
+                } else {
+                    msg.setAction("trace").setParam(AI_P_SESSIONID, sessionId);
+                }
                 break;
 
             case "stats":
@@ -1126,6 +1130,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     printModuleList(data, msg.getAction());
                     break;
                 case "trace":
+                case "traceLlm":
                 case "stats":
                 case "statsAll":
                 case "statsAgent":
@@ -1926,6 +1931,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println();
         System.out.println("全链追踪:");
         System.out.println("  /trace                  查看当前会话最新一轮的环节记录（agentMonitor 内存）");
+        System.out.println("  /trace llm              查看最新一轮完整链路内容（messages → LLM 响应 → 最终输出）");
         System.out.println("  /stats                  当前会话 Token 统计 + 进程合计 + DB 历史合计");
         System.out.println("  /stats all              列出内存中所有会话的 Token 明细");
         System.out.println("  /stats agent            当前会话最后一轮各 Agent 的 token 用量");

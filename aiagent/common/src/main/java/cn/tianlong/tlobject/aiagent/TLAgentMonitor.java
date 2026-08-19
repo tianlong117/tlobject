@@ -66,9 +66,11 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         public String stage;
         public String detail;
         public long durationMs;
+        /** 完整内容载荷（发送给 LLM 的 messages / LLM 返回 / 用户输入等，可读多行文本；不经过 sanitizeDetail 截断） */
+        public String payload;
 
         StageRecord(long ts, String agentName, String sessionId, String roundId,
-                    String stage, String detail, long durationMs) {
+                    String stage, String detail, long durationMs, String payload) {
             this.ts = ts;
             this.agentName = agentName;
             this.sessionId = sessionId;
@@ -76,6 +78,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
             this.stage = stage;
             this.detail = detail;
             this.durationMs = durationMs;
+            this.payload = payload;
         }
     }
 
@@ -280,7 +283,8 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 roundId,
                 msg.getStringParam("stage", ""),
                 msg.getStringParam("detail", ""),
-                msg.getLongParam("durationMs", 0L));
+                msg.getLongParam("durationMs", 0L),
+                msg.getStringParam("payload", ""));
 
         latestRounds.computeIfAbsent(rootSid, k -> new LatestRound()).record(rec);
 
@@ -673,7 +677,8 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 + "\",\"roundId\":\"" + esc(rec.roundId)
                 + "\",\"stage\":\"" + esc(rec.stage)
                 + "\",\"detail\":\"" + esc(rec.detail)
-                + "\",\"durationMs\":" + rec.durationMs + "}\n";
+                + "\",\"durationMs\":" + rec.durationMs
+                + ",\"payload\":\"" + escJson(rec.payload) + "\"}\n";
         try (FileWriter fw = new FileWriter(dir + safe(roundId) + ".jsonl", true)) {
             fw.write(line);
         }
@@ -686,6 +691,13 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
     private static String esc(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+    }
+
+    /** JSONL 专用转义：保留换行结构（\n → \\n 字面序列），使 payload 多行文本仍是合法单行 JSON */
+    private static String escJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t");
     }
 
     /** doChat 入口登记 */

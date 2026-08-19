@@ -859,6 +859,21 @@ async function doTrace() {
     }
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
+async function doTraceLlm() {
+  const box = $('#traceBox');
+  box.innerHTML = '<div class="empty">查询中...</div>';
+  try {
+    const r = await apiCommand('traceLlm', { sessionId: state.sessionId });
+    box.innerHTML = '';
+    if (r.success) {
+      const lines = r.data;
+      if (Array.isArray(lines) && lines.length) renderPre(box, lines);
+      else renderPre(box, ['（无环节记录）']);
+    } else {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+    }
+  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
 async function doStats() {
   const box = $('#traceBox');
   box.innerHTML = '<div class="empty">统计中...</div>';

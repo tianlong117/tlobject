@@ -128,6 +128,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     private final Map<String, String> sessionUserIds = new ConcurrentHashMap<>();
     /** 会话级 userMessage: sessionId → 本轮用户消息（供 onStreamResult 收尾 chatFinished 使用，与 sessionUserIds 对称） */
     private final Map<String, String> sessionUserMessages = new ConcurrentHashMap<>();
+    /** 会话级 rootSessionId: sessionId → 根会话 ID（供 onStreamResult 回调线程查表；chatStream 入口写入，cleanupStreamState 清除） */
+    private final Map<String, String> sessionRootIds = new ConcurrentHashMap<>();
 
     // ======================== Session 管理 ========================
 
@@ -790,8 +792,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 ? upstreamRoundId
                 : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
         sessionRoundIds.put(sessionId, roundId);
-        // 全链追踪：轮次开始打点
-        traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0);
+        // 全链追踪：轮次开始打点（payload = 本轮用户输入全文）
+        traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0, userMessage, null);
         try {
             // ==== 预处理: 记忆召回 + 上下文 ====
             TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
@@ -1044,9 +1046,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         llmMsg.setParam(AI_P_THINKING_BUDGET, msg.getIntParam(AI_P_THINKING_BUDGET, thinkingBudget));
                     }
 
-                    // 全链追踪：LLM 请求/响应打点
+                    // 全链追踪：LLM 请求/响应打点（payload = 实际发送给 LLM 的 messages）
                     traceStage(sessionId, rootSid, roundId, "llmRequest",
-                            "iter=" + iteration + " model=" + model, 0);
+                            "iter=" + iteration + " model=" + model, 0,
+                            formatHistoryForTrace(history), null);
                     long llmStartTs = System.currentTimeMillis();
                     TLMsg llmResponse = putMsg(llmProvider, llmMsg);
                     // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
@@ -1080,7 +1083,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     traceStage(sessionId, rootSid, roundId, "llmResponse",
                             "tokens=" + turn[1] + "/" + turn[2]
                                     + " cache=" + cacheTurn[1] + "/" + cacheTurn[0],
-                            System.currentTimeMillis() - llmStartTs);
+                            System.currentTimeMillis() - llmStartTs,
+                            formatResponseForTrace(
+                                    llmResponse.getStringParam(AI_P_RESPONSE, ""),
+                                    llmResponse.parseBoolean("hasToolCalls", false)
+                                            ? (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null) : null,
+                                    llmResponse.getStringParam(AI_P_REASONING, "")),
+                            null);
 
                     // ==== 提取推理内容 ====
                     String reasoningText = null;
@@ -1293,7 +1302,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             else if (pendingApproval) roundOutcome = "pendingApproval";
             else if (clarified) roundOutcome = "clarified";
             else if (truncated) roundOutcome = "truncated";
-            traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0);
+            // payload = agent 最终输出（finalResponse 各分支恒赋值；guardOutput 在打点之后，此处为原始值）
+            traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0,
+                    finalResponse != null ? finalResponse : "", null);
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                         .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
@@ -1391,6 +1402,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_MODEL, model).setParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
                 .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, STREAM_ONCHUNK);
+        // 全链追踪：流式 LLM 请求打点（本方法跑在 doChat 线程，ThreadLocal 有效；payload = 实际发送的 messages）
+        traceStage(sessionId, currentRootSessionId.get() != null ? currentRootSessionId.get() : sessionId,
+                sessionRoundIds.getOrDefault(sessionId, ""), "llmRequest",
+                "stream model=" + model, 0, formatHistoryForTrace(history), null);
         putMsg(llmProvider, sm);
 
         TLMsg wr = putMsg(cb, createMsg().setAction(STREAM_WAITFORSTREAM).setParam("timeout", 120));
@@ -1416,6 +1431,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history.add(TLConversationHistory.createReasoning(streamReasoning));
             }
         }
+        // 全链追踪：流式 LLM 响应打点
+        traceStage(sessionId, currentRootSessionId.get() != null ? currentRootSessionId.get() : sessionId,
+                sessionRoundIds.getOrDefault(sessionId, ""), "llmResponse",
+                "stream done", 0,
+                formatResponseForTrace(wr.getStringParam("content", ""), null,
+                        wr.containsParam(AI_P_REASONING) ? wr.getStringParam(AI_P_REASONING, "") : null),
+                null);
         return createMsg().setParam(RESULT, true)
                 .setParam(AI_P_RESPONSE, wr.getStringParam("content", ""));
     }
@@ -1427,6 +1449,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     @SuppressWarnings("unchecked")
     protected TLMsg chatStream(Object fromWho, TLMsg msg) {
         String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        // 根会话 ID：与 doChat 同语义（上游透传，默认=sessionId）；回调线程打点经 sessionRootIds 查表
+        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         // 最终回调目标（显示层）
         String resultFor = msg.getStringParam(RESULTFOR,
@@ -1444,6 +1468,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 msg.getStringParam(AI_P_USERID, "default"))));
         // 本轮用户消息入会话表（收尾 chatFinished 保存会话时用）
         sessionUserMessages.put(sessionId, userMessage);
+        sessionRootIds.put(sessionId, rootSid);
+        // 全链追踪：流式轮次开始打点（payload = 用户输入全文；回调线程打点需显式 userId）
+        traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0,
+                userMessage, sessionUserIds.get(sessionId));
         if (!fwdTarget.equals(getName())) {
             streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
         }
@@ -1497,6 +1525,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (msg.containsParam(AI_P_TEMPERATURE))
             streamMsg.setParam(AI_P_TEMPERATURE, msg.getParam(AI_P_TEMPERATURE));
 
+        // 全链追踪：流式 LLM 请求打点（payload = 实际发送给 LLM 的 messages，含记忆注入与用户消息）
+        traceStage(sessionId, rootSid, roundId, "llmRequest",
+                "stream model=" + (msg.containsParam(AI_P_MODEL)
+                        ? msg.getStringParam(AI_P_MODEL, "") : llmProvider.getDefaultModel()),
+                0, formatHistoryForTrace(history), sessionUserIds.get(sessionId));
         try {
             putMsg(llmProvider, streamMsg);
         } catch (Exception e) {
@@ -1521,6 +1554,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionMsgStartIdx.remove(sessionId);
         sessionUserIds.remove(sessionId);
         sessionUserMessages.remove(sessionId);
+        sessionRootIds.remove(sessionId);
         // 流式轮收尾：注销即触发 monitor 端该会话的 DB flush（chatStream 不 register，不影响 runningAgents 语义）
         putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                 .setParam(AI_P_SESSIONID, sessionId));
@@ -1550,6 +1584,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean hasToolCalls = msg.parseBoolean("hasToolCalls", false);
             List<TLToolCall> toolCalls = (List<TLToolCall>) msg.getListParam(AI_P_TOOLCALLS, null);
 
+            // 全链追踪：流式 LLM 响应打点（回调线程：rootSid/roundId 查表，userId 显式传）
+            String rootSid = sessionRootIds.getOrDefault(sessionId, sessionId);
+            String roundId = sessionRoundIds.getOrDefault(sessionId, "");
+            traceStage(sessionId, rootSid, roundId, "llmResponse", "stream done", 0,
+                    formatResponseForTrace(streamedText, hasToolCalls ? toolCalls : null,
+                            msg.containsParam(AI_P_REASONING) ? msg.getStringParam(AI_P_REASONING, "") : null),
+                    streamUserId);
+
             try {
                 if (hasToolCalls && toolCalls != null && !toolCalls.isEmpty()) {
                     // 流式响应包含tool calls: 执行skills并继续chat循环
@@ -1570,6 +1612,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (handleStreamRejected(execResult, history, sessionId)) {
                             // 拒绝收尾：保存上下文，避免本轮 tool 结果丢失导致下一轮上下文不完整
                             saveContextHistory(sessionId, history);
+                            // 全链追踪：拒绝轮收尾（payload = 拒绝文案）
+                            traceStage(sessionId, rootSid, roundId, "roundEnd", "rejected", 0,
+                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"), streamUserId);
                             notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             forwardStreamFinal(resultAction, resultFor, sessionId,
@@ -1583,6 +1628,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             // 导致下一轮 getContextHistory 拿不到本轮完整 history——LLM 只能靠记忆，
                             // 把上轮任务（如写诗）误当新指令）
                             saveContextHistory(sessionId, history);
+                            // 全链追踪：直出轮收尾（payload = 直出全文）
+                            traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
+                                    execResult.getStringParam("finalResponse", ""), streamUserId);
                             // 收尾通知 SessionManager + 记忆（直出路径此前缺 chatFinished → 恢复会话时该轮缺失）
                             notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
                                     execResult.getStringParam("finalResponse", ""));
@@ -1609,6 +1657,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
                             }
 
+                            // 全链追踪：流式续跑循环的 LLM 请求打点（payload = 含工具结果的 messages）
+                            traceStage(sessionId, rootSid, roundId, "llmRequest",
+                                    "iter=" + iteration + " model=" + msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()),
+                                    0, formatHistoryForTrace(history), streamUserId);
                             TLMsg llmResponse = putMsg(llmProvider, llmMsg);
                             if (!llmResponse.parseBoolean(RESULT, false)) break;
                             // Token 累加（流式后续的非流式循环；首个流式响应的 usage 需 include_usage，暂不覆盖）
@@ -1627,6 +1679,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             boolean moreToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
                             List<TLToolCall> moreTCs = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
 
+                            // 全链追踪：流式续跑循环的 LLM 响应打点
+                            traceStage(sessionId, rootSid, roundId, "llmResponse",
+                                    "tokens=" + sc + "/" + st, 0,
+                                    formatResponseForTrace(
+                                            llmResponse.getStringParam(AI_P_RESPONSE, ""),
+                                            moreToolCalls ? moreTCs : null,
+                                            llmResponse.getStringParam(AI_P_REASONING, "")),
+                                    streamUserId);
+
                             if (!moreToolCalls || moreTCs == null || moreTCs.isEmpty()) {
                                 finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
                                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
@@ -1643,6 +1704,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     history, streamUserId);
                             if (handleStreamRejected(moreExecResult, history, sessionId)) {
                                 saveContextHistory(sessionId, history);
+                                // 全链追踪：续跑循环拒绝收尾
+                                traceStage(sessionId, rootSid, roundId, "roundEnd", "rejected", 0,
+                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"), streamUserId);
                                 notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
                                         moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
@@ -1653,6 +1717,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
                                     && (moreTCs == null || moreTCs.size() == 1)) {
                                 saveContextHistory(sessionId, history);
+                                // 全链追踪：续跑循环直出收尾
+                                traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
+                                        moreExecResult.getStringParam("finalResponse", ""), streamUserId);
                                 notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
                                         moreExecResult.getStringParam("finalResponse", ""));
                                 forwardStreamFinal(resultAction, resultFor, sessionId,
@@ -1694,6 +1761,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setParam(AI_P_SESSIONID, sessionId);
                             putMsg(resultFor, contChunk);
                         }
+                        // 全链追踪：流式工具轮收尾（payload = 最终输出，优先续跑循环结果）
+                        traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
+                                finalResponse != null && !finalResponse.isEmpty() ? finalResponse : streamedText,
+                                streamUserId);
                         // 再发送完成信号
                         TLMsg doneMsg = createMsg()
                                 .setAction(resultAction)
@@ -1740,6 +1811,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     } catch (Exception e) {
                         putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
                     }
+                    // 全链追踪：流式无工具轮收尾（payload = 最终输出）
+                    traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
+                            streamedText, streamUserId);
                     TLMsg doneMsg = createMsg()
                             .setAction(resultAction)
                             .setParam(AI_P_STREAMDONE, true)
@@ -2014,19 +2088,129 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 轮次环节打点：发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */
     private void traceStage(String sessionId, String rootSid, String roundId,
                             String stage, String detail, long durationMs) {
+        traceStage(sessionId, rootSid, roundId, stage, detail, durationMs, null, null);
+    }
+
+    /**
+     * 轮次环节打点（带完整内容载荷）。payload 为多行可读文本（发送给 LLM 的 messages / LLM 返回等），
+     * 不经 sanitizeDetail 截断，仅做防御性上限；userId 显式传入——流式回调线程无 ThreadLocal。
+     */
+    private void traceStage(String sessionId, String rootSid, String roundId,
+                            String stage, String detail, long durationMs,
+                            String payload, String userId) {
         try {
             TLMsg traceMsg = createMsg().setAction("recordStage")
                     .setParam("agentName", name)
                     .setParam(AI_P_SESSIONID, sessionId)
-                    .setParam(AI_P_USERID, currentChatUserId.get())
+                    .setParam(AI_P_USERID, userId != null ? userId : currentChatUserId.get())
                     .setParam("rootSessionId", rootSid != null ? rootSid : sessionId)
                     .setParam(AI_P_ROUNDID, roundId)
                     .setParam("stage", stage)
                     .setParam("detail", TLAgentMonitor.sanitizeDetail(detail))
                     .setParam("durationMs", durationMs);
+            // payload 非空才挂参（防空消息膨胀）；防御性再截断
+            if (payload != null && !payload.isEmpty()) {
+                traceMsg.setParam("payload",
+                        payload.length() > 8000 ? payload.substring(0, 8000) + "…(已截断)" : payload);
+            }
             traceMsg.setSystemParam(IGNOREMODULEISNULL, true);
             putMsg(M_AGENTMONITOR, traceMsg);
         } catch (Exception ignored) {}
+    }
+
+    // ======================== /trace llm 完整链路内容格式化 ========================
+
+    /** 单条消息 content 展示上限（字符） */
+    private static final int TRACE_MSG_MAX = 500;
+    /** 单条 payload 总量上限（字符） */
+    private static final int TRACE_TOTAL_MAX = 6000;
+
+    private static String truncateText(String s, int max) {
+        if (s == null || s.isEmpty()) return "";
+        return s.length() > max ? s.substring(0, max) + "…(已截断)" : s;
+    }
+
+    /** 把发送给 LLM 的 messages 渲染为多行可读文本（/trace llm 的 llmRequest payload） */
+    private String formatHistoryForTrace(List<TLConversationHistory> history) {
+        if (history == null || history.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (TLConversationHistory h : history) {
+            if (h == null) continue;
+            String line;
+            switch (h.getRole()) {
+                case system:
+                    line = "[system] " + truncateText(h.getContent(), TRACE_MSG_MAX);
+                    break;
+                case user:
+                    line = "[user] " + truncateText(h.getContent(), TRACE_MSG_MAX);
+                    break;
+                case assistant:
+                    if (h.isAssistantWithToolCalls()) {
+                        StringBuilder b = new StringBuilder("[assistant]");
+                        if (h.getContent() != null && !h.getContent().isEmpty()) {
+                            b.append(" ").append(truncateText(h.getContent(), TRACE_MSG_MAX));
+                        }
+                        b.append("\n");
+                        appendToolCalls(b, h.getToolCalls(), "    ");
+                        line = b.toString();
+                    } else {
+                        line = "[assistant] " + truncateText(h.getContent(), TRACE_MSG_MAX);
+                    }
+                    break;
+                case tool:
+                    line = "[tool:" + (h.getName() != null && !h.getName().isEmpty() ? h.getName() : h.getToolCallId())
+                            + "] " + truncateText(h.getContent(), TRACE_MSG_MAX);
+                    break;
+                case reasoning:
+                    line = "[reasoning] " + truncateText(h.getReasoningContent(), TRACE_MSG_MAX);
+                    break;
+                default:
+                    continue;
+            }
+            sb.append(line).append("\n");
+            if (sb.length() > TRACE_TOTAL_MAX) {
+                sb.setLength(TRACE_TOTAL_MAX);
+                sb.append("\n…(已截断，完整消息共 ").append(history.size()).append(" 条)");
+                break;
+            }
+        }
+        int len = sb.length();
+        if (len > 0 && sb.charAt(len - 1) == '\n') sb.setLength(len - 1);
+        return sb.toString();
+    }
+
+    /** 把 LLM 返回（content + tool_calls + reasoning）渲染为多行可读文本（/trace llm 的 llmResponse payload） */
+    private String formatResponseForTrace(String content, List<TLToolCall> toolCalls, String reasoning) {
+        StringBuilder sb = new StringBuilder();
+        if (content != null && !content.isEmpty()) {
+            sb.append("[response] ").append(truncateText(content, TRACE_MSG_MAX)).append("\n");
+        }
+        if (toolCalls != null && !toolCalls.isEmpty()) {
+            sb.append("[tool_calls]\n");
+            appendToolCalls(sb, toolCalls, "  ");
+        }
+        if (reasoning != null && !reasoning.isEmpty()) {
+            sb.append("[reasoning] ").append(truncateText(reasoning, TRACE_MSG_MAX));
+        }
+        if (sb.length() > TRACE_TOTAL_MAX) {
+            sb.setLength(TRACE_TOTAL_MAX);
+            sb.append("\n…(已截断)");
+        }
+        int len = sb.length();
+        if (len > 0 && sb.charAt(len - 1) == '\n') sb.setLength(len - 1);
+        return sb.toString();
+    }
+
+    private static void appendToolCalls(StringBuilder sb, List<TLToolCall> toolCalls, String indent) {
+        for (TLToolCall tc : toolCalls) {
+            if (tc == null) continue;
+            sb.append(indent).append("tool_call ")
+                    .append(tc.getFunctionName() != null ? tc.getFunctionName() : "?");
+            if (tc.getArguments() != null && !tc.getArguments().isEmpty()) {
+                sb.append(" ").append(truncateText(String.valueOf(tc.getArguments()), 200));
+            }
+            sb.append("\n");
+        }
     }
 
     /** 进程级+会话级 token 上报：每次真实 LLM 响应调用一次；全 0（意图缓存命中/mock fallback）视为非 LLM 调用，跳过 */
@@ -2121,7 +2305,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setSystemParam("executionId", execId)
                         .setSystemParam(AI_P_SESSIONID, sessionId)
                         .setSystemParam("userId", userId != null ? userId : "default")
-                        .setSystemParam("rootSessionId", currentRootSessionId.get())
+                        // rootSid 查表优先：流式路径跑在回调线程，ThreadLocal 为 null 会导致工具打点被 monitor 丢弃
+                        .setSystemParam("rootSessionId", sessionRootIds.getOrDefault(sessionId, sessionId))
                         .setSystemParam(AI_P_ROUNDID, sessionRoundIds.get(sessionId)));
         if (execResult == null) return null;
 
