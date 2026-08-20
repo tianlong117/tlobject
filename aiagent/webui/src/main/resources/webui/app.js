@@ -844,6 +844,24 @@ async function testCmd(mode) {
 }
 
 // ======================== 面板：追踪/统计 ========================
+// 环节英文 → 中文标签（服务层返回原始 stage，展示转换在 UI 层）
+const STAGE_CN = { roundStart: '轮次开始', llmRequest: '发送LLM', llmResponse: 'LLM返回',
+  toolStart: '工具开始', toolEnd: '工具结束', approvalRequested: '请求审批', roundEnd: '轮次结束' };
+const TRACE_HEADERS = [['time', '时间'], ['stage', '环节'], ['agent', 'Agent'], ['dur', '耗时'], ['detail', '摘要']];
+function fmtTraceTime(ts) {
+  const d = new Date(ts);
+  const p = x => String(x).padStart(2, '0');
+  return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + '.' + String(d.getMilliseconds()).padStart(3, '0');
+}
+function toTraceRows(arr) {
+  return arr.map(s => ({
+    time: fmtTraceTime(s.ts),
+    stage: STAGE_CN[s.stage] || s.stage,
+    agent: s.agentName,
+    dur: s.durationMs > 0 ? s.durationMs + 'ms' : '',
+    detail: s.detail || ''
+  }));
+}
 async function doTrace() {
   const box = $('#traceBox');
   box.innerHTML = '<div class="empty">查询中...</div>';
@@ -851,9 +869,12 @@ async function doTrace() {
     const r = await apiCommand('trace', { sessionId: state.sessionId });
     box.innerHTML = '';
     if (r.success) {
-      const lines = r.data;
-      if (Array.isArray(lines) && lines.length) renderPre(box, lines);
-      else renderPre(box, ['（无环节记录）']);
+      const arr = Array.isArray(r.data) ? r.data : [];
+      if (arr.length) {
+        renderTable(box, TRACE_HEADERS, toTraceRows(arr), null);
+      } else {
+        renderPre(box, ['（无环节记录）']);
+      }
     } else {
       box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
     }
@@ -866,9 +887,21 @@ async function doTraceLlm() {
     const r = await apiCommand('traceLlm', { sessionId: state.sessionId });
     box.innerHTML = '';
     if (r.success) {
-      const lines = r.data;
-      if (Array.isArray(lines) && lines.length) renderPre(box, lines);
-      else renderPre(box, ['（无环节记录）']);
+      const arr = Array.isArray(r.data) ? r.data : [];
+      if (arr.length) {
+        // 表格行与 payload 折叠块交错：每条环节行下方紧跟其完整内容（跨列单元格）
+        const rows = toTraceRows(arr);
+        let h = '<table class="tbl"><tr>' + TRACE_HEADERS.map(x => '<th>' + esc(x[1]) + '</th>').join('') + '</tr>';
+        arr.forEach((s, i) => {
+          h += '<tr>' + TRACE_HEADERS.map(x => '<td>' + esc(rows[i][x[0]]) + '</td>').join('') + '</tr>';
+          if (s.payload) {
+            h += '<tr><td colspan="' + TRACE_HEADERS.length + '"><details><summary>[' + (i + 1) + '] ' + esc(STAGE_CN[s.stage] || s.stage) + ' - ' + esc(s.detail || '') + '</summary><pre>' + esc(s.payload) + '</pre></details></td></tr>';
+          }
+        });
+        box.innerHTML = h + '</table>';
+      } else {
+        renderPre(box, ['（无环节记录）']);
+      }
     } else {
       box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
     }

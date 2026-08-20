@@ -1131,6 +1131,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     break;
                 case "trace":
                 case "traceLlm":
+                    // 结构化 StageRecord 列表，UI 层渲染表格（traceLlm 额外展示 payload 分块）
+                    System.out.println(message);
+                    if (data instanceof List) {
+                        printTraceTable((List<?>) data, "traceLlm".equals(msg.getAction()));
+                    }
+                    break;
                 case "stats":
                 case "statsAll":
                 case "statsAgent":
@@ -1815,6 +1821,137 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         sb.append(s);
         for (int i = s.length(); i < n; i++) sb.append(' ');
         return sb.toString();
+    }
+
+    // ======================== /trace 表格渲染（UI 层表现，服务层只给结构化 StageRecord） ========================
+
+    /** 环节英文 → 中文标签 */
+    private static final java.util.Map<String, String> STAGE_CN = new java.util.HashMap<>();
+    static {
+        STAGE_CN.put("roundStart", "轮次开始");
+        STAGE_CN.put("llmRequest", "发送LLM");
+        STAGE_CN.put("llmResponse", "LLM返回");
+        STAGE_CN.put("toolStart", "工具开始");
+        STAGE_CN.put("toolEnd", "工具结束");
+        STAGE_CN.put("approvalRequested", "请求审批");
+        STAGE_CN.put("roundEnd", "轮次结束");
+    }
+
+    /** 渲染最新一轮环节表格（显示宽度对齐）；withPayload=true 时表格下方按环节编号分块展示完整内容载荷 */
+    private static void printTraceTable(List<?> stages, boolean withPayload) {
+        if (stages == null || stages.isEmpty()) return;
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
+        List<TLAgentMonitor.StageRecord> recs = new java.util.ArrayList<>();
+        List<String> timeStrs = new java.util.ArrayList<>();
+        List<String> stageStrs = new java.util.ArrayList<>();
+        List<String> durStrs = new java.util.ArrayList<>();
+        for (Object o : stages) {
+            if (!(o instanceof TLAgentMonitor.StageRecord)) continue;
+            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) o;
+            recs.add(rec);
+            timeStrs.add(sdf.format(new java.util.Date(rec.ts)));
+            stageStrs.add(STAGE_CN.getOrDefault(rec.stage, rec.stage));
+            durStrs.add(rec.durationMs > 0 ? rec.durationMs + "ms" : "");
+        }
+        int n = recs.size();
+        if (n == 0) return;
+
+        // 列宽：序号/时间固定，其余按内容自适应（设上限，防超长拖垮表格）
+        String[] headers = {"#", "时间", "环节", "Agent", "耗时", "摘要"};
+        int[] w = new int[6];
+        w[0] = Math.max(headers[0].length(), String.valueOf(n).length());
+        w[1] = 12; // HH:mm:ss.SSS
+        int maxStage = 0, maxAgent = 0, maxDur = 0, maxDetail = 0;
+        for (int i = 0; i < n; i++) {
+            maxStage = Math.max(maxStage, displayWidth(stageStrs.get(i)));
+            maxAgent = Math.max(maxAgent, displayWidth(recs.get(i).agentName));
+            maxDur = Math.max(maxDur, durStrs.get(i).length());
+            maxDetail = Math.max(maxDetail, displayWidth(recs.get(i).detail));
+        }
+        w[2] = Math.max(displayWidth(headers[2]), Math.min(maxStage, 12));
+        w[3] = Math.max(displayWidth(headers[3]), Math.min(maxAgent, 14));
+        w[4] = Math.max(displayWidth(headers[4]), Math.min(maxDur, 10));
+        w[5] = Math.max(displayWidth(headers[5]), Math.min(maxDetail, 60));
+
+        // 框线（与启动 banner 的 Unicode 风格一致）
+        StringBuilder top = new StringBuilder("┌"), mid = new StringBuilder("├"), bot = new StringBuilder("└");
+        for (int col = 0; col < 6; col++) {
+            String dash = "─".repeat(w[col] + 2);
+            top.append(dash).append(col < 5 ? "┬" : "┐");
+            mid.append(dash).append(col < 5 ? "┼" : "┤");
+            bot.append(dash).append(col < 5 ? "┴" : "┘");
+        }
+        System.out.println(top);
+        StringBuilder head = new StringBuilder("│");
+        for (int col = 0; col < 6; col++) {
+            head.append(' ').append(padDisplay(headers[col], w[col])).append(' ').append('│');
+        }
+        System.out.println(head);
+        System.out.println(mid);
+        for (int i = 0; i < n; i++) {
+            TLAgentMonitor.StageRecord rec = recs.get(i);
+            String[] cells = {
+                    padDisplay(String.valueOf(i + 1), w[0]),
+                    padDisplay(timeStrs.get(i), w[1]),
+                    padDisplay(stageStrs.get(i), w[2]),
+                    padDisplay(rec.agentName == null ? "" : rec.agentName, w[3]),
+                    padDisplay(durStrs.get(i), w[4]),
+                    padDisplay(truncateDisplay(rec.detail == null ? "" : rec.detail, w[5]), w[5])
+            };
+            StringBuilder row = new StringBuilder("│");
+            for (int col = 0; col < 6; col++) {
+                row.append(' ').append(cells[col]).append(' ').append('│');
+            }
+            System.out.println(row);
+        }
+        System.out.println(bot);
+
+        // payload 分块（完整内容不截断，保持链路可见）
+        if (withPayload) {
+            for (int i = 0; i < n; i++) {
+                TLAgentMonitor.StageRecord rec = recs.get(i);
+                if (rec.payload == null || rec.payload.isEmpty()) continue;
+                System.out.println();
+                System.out.println("[" + (i + 1) + "] " + stageStrs.get(i) + " - " + rec.detail + ":");
+                for (String pl : rec.payload.split("\n", -1)) {
+                    System.out.println("    " + pl);
+                }
+            }
+        }
+    }
+
+    /** 显示宽度：全角计 2、半角计 1（复用 isFullWidthChar 的 Unicode 区间） */
+    private static int displayWidth(String s) {
+        if (s == null) return 0;
+        int w = 0;
+        for (int i = 0; i < s.length(); i++) {
+            w += isFullWidthChar(s.charAt(i)) ? 2 : 1;
+        }
+        return w;
+    }
+
+    /** 按显示宽度补空格到 w（不足时；超宽不截断） */
+    private static String padDisplay(String s, int w) {
+        int cur = displayWidth(s);
+        if (cur >= w) return s;
+        StringBuilder sb = new StringBuilder(s);
+        for (int i = cur; i < w; i++) sb.append(' ');
+        return sb.toString();
+    }
+
+    /** 按显示宽度截断到 w（末尾省略号，避免劈半全角字符） */
+    private static String truncateDisplay(String s, int w) {
+        if (displayWidth(s) <= w) return s;
+        StringBuilder sb = new StringBuilder();
+        int cur = 0;
+        for (int i = 0; i < s.length() && cur < w - 1; i++) {
+            char c = s.charAt(i);
+            int cw = isFullWidthChar(c) ? 2 : 1;
+            if (cur + cw > w - 1) break;
+            sb.append(c);
+            cur += cw;
+        }
+        return sb + "…";
     }
 
     private void offer(ConsoleEvent e) {

@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.webui;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -684,6 +685,19 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("role", String.valueOf(ch.getRole()).toLowerCase());
             m.put("content", ch.getContent());
+            return m;
+        }
+        if (o instanceof TLAgentMonitor.StageRecord) {
+            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) o;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ts", rec.ts);
+            m.put("agentName", rec.agentName);
+            m.put("sessionId", rec.sessionId);
+            m.put("roundId", rec.roundId);
+            m.put("stage", rec.stage);
+            m.put("detail", rec.detail);
+            m.put("durationMs", rec.durationMs);
+            m.put("payload", rec.payload);
             return m;
         }
         if (o instanceof Map) {

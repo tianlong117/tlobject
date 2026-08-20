@@ -893,49 +893,27 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** /trace 命令：查询当前会话最新一轮的环节记录（agentMonitor.getLatestTrace） */
     private TLMsg doTrace(Object fromWho, TLMsg msg) {
-        String rootSid = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
-                .setParam("rootSessionId", rootSid));
-        if (result == null) return fail("agentMonitor 未注册");
-        List<?> stages = result.getListParam("stages", new ArrayList<>());
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
-        List<String> lines = new ArrayList<>();
-        lines.add("最新一轮环节记录 (" + stages.size() + " 条, root=" + rootSid
-                + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + "):");
-        for (Object s : stages) {
-            if (!(s instanceof TLAgentMonitor.StageRecord)) continue;
-            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) s;
-            lines.add(String.format("  %s %-14s %-12s %s%s",
-                    sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
-                    rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
-        }
-        return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
+        return queryTrace(fromWho, msg);
     }
 
-    /** /trace llm 命令：同 getLatestTrace，另渲染每条记录的完整内容载荷（payload，缩进展示） */
+    /** /trace llm 命令：同 getLatestTrace，数据结构与 /trace 完全一致，是否展示 payload 由 UI 层决定 */
     private TLMsg doTraceLlm(Object fromWho, TLMsg msg) {
+        return queryTrace(fromWho, msg);
+    }
+
+    /**
+     * 查询最新一轮环节记录，返回结构化 List&lt;StageRecord&gt;（含 payload）。
+     * 渲染下沉到 UI 层：控制台渲染表格+payload 分块，webui 渲染 HTML 表格+details 折叠。
+     */
+    private TLMsg queryTrace(Object fromWho, TLMsg msg) {
         String rootSid = msg.getStringParam(AI_P_SESSIONID, "default");
         TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
                 .setParam("rootSessionId", rootSid));
         if (result == null) return fail("agentMonitor 未注册");
         List<?> stages = result.getListParam("stages", new ArrayList<>());
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("HH:mm:ss.SSS");
-        List<String> lines = new ArrayList<>();
-        lines.add("最新一轮完整链路 (" + stages.size() + " 条, root=" + rootSid
-                + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + "):");
-        for (Object s : stages) {
-            if (!(s instanceof TLAgentMonitor.StageRecord)) continue;
-            TLAgentMonitor.StageRecord rec = (TLAgentMonitor.StageRecord) s;
-            lines.add(String.format("  %s %-14s %-12s %s%s",
-                    sdf.format(new java.util.Date(rec.ts)), rec.agentName, rec.stage, rec.detail,
-                    rec.durationMs > 0 ? " (" + rec.durationMs + "ms)" : ""));
-            if (rec.payload != null && !rec.payload.isEmpty()) {
-                for (String pl : rec.payload.split("\n", -1)) {
-                    lines.add("    " + pl);
-                }
-            }
-        }
-        return ok(lines.size() > 1 ? "查询成功" : "无环节记录", lines);
+        if (stages.isEmpty()) return ok("无环节记录", stages);
+        return ok("最新一轮完整链路 (" + stages.size() + " 条, root=" + rootSid
+                + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + ")", stages);
     }
 
     /** /stats 命令：三段输出——当前会话 + 进程级合计 + DB 历史合计 */

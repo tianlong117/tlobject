@@ -835,7 +835,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
                 if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
                     // ==== pending_approval 断点恢复 ====
-                    history = loadedHistory;
+                    // context system 置顶（DB 历史不含，恢复必须显式补）
+                    history = withContextSystem(loadedHistory);
                     msgStartIdx = history.size();
                     sessionMsgStartIdx.put(sessionId, msgStartIdx);
                     model = msg.getStringParam("resumeModel", model);
@@ -905,7 +906,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     }
                 } else {
                     // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
-                    history = loadedHistory;
+                    // context system 置顶（DB/checkpoint 增量不含，恢复必须显式补）
+                    history = withContextSystem(loadedHistory);
                     msgStartIdx = history.size();
                     sessionMsgStartIdx.put(sessionId, msgStartIdx);
                     model = msg.getStringParam("resumeModel", model);
@@ -1885,6 +1887,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
+     * 恢复历史构造：context 默认 system 置顶 + DB 历史。
+     * DB 增量保存不含 index 0 的 context system，恢复必须显式补（先插再放，无需去重——
+     * 每次从 DB 历史重新构造且 REPLACE 全量替换，不会累积重复）。
+     * 子 agent（无 defaultSystemMessage，如 poetA/poetB）返回原列表，保持现状。
+     */
+    private List<TLConversationHistory> withContextSystem(List<TLConversationHistory> loadedHistory) {
+        if (loadedHistory == null || loadedHistory.isEmpty()) return loadedHistory;
+        HashMap<String, String> ctxParams = modulesParams.get(contextModuleName);
+        String sysTpl = ctxParams != null ? ctxParams.get("defaultSystemMessage") : null;
+        if (sysTpl == null || sysTpl.trim().isEmpty()) return loadedHistory;
+        List<TLConversationHistory> h = new ArrayList<>(loadedHistory.size() + 1);
+        h.add(new TLConversationHistory(TLConversationHistory.Role.system, sysTpl));
+        h.addAll(loadedHistory);
+        return h;
+    }
+
+    /**
      * 加载历史到上下文（供 agentService 在 /continue 时调用）。
      * Agent 负责转发给内部的 context 模块，外部不需要知道 context 模块名。
      */
@@ -1896,6 +1915,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (history == null || history.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "Empty history");
         }
+        // context system 置顶 + DB 历史（DB 不含 context system，直接替换会永久丢失）
+        history = withContextSystem(history);
         TLMsg ctxMsg = createMsg()
                 .setAction(CONTEXT_REPLACE)
                 .setParam(AI_P_SESSIONID, sessionId)
