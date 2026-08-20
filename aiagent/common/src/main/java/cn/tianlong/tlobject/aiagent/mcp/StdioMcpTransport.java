@@ -66,7 +66,7 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
     }
 
     @Override
-    public void connect(String clientName, String clientVersion) throws Exception {
+    public synchronized void connect(String clientName, String clientVersion) throws Exception {
         String[] cmdArray = new String[args.length + 1];
         cmdArray[0] = command;
         System.arraycopy(args, 0, cmdArray, 1, args.length);
@@ -151,7 +151,7 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
     }
 
     @Override
-    public void disconnect() {
+    public synchronized void disconnect() {
         connected = false;
         try {
             if (writer != null) { writer.close(); writer = null; }

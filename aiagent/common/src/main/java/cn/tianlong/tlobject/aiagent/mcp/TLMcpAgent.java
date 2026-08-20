@@ -6,6 +6,8 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import com.google.gson.Gson;
+import com.google.gson.reflect.TypeToken;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -114,6 +116,27 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
         }
     }
 
+    /**
+     * 解析 args 参数：支持 JSON 数组格式（如 ["-y", "@pkg"]，参数含空格时用），
+     * 否则按空格分割（兼容旧配置）。
+     */
+    private String[] parseArgs(String argsString) {
+        if (argsString == null || argsString.trim().isEmpty()) return new String[0];
+        String s = argsString.trim();
+        if (s.startsWith("[")) {
+            try {
+                java.util.List<String> list = new Gson().fromJson(s,
+                        new TypeToken<java.util.List<String>>() {}.getType());
+                if (list != null && !list.isEmpty()) {
+                    return list.toArray(new String[0]);
+                }
+            } catch (Exception e) {
+                putLog("MCP Agent [" + name + "]: args JSON 解析失败，回退空格分割: " + argsString, LogLevel.WARN);
+            }
+        }
+        return s.split("\\s+");
+    }
+
     @Override
     protected TLBaseModule init() {
         this.agentName = name;
@@ -134,8 +157,7 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 putLog("MCP Agent [" + agentName + "]: stdio transport requires 'command' parameter", LogLevel.ERROR);
                 return this;
             }
-            String[] args = (argsString != null && !argsString.isEmpty())
-                    ? argsString.split("\\s+") : new String[0];
+            String[] args = parseArgs(argsString);
             transport = new StdioMcpTransport(command, args, (msg, level) ->
                     putLog(msg, level));
         }
