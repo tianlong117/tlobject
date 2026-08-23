@@ -123,7 +123,9 @@
                      maxCacheEntries="10000"
                      enableEmbedding="false"
                      embeddingProvider="embeddingProvider"
-                     embeddingModel="text-embedding-3-small"/>
+                     embeddingModel="text-embedding-3-small"
+                     summaryEnabled="true"
+                     summaryBatchSize="2"/>
     </memoryStores>
 
     <!-- ===== Agent 定义（有此项即为主控模式） ===== -->

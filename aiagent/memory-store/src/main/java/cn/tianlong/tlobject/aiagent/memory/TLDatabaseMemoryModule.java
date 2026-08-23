@@ -72,12 +72,12 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     @SuppressWarnings("unchecked")
     protected TLMsg store(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        String userId = msg.getStringParam("userId", sessionId);
         TLMemoryEntry entry = (TLMemoryEntry) msg.getParam("entry", TLMemoryEntry.class);
         if (entry == null) {
             String key = msg.getStringParam(AI_P_MEMORYKEY, "");
             if (key.isEmpty()) key = "mem_" + UUID.randomUUID().toString().substring(0, 8);
             Object value = msg.getParam(AI_P_MEMORYVALUE);
-            String userId = msg.getStringParam("userId", sessionId);
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
@@ -130,8 +130,61 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
 
         cache.put(entry.getKey(), entry);
         ensureCacheCapacity();
+
+        // 摘要模式：碎片照常落库 + 进攒批缓冲；满批 LLM 提炼（逻辑在 TLBaseMemory 基类）
+        if (entry.getValue() != null) {
+            try {
+                String agentName = msg.getStringParam("agentName", null);
+                long maxSeq = msg.getIntParam("maxSeq", 0);
+                collectSummaryFragment(sessionId, userId, agentName, entry.getValue().toString(), maxSeq);
+            } catch (Exception e) {
+                putLog("summary collect failed: " + e.toString(), LogLevel.WARN);
+            }
+        }
+
         putLog("DB memory stored: " + entry.getKey(), LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true).setParam("key", entry.getKey());
+    }
+
+    /** 摘要条目持久化：DB INSERT（aiMemory 表已有 tag/metadata 字段，无需新表）+ 内存缓存 */
+    @Override
+    protected void storeSummaryEntry(TLMemoryEntry entry) {
+        String sid = entry.getMetadata() != null
+                ? String.valueOf(entry.getMetadata().get("sessionId")) : null;
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("session_id", sid != null ? sid : extractSessionId(entry.getKey()));
+        sqlparams.put("mem_key", entry.getKey());
+        sqlparams.put("mem_value", entry.getValue() != null ? entry.getValue().toString() : "");
+        sqlparams.put("mem_type", entry.getType());
+        sqlparams.put("tag", entry.getTag());
+        sqlparams.put("created_at", entry.getCreatedAt());
+        sqlparams.put("expires_at", entry.getExpiresAt());
+        sqlparams.put("metadata", entry.getMetadata() != null ? gson.toJson(entry.getMetadata()) : null);
+        sendToTable(memTable, createMsg().setAction(DB_INSERT).setParam(DB_P_PARAMS, sqlparams));
+        cache.put(entry.getKey(), entry);
+    }
+
+    /** 补批收集：该 userId 未被摘要覆盖的历史碎片（createdAt > fromTs，时间序） */
+    @Override
+    protected List<String> seedSummaryBuffer(String userId, long fromTs) {
+        LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
+        sqlparams.put("uid", userId + ":%");
+        sqlparams.put("tag", TAG_CHAT_HISTORY);
+        sqlparams.put("fromTs", fromTs);
+        TLMsg result = sendToTable(memTable, createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, "select mem_value from [table] where mem_key like ? "
+                        + "and tag = ? and created_at > ? order by created_at")
+                .setParam(DB_P_PARAMS, sqlparams));
+        List<Map<String, Object>> rows = (List<Map<String, Object>>)
+                result.getListParam(DB_R_RESULT, new ArrayList<>());
+        List<String> frags = new ArrayList<>();
+        if (rows != null) {
+            for (Map<String, Object> row : rows) {
+                Object v = row.get("mem_value");
+                if (v != null) frags.add(v.toString());
+            }
+        }
+        return frags;
     }
 
     @Override
@@ -174,6 +227,33 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
         int topK = msg.getIntParam(AI_P_TOPK, 5);
         String userId = msg.getStringParam("userId", sessionId);
+        // 摘要模式路由：碎片仅当"已被该用户摘要覆盖"（created_at <= 最新摘要时间）时才排除；
+        // 未被覆盖的碎片（开启前的历史碎片、补批残余）照常召回——不丢记忆。
+        // 存在未覆盖碎片时触发后台增量补批（一次性）。
+        boolean excludeChatHistory = summaryEnabled && tag == null;
+        long maxSummaryTs = 0L;
+        if (excludeChatHistory) {
+            try {
+                LinkedHashMap<String, Object> aggP = new LinkedHashMap<>();
+                aggP.put("uid", userId + ":%");
+                TLMsg agg = sendToTable(memTable, createMsg().setAction(DB_QUERY)
+                        .setParam(DB_P_SQL, "select max(case when tag = 'session_summary' then created_at end) as mt, "
+                                + "max(case when tag = 'chat_history' then created_at end) as mf "
+                                + "from [table] where mem_key like ?")
+                        .setParam(DB_P_PARAMS, aggP));
+                List<Map<String, Object>> rows = getResultList(agg);
+                if (rows != null && !rows.isEmpty()) {
+                    Map<String, Object> row = rows.get(0);
+                    maxSummaryTs = toLong(row.get("mt"), 0L);
+                    long maxFragmentTs = toLong(row.get("mf"), 0L);
+                    if (maxFragmentTs > maxSummaryTs) {
+                        ensureSummarySeed(userId, maxSummaryTs);
+                    }
+                }
+            } catch (Exception e) {
+                putLog("summary agg query failed: " + e.toString(), LogLevel.WARN);
+            }
+        }
 
         // embedding 语义搜索
         if (enableEmbedding && embeddingProviderInstance != null && !query.isEmpty()) {
@@ -193,6 +273,11 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
                     }
                     if (tag != null && !tag.isEmpty()) {
                         sql.append(" and tag = ?"); sqlparams.put("tag", tag);
+                    }
+                    if (excludeChatHistory && maxSummaryTs > 0L) {
+                        sql.append(" and (tag != ? or created_at > ?)");
+                        sqlparams.put("tag", TAG_CHAT_HISTORY);
+                        sqlparams.put("created_at", maxSummaryTs);
                     }
                     sql.append(" and metadata is not null and metadata like '%embedding%'");
                     sql.append(" and (expires_at = 0 or expires_at > ?)");
@@ -236,6 +321,11 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         }
         if (tag != null && !tag.isEmpty()) {
             sql.append(" and tag = ?"); sqlparams.put("tag", tag);
+        }
+        if (excludeChatHistory && maxSummaryTs > 0L) {
+            sql.append(" and (tag != ? or created_at > ?)");
+            sqlparams.put("tag", TAG_CHAT_HISTORY);
+            sqlparams.put("created_at", maxSummaryTs);
         }
         if (!query.isEmpty()) {
             sql.append(" and mem_value like ?"); sqlparams.put("mem_value", "%" + query + "%");

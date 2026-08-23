@@ -90,6 +90,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 记忆召回默认条数（contains 粗筛后注入上下文，LLM 自行判断相关性） */
     protected int defaultMemoryTopK = 50;
 
+    /** 组装视图大小：发送给 LLM 的 context 原始消息条数（摘要 coverSeq 衔接后取尾部） */
+    protected int contextViewSize = 40;
+
     // ======================== 推理/思考链 (ReAct) ========================
 
     /** 推理模式：off | prompt | native | auto */
@@ -130,6 +133,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     private final Map<String, String> sessionUserMessages = new ConcurrentHashMap<>();
     /** 会话级 rootSessionId: sessionId → 根会话 ID（供 onStreamResult 回调线程查表；chatStream 入口写入，cleanupStreamState 清除） */
     private final Map<String, String> sessionRootIds = new ConcurrentHashMap<>();
+    /** 会话级 coverSeq: sessionId → 本会话最新摘要段的 coverSeq（组装视图衔接；0=无摘要） */
+    private final Map<String, Long> sessionCoverSeq = new ConcurrentHashMap<>();
+    /** 会话级 memoryContext: sessionId → 本轮记忆召回注入文本（供 onStreamResult 续跑轮注入，与入口一致） */
+    private final Map<String, String> sessionMemoryContext = new ConcurrentHashMap<>();
 
     // ======================== Session 管理 ========================
 
@@ -237,6 +244,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             if (params.get("defaultMemoryTopK") != null) {
                 try { defaultMemoryTopK = Integer.parseInt(params.get("defaultMemoryTopK")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("contextViewSize") != null) {
+                try { contextViewSize = Integer.parseInt(params.get("contextViewSize")); }
                 catch (NumberFormatException ignored) {}
             }
             if (params.get("enableCheckpoint") != null)
@@ -772,8 +783,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         final java.util.concurrent.atomic.AtomicBoolean cancelled =
                 cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean());
         cancelled.set(false);
+        // 同会话并发锁：同一 sessionId 同时只允许一个 chat 执行（多浏览器/多入口防串台）。
+        // 锁按 sessionId 隔离——不同用户不同 sessionId 互不影响；isAlive 兜底死亡残留线程。
+        Thread existing = chatThreads.putIfAbsent(sessionId, Thread.currentThread());
+        if (existing != null && existing.isAlive()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "会话使用中：该会话已有对话正在进行，请等待其完成")
+                    .setParam(AI_P_SESSIONID, sessionId);
+        }
+        if (existing != null) {
+            // 死亡残留线程：putIfAbsent 不更新 map——覆盖登记，保证 stopChat 拿到正确 worker
+            chatThreads.put(sessionId, Thread.currentThread());
+        }
         // 登记 worker 线程，供 stopChat 中断 + 杀其派生进程
-        chatThreads.put(sessionId, Thread.currentThread());
         // 向监控模块登记本执行实例（放在 try 内，finally 负责注销，避免空消息提前 return 泄漏）
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, sessionId)
@@ -783,6 +805,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 声明在 try 外：catch 收尾需访问；history 构建前异常时为 null，notifyChatError 内部判空
         List<TLConversationHistory> history = null;
         int msgStartIdx = 0;
+        // 本会话最新摘要段 coverSeq（发送视图衔接；0=无摘要）——声明在分支外，发送点共用
+        long coverSeq = 0L;
         // 一轮 = 控制台发起对话到返回结果：上游（主 agent/工作流/组）传入的 roundId 沿用，
         // 断点恢复用 resumeRoundId 继承，只有源头（控制台）才生成新的。
         // 注意用 Object 判断存在性：String.valueOf(null) 会得到字面量 "null"
@@ -910,6 +934,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     history = withContextSystem(loadedHistory);
                     msgStartIdx = history.size();
                     sessionMsgStartIdx.put(sessionId, msgStartIdx);
+                    // 恢复会话：摘要段在记忆库持久化，召回自动带回 → coverSeq 衔接视图，无空窗
+                    coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+                    sessionCoverSeq.put(sessionId, coverSeq);
+                    if (memoryContext != null && !memoryContext.isEmpty()) {
+                        sessionMemoryContext.put(sessionId, memoryContext);
+                    }
                     model = msg.getStringParam("resumeModel", model);
                     temperature = msg.getDoubleParam("resumeTemperature", temperature);
                     maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
@@ -918,16 +948,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
                 }
             } else {
-                // 正常流程：从 context 构建历史。
+                // 正常流程：从 context 构建历史（全量，摘要模式不 trim）。
                 // noHistory 模式：不载入历史（每次白纸）——子 agent 无记忆召回时
                 // 跨轮历史只膨胀提示词、拖慢响应，会话链（sid/stopByRoot）保持完整
                 history = noHistory ? new ArrayList<>() : getContextHistory(sessionId);
                 msgStartIdx = history.size();
                 sessionMsgStartIdx.put(sessionId, msgStartIdx);
-                // 记忆每轮注入（原始设计）：上下文完整时 LLM 能区分历史记忆与当前指令
+                // 记忆召回注入（原始设计）：上下文完整时 LLM 能区分历史记忆与当前指令
                 //（"写诗被算进下一轮"的根因是流式直出跳过 saveContextHistory，非记忆注入本身）
+                // 记忆 system 只进发送视图（buildSendList 注入），不写回 context——
+                // 摘要模式全量保留下避免每轮记忆 system 在 context 累积污染
+                coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+                sessionCoverSeq.put(sessionId, coverSeq);
                 if (memoryContext != null && !memoryContext.isEmpty()) {
-                    history.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+                    sessionMemoryContext.put(sessionId, memoryContext);
                 }
                 history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
             }
@@ -984,7 +1018,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 if (!"off".equals(effectiveReasoningMode)) {
                     // 流式参数将在 doStreamCall 构建消息时注入
                 }
-                TLMsg streamResult = doStreamCall(history, toolDefs, sessionId, model);
+                TLMsg streamResult = doStreamCall(buildSendList(history, coverSeq, memoryContext),
+                        toolDefs, sessionId, model);
                 if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
                     aborted = true;
                 } else if (streamResult == null || !streamResult.parseBoolean(RESULT, false)) {
@@ -1030,7 +1065,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             .setParam("maxTokens", maxTokens)
                             .setParam("userMessage", userMessage));
                     TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
-                            .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_MODEL, model)
+                            .setParam(AI_P_MESSAGEHISTORY, buildSendList(history, coverSeq, memoryContext))
+                            .setParam(AI_P_MODEL, model)
                             .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens)
                             .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_ROUNDID, roundId);
                     // per-agent 缓存开关：本 agent 不走意图缓存时在请求上带标志（provider 透传）
@@ -1314,7 +1350,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             .setParam("agentName", name)
                         .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                         .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
-                        .setParam(AI_P_MEMORYTAG, "chat_history");
+                        .setParam(AI_P_MEMORYTAG, "chat_history")
+                        .setParam("maxSeq", getMaxSeq(sessionId));
                 saveAgentMemory(fromWho, saveMsg);
             } catch (Exception e) {
                 putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
@@ -1487,26 +1524,37 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return null;
         }
 
-        // 获取上下文并构建流式请求
-        List<TLConversationHistory> history = getContextHistory(sessionId);
+        // 获取上下文并构建流式请求（全量；摘要模式不 trim）
+        List<TLConversationHistory> fullHistory = getContextHistory(sessionId);
         // 记录本轮增量起点（chatFinished 的 messages 只存本轮新增，避免全量累积导致恢复重复）
-        sessionMsgStartIdx.put(sessionId, history.size());
+        sessionMsgStartIdx.put(sessionId, fullHistory.size());
         // ==== 记忆召回注入（流式路径；非流式在 doChat 同逻辑） ====
         // beforeMsgTable 钩子（chatStream → recallAgentMemory）的返回经 PRERESULT 进入 systemArgs
         // 记忆每轮注入（原始设计，同 doChat）；"写诗被算进下一轮"的根因是直出跳过上下文保存，已单独修复
+        // 记忆 system 只进发送视图（buildSendList 注入），不写回 context——全量保留下避免累积污染
         TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
+        String memoryContext = null;
         if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
             List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
                     beforeResult.getListParam(AI_P_MEMORYRESULT, null);
             if (entries != null && !entries.isEmpty()) {
                 StringBuilder ctx = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
                 for (TLMemoryEntry e : entries) ctx.append("- ").append(e.getValue()).append("\n");
-                history.add(new TLConversationHistory(TLConversationHistory.Role.system, ctx.toString()));
+                memoryContext = ctx.toString();
             }
         }
+        long coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+        sessionCoverSeq.put(sessionId, coverSeq);
+        if (memoryContext != null && !memoryContext.isEmpty()) {
+            sessionMemoryContext.put(sessionId, memoryContext);
+        }
+        // 发送视图 = 摘要 coverSeq 衔接的原始视图 + 记忆 system；保存列表 = 全量 + user
+        List<TLConversationHistory> history = buildSendList(fullHistory, coverSeq, memoryContext);
         history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
-        // 立即保存含用户消息的上下文，确保 msgTool（如 getTurnCount）能读到当前会话
-        saveContextHistory(sessionId, history);
+        // 立即保存全量+用户消息的上下文（msgTool 如 getTurnCount 读当前会话；恢复/续轮不丢全量）
+        List<TLConversationHistory> saved = new ArrayList<>(fullHistory);
+        saved.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
+        saveContextHistory(sessionId, saved);
         // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
         TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
         List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
@@ -1557,6 +1605,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionUserIds.remove(sessionId);
         sessionUserMessages.remove(sessionId);
         sessionRootIds.remove(sessionId);
+        sessionCoverSeq.remove(sessionId);
+        sessionMemoryContext.remove(sessionId);
         // 流式轮收尾：注销即触发 monitor 端该会话的 DB flush（chatStream 不 register，不影响 runningAgents 语义）
         putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                 .setParam(AI_P_SESSIONID, sessionId));
@@ -1651,7 +1701,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
                     frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
                             TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
-                                    .setParam(AI_P_MESSAGEHISTORY, history)
+                                    .setParam(AI_P_MESSAGEHISTORY, buildSendList(history,
+                                            sessionCoverSeq.getOrDefault(sessionId, 0L),
+                                            sessionMemoryContext.get(sessionId)))
                                     .setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
                                     .setParam(AI_P_TEMPERATURE, defaultTemperature)
                                     .setParam(AI_P_MAXTOKENS, defaultMaxTokens);
@@ -1749,7 +1801,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 .setParam("agentName", name)
                                     .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                                     .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
-                                    .setParam(AI_P_MEMORYTAG, "chat_history");
+                                    .setParam(AI_P_MEMORYTAG, "chat_history")
+                                    .setParam("maxSeq", getMaxSeq(sessionId));
                             saveAgentMemory(fromWho, saveMsg);
                         } catch (Exception e) {
                             putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
@@ -1808,7 +1861,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 .setParam("agentName", name)
                                 .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                                 .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + streamedText)
-                                .setParam(AI_P_MEMORYTAG, "chat_history");
+                                .setParam(AI_P_MEMORYTAG, "chat_history")
+                                .setParam("maxSeq", getMaxSeq(sessionId));
                         saveAgentMemory(fromWho, saveMsg);
                     } catch (Exception e) {
                         putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
@@ -1917,6 +1971,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         // context system 置顶 + DB 历史（DB 不含 context system，直接替换会永久丢失）
         history = withContextSystem(history);
+        // 恢复的历史可能含中断产生的残缺 tool 对（旧版本保存的）——先净化再入 context
+        sanitizeToolPairs(history);
         TLMsg ctxMsg = createMsg()
                 .setAction(CONTEXT_REPLACE)
                 .setParam(AI_P_SESSIONID, sessionId)
@@ -1954,7 +2010,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_MEMORYKEY, msg.getStringParam(AI_P_MEMORYKEY, ""))
                 .setParam(AI_P_MEMORYVALUE, msg.getParam(AI_P_MEMORYVALUE))
                 .setParam(AI_P_MEMORYTAG, msg.getStringParam(AI_P_MEMORYTAG, null))
-                .setParam(AI_P_MEMORYEXPTIME, msg.getIntParam(AI_P_MEMORYEXPTIME, -1));
+                .setParam(AI_P_MEMORYEXPTIME, msg.getIntParam(AI_P_MEMORYEXPTIME, -1))
+                // 透传：agentName（摘要 LLM 借用目标）与 maxSeq（摘要 coverSeq 衔接）
+                .setParam("agentName", msg.getStringParam("agentName", null))
+                .setParam("maxSeq", msg.getIntParam("maxSeq", 0));
         return putMsg(memory, memMsg);
     }
 
@@ -1988,6 +2047,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (allEntries.size() > topK) {
             allEntries = new ArrayList<>(allEntries.subList(0, topK));
         }
+        putLog("Memory recall: session=" + sessionId + " entries=" + allEntries.size()
+                + " stores=" + memoryStores.size(), LogLevel.DEBUG);
         return createMsg().setParam(RESULT, !allEntries.isEmpty())
                 .setParam(AI_P_MEMORYRESULT, allEntries);
     }
@@ -2083,7 +2144,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("agentName", name)
                     .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
                     .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + response)
-                    .setParam(AI_P_MEMORYTAG, "chat_history");
+                    .setParam(AI_P_MEMORYTAG, "chat_history")
+                    .setParam("maxSeq", getMaxSeq(sessionId));
             saveAgentMemory(fromWho, saveMsg);
         } catch (Exception e) {
             putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
@@ -2271,14 +2333,176 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 保存上下文历史（批量替换，O(1)次消息传递）
+     * 保存上下文历史（批量替换，O(1)次消息传递）。
+     * 保存前净化残缺 tool 对（stop 中断等产生的孤儿 assistant(tool_calls)/tool 消息）——
+     * 从 context 源头清除，避免每轮发送时反复净化、且污染后续恢复。
      */
     protected void saveContextHistory(String sessionId, List<TLConversationHistory> history) {
+        List<TLConversationHistory> clean = new ArrayList<>(history);
+        sanitizeToolPairs(clean);
         TLMsg replaceMsg = createMsg()
                 .setAction(CONTEXT_REPLACE)
                 .setParam(AI_P_SESSIONID, sessionId)
-                .setParam(AI_P_MESSAGEHISTORY, history);
+                .setParam(AI_P_MESSAGEHISTORY, clean);
         putMsg(contextModuleName, replaceMsg);
+    }
+
+    /**
+     * 从记忆召回结果计算本会话摘要的最大 coverSeq（0 = 无摘要，视图取最新 contextViewSize 条）。
+     * 摘要条目：tag=session_summary 且 metadata.sessionId == 当前会话。
+     */
+    @SuppressWarnings("unchecked")
+    protected long computeSessionCoverSeq(TLMsg beforeResult, String sessionId) {
+        if (beforeResult == null || !beforeResult.containsParam(AI_P_MEMORYRESULT)) return 0L;
+        try {
+            List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
+                    beforeResult.getListParam(AI_P_MEMORYRESULT, null);
+            if (entries == null) return 0L;
+            long maxCover = 0L;
+            for (TLMemoryEntry e : entries) {
+                if (e == null || !"session_summary".equals(e.getTag())) continue;
+                Map<String, Object> meta = e.getMetadata();
+                if (meta == null) continue;
+                if (!sessionId.equals(meta.get("sessionId"))) continue;
+                Object cs = meta.get("coverSeq");
+                if (cs instanceof Number) {
+                    long v = ((Number) cs).longValue();
+                    if (v > maxCover) maxCover = v;
+                }
+            }
+            return maxCover;
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
+    /**
+     * 构建发送给 LLM 的视图列表：
+     * system 区（默认 system + 记忆 system）恒保留；其余取尾部 contextViewSize 条原样。
+     * 历史未超视图 → 直接全量（兼容现状）。
+     * 注意：不按 coverSeq 过滤——恢复/接管会话时摘要 coverSeq 紧跟最新会导致视图为空、
+     * LLM 看不到近期历史（"像重新开始"）；尾部截取天然只取最近内容，
+     * 摘要覆盖的更早内容本就不在尾部，无需排除。
+     * 孤儿 tool 修正：视图开头是 tool 消息时向前补其 assistant(tool_calls)，保证 OpenAI 消息顺序约束。
+     */
+    protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
+                                                        long coverSeq, String memoryContext) {
+        if (full.size() <= contextViewSize) {
+            List<TLConversationHistory> all = new ArrayList<>(full);
+            if (memoryContext != null && !memoryContext.isEmpty()) {
+                all.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+            }
+            return all;
+        }
+        List<TLConversationHistory> systems = new ArrayList<>();
+        List<TLConversationHistory> rest = new ArrayList<>();
+        for (TLConversationHistory h : full) {
+            if (h.getRole() == TLConversationHistory.Role.system) systems.add(h);
+            else rest.add(h);
+        }
+        if (memoryContext != null && !memoryContext.isEmpty()) {
+            systems.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+        }
+        int startIdx = Math.max(0, rest.size() - contextViewSize);
+        // 孤儿 tool 修正：视图开头是 tool 时，向前在 full 中找其 assistant(tool_calls) 并入
+        while (startIdx < rest.size()
+                && rest.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
+            TLConversationHistory first = rest.get(startIdx);
+            int idxInFull = full.indexOf(first);
+            if (idxInFull <= 0) break;
+            boolean extended = false;
+            for (int i = idxInFull - 1; i >= 0; i--) {
+                TLConversationHistory h = full.get(i);
+                if (h.isAssistantWithToolCalls()) {
+                    List<TLConversationHistory> prefix =
+                            new ArrayList<>(full.subList(i, idxInFull));
+                    rest.addAll(0, prefix);
+                    startIdx += prefix.size();
+                    extended = true;
+                    break;
+                }
+            }
+            if (!extended) break;
+        }
+        List<TLConversationHistory> result = new ArrayList<>(systems);
+        result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
+        sanitizeToolPairs(result);
+        return result;
+    }
+
+    /**
+     * 发送前净化残缺的 tool 对（stop 中断等可能产生）：
+     * ① 孤立 tool 消息（其 assistant(tool_calls) 不在列表内）→ 删除
+     * ② assistant(tool_calls) 未被后续 tool 消息完整响应（工具执行被打断）→ 删除该 assistant 及其 tool 响应
+     * 否则 LLM 报 400 "assistant message with tool_calls must be followed by tool messages"。
+     */
+    private static void sanitizeToolPairs(List<TLConversationHistory> list) {
+        for (int i = 0; i < list.size(); i++) {
+            TLConversationHistory h = list.get(i);
+            if (h.getRole() == TLConversationHistory.Role.tool) {
+                // 孤立 tool：向前找不到覆盖其 toolCallId 的 assistant(tool_calls)
+                boolean covered = false;
+                for (int j = i - 1; j >= 0; j--) {
+                    TLConversationHistory a = list.get(j);
+                    if (a.getRole() == TLConversationHistory.Role.user) break;
+                    if (a.isAssistantWithToolCalls()) {
+                        for (TLToolCall tc : a.getToolCalls()) {
+                            if (tc.getId() != null && tc.getId().equals(h.getToolCallId())) {
+                                covered = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                if (!covered) {
+                    list.remove(i);
+                    i--;
+                }
+            } else if (h.isAssistantWithToolCalls()) {
+                // 未被完整响应：检查其后 tool 消息是否覆盖全部 tool_call_id
+                java.util.Set<String> need = new java.util.HashSet<>();
+                for (TLToolCall tc : h.getToolCalls()) {
+                    if (tc.getId() != null) need.add(tc.getId());
+                }
+                for (int j = i + 1; j < list.size(); j++) {
+                    TLConversationHistory t = list.get(j);
+                    if (t.getRole() == TLConversationHistory.Role.tool && t.getToolCallId() != null) {
+                        need.remove(t.getToolCallId());
+                    } else if (t.getRole() == TLConversationHistory.Role.user
+                            || t.getRole() == TLConversationHistory.Role.assistant) {
+                        break;
+                    }
+                }
+                if (!need.isEmpty()) {
+                    // 删除该 assistant 及其 tool 响应
+                    java.util.Set<String> ids = new java.util.HashSet<>();
+                    for (TLToolCall tc : h.getToolCalls()) {
+                        if (tc.getId() != null) ids.add(tc.getId());
+                    }
+                    int k = i + 1;
+                    while (k < list.size() && list.get(k).getRole() == TLConversationHistory.Role.tool
+                            && ids.contains(list.get(k).getToolCallId())) {
+                        list.remove(k);
+                    }
+                    list.remove(i);
+                    i--;
+                }
+            }
+        }
+    }
+
+    /** 获取会话当前最大 seq（记忆摘要 coverSeq 用；失败返回 0） */
+    protected long getMaxSeq(String sessionId) {
+        try {
+            TLMsg resp = putMsg(contextModuleName, createMsg()
+                    .setAction(CONTEXT_GETMAXSEQ).setParam(AI_P_SESSIONID, sessionId));
+            if (resp == null || !resp.containsParam("maxSeq")) return 0L;
+            Object v = resp.getParam("maxSeq");
+            return v instanceof Number ? ((Number) v).longValue() : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     /**

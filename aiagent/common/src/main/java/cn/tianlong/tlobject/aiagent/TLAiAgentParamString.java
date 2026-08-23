@@ -138,6 +138,10 @@ public interface TLAiAgentParamString extends TLParamString {
     String CONTEXT_GETTURNCOUNT = "getTurnCount";
     /** 设置系统消息 */
     String CONTEXT_SETSYSTEM = "setSystem";
+    /** 获取视图：seq > fromSeq 的最新 limit 条（摘要 coverSeq 衔接） */
+    String CONTEXT_GETVIEW = "getView";
+    /** 获取会话当前最大 seq（记忆摘要 coverSeq 用） */
+    String CONTEXT_GETMAXSEQ = "getMaxSeq";
 
     // ======================== Skill动作 ========================
     /** 获取skill信息（名称、描述、参数schema） */

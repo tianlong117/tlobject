@@ -25,6 +25,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     /** 最大保留轮次 */
     protected int maxHistoryTurns = 50;
 
+    /** 最大保留消息数（-1 = 全量保留不 trim；兼容旧配置 maxHistoryTurns） */
+    protected int maxContextMessages = -1;
+
+    /** sessionId -> 消息序号计数器（线性递增 id，摘要 coverSeq 对齐边界） */
+    protected Map<String, Long> seqCounter;
+
     /** 默认系统消息 */
     protected String defaultSystemMessage;
 
@@ -48,6 +54,14 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                     maxHistoryTurns = Integer.parseInt(params.get("maxHistoryTurns"));
                 } catch (NumberFormatException ignored) {}
             }
+            // maxContextMessages 优先（-1=全量保留）；未配置时兼容旧参数 maxHistoryTurns
+            if (params.get("maxContextMessages") != null) {
+                try {
+                    maxContextMessages = Integer.parseInt(params.get("maxContextMessages"));
+                } catch (NumberFormatException ignored) {}
+            } else if (params.get("maxHistoryTurns") != null) {
+                maxContextMessages = maxHistoryTurns;
+            }
             defaultSystemMessage = params.get("defaultSystemMessage");
         }
     }
@@ -55,6 +69,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     @Override
     protected TLBaseModule init() {
         sessions = new ConcurrentHashMap<>();
+        seqCounter = new ConcurrentHashMap<>();
         return this;
     }
 
@@ -77,6 +92,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             case CONTEXT_GETTURNCOUNT:
                 returnMsg = getTurnCount(fromWho, msg);
                 break;
+            case CONTEXT_GETVIEW:
+                returnMsg = getView(fromWho, msg);
+                break;
+            case CONTEXT_GETMAXSEQ:
+                returnMsg = getMaxSeq(fromWho, msg);
+                break;
             case CONTEXT_SETSYSTEM:
                 returnMsg = setSystem(fromWho, msg);
                 break;
@@ -97,6 +118,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         // 支持直接传入TLConversationHistory对象
         TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
         if (entry != null) {
+            entry.setSeq(nextSeq(sessionId));
             history.add(entry);
         } else {
             // 从args中构造
@@ -116,6 +138,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                 h.setToolCallId(msg.getStringParam("toolCallId", null));
                 h.setName(msg.getStringParam("name", null));
             }
+            h.setSeq(nextSeq(sessionId));
             history.add(h);
         }
 
@@ -144,7 +167,8 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /**
-     * 批量替换session历史（替代先CLEAR再逐条ADD的O(n²)模式）
+     * 批量替换session历史（替代先CLEAR再逐条ADD的O(n²)模式）。
+     * 保留消息自带 seq（恢复 REPLACE 时），计数器取 max(seq) 续号。
      */
     @SuppressWarnings("unchecked")
     protected TLMsg replace(Object fromWho, TLMsg msg) {
@@ -154,8 +178,15 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         if (newHistory != null) {
             sessions.put(sessionId, new ArrayList<>(newHistory));
             trimHistory(sessions.get(sessionId));
+            // 更新 seq 计数器为 max(seq)，之后的递增从恢复点继续
+            long maxSeq = 0;
+            for (TLConversationHistory h : sessions.get(sessionId)) {
+                if (h.getSeq() > maxSeq) maxSeq = h.getSeq();
+            }
+            seqCounter.put(sessionId, maxSeq);
         } else {
             sessions.remove(sessionId);
+            seqCounter.remove(sessionId);
         }
         return createMsg().setParam(RESULT, true);
     }
@@ -169,6 +200,55 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         List<TLConversationHistory> history = sessions.get(sessionId);
         int count = (history != null) ? history.size() : 0;
         return createMsg().setParam("turnCount", count);
+    }
+
+    /**
+     * 获取视图：seq > fromSeq 的最新 limit 条消息（摘要 coverSeq 衔接）。
+     * 边界修正：视图开头若为 tool 消息（其 assistant(tool_calls) 被 fromSeq 截掉），
+     * 向前在完整历史中补入其 assistant，保证 OpenAI 消息顺序约束。
+     */
+    protected TLMsg getView(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        long fromSeq = msg.getIntParam("fromSeq", 0);
+        int limit = msg.getIntParam("limit", 40);
+        if (limit <= 0) limit = 40;
+        List<TLConversationHistory> history = getOrCreateSession(sessionId);
+
+        List<TLConversationHistory> filtered = new ArrayList<>();
+        for (TLConversationHistory h : history) {
+            if (h.getSeq() > fromSeq) filtered.add(h);
+        }
+        int startIdx = Math.max(0, filtered.size() - limit);
+        // 孤儿 tool 修正：视图开头是 tool 时，向前补其 assistant(tool_calls)
+        while (startIdx < filtered.size()
+                && filtered.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
+            TLConversationHistory first = filtered.get(startIdx);
+            int idxInFull = history.indexOf(first);
+            if (idxInFull <= 0) break;
+            boolean extended = false;
+            for (int i = idxInFull - 1; i >= 0; i--) {
+                TLConversationHistory h = history.get(i);
+                if (h.isAssistantWithToolCalls()) {
+                    List<TLConversationHistory> prefix =
+                            new ArrayList<>(history.subList(i, idxInFull));
+                    filtered.addAll(0, prefix);
+                    startIdx += prefix.size();
+                    extended = true;
+                    break;
+                }
+            }
+            if (!extended) break;
+        }
+        List<TLConversationHistory> result =
+                new ArrayList<>(filtered.subList(Math.max(0, startIdx), filtered.size()));
+        return createMsg().setParam(AI_P_MESSAGEHISTORY, result);
+    }
+
+    /** 获取会话当前最大 seq（记忆摘要 coverSeq 用） */
+    protected TLMsg getMaxSeq(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        Long maxSeq = seqCounter.get(sessionId);
+        return createMsg().setParam("maxSeq", maxSeq != null ? maxSeq : 0L);
     }
 
     /**
@@ -201,12 +281,19 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         });
     }
 
+    /** 会话内线性递增 seq（第一条消息 = 1；默认 system 消息保持 seq=0） */
+    protected long nextSeq(String sessionId) {
+        return seqCounter.merge(sessionId, 1L, Long::sum);
+    }
+
     /**
-     * 裁剪超长历史。保留system消息 + 最近N轮。
+     * 裁剪超长历史。保留system消息 + 最近N条。
+     * maxContextMessages = -1 时全量保留（摘要 coverSeq 衔接，不丢信息）。
      * 保证不破坏 OpenAI API 消息顺序约束：tool 消息必须紧跟其 assistant(tool_calls)。
      */
     protected void trimHistory(List<TLConversationHistory> history) {
-        if (history.size() <= maxHistoryTurns) return;
+        if (maxContextMessages < 0) return;   // 全量保留模式
+        if (history.size() <= maxContextMessages) return;
 
         // 收集system消息
         List<TLConversationHistory> systemMsgs = new ArrayList<>();
@@ -217,9 +304,9 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         }
 
         int nonSystemCount = history.size() - systemMsgs.size();
-        if (nonSystemCount <= maxHistoryTurns) return;
+        if (nonSystemCount <= maxContextMessages) return;
 
-        int removeCount = nonSystemCount - maxHistoryTurns;
+        int removeCount = nonSystemCount - maxContextMessages;
         int removed = 0;
         // 记录被删除的 assistant(tool_calls) 的 tool_call_id，后续 tool 消息一并清理
         java.util.Set<String> removedToolCallIds = new java.util.HashSet<>();

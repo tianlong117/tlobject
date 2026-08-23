@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.memory;
 
 import cn.tianlong.tlobject.aiagent.TLBaseMemory;
+import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.aiagent.TLLlmProvider;
 import cn.tianlong.tlobject.aiagent.TLMemoryEntry;
 import cn.tianlong.tlobject.base.TLBaseModule;
@@ -136,6 +137,7 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     @Override
     @SuppressWarnings("unchecked")
     protected TLMsg store(Object fromWho, TLMsg msg) {
+        String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
         TLMemoryEntry entry = (TLMemoryEntry) msg.getParam("entry", TLMemoryEntry.class);
         if (entry == null) {
             String key = msg.getStringParam(AI_P_MEMORYKEY, "");
@@ -143,7 +145,6 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
                 key = "mem_" + UUID.randomUUID().toString().substring(0, 8);
             }
             Object value = msg.getParam(AI_P_MEMORYVALUE);
-            String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
             String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
             int exptimeMinutes = msg.getIntParam(AI_P_MEMORYEXPTIME, -1);
 
@@ -190,8 +191,40 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         pendingWrites.add(entry);
         schedulePersist();
 
+        // 摘要模式：碎片照常落库（不改动现有长期记忆）+ 进攒批缓冲；满批 LLM 提炼
+        if (summaryEnabled && entry.getValue() != null) {
+            try {
+                String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+                String agentName = msg.getStringParam("agentName", null);
+                long maxSeq = msg.getIntParam("maxSeq", 0);
+                collectSummaryFragment(sessionId, userId, agentName, entry.getValue().toString(), maxSeq);
+            } catch (Exception e) {
+                putLog("summary collect failed: " + e.toString(), LogLevel.WARN);
+            }
+        }
+
         putLog("Long-term memory stored: " + entry.getKey(), LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true).setParam("key", entry.getKey());
+    }
+
+    /** 摘要条目持久化：内存缓存 + 异步追加 JSONL（与碎片同通道） */
+    @Override
+    protected void storeSummaryEntry(TLMemoryEntry entry) {
+        cache.put(entry.getKey(), entry);
+        pendingWrites.add(entry);
+        schedulePersist();
+    }
+
+    /** 补批收集：该 userId 未被摘要覆盖的历史碎片（createdAt > fromTs，时间序） */
+    @Override
+    protected List<String> seedSummaryBuffer(String userId, long fromTs) {
+        return cache.values().stream()
+                .filter(e -> !e.isExpired())
+                .filter(e -> e.getKey().startsWith(userId + ":" + TAG_CHAT_HISTORY + ":"))
+                .filter(e -> e.getCreatedAt() > fromTs)
+                .sorted(Comparator.comparingLong(TLMemoryEntry::getCreatedAt))
+                .map(e -> e.getValue() != null ? e.getValue().toString() : "")
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -229,6 +262,26 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
         int topK = msg.getIntParam(AI_P_TOPK, 5);
+        // 摘要模式路由：碎片仅当"已被该用户摘要覆盖"（createdAt <= 最新摘要时间）时才排除；
+        // 未被覆盖的碎片（开启前的历史碎片、补批残余）照常召回——不丢记忆。
+        // 存在未覆盖碎片时触发后台增量补批（一次性）。
+        boolean excludeChatHistory = summaryEnabled && tag == null;
+        long maxSummaryTs = 0L, maxFragmentTs = 0L;
+        if (excludeChatHistory) {
+            for (TLMemoryEntry e : cache.values()) {
+                if (e.isExpired()) continue;
+                if (!"global".equals(userId) && !e.getKey().startsWith(userId + ":")) continue;
+                if (e.getKey().contains(":" + TAG_SESSION_SUMMARY + ":")) {
+                    if (e.getCreatedAt() > maxSummaryTs) maxSummaryTs = e.getCreatedAt();
+                } else if (TAG_CHAT_HISTORY.equals(e.getTag())) {
+                    if (e.getCreatedAt() > maxFragmentTs) maxFragmentTs = e.getCreatedAt();
+                }
+            }
+            if (maxFragmentTs > maxSummaryTs) {
+                ensureSummarySeed(userId, maxSummaryTs);
+            }
+        }
+        boolean hasSummaryCover = maxSummaryTs > 0L;
 
         // embedding 语义搜索
         if (enableEmbedding && embeddingProviderInstance != null && !query.isEmpty()) {
@@ -244,6 +297,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
                         if (e.isExpired()) continue;
                         if (!"global".equals(userId) && !e.getKey().startsWith(userId + ":")) continue;
                         if (tag != null && !tag.equals(e.getTag())) continue;
+                        if (excludeChatHistory && TAG_CHAT_HISTORY.equals(e.getTag())
+                                && e.getCreatedAt() <= maxSummaryTs) continue;
                         float[] entryVec = getEmbedding(e);
                         if (entryVec == null) continue;
                         double sim = cosineSimilarity(queryVec, entryVec);
@@ -264,7 +319,8 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             }
         }
 
-        // 回落 contains 匹配
+        // 回落 contains 匹配（lambda 需 final 拷贝：maxSummaryTs 在聚合循环中已赋值）
+        final long summaryCoverTs = maxSummaryTs;
         List<TLMemoryEntry> results = cache.values().stream()
                 .filter(e -> !e.isExpired())
                 .filter(e -> {
@@ -272,6 +328,10 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
                         return false;
                     }
                     if (tag != null && !tag.equals(e.getTag())) {
+                        return false;
+                    }
+                    if (excludeChatHistory && TAG_CHAT_HISTORY.equals(e.getTag())
+                            && e.getCreatedAt() <= summaryCoverTs) {
                         return false;
                     }
                     if (!query.isEmpty()) {

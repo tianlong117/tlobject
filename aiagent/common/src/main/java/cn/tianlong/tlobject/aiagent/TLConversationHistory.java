@@ -25,6 +25,8 @@ public class TLConversationHistory implements Serializable {
     private String toolCallId;
     private String name;
     private long timestamp;
+    /** 会话内线性递增序号（TLAiContext 维护，摘要 coverSeq 对齐边界；随 rounds 持久化，恢复保留） */
+    private long seq;
     private Map<String, Object> metadata;
     /** 推理/思考内容（ReAct thought chain） */
     private String reasoningContent;
@@ -83,6 +85,9 @@ public class TLConversationHistory implements Serializable {
 
     public long getTimestamp() { return timestamp; }
     public void setTimestamp(long timestamp) { this.timestamp = timestamp; }
+
+    public long getSeq() { return seq; }
+    public void setSeq(long seq) { this.seq = seq; }
 
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
