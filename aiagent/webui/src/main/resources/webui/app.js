@@ -70,6 +70,10 @@ function newSession() {
   localStorage.setItem('tlweb_session', state.sessionId);
   $('#sessionId').value = state.sessionId;
   $('#msgList').innerHTML = '';
+  // 恢复输入（会话被接管时禁用了）并聚焦
+  $('#chatInput').disabled = false;
+  $('#sendBtn').disabled = false;
+  $('#chatInput').focus();
   toast('已开新会话: ' + state.sessionId, 'ok');
 }
 
@@ -100,6 +104,9 @@ async function initSession() {
     const r = await fetch('/api/session').then(x => x.json());
     if (r.loggedIn) {
       state.userId = r.userId;
+      // 刷新页面：恢复本地保存的会话与登录标识（同用户继续之前的会话，不触发"新会话"）
+      state.sessionId = localStorage.getItem('tlweb_session');
+      state.loginId = localStorage.getItem('tlweb_loginid');
       enterChat();
     } else {
       showLogin();
@@ -116,10 +123,25 @@ async function doLogin() {
     const r = await apiJson('/api/login', { userId, password });
     state.userId = r.userId;
     // 换用户登录：重置会话与上传状态，避免沿用上一用户的 sessionId / 文件名
-    state.sessionId = null;
-    localStorage.removeItem('tlweb_session');
-    state.uploads = [];
-    renderUploadBar();
+    // 同用户登录：保留上次会话（localStorage 里的 tlweb_session），继续之前的会话
+    const prevUser = localStorage.getItem('tlweb_userid');
+    const prevSid = localStorage.getItem('tlweb_session');
+    if (prevUser && prevUser !== userId) {
+      state.sessionId = null;
+      localStorage.removeItem('tlweb_session');
+      state.uploads = [];
+      renderUploadBar();
+    } else {
+      state.sessionId = prevSid;
+    }
+    // 登录实例标识（会话占用互斥用）：同浏览器刷新/重登保留；没有则生成（首次登录/登出后再登/旧版升级）
+    // 换用户时必须生成新的（旧 loginId 属于上一用户）
+    state.loginId = localStorage.getItem('tlweb_loginid');
+    if (!state.loginId || (prevUser && prevUser !== userId)) {
+      state.loginId = 'login_' + userId + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      localStorage.setItem('tlweb_loginid', state.loginId);
+    }
+    localStorage.setItem('tlweb_userid', userId);
     $('#loginErr').classList.add('hidden');
     enterChat();
   } catch (e) {
@@ -128,10 +150,12 @@ async function doLogin() {
   }
 }
 async function doLogout() {
-  try { await apiJson('/api/logout', {}); } catch (e) { /* 忽略 */ }
+  try { await apiJson('/api/logout', { loginId: state.loginId || '' }); } catch (e) { /* 忽略 */ }
   state.userId = null;
-  state.sessionId = null;
-  localStorage.removeItem('tlweb_session');
+  state.loginId = null;
+  localStorage.removeItem('tlweb_loginid');
+  // 登出只退认证，保留会话（localStorage 的 tlweb_session/tlweb_userid）——
+  // 重新登录同用户继续之前的会话；换用户由 doLogin 的 prevUser 比较重置
   showLogin();
 }
 function enterChat() {
@@ -149,11 +173,15 @@ function enterChat() {
 async function autoResumeLast() {
   try {
     const sessions = await loadSessions();
-    // 列表按 last_active 倒序：取第一个非当前会话（即最近一次用过的会话，不论内容多少——
-    // 不用 count/state 过滤，msg_count 可能被空轮覆盖为 0 导致误跳过）
-    const last = (sessions || []).find(s => s.sessionId && s.sessionId !== state.sessionId);
+    // 优先：当前 sessionId 自身在列表里（本地恢复的旧会话仍是最近活跃）→ 直接接续自己渲染历史
+    let last = (sessions || []).find(s => s.sessionId === state.sessionId);
     if (!last) {
-      appendSysMsg('💡 暂无历史会话，已开始新会话 ' + state.sessionId + '，直接输入消息即可');
+      // 当前不在列表（新会话/换用户）：取最近活跃的其他会话（列表按 last_active 倒序——
+      // 不用 count/state 过滤，msg_count 可能被空轮覆盖为 0 导致误跳过）
+      last = (sessions || []).find(s => s.sessionId && s.sessionId !== state.sessionId);
+    }
+    if (!last) {
+      appendSysMsg('💡 暂无历史会话，直接输入消息即可（当前会话 ' + state.sessionId + '）');
       return;
     }
     const res = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
@@ -241,7 +269,7 @@ async function plainChat(msg) {
   holder.el.appendChild(thinking);
   setBusy(true);
   try {
-    const r = await apiJson('/api/chat', { message: msg, sessionId: state.sessionId });
+    const r = await apiJson('/api/chat', { message: msg, sessionId: state.sessionId, loginId: state.loginId || '' });
     if (r.sessionId) { state.sessionId = r.sessionId; $('#sessionId').value = r.sessionId; localStorage.setItem('tlweb_session', r.sessionId); }
     if (r.success) {
       thinking.remove();
@@ -276,7 +304,7 @@ async function streamChat(msg) {
     const resp = await fetch('/api/chatStream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, sessionId: state.sessionId }),
+      body: JSON.stringify({ message: msg, sessionId: state.sessionId, loginId: state.loginId || '' }),
       signal: ctrl.signal
     });
     if (resp.status === 401) { holder.el.remove(); showLogin(); return; }
@@ -285,6 +313,15 @@ async function streamChat(msg) {
       try { const j = await resp.json(); err = j.error || err; } catch (e) { /* ignore */ }
       holder.el.remove();
       appendMsg('system', '[错误] ' + err);
+      return;
+    }
+    // 非 SSE 响应（JSON 错误，如"会话被占用"拒绝）→ 读 JSON 显示错误，不走流解析
+    const ct = resp.headers.get('content-type') || '';
+    if (!ct.includes('text/event-stream')) {
+      let err = '';
+      try { const j = await resp.json(); err = j.error || j.message || ''; } catch (e) { /* ignore */ }
+      holder.el.remove();
+      appendMsg('system', '[错误] ' + (err || '请求被拒绝'));
       return;
     }
     const reader = resp.body.getReader();
@@ -435,6 +472,14 @@ function openEvents() {
     try { evt = JSON.parse(e.data); } catch (err) { return; }
     if (evt.hb) return;
     if (evt.type === 'approval') showApprovalModal(evt);
+    if (evt.type === 'kicked') {
+      // 事件按 userId 广播，只有 loginId 匹配自己（被踢的那一方）才响应禁用
+      if (evt.loginId && evt.loginId !== state.loginId) return;
+      toast(evt.text || '该会话已被其他设备接管', 'err');
+      $('#chatInput').disabled = true;
+      $('#sendBtn').disabled = true;
+      appendSysMsg('⚠ ' + (evt.text || '会话已被其他设备接管') + '（可开启新会话或继续其他会话）');
+    }
   };
   es.onopen = () => { $('#connState').textContent = '●'; $('#connState').style.color = '#4ade80'; };
   es.onerror = () => { $('#connState').textContent = '○'; $('#connState').style.color = '#f87171'; };
@@ -515,17 +560,41 @@ async function continueSession(sid, silent) {
       state.sessionId = r.data.sessionId || sid;
       localStorage.setItem('tlweb_session', state.sessionId);
       $('#sessionId').value = state.sessionId;
+      // 恢复输入（会话被接管时禁用了）
+      $('#chatInput').disabled = false;
+      $('#sendBtn').disabled = false;
       $('#msgList').innerHTML = '';
       appendSysMsg('已恢复会话 ' + state.sessionId + ' (' + (r.data.count || 0) + ' 条历史)');
       (r.data.history || []).forEach(h => {
         if (h && h.role !== 'system' && h.content) appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
       });
+      // 会话占用声明（登录级互斥）：
+      // silent（登录自动接续）→ 静默登记，被占用仅提示不接管；
+      // 非 silent（面板"继续"按钮=明确接管意图）→ 直接 force 接管（踢对方下线），不弹窗
+      await claimSession(state.sessionId, !silent, silent);
     }
     if (!silent) toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
     return { ok: !!r.success, error: r.success ? null : (r.error || r.message || '未知错误') };
   } catch (e) {
     if (!silent) toast(e.message, 'err');
     return { ok: false, error: e.message };
+  }
+}
+/**
+ * 声明会话占用：
+ * - force=true（面板"继续"=明确接管意图）→ 直接接管（踢对方下线）
+ * - force=false（登录自动接续 silent）→ 被占用时仅提示，不接管、不切新会话
+ */
+async function claimSession(sid, force, silent) {
+  if (!state.loginId) return;
+  const r = await apiCommand('claimSession', { sessionId: sid, loginId: state.loginId, force: force || false });
+  if (!r.success || !r.data) return;
+  if (r.data.occupied) {
+    appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；在会话面板点该会话『继续』可直接接管）');
+    return;
+  }
+  if (r.data.kicked) {
+    appendSysMsg('💡 已接管会话，对方已下线');
   }
 }
 async function switchSession(sid) {
@@ -536,6 +605,9 @@ async function switchSession(sid) {
     state.sessionId = sid;
     localStorage.setItem('tlweb_session', sid);
     $('#sessionId').value = sid;
+    // 恢复输入（会话被接管时禁用了）
+    $('#chatInput').disabled = false;
+    $('#sendBtn').disabled = false;
     toast(r.message || sid, 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }

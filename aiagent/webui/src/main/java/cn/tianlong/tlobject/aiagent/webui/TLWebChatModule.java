@@ -70,6 +70,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private final Map<String, java.util.concurrent.CopyOnWriteArrayList<TLWebChannel>> eventChannels = new ConcurrentHashMap<>();
     /** sessionId → userId（审批事件定位属主） */
     private final Map<String, String> sessionOwner = new ConcurrentHashMap<>();
+    /** 会话登录占用：sessionId → loginId（登录级互斥——同一会话同时只允许一个登录继续；null 兼容旧前端不校验） */
+    private final Map<String, String> sessionLogin = new ConcurrentHashMap<>();
 
     public TLWebChatModule() { super(); }
     public TLWebChatModule(String name) { super(name); }
@@ -113,7 +115,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "login":
                 return doLogin(msg);
             case "logout":
-                return doLogout();
+                return doLogout(msg);
             case "command":
                 return doCommand(msg);
             case "chat":
@@ -169,6 +171,36 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
      */
     public Map<String, Object> handleCommand(String userId, String action, Map<String, Object> params) {
         if (action == null || action.isEmpty()) return failMap("缺少 action");
+        // 会话占用声明（webui 自身逻辑，不转发 agentService）：
+        // 无 owner / 同 login → 登记占用；被其他 login 占用且未 force → occupied；force → 踢旧 + 转移
+        if ("claimSession".equals(action)) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            if (userId == null) return failMap("未登录");
+            String sessionId = params != null ? String.valueOf(params.getOrDefault("sessionId", "")) : "";
+            String loginId = params != null ? String.valueOf(params.getOrDefault("loginId", "")) : "";
+            boolean force = params != null && Boolean.parseBoolean(String.valueOf(params.getOrDefault("force", false)));
+            if (sessionId.isEmpty() || loginId.isEmpty()) return failMap("sessionId/loginId 必填");
+            String owner = sessionLogin.get(sessionId);
+            boolean occupied = owner != null && !owner.equals(loginId);
+            putLog("claimSession: session=" + sessionId + " login=" + loginId
+                    + " owner=" + owner + " force=" + force + " occupied=" + occupied, LogLevel.INFO);
+            if (occupied && !force) {
+                out.put("success", true);
+                out.put("data", new java.util.LinkedHashMap<String, Object>() {{
+                    put("occupied", true);
+                    put("owner", owner);
+                }});
+                return out;
+            }
+            if (occupied) pushKicked(userId, sessionId, owner);   // 接管：旧登录下线（定向踢）
+            sessionLogin.put(sessionId, loginId);
+            out.put("success", true);
+            out.put("data", new java.util.LinkedHashMap<String, Object>() {{
+                put("occupied", false);
+                put("kicked", occupied);
+            }});
+            return out;
+        }
         TLMsg msg = createMsg().setAction(action);
         if (params != null) {
             for (Map.Entry<String, Object> e : params.entrySet()) msg.setParam(e.getKey(), e.getValue());
@@ -316,11 +348,19 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return outJson(r, 401);
     }
 
-    private TLMsg doLogout() {
+    private TLMsg doLogout(TLMsg msg) {
         String userId = currentUserId();
         if (userId == null) return notLogin();
         closeEventsChannel(userId);
         rejectPendingApprovals(userId);   // 退出即拒该用户未决审批（不等 5 分钟超时，安全默认）
+        // 释放本登录占用的会话（loginId 为空则释放该用户全部占用，兼容旧前端）；
+        // 只动属于当前用户的会话（sessionOwner 归属校验），其他登录/用户的占用保留
+        String loginId = msg.getStringParam("loginId", "");
+        sessionLogin.entrySet().removeIf(e -> {
+            String ownerUser = sessionOwner.get(e.getKey());
+            if (ownerUser != null && !ownerUser.equals(userId)) return false;  // 其他用户的会话
+            return loginId.isEmpty() || loginId.equals(e.getValue());
+        });
         HttpSession s = getRequest().getSession(false);
         if (s != null) s.invalidate();
         Map<String, Object> out = new LinkedHashMap<>();
@@ -347,6 +387,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (sessionId == null || sessionId.isEmpty())
             sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
         sessionId = ensureSessionOwner(sessionId, userId);   // 防串用户：webchat_ 前缀会话必须属于当前用户
+        // 会话占用校验（登录级互斥）：被其他登录占用 → 拒绝；空闲/同登录 → 登记
+        String loginId = msg.getStringParam("loginId", "");
+        if (!loginId.isEmpty()) {
+            String owner = sessionLogin.get(sessionId);
+            if (owner != null && !owner.equals(loginId)) {
+                return outJson(failMap("会话正被另一登录使用。请在右侧『会话』面板点击该会话的『继续』按钮接管，或开启新会话"), null);
+            }
+            sessionLogin.put(sessionId, loginId);
+        }
         boolean resume = msg.parseBoolean("resume", false);
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
         Map<String, Object> r = chat(userId, sessionId, message, reasoningMode, resume);
@@ -407,6 +456,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (sessionId == null || sessionId.isEmpty())
             sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
         sessionId = ensureSessionOwner(sessionId, userId);   // 防串用户：webchat_ 前缀会话必须属于当前用户
+        // 会话占用校验（登录级互斥）：被其他登录占用 → 拒绝；空闲/同登录 → 登记
+        String loginId = msg.getStringParam("loginId", "");
+        if (!loginId.isEmpty()) {
+            String owner = sessionLogin.get(sessionId);
+            if (owner != null && !owner.equals(loginId)) {
+                return outJson(failMap("会话正被另一登录使用。请在右侧『会话』面板点击该会话的『继续』按钮接管，或开启新会话"), null);
+            }
+            sessionLogin.put(sessionId, loginId);
+        }
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
         String key = streamKey(userId, sessionId);
         TLMsg reg = openSseChannel(getName(), key, "stream");
@@ -536,6 +594,27 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     }
 
     /**
+     * 模块关闭：先释放全部 SSE 长连接（chatStream 请求线程 awaitClosed 挂起中）。
+     * 若不先关闭，Jetty 停止时强杀挂起请求 → SessionStreamWrapper.failed →
+     * completeSessions → session store 已 Not started → "Unable to release Session" WARN。
+     */
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        for (TLWebChannel c : streamWriters.values()) {
+            try { c.close(); } catch (Exception ignored) {}
+        }
+        streamWriters.clear();
+        for (java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list : eventChannels.values()) {
+            if (list == null) continue;
+            for (TLWebChannel c : list) {
+                try { c.close(); } catch (Exception ignored) {}
+            }
+        }
+        eventChannels.clear();
+        return super.destroy(fromWho, msg);
+    }
+
+    /**
      * 防串用户：webui 生成的会话 ID 固定为 webchat_{userId}_ 前缀（历史/断点会话同格式）。
      * 前端传入的 sessionId 若带 webchat_ 前缀但不属于当前用户，说明沿用了上一用户的
      * 残留会话（换用户登录/直接调 API），重置为新会话；非 webchat_ 前缀（用户自定义）不校验。
@@ -582,6 +661,23 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     public void closeEventsChannel(String userId) {
         java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.remove(userId);
         if (list != null) for (TLWebChannel c : list) c.close();
+    }
+
+    /**
+     * 踢下线通知：会话被其他登录接管时推送 kicked 事件。
+     * 事件通道按 userId 聚合（多浏览器共享），故事件携带被踢的 loginId——
+     * 前端只有 loginId 匹配自己时才响应（禁用输入），接管方不受影响。
+     */
+    private void pushKicked(String userId, String sessionId, String kickedLoginId) {
+        String json = GSON.toJson(java.util.Map.of(
+                "type", "kicked", "sessionId", sessionId,
+                "loginId", kickedLoginId != null ? kickedLoginId : "",
+                "text", "该会话已被其他设备接管，你已下线"));
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list == null) return;
+        for (TLWebChannel c : list) {
+            try { if (c.isOpen()) c.write(json); } catch (Exception ignored) {}
+        }
     }
 
     // ======================== 内部 ========================
