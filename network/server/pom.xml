@@ -13,7 +13,6 @@
     <packaging>pom</packaging>
     <modules>
         <module>network-server-websocket</module>
-        <module>network-server-jetty</module>
         <module>tlobject-network-server-distributedserver</module>
         <module>network-server-tomcat</module>
         <module>tlobject-server-jettyee8</module>
