@@ -11,9 +11,13 @@
         <!-- 会话恢复（场景9）依赖 Agent 侧断点通知 -->
         <enableCheckpoint value="true"/>
         <maxToolCallIterations value="10"/>
-        <maxHistoryTurns value="50"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
         <!-- 不配 defaultLlmProvider：无默认 Provider，测试运行时切换到 mockProvider -->
     </params>
+    <!-- maxContextMessages: aiContext 模块参数（经 modulesParams 通道注入，-1=全量保留不裁剪）。
+         注意：agent 自身 <params> 不会透传给 aiContext，长度类参数必须写在这里 -->
+    <modulesParams>
+        <module name="aiContext" maxContextMessages="50"/>
+    </modulesParams>
 </moduleConfig>

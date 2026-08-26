@@ -125,7 +125,7 @@
                      embeddingProvider="embeddingProvider"
                      embeddingModel="text-embedding-3-small"
                      summaryEnabled="true"
-                     summaryBatchSize="2"/>
+                     summaryBatchSize="20"/>
     </memoryStores>
 
     <!-- ===== Agent 定义（有此项即为主控模式） ===== -->
@@ -301,7 +301,7 @@
     </afterMsgTable>
 
     <modulesParams>
-        <module name="aiContext" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。
+        <module name="aiContext" maxContextMessages="50" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。
 
 当你缺少必要信息无法完成任务时，调用 request_clarification 工具请求用户确认，不要猜测。
 

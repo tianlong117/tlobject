@@ -8,9 +8,6 @@
         <!-- maxToolCallIterations: LLM tool-call最大迭代轮次，防止无限循环 -->
         <maxToolCallIterations value="10"/>
 
-        <!-- maxHistoryTurns: 上下文最大保留的历史对话轮次数 -->
-        <maxHistoryTurns value="50"/>
-
         <!-- enableCheckpoint: 会话断点通知开关。true=Agent向SessionManager发送sessionUpdated/chatFinished/chatAborted。
              主Agent设true，子Agent默认false（不配即不通知）。SessionManager另有enableCheckpoint控制是否落盘。 -->
         <enableCheckpoint value="true"/>
@@ -193,7 +190,7 @@
 
     <!-- ===== 模块参数 ===== -->
     <modulesParams>
-        <module name="aiContext" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。
+        <module name="aiContext" maxContextMessages="50" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。
 
 ## 复杂任务处理规则（强制）
 
