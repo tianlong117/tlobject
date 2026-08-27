@@ -158,7 +158,7 @@ async function doLogout() {
   // 重新登录同用户继续之前的会话；换用户由 doLogin 的 prevUser 比较重置
   showLogin();
 }
-function enterChat() {
+async function enterChat() {
   if (!state.sessionId) newSession();
   $('#userTag').textContent = '👤 ' + state.userId;
   $('#sessionId').value = state.sessionId;
@@ -166,27 +166,29 @@ function enterChat() {
   appendSysMsg('已登录：' + state.userId + '（管理命令在右侧面板）');
   showView('chat');
   openEvents();
-  autoResumeLast();
+  await autoResumeLast();   // 先接续最近活跃会话并渲染历史
+  promptCheckpoint();       // 再检测断点会话 → 弹窗提示（如命令行启动时的 ⚠ 提示）
 }
 
-/** 登录后自动接续最近活跃的会话（有则恢复上下文并渲染历史；无则提示新开始） */
+/** 登录后自动接续该用户最近活跃的会话（以最后消息时间 last_active 为准）。
+ *  有则恢复上下文并渲染历史；无则提示新开始。
+ *  注意：不以本浏览器 localStorage 的旧会话为准（那是"上次 webui 会话"，
+ *  控制台等其他界面聊过后它已不是最新）——列表按 last_active 倒序，
+ *  取第一条即最近活跃；若它恰好是自身（自身仍最新）行为与之前一致。 */
 async function autoResumeLast() {
   try {
     const sessions = await loadSessions();
-    // 优先：当前 sessionId 自身在列表里（本地恢复的旧会话仍是最近活跃）→ 直接接续自己渲染历史
-    let last = (sessions || []).find(s => s.sessionId === state.sessionId);
-    if (!last) {
-      // 当前不在列表（新会话/换用户）：取最近活跃的其他会话（列表按 last_active 倒序——
-      // 不用 count/state 过滤，msg_count 可能被空轮覆盖为 0 导致误跳过）
-      last = (sessions || []).find(s => s.sessionId && s.sessionId !== state.sessionId);
-    }
+    // 取列表第一条 = 最近活跃会话（含自身）。
+    // 不用 count/state 过滤——msg_count 可能被空轮覆盖为 0 导致误跳过；
+    // 会话被删/换用户时（旧自身不在列表）同样自然落到第一条。
+    let last = (sessions || []).find(s => s.sessionId);
     if (!last) {
       appendSysMsg('💡 暂无历史会话，直接输入消息即可（当前会话 ' + state.sessionId + '）');
       return;
     }
     const res = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
     if (res.ok) {
-      appendSysMsg('💡 已自动接续最近会话，可在右侧『会话』面板切换其他历史会话');
+      appendSysMsg('💡 已自动接续最近活跃会话（最后消息 ' + fmtTs(last.savedAt) + '），可在右侧『会话』面板切换其他历史会话');
     } else {
       appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在右侧『会话』面板手动继续）');
     }
@@ -295,7 +297,8 @@ async function plainChat(msg) {
     setBusy(false);
   }
 }
-async function streamChat(msg) {
+async function streamChat(msg, opts) {
+  opts = opts || {};
   const holder = startAssistantMsg();
   setBusy(true);
   const ctrl = new AbortController();
@@ -304,7 +307,12 @@ async function streamChat(msg) {
     const resp = await fetch('/api/chatStream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: msg, sessionId: state.sessionId, loginId: state.loginId || '' }),
+      body: JSON.stringify({
+        message: msg,
+        sessionId: opts.sessionId || state.sessionId,
+        loginId: state.loginId || '',
+        resume: !!opts.resume   // 断点恢复：以断点时的用户消息继续执行（流式）
+      }),
       signal: ctrl.signal
     });
     if (resp.status === 401) { holder.el.remove(); showLogin(); return; }
@@ -503,6 +511,12 @@ function bindEvents() {
     const v = e.target.value.trim();
     if (v && v !== state.sessionId) { state.sessionId = v; localStorage.setItem('tlweb_session', v); toast('已切换会话ID: ' + v, 'ok'); }
   };
+  // 断点提示弹窗：恢复执行（流式）/ 忽略
+  $('#cpResumeBtn').onclick = () => {
+    $('#checkpointModal').classList.add('hidden');
+    resumeCheckpoint();
+  };
+  $('#cpIgnoreBtn').onclick = () => $('#checkpointModal').classList.add('hidden');
   $('#tabBar').addEventListener('click', e => {
     const btn = e.target.closest('button[data-tab]');
     if (!btn) return;
@@ -529,7 +543,7 @@ async function loadSessions() {
       sessionId: s.sessionId, agent: s.agentName || '', time: fmtTs(s.savedAt),
       count: (s.count == null ? '' : s.count) + '条', state: s.state || ''
     }));
-    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '时间'], ['count', '轮次'], ['state', '状态']], rows, 'sessionId');
+    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '最后消息'], ['count', '轮次'], ['state', '状态']], rows, 'sessionId');
     // 每行加操作按钮
     [...box.querySelectorAll('table.tbl tr')].slice(1).forEach((tr, i) => {
       const sid = rows[i] && rows[i].sessionId;
@@ -642,33 +656,32 @@ async function resumeCheckpoint() {
     const r = await apiCommand('resume', { userId: state.userId });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
     const d = r.data || {};
+    // 切到断点会话（恢复以断点时的用户消息重新发起，走流式管道）
+    state.sessionId = d.sessionId || state.sessionId;
+    localStorage.setItem('tlweb_session', state.sessionId);
+    $('#sessionId').value = state.sessionId;
+    appendMsg('user', d.userMessage || '（断点消息）');
     toast('找到断点会话 ' + d.sessionId + '，正在恢复执行...', 'info');
-    // 断点恢复 = 以断点时的用户消息发起 resume chat（阻塞式，加 busy 保护防重入）
-    setBusy(true);
-    try {
-      const cr = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: d.userMessage || '', sessionId: d.sessionId, resume: true })
-      }).then(x => x.json());
-      state.sessionId = d.sessionId || state.sessionId;
-      localStorage.setItem('tlweb_session', state.sessionId);
-      $('#sessionId').value = state.sessionId;
-      if (cr.success) {
-        appendMsg('user', d.userMessage || '（断点消息）');
-        const holder = startAssistantMsg();
-        // FIX: 先移除光标再追加文本（原计划 firstChild.textContent 会把回复写进光标后被 remove 丢失）
-        holder.cursor.remove();
-        holder.el.appendChild(document.createTextNode(cr.response || ''));
-        if (cr.reasoning) appendReasoning(holder.el, cr.reasoning);
-        scrollChat();
-      } else {
-        appendMsg('system', '[错误] ' + (cr.error || cr.response || ''));
-      }
-    } finally {
-      setBusy(false);
-    }
+    // 流式恢复：streamChat 内部管理 busy/光标/SSE 渲染
+    await streamChat(d.userMessage || '', { sessionId: d.sessionId, resume: true });
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/** 登录后检测断点会话：有则弹窗提示（仿命令行启动时的 ⚠ 提示），点"恢复执行"走流式恢复 */
+async function promptCheckpoint() {
+  try {
+    const r = await apiCommand('resume', { userId: state.userId });
+    if (!r.success || !r.data || !r.data.sessionId) return;   // 无断点
+    const d = r.data;
+    const timeStr = d.savedAt ? fmtTs(d.savedAt) : '未知';
+    $('#cpDesc').textContent =
+      'Agent:    ' + (d.agentName || '未知') + '\n' +
+      '会话ID:   ' + d.sessionId + '\n' +
+      '用户消息: ' + (d.userMessage || '') + '\n' +
+      '中断时间: ' + timeStr + ' (第 ' + (d.iteration || '?') + ' 轮)\n\n' +
+      '恢复将以断点时的用户消息继续执行（流式输出）；忽略则开始新对话。';
+    $('#checkpointModal').classList.remove('hidden');
+  } catch (e) { /* 静默：检测失败不打扰登录流程 */ }
 }
 
 // ======================== 面板：Agent/Skill ========================

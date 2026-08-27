@@ -254,9 +254,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return out;
     }
 
-    /** 流式聊天：注册 writer → 提交 chatStream。失败时关闭 writer 并返回错误 */
+    /** 流式聊天：注册 writer → 提交 chatStream。resume=true 时从断点恢复（消息 = 断点时的用户消息）。
+     *  失败时关闭 writer 并返回错误 */
     public Map<String, Object> beginChatStream(String userId, String sessionId, String message,
-                                               String reasoningMode, TLWebChannel channel) {
+                                               String reasoningMode, boolean resume, TLWebChannel channel) {
         String key = streamKey(userId, sessionId);
         TLWebChannel existing = streamWriters.get(key);
         if (existing != null && existing.isOpen()) {
@@ -273,6 +274,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("streamTarget", getName())
                     .setParam("streamAction", STREAM_ONCHUNK);
             if (reasoningMode != null && !reasoningMode.isEmpty()) msg.setParam(AI_P_REASONING_MODE, reasoningMode);
+            if (resume) msg.setParam("resume", true);
             TLMsg result = putMsg(serviceModule, msg);
             if (result == null || !result.parseBoolean("success", false)) {
                 streamWriters.remove(key);

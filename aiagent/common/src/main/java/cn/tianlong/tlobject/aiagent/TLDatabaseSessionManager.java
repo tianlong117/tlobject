@@ -162,6 +162,25 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         return rounds;
     }
 
+    // ======================== findIncompleteMeta（查 ai_sessions，按 checkpoint 过滤） ========================
+
+    @Override
+    @SuppressWarnings("unchecked")
+    protected java.util.Map<String, Object> findIncompleteMeta(String userId) {
+        if (sessTable == null) return null;
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("user_id", userId != null ? userId : "");
+            p.put("state", SESSION_STATE_CHECKPOINT);
+            TLMsg result = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "select * from [table] where user_id=? and state=? order by last_active desc limit 1")
+                    .setParam(DB_P_PARAMS, p));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
+            if (rows == null || rows.isEmpty()) return null;
+            return metaFromSessRow(rows.get(0));
+        } catch (Exception e) { return null; }
+    }
+
     // ======================== findLatestMeta（查 ai_sessions） ========================
 
     @Override

@@ -137,6 +137,43 @@ public class TLSessionManager extends TLBaseSessionManager {
     }
 
     @Override
+    @SuppressWarnings("unchecked")
+    protected java.util.Map<String, Object> findIncompleteMeta(String userId) {
+        try {
+            java.io.File dir = new java.io.File(getSessionStorePath(userId));
+            if (!dir.exists() || !dir.isDirectory()) return null;
+            java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+            if (files == null || files.length == 0) return null;
+
+            // 按 state=checkpoint 过滤，取最近活跃的一个（断点会话不一定是最新会话——
+            // 断点后用户可能又聊过其他会话，最近会话是 completed 也应能找到断点）
+            java.io.File best = null;
+            TLMsg bestMeta = null;
+            for (java.io.File f : files) {
+                TLMsg meta = readLastLineMeta(f);
+                if (meta == null) continue;
+                if (SESSION_STATE_CHECKPOINT.equals(meta.getStringParam("state", ""))) {
+                    if (best == null || f.lastModified() > best.lastModified()) {
+                        best = f;
+                        bestMeta = meta;
+                    }
+                }
+            }
+            if (best == null) return null;
+
+            java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+            result.put("sessionId", bestMeta.getStringParam("sessionId", ""));
+            result.put("state", bestMeta.getStringParam("state", ""));
+            result.put("agentName", bestMeta.getStringParam("agentName", ""));
+            result.put("userMessage", bestMeta.getStringParam("userMessage", ""));
+            result.put("roundSeq", bestMeta.getIntParam("roundSeq", 0));
+            result.put("savedAt", best.lastModified());
+            result.put("count", bestMeta.getIntParam("count", 0));
+            return result;
+        } catch (Exception e) { return null; }
+    }
+
+    @Override
     protected void deleteSessionData(String sessionId, String userId) {
         try {
             java.io.File file = findSessionFile(getSessionStorePath(userId), sessionId);

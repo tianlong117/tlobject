@@ -43,6 +43,13 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
     /** 查找最近会话的元数据，返回 null 表示无会话 */
     protected abstract java.util.Map<String, Object> findLatestMeta(String userId);
 
+    /**
+     * 查找该用户最近的断点会话（state=checkpoint），返回 null 表示无断点。
+     * 注意：断点会话不一定是最新会话（断点后用户可能又聊过其他会话）——
+     * 必须按 state 过滤查最近一条 checkpoint，而不是"最近会话再判状态"。
+     */
+    protected abstract java.util.Map<String, Object> findIncompleteMeta(String userId);
+
     /** 删除指定会话的所有数据 */
     protected abstract void deleteSessionData(String sessionId, String userId);
 
@@ -86,6 +93,8 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
     @SuppressWarnings("unchecked")
     private TLMsg doChatAborted(Object fromWho, TLMsg msg) {
         if (!enableCheckpoint) return createMsg().setParam(RESULT, true);
+        // 人为停止（ESC/停止）存为 completed：本轮视为结束，不留断点。
+        // 断点恢复只针对意外死机（进程被杀，agent 来不及收尾时 checkpoint 轮残留）。
         storeRound(buildRoundData(msg, SESSION_STATE_COMPLETED));
         return createMsg().setParam(RESULT, true);
     }
@@ -115,11 +124,10 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
 
     /** 查找最近一个未完成的断点 */
     private TLMsg doFindIncomplete(Object fromWho, TLMsg msg) {
-        java.util.Map<String, Object> meta = findLatestMeta(msg.getStringParam("userId", null));
+        // 查最近的 checkpoint 会话（按 state 过滤，而非"最近会话再判状态"——
+        // 断点后用户可能又聊过其他会话，最近会话是 completed 也应能找到断点）
+        java.util.Map<String, Object> meta = findIncompleteMeta(msg.getStringParam("userId", null));
         if (meta == null) return createMsg().setParam(RESULT, false);
-        String state = (String) meta.getOrDefault("state", "");
-        if (!SESSION_STATE_CHECKPOINT.equals(state))
-            return createMsg().setParam(RESULT, false);
 
         return createMsg()
                 .setParam(RESULT, true)

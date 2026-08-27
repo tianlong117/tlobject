@@ -685,22 +685,37 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     sessionId = resumeSid;
                     busy = true;
                     currentStart = System.currentTimeMillis();
-                    TLMsg m = createMsg()
-                            .setAction("chat")
-                            .setParam(AI_P_SESSIONID, resumeSid)
-                            .setParam("userId", userId)
-                            .setParam(AI_P_USERMESSAGE, resumeMsg2)
-                            .setParam("resume", true);
-                    m.setSystemParam(TASKRESULTFOR, this);
-                    m.setSystemParam(TASKRESULTACTION, "onChatDone");
                     IObject target = (IObject) getModule(serviceModule);
-                    if (target != null) {
-                        TLMsg taskResult = putMsgNoWait(target, m);
-                        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
-                        System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
-                    } else {
+                    if (target == null) {
                         System.out.println("✗ 找不到 agentService 模块");
                         busy = false;
+                        return null;
+                    }
+                    System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
+                    if (streamMode) {
+                        // 流式恢复：与 submitChat 流式分支一致（chatStream + 同步 putMsg，chunk 经 STREAM_ONCHUNK 渲染）
+                        System.out.print("AI > ");
+                        System.out.flush();
+                        TLMsg m = createMsg()
+                                .setAction("chatStream")
+                                .setParam(AI_P_SESSIONID, resumeSid)
+                                .setParam("userId", userId)
+                                .setParam(AI_P_USERMESSAGE, resumeMsg2)
+                                .setParam("resume", true)
+                                .setParam("streamTarget", getName())
+                                .setParam("streamAction", STREAM_ONCHUNK);
+                        putMsg(serviceModule, m);
+                    } else {
+                        TLMsg m = createMsg()
+                                .setAction("chat")
+                                .setParam(AI_P_SESSIONID, resumeSid)
+                                .setParam("userId", userId)
+                                .setParam(AI_P_USERMESSAGE, resumeMsg2)
+                                .setParam("resume", true);
+                        m.setSystemParam(TASKRESULTFOR, this);
+                        m.setSystemParam(TASKRESULTACTION, "onChatDone");
+                        TLMsg taskResult = putMsgNoWait(target, m);
+                        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
                     }
                     return null;
                 }

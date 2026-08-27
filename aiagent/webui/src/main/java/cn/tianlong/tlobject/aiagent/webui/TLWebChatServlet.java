@@ -243,6 +243,7 @@ public class TLWebChatServlet extends HttpServlet {
             sessionId = "webchat_" + userId + "_" + System.currentTimeMillis();
         }
         String reasoningMode = body != null && body.get("reasoningMode") != null ? String.valueOf(body.get("reasoningMode")) : null;
+        boolean resume = body != null && Boolean.TRUE.equals(body.get("resume"));
         TLWebChatModule mod = module();
         if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
         resp.setStatus(200);
@@ -250,7 +251,7 @@ public class TLWebChatServlet extends HttpServlet {
         resp.setCharacterEncoding("UTF-8");
         resp.setHeader("Cache-Control", "no-cache");
         ServletChannel channel = new ServletChannel(resp.getWriter());
-        Map<String, Object> r = mod.beginChatStream(userId, sessionId, message, reasoningMode, channel);
+        Map<String, Object> r = mod.beginChatStream(userId, sessionId, message, reasoningMode, resume, channel);
         if (!Boolean.TRUE.equals(r.get("success"))) {
             channel.close();
             writeJson(resp, 400, r);

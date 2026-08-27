@@ -325,6 +325,12 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                 summarySeedInProgress.set(false);
                 return;
             }
+            // 不足一批不浓缩：碎片继续累积（search 每轮复查触发），与 summaryBatchSize 攒批语义一致。
+            // 原实现 Math.min 只限制批量上限，1-2 条碎片也会立即生成摘要 → 碎片与摘要 1:1 膨胀。
+            if (fragments.size() < summaryBatchSize) {
+                summarySeedInProgress.set(false);
+                return;
+            }
             Thread t = new Thread(() -> {
                 try {
                     TLLlmProvider provider = resolveSummaryProvider(lastAgentName);

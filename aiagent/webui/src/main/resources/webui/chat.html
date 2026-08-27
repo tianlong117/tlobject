@@ -178,6 +178,18 @@
   </div>
 </div>
 
+<!-- ===== 断点恢复提示（登录后检测到上次未正常结束的会话，仿命令行启动提示） ===== -->
+<div id="checkpointModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>⚠ 检测到上次未正常结束的会话</h3>
+    <div id="cpDesc" class="ap-desc"></div>
+    <div class="btn-row">
+      <button class="ok" id="cpResumeBtn">▶ 恢复执行</button>
+      <button class="no" id="cpIgnoreBtn">忽略，开始新对话</button>
+    </div>
+  </div>
+</div>
+
 <div id="toastBox"></div>
 <input type="file" id="fileInput" multiple hidden>
 
