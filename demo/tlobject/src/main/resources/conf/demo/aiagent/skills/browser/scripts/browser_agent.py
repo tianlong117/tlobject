@@ -58,7 +58,18 @@ def _get_text(max_len=5000):
     except Exception:
         return ""
 
-def _screenshot_base64():
+# 整页截图高度上限：超限的无限滚动页面截视口，避免输出巨图（MB 级 base64 拖垮传输/渲染）
+FULLPAGE_MAX_HEIGHT = 12000
+
+def _screenshot_base64(full_page=False):
+    """full_page=True 截整页（限高）。navigate/click/type 的附带预览保持视口（轻量）。"""
+    if full_page:
+        try:
+            h = _page.evaluate("document.documentElement.scrollHeight || document.body.scrollHeight || 0")
+            if h <= FULLPAGE_MAX_HEIGHT:
+                return base64.b64encode(_page.screenshot(full_page=True)).decode()
+        except Exception:
+            pass  # 高度探测失败 → 回落视口截图
     return base64.b64encode(_page.screenshot(full_page=False)).decode()
 
 # ---- actions ----
@@ -91,7 +102,7 @@ def type_text(selector, text, **kwargs):
 def screenshot(**kwargs):
     _ensure_browser()
     return {"ok": True, "url": _page.url, "title": _page.title(),
-            "screenshot_base64": _screenshot_base64()}
+            "screenshot_base64": _screenshot_base64(full_page=True)}
 
 def extract(what="text", **kwargs):
     _ensure_browser()
