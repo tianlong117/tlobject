@@ -216,12 +216,13 @@
                    python -m playwright install chromium
              启用: statup="true" -->
         <skill name="browser"
-               sameClassAs="scriptExecutionSkill"
+               sameClassAs="browserSkill"
                statup="true"
                interpreter="python"
                maxExecutionTime="60"
+               idleTimeoutSeconds="300"
                allowedScriptDir="skills/browser/scripts"
-               skillDescription="Browser automation via Playwright. Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. Start with navigate to open a page, then use click/type/extract as needed."/>
+               skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
         <skill name="desktop"
                sameClassAs="scriptExecutionSkill"
                statup="true"

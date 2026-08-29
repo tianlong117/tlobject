@@ -28,6 +28,8 @@
                 singleton="true"/>
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"
                 singleton="true"/>
+        <module name="browserSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBrowserSkill"
+                singleton="true"/>
         <module name="mcpAgent" classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent" singleton="false"/>
         <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
         <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
