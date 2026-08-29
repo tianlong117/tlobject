@@ -2050,7 +2050,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 cleanupStreamState(sessionId);
             }
         } else if (msg.containsParam(AI_P_STREAMERROR)) {
-            // Provider 流式错误：清理状态并转发
+            // Provider 流式错误。人为停止（stopChat 置 cancelFlags）时 LLM 流被 cancel
+            // 触发此分支：收尾为 completed 不留断点（主动停止=放弃执行，重新进入不再提示
+            // 恢复）；非人为错误（网络故障/Provider 报错）保持 checkpoint，供恢复。
+            if (cancelled.get()) {
+                notifySessionManager(createMsg()
+                        .setAction("chatAborted")
+                        .setParam("sessionId", sessionId)
+                        .setParam("userId", streamUserId)
+                        .setParam("agentName", name)
+                        .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
+                        .setParam("messages", deltaMessages(getContextHistory(sessionId),
+                                sessionMsgStartIdx.getOrDefault(sessionId, 0)))
+                        .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
+                putLog("Chat aborted by user (stream cancel): sessionId=" + sessionId, LogLevel.INFO);
+            }
+            // 清理状态并转发
             cleanupStreamState(sessionId);
             TLMsg errMsg = createMsg()
                     .setAction(resultAction)
