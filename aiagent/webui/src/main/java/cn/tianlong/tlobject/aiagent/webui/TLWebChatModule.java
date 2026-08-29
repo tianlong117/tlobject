@@ -699,6 +699,12 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         boolean hasErr = msg.containsParam(AI_P_STREAMERROR);
         Map<String, Object> evt = new LinkedHashMap<>();
         if (msg.containsParam(AI_P_CHUNK)) evt.put("chunk", msg.getStringParam(AI_P_CHUNK, ""));
+        // 工具完成事件（TLAiAgent pushStreamToolEvent 推来）：前端渲染工具结果/截图
+        if (msg.containsParam("toolEvent")) {
+            evt.put("toolEvent", true);
+            evt.put("toolName", msg.getStringParam("toolName", ""));
+            evt.put("toolOutput", msg.getStringParam("toolOutput", ""));
+        }
         if (done || hasErr) {
             evt.put("done", true);
             if (hasErr) evt.put("error", msg.getStringParam(AI_P_STREAMERROR, ""));

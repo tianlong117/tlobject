@@ -213,6 +213,36 @@ function appendMsg(role, content) {
   scrollChat();
   return d;
 }
+/** 从工具输出 JSON 中提取 screenshot_base64（browser 截图），无则 null */
+function extractScreenshot(output) {
+  if (!output) return null;
+  const m = output.match(/"screenshot_base64"\s*:\s*"([A-Za-z0-9+/=]+)"/);
+  return m ? m[1] : null;
+}
+/** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏） */
+function renderToolResult(toolName, output) {
+  const d = document.createElement('div');
+  d.className = 'msg tool-result';
+  const title = document.createElement('div');
+  title.className = 'tool-title';
+  title.textContent = '🔧 ' + (toolName || '工具') + ' 完成';
+  d.appendChild(title);
+  const shot = extractScreenshot(output);
+  if (shot) {
+    const img = document.createElement('img');
+    img.className = 'browser-shot';
+    img.src = 'data:image/png;base64,' + shot;
+    img.loading = 'lazy';
+    d.appendChild(img);
+  }
+  const det = document.createElement('details');
+  det.className = 'tool-detail';
+  det.innerHTML = '<summary>' + (shot ? '原始输出 (' + Math.round(output.length / 1024) + 'KB)' : '输出') + '</summary>' + esc(output);
+  d.appendChild(det);
+  $('#msgList').appendChild(d);
+  scrollChat();
+  return d;
+}
 function startAssistantMsg() {
   const d = document.createElement('div');
   d.className = 'msg ai';
@@ -378,6 +408,11 @@ async function streamChat(msg, opts) {
             if (holder.cursor.parentNode) holder.cursor.remove();
             holder.el.textContent = (holder.el.textContent || '') + evt.chunk;
             scrollChat();
+            armIdle();
+          }
+          if (evt.toolEvent) {
+            clearIdle();
+            renderToolResult(evt.toolName, evt.toolOutput);
             armIdle();
           }
           if (evt.reasoning) reasoningBuf = evt.reasoning;
@@ -580,7 +615,9 @@ async function continueSession(sid, silent) {
       $('#msgList').innerHTML = '';
       appendSysMsg('已恢复会话 ' + state.sessionId + ' (' + (r.data.count || 0) + ' 条历史)');
       (r.data.history || []).forEach(h => {
-        if (h && h.role !== 'system' && h.content) appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
+        if (!h || h.role === 'system' || !h.content) return;
+        if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（含截图）
+        appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
       });
       // 会话占用声明（登录级互斥）：
       // silent（登录自动接续）→ 静默登记，被占用仅提示不接管；

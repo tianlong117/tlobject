@@ -2727,11 +2727,31 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         List<TLToolExecutor.ToolResult> results =
                 (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
         if (results != null) {
-            for (TLToolExecutor.ToolResult r : results) {
+            for (int i = 0; i < results.size(); i++) {
+                TLToolExecutor.ToolResult r = results.get(i);
                 history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
+                // 实时工具事件：流式调用方（webui）据此渲染工具结果/截图；tasks 与 results 按序对齐
+                pushStreamToolEvent(sessionId,
+                        i < tasks.size() ? tasks.get(i).functionName : r.toolCallId, r.output);
             }
         }
         return execResult;
+    }
+
+    /** 向流式调用方推送工具完成事件（webui 渲染工具结果卡/截图；非流式调用方无转发表则静默跳过） */
+    private void pushStreamToolEvent(String sessionId, String toolName, String output) {
+        String[] fwd = streamForwardMap.get(sessionId);
+        if (fwd == null || output == null) return;
+        try {
+            TLMsg evt = createMsg().setAction(fwd[1])
+                    .setParam("toolEvent", true)
+                    .setParam("toolName", toolName != null ? toolName : "tool")
+                    .setParam("toolOutput", output)
+                    .setParam(AI_P_SESSIONID, sessionId);
+            putMsg(fwd[0], evt);
+        } catch (Exception e) {
+            putLog("pushStreamToolEvent error: " + e.toString(), LogLevel.WARN);
+        }
     }
 
     /**
