@@ -219,6 +219,19 @@ function extractScreenshot(output) {
   const m = output.match(/"screenshot_base64"\s*:\s*"([A-Za-z0-9+/=]+)"/);
   return m ? m[1] : null;
 }
+/** 双击原图：全屏 lightbox 查看，点击遮罩关闭（懒创建单例） */
+function showLightbox(src) {
+  let lb = document.getElementById('lightbox');
+  if (!lb) {
+    lb = document.createElement('div');
+    lb.className = 'lightbox hidden';
+    lb.innerHTML = '<img alt="原图">';
+    lb.addEventListener('click', () => lb.classList.add('hidden'));
+    document.body.appendChild(lb);
+  }
+  lb.querySelector('img').src = src;
+  lb.classList.remove('hidden');
+}
 /** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏） */
 function renderToolResult(toolName, output) {
   const d = document.createElement('div');
@@ -233,6 +246,8 @@ function renderToolResult(toolName, output) {
     img.className = 'browser-shot';
     img.src = 'data:image/png;base64,' + shot;
     img.loading = 'lazy';
+    img.title = '双击查看原图';
+    img.addEventListener('dblclick', () => showLightbox(img.src));
     d.appendChild(img);
   }
   const det = document.createElement('details');

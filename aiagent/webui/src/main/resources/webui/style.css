@@ -53,7 +53,11 @@ main { display: flex; flex: 1; min-height: 0; }
 .msg .cursor { display: inline-block; width: 8px; height: 16px; background: #93c5fd; vertical-align: text-bottom; animation: blink 1s infinite; }
 .msg.tool-result { align-self: flex-start; background: #1c2430; border: 1px solid #2f3b4d; border-left: 3px solid #5b8def; padding: 8px 12px; }
 .msg.tool-result .tool-title { font-size: 12px; color: #8fb5ff; margin-bottom: 4px; }
-.msg.tool-result .browser-shot { max-width: 100%; border: 1px solid #2f3b4d; border-radius: 6px; margin: 4px 0; display: block; }
+.msg.tool-result .browser-shot { max-width: 100%; max-height: 260px; width: auto; height: auto; border: 1px solid #2f3b4d; border-radius: 6px; margin: 4px 0; display: block; cursor: zoom-in; }
+/* 双击原图：全屏 lightbox 查看 */
+.lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); z-index: 999; display: flex; align-items: center; justify-content: center; cursor: zoom-out; }
+.lightbox.hidden { display: none; }
+.lightbox img { max-width: 95%; max-height: 95%; object-fit: contain; border-radius: 4px; box-shadow: 0 0 30px rgba(0,0,0,.6); }
 .msg.tool-result .tool-detail { font-size: 12px; color: #8b93a5; margin-top: 4px; }
 .msg.tool-result .tool-detail summary { cursor: pointer; color: #7ea3e0; }
 @keyframes blink { 50% { opacity: 0; } }
