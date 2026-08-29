@@ -203,12 +203,24 @@ public class TLOpenAiProvider extends TLLlmProvider {
 
             // 解析文本内容
             if (message.has("content") && !message.get("content").isJsonNull()) {
-                result.setParam(AI_P_RESPONSE, message.get("content").getAsString());
+                String content = message.get("content").getAsString();
+                // DeepSeek 推理模型偶发：答案全部输出在 reasoning_content 而 content 为空串 →
+                // 提升 reasoning 为正文兜底（空 assistant 消息会被 API 400 拒绝，且用户看不到结果）
+                if (content.isEmpty()) {
+                    String reasoning = message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()
+                            ? message.get("reasoning_content").getAsString() : "";
+                    if (!reasoning.isEmpty()) content = reasoning;
+                }
+                result.setParam(AI_P_RESPONSE, content);
             }
 
             // 解析 reasoning_content (DeepSeek R1/V3.1/V4 原生推理)
             if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) {
-                result.setParam(AI_P_REASONING, message.get("reasoning_content").getAsString());
+                String reasoning = message.get("reasoning_content").getAsString();
+                // 已被提升为正文（content 为空场景）时不再单独暴露，避免重复渲染/重复入史
+                if (!reasoning.equals(result.getStringParam(AI_P_RESPONSE, ""))) {
+                    result.setParam(AI_P_REASONING, reasoning);
+                }
             }
 
             // 解析tool_calls
@@ -493,10 +505,17 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                 }
                             }
                             // 发送完成信号
+                            String finalContent = contentBuilder.toString();
+                            // DeepSeek 推理模型偶发：答案全部输出在 reasoning_content 而 content 为空 →
+                            // 提升为正文兜底（空响应在 agent 层只会存占位符，用户看不到结果）
+                            if (finalContent.isEmpty() && reasoningBuilder.length() > 0) {
+                                finalContent = reasoningBuilder.toString();
+                                reasoningBuilder.setLength(0); // 已提升，doneMsg 不再重复携带
+                            }
                             TLMsg doneMsg = createMsg()
                                     .setAction(resultAction)
                                     .setParam(AI_P_STREAMDONE, true)
-                                    .setParam(AI_P_RESPONSE, contentBuilder.toString())
+                                    .setParam(AI_P_RESPONSE, finalContent)
                                     .setParam(AI_P_SESSIONID, sessionId);
                             if (reasoningBuilder.length() > 0) {
                                 doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());

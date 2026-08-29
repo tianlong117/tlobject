@@ -1280,7 +1280,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             }
                         }
                         finalResponse = execResult.getStringParam("finalResponse", "");
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                        // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
+                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                                finalResponse.isEmpty() ? "（无输出）" : finalResponse));
                         finalDirect = true;
                         break;
                     }
@@ -1893,7 +1895,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
                             if (!moreToolCalls || moreTCs == null || moreTCs.isEmpty()) {
                                 finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
-                                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                                // 空响应：历史里放占位符（与 doChat 流式/非流式分支一致——空 assistant
+                                // 消息会被 DeepSeek 400 拒绝，且随上下文存续污染后续回合）
+                                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                                        finalResponse.isEmpty() ? "（无输出）" : finalResponse));
                                 break;
                             }
 

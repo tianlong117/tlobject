@@ -245,7 +245,9 @@ public class TLRoutingProvider extends TLLlmProvider {
                     .setAction(LLM_COMPLETION)
                     .setParam(AI_P_MESSAGEHISTORY, ctx)
                     .setParam(AI_P_MODEL, simpleModel != null ? simpleModel : defaultModel)
-                    .setParam(AI_P_MAXTOKENS, 10)
+                    // 10 会被推理模型（deepseek-v4-flash 等）的 reasoning 吃光 → 永远空响应（content=""），
+                    // 分类必然 fallback。给足预算让模型能推理完并输出 simple/complex
+                    .setParam(AI_P_MAXTOKENS, 256)
                     .setParam(AI_P_TEMPERATURE, 0.0);
             TLMsg result = putMsg(delegateProvider, classifyMsg);
 
