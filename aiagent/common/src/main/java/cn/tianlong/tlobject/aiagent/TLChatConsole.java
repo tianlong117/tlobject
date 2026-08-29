@@ -810,7 +810,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
 
             case "trace":
-                // /trace —— 环节骨架；/trace llm —— 完整 LLM 链路（含 messages/响应/最终输出内容）
+                // /trace —— 环节骨架；/trace llm —— 完整 LLM 链路；/trace replay <N> —— 从第 N 个环节断点重放
+                if (parts.length > 1 && "replay".equalsIgnoreCase(parts[1])) {
+                    if (parts.length < 3) {
+                        System.out.println("用法: /trace replay <环节序号N>（N 为 /trace 表格的 # 列，先 /trace 查看）");
+                        return null;
+                    }
+                    int idx;
+                    try {
+                        idx = Integer.parseInt(parts[2]);
+                    } catch (NumberFormatException e) {
+                        System.out.println("环节序号必须是数字: /trace replay <N>");
+                        return null;
+                    }
+                    if (idx < 1) {
+                        System.out.println("环节序号从 1 开始（/trace 表格的 # 列）");
+                        return null;
+                    }
+                    return startTraceReplay(idx);
+                }
                 if (parts.length > 1 && "llm".equalsIgnoreCase(parts[1])) {
                     msg.setAction("traceLlm").setParam(AI_P_SESSIONID, sessionId);
                 } else {
@@ -1487,6 +1505,35 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     // ======================== Chat 交互 ========================
 
     /** 异步提交 chat */
+    /** /trace replay <N>：从最新一轮第 N 个环节断点重放（异步执行，结果经 onChatDone 渲染） */
+    private TLMsg startTraceReplay(int idx) {
+        if (busy) {
+            System.out.println("⏳ 运行中，请等待当前任务完成");
+            return null;
+        }
+        busy = true;
+        currentStart = System.currentTimeMillis();
+        IObject target = (IObject) getModule(serviceModule);
+        if (target == null) {
+            System.out.println("✗ 找不到 agentService 模块");
+            busy = false;
+            return null;
+        }
+        System.out.println("✓ 正在从环节 " + idx + " 重放...");
+        TLMsg m = createMsg()
+                .setAction("traceReplay")
+                .setParam(AI_P_SESSIONID, sessionId)
+                .setParam("userId", userId)
+                .setParam("index", idx);
+        m.setSystemParam(TASKRESULTFOR, this);
+        m.setSystemParam(TASKRESULTACTION, "onChatDone");
+        TLMsg taskResult = putMsgNoWait(target, m);
+        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+        // 等待期间显示思考动画（结果到达时 stopThinking 清行）
+        startThinking("AI >");
+        return null;
+    }
+
     private void submitChat(String input) {
         TLMsg msg;
         if (streamMode) {

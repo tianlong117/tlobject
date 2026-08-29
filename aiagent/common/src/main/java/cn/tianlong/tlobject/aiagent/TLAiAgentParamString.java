@@ -181,6 +181,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_ROOTSESSIONID = "rootSessionId";
     /** 轮次 ID（doChat 每轮生成，SessionManager 按轮落盘；全链追踪的关联键） */
     String AI_P_ROUNDID = "roundId";
+    /** LLM 消息直入（trace 定点重放等）：调用方提供完整 messages 列表，agent 直接以其为历史进入迭代循环，不追加用户消息 */
+    String AI_P_LLMINPUT = "llmInput";
     String AI_P_USERMESSAGE = "userMessage";
     String AI_P_SYSTEMMESSAGE = "systemMessage";
     String AI_P_CONVERSATIONID = "conversationId";

@@ -69,7 +69,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
         ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
         ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
-        ACTION_REGISTRY.put("traceLlm", "查看最新一轮完整 LLM 链路（messages → LLM 响应 → 最终输出）");
+        // 注册表键即补全列表里的命令形态——带空格小写，与 /help 一致（dispatch 仍用 traceLlm/traceReplay 字面量）
+        ACTION_REGISTRY.put("trace llm", "查看最新一轮完整 LLM 链路（messages → LLM 响应 → 最终输出）");
+        ACTION_REGISTRY.put("trace replay", "从最新一轮第 N 个环节断点重放（/trace replay <N>，结果为新的一轮）");
         ACTION_REGISTRY.put("stats", "Token 统计：当前会话 + 进程合计 + DB 历史合计");
         // 注册表键即补全列表里的命令形态——带空格，与 /help 一致（dispatch 仍用 statsAll/statsAgent 字面量）
         ACTION_REGISTRY.put("stats all", "列出内存中所有会话的 Token 明细");
@@ -139,6 +141,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             // ── 全链追踪 ──
             case "trace":           return doTrace(fromWho, msg);
             case "traceLlm":        return doTraceLlm(fromWho, msg);
+            case "traceReplay":     return doTraceReplay(fromWho, msg);
             case "stats":           return doStats(fromWho, msg);
             case "statsAll":        return doStatsAll(fromWho, msg);
             case "statsAgent":      return doStatsAgent(fromWho, msg);
@@ -914,6 +917,128 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (stages.isEmpty()) return ok("无环节记录", stages);
         return ok("最新一轮完整链路 (" + stages.size() + " 条, root=" + rootSid
                 + ", round=" + result.getStringParam(AI_P_ROUNDID, "") + ")", stages);
+    }
+
+    /**
+     * /trace replay &lt;N&gt;：从最新一轮的第 N 个环节（/trace 表格 # 列，1-based）断点重放。
+     * 数据源 = 会话存储（loadRound 取该轮完整 messages；trace payload 是截断展示文本不可用）。
+     * 定位 = 选中环节之前主 agent 的 llmRequest 数 k → 截到前 k 个工具对完成之后，
+     * 以 LLM 消息直入（llmInput）发给 agent 续跑，结果作为新的一轮（原轮保留）。
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doTraceReplay(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        String userId = msg.getStringParam("userId", "console_user");
+        int index = msg.getIntParam("index", 0);
+        if (index < 1) return fail("环节序号从 1 开始（/trace 表格的 # 列）");
+
+        // 1. 取最新一轮环节表
+        String rootSid = sessionId;
+        TLMsg trace = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
+                .setParam("rootSessionId", rootSid));
+        if (trace == null) return fail("agentMonitor 未注册");
+        List<TLAgentMonitor.StageRecord> stages = (List<TLAgentMonitor.StageRecord>)
+                trace.getListParam("stages", new ArrayList<>());
+        if (stages.isEmpty()) return fail("无环节记录，请先跑一轮对话");
+        if (index > stages.size()) return fail("环节序号越界（本轮共 " + stages.size() + " 个环节）");
+        String roundId = trace.getStringParam(AI_P_ROUNDID, "");
+        if (roundId.isEmpty()) return fail("未找到最新轮次 ID");
+
+        TLAgentMonitor.StageRecord selected = stages.get(index - 1);
+        if ("roundEnd".equals(selected.stage))
+            return fail("环节 " + index + " 为 roundEnd（轮已结束），无可重放环节");
+
+        // 2. 取该轮完整消息（loadRound 按 roundId+agentName 过滤，防御子 agent 覆盖行）
+        String owner = targetAgent(msg);
+        TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("loadRound")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", userId)
+                .setParam("roundId", roundId)
+                .setParam("agentName", owner));
+        if (loaded == null || !loaded.parseBoolean(RESULT, false))
+            return fail(loaded != null ? loaded.getStringParam("error", "加载轮次失败") : "sessionManager 未注册");
+        List<TLConversationHistory> msgs = (List<TLConversationHistory>) loaded.getParam("history");
+        String userMessage = loaded.getStringParam(AI_P_USERMESSAGE, "");
+        if (msgs == null || msgs.isEmpty()) return fail("该轮消息为空，无法重放");
+
+        // 3. 定位断点：选中环节之前主 agent 的 llmRequest 数 k（数环节不解析文本，子 agent 环节天然跳过）
+        int k = 0;
+        for (int i = 0; i < index - 1; i++) {
+            TLAgentMonitor.StageRecord s = stages.get(i);
+            if ("llmRequest".equals(s.stage) && owner.equals(s.agentName)) k++;
+        }
+        int cutIndex;
+        if (k == 0) {
+            cutIndex = 1;  // 选 roundStart → 整轮重跑（截到 user 之后）
+        } else {
+            cutIndex = findPairEnd(msgs, k);
+            if (cutIndex < 0)
+                return fail("轮次消息不完整（第 " + k + " 个工具调用无配对结果），无法重放");
+        }
+        if (cutIndex > msgs.size()) cutIndex = msgs.size();
+        List<TLConversationHistory> truncated = new ArrayList<>(msgs.subList(0, cutIndex));
+
+        // 4. 组装 chat：LLM 消息直入（llmInput）+ 新 roundId（上游优先，doChat 直接采用）
+        String newRoundId = "r_" + System.currentTimeMillis();
+        TLMsg chatMsg = createMsg()
+                .setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam("userId", userId)
+                .setSystemParam(AI_P_ROOTSESSIONID, rootSid)
+                .setSystemParam(AI_P_ROUNDID, newRoundId)
+                .setParam(AI_P_USERMESSAGE, userMessage)
+                .setParam(AI_P_LLMINPUT, truncated)
+                .setParam("replayOriginRoundId", roundId)
+                .setParam("replayStageIndex", index);
+
+        TLMsg result = putMsg(owner, chatMsg);
+        if (result == null) return fail("Agent 无响应");
+        boolean success = result.parseBoolean(RESULT, false);
+        Map<String, Object> data = new HashMap<>();
+        data.put("newRoundId", newRoundId);
+        data.put("stage", selected.stage);
+        data.put("index", index);
+        return createMsg()
+                .setParam("success", success)
+                .setParam("message", "已从环节 " + index + " 重放 (stage=" + selected.stage
+                        + ")，新轮 roundId=" + newRoundId)
+                .setParam(AI_P_RESPONSE, result.getStringParam(AI_P_RESPONSE, ""))
+                .setParam("data", data);
+    }
+
+    /**
+     * 找第 k 条 assistant(tool_calls) 之后其 tool 结果连续段的结束位置（截断点，开区间）。
+     * 跳过匹配 toolCallId 的 tool 消息与 reasoning 条目；找不到返回 -1。
+     */
+    private int findPairEnd(List<TLConversationHistory> msgs, int k) {
+        int assistantCount = 0;
+        for (int i = 0; i < msgs.size(); i++) {
+            TLConversationHistory m = msgs.get(i);
+            if (m.isAssistantWithToolCalls()) {
+                assistantCount++;
+                if (assistantCount == k) {
+                    java.util.Set<String> ids = new java.util.HashSet<>();
+                    for (TLToolCall tc : m.getToolCalls()) {
+                        if (tc.getId() != null) ids.add(tc.getId());
+                    }
+                    int j = i + 1;
+                    while (j < msgs.size()) {
+                        TLConversationHistory n = msgs.get(j);
+                        if (n.getRole() == TLConversationHistory.Role.tool
+                                && n.getToolCallId() != null && ids.contains(n.getToolCallId())) {
+                            j++;
+                        } else if (n.getRole() == TLConversationHistory.Role.reasoning) {
+                            j++;
+                        } else {
+                            break;
+                        }
+                    }
+                    return j;
+                }
+            }
+        }
+        return -1;
     }
 
     /** /stats 命令：三段输出——当前会话 + 进程级合计 + DB 历史合计 */

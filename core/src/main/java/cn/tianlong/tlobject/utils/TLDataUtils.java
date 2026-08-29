@@ -107,16 +107,18 @@ public class TLDataUtils {
         else
             return defaultValue ;
     }
+    // 数值参数统一按 Number 转换：Java 调用传 Integer/Long，webui JSON 经 Gson 解析为 Double——
+    // 严格类型匹配（只认 Integer/Long/Double）会误返默认值，是"参数丢失"类 bug 的常见根因
     public static Long getLongParam( Object value ,Long defaultValue)
     {
-       if (value !=null && value  instanceof Long )
-            return (Long)value;
+       if (value instanceof Number )
+            return ((Number) value).longValue();
         return defaultValue ;
     }
     public static Double getDoubleParam( Object value ,Double defaultValue)
     {
-       if (value !=null && value  instanceof Double )
-            return (Double)value;
+       if (value instanceof Number )
+            return ((Number) value).doubleValue();
         return defaultValue ;
     }
     public static String getStringParam( Object value ,String defaultValue)
@@ -127,8 +129,8 @@ public class TLDataUtils {
     }
     public static int getIntParam( Object value ,int defaultValue)
     {
-        if (value !=null && value instanceof Integer )
-            return (int)value;
+        if (value instanceof Number )
+            return ((Number) value).intValue();
         return defaultValue ;
     }
     public static boolean getBooleanParam( Object value ,boolean defaultValue)
@@ -139,8 +141,8 @@ public class TLDataUtils {
     }
     public static byte getByteParam( Object value ,byte defaultValue)
     {
-        if (value !=null && value  instanceof Byte )
-            return (byte) value;
+        if (value instanceof Number )
+            return ((Number) value).byteValue();
         return defaultValue ;
     }
     public static Map getMapParam( Object value ,Map defaultValue)

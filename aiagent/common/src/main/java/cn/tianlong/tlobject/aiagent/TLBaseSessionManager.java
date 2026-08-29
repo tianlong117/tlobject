@@ -67,6 +67,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "findIncomplete":  return doFindIncomplete(fromWho, msg);
             case "listSessions":    return doListSessions(fromWho, msg);
             case "loadSession":     return doLoadSession(fromWho, msg);
+            case "loadRound":       return doLoadRound(fromWho, msg);
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             default: return null;
@@ -155,6 +156,58 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         if (assembled == null)
             return createMsg().setParam(RESULT, false).setParam("error", "No checkpoint found");
         return assembled;
+    }
+
+    /**
+     * 加载指定轮次（roundId + agentName）的完整消息——trace 定点重放的数据源。
+     * 同 roundId 多行取最后一条（storeRound 对同 roundId 删后插，last-wins 语义与 assembleSession 一致）。
+     * agentName 过滤防御：子 agent 若开了 checkpoint 会以相同 (session_id, round_id) 覆盖父行。
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doLoadRound(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", null);
+        String roundId = msg.getStringParam("roundId", "");
+        String agentName = msg.getStringParam("agentName", "");
+        if (sessionId.isEmpty() || roundId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId/roundId 必填");
+
+        java.util.List<java.util.Map<String, Object>> rounds = loadRoundData(sessionId, userId);
+        if (rounds == null || rounds.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "轮次消息未持久化: " + roundId);
+
+        java.util.Map<String, Object> target = null;
+        for (java.util.Map<String, Object> r : rounds) {
+            if (roundId.equals(r.get("roundId"))
+                    && (agentName.isEmpty() || agentName.equals(r.get("agentName")))) {
+                target = r;  // last-wins
+            }
+        }
+        if (target == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "轮次消息未持久化: " + roundId);
+
+        List<TLConversationHistory> history = new ArrayList<>();
+        Object msgs = target.get("messages");
+        if (msgs instanceof List) {
+            for (Object m : (List<?>) msgs) {
+                if (m instanceof TLConversationHistory)
+                    history.add((TLConversationHistory) m);
+            }
+        }
+
+        TLMsg result = new TLMsg();
+        result.setParam(RESULT, true);
+        result.setParam("sessionId", target.getOrDefault("sessionId", ""));
+        result.setParam("roundId", target.getOrDefault("roundId", ""));
+        result.setParam("state", target.getOrDefault("state", ""));
+        result.setParam("agentName", target.getOrDefault("agentName", ""));
+        result.setParam("userMessage", target.getOrDefault("userMessage", ""));
+        result.setParam("model", target.getOrDefault("model", ""));
+        result.setParam("temperature", target.getOrDefault("temperature", 0.7));
+        result.setParam("maxTokens", target.getOrDefault("maxTokens", 4096));
+        result.setParam("history", history);
+        result.setParam("count", history.size());
+        return result;
     }
 
     /** 继续历史会话 */

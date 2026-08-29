@@ -218,6 +218,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         out.put("message", result.getStringParam("message", ""));
         if (result.containsParam("error")) out.put("error", result.getStringParam("error", ""));
         if (result.containsParam("data")) out.put("data", toJsonable(result.getParam("data")));
+        // 透传最终回答（如 traceReplay 重放结果），供前端直接展示
+        if (result.containsParam(AI_P_RESPONSE)) out.put("response", result.getStringParam(AI_P_RESPONSE, ""));
         return out;
     }
 

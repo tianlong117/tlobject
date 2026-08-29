@@ -44,11 +44,12 @@ public class TLMapUtils {
             return (String)value;
         return defaultValue ;
     }
+    // 数值参数统一按 Number 转换（webui JSON 经 Gson 解析为 Double，严格类型匹配会误返默认值）
     public static int getIntParam(Map map,String param ,int defaultValue)
     {
         Object value  =getValue( map, param ,defaultValue);
-        if (value instanceof Integer )
-            return (int)value;
+        if (value instanceof Number )
+            return ((Number) value).intValue();
         return defaultValue ;
     }
     public static boolean getBooleanParam(Map map,String param ,boolean defaultValue)
@@ -61,8 +62,8 @@ public class TLMapUtils {
     public static byte getByteParam(Map map,String param ,byte defaultValue)
     {
         Object value  =getValue( map, param ,defaultValue);
-        if (value instanceof Byte )
-            return (byte) value;
+        if (value instanceof Number )
+            return ((Number) value).byteValue();
         return defaultValue ;
     }
     public static Map getMapParam(Map map,String param ,Map defaultValue)

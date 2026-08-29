@@ -985,6 +985,8 @@ async function testCmd(mode) {
 const STAGE_CN = { roundStart: '轮次开始', llmRequest: '发送LLM', llmResponse: 'LLM返回',
   toolStart: '工具开始', toolEnd: '工具结束', approvalRequested: '请求审批', roundEnd: '轮次结束' };
 const TRACE_HEADERS = [['time', '时间'], ['stage', '环节'], ['agent', 'Agent'], ['dur', '耗时'], ['detail', '摘要']];
+// 最近一次查询的原始 stages（重放按钮按下标取环节）
+let lastTraceStages = null;
 function fmtTraceTime(ts) {
   const d = new Date(ts);
   const p = x => String(x).padStart(2, '0');
@@ -1008,7 +1010,15 @@ async function doTrace() {
     if (r.success) {
       const arr = Array.isArray(r.data) ? r.data : [];
       if (arr.length) {
-        renderTable(box, TRACE_HEADERS, toTraceRows(arr), null);
+        lastTraceStages = arr;
+        // 手拼表格（renderTable 不支持操作列）：每行末加「▶ 重放」（roundEnd 行无按钮）
+        const rows = toTraceRows(arr);
+        let h = '<table class="tbl"><tr>' + TRACE_HEADERS.map(x => '<th>' + esc(x[1]) + '</th>').join('') + '<th>操作</th></tr>';
+        arr.forEach((s, i) => {
+          const act = s.stage === 'roundEnd' ? '' : '<button onclick="replayTrace(' + i + ')">▶ 重放</button>';
+          h += '<tr>' + TRACE_HEADERS.map(x => '<td>' + esc(rows[i][x[0]]) + '</td>').join('') + '<td>' + act + '</td></tr>';
+        });
+        box.innerHTML = h + '</table>';
       } else {
         renderPre(box, ['（无环节记录）']);
       }
@@ -1026,13 +1036,16 @@ async function doTraceLlm() {
     if (r.success) {
       const arr = Array.isArray(r.data) ? r.data : [];
       if (arr.length) {
-        // 表格行与 payload 折叠块交错：每条环节行下方紧跟其完整内容（跨列单元格）
+        lastTraceStages = arr;
+        // 表格行与 payload 折叠块交错：每条环节行下方紧跟其完整内容（跨列单元格）；
+        // 每行末加「▶ 重放」（roundEnd 行无按钮）
         const rows = toTraceRows(arr);
-        let h = '<table class="tbl"><tr>' + TRACE_HEADERS.map(x => '<th>' + esc(x[1]) + '</th>').join('') + '</tr>';
+        let h = '<table class="tbl"><tr>' + TRACE_HEADERS.map(x => '<th>' + esc(x[1]) + '</th>').join('') + '<th>操作</th></tr>';
         arr.forEach((s, i) => {
-          h += '<tr>' + TRACE_HEADERS.map(x => '<td>' + esc(rows[i][x[0]]) + '</td>').join('') + '</tr>';
+          const act = s.stage === 'roundEnd' ? '' : '<button onclick="replayTrace(' + i + ')">▶ 重放</button>';
+          h += '<tr>' + TRACE_HEADERS.map(x => '<td>' + esc(rows[i][x[0]]) + '</td>').join('') + '<td>' + act + '</td></tr>';
           if (s.payload) {
-            h += '<tr><td colspan="' + TRACE_HEADERS.length + '"><details><summary>[' + (i + 1) + '] ' + esc(STAGE_CN[s.stage] || s.stage) + ' - ' + esc(s.detail || '') + '</summary><pre>' + esc(s.payload) + '</pre></details></td></tr>';
+            h += '<tr><td colspan="' + (TRACE_HEADERS.length + 1) + '"><details><summary>[' + (i + 1) + '] ' + esc(STAGE_CN[s.stage] || s.stage) + ' - ' + esc(s.detail || '') + '</summary><pre>' + esc(s.payload) + '</pre></details></td></tr>';
           }
         });
         box.innerHTML = h + '</table>';
@@ -1043,6 +1056,31 @@ async function doTraceLlm() {
       box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
     }
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+
+/** trace 定点重放：从第 i 个环节（0-based）重新执行后半段，结果作为新的一轮 */
+async function replayTrace(i) {
+  const s = lastTraceStages ? lastTraceStages[i] : null;
+  if (!s || s.stage === 'roundEnd') return;
+  if (!confirm('从环节 ' + (i + 1) + '（' + (STAGE_CN[s.stage] || s.stage) + '）重放？\n将重新执行该环节及之后的部分，结果作为新的一轮。')) return;
+  const box = $('#replayResult');
+  box.innerHTML = '<div class="empty">重放中（' + (STAGE_CN[s.stage] || s.stage) + '）...</div>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const r = await apiCommand('traceReplay', { sessionId: state.sessionId, index: i + 1 });
+    if (r.success) {
+      // 重放结果进聊天交互界面（新的一轮）：系统标签 + AI 回答气泡
+      appendSysMsg('↺ 已从环节 ' + (i + 1) + '（' + (STAGE_CN[s.stage] || s.stage) + '）重放：' + (r.message || ''));
+      if (r.response) appendMsg('ai', r.response);
+      // 结果区仅保留状态行
+      box.innerHTML = '<div class="ok-msg">✓ ' + esc(r.message || '重放完成') + '</div>';
+      doTrace();   // 刷新环节表（monitor 已切到新轮）
+    } else {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+    }
+  } catch (e) {
+    box.innerHTML = '<div class="fail-msg">✗ ' + esc(e.message) + '</div>';
+  }
 }
 async function doStats() {
   const box = $('#traceBox');

@@ -947,6 +947,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     putLog("Resumed from checkpoint: sessionId=" + sessionId + " iter=" + iteration
                             + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
                 }
+            } else if (msg.containsParam(AI_P_LLMINPUT)) {
+                // LLM 消息直入：调用方已提供完整 messages（如 trace 定点重放），
+                // 不再追加用户消息——以注入 messages 为历史直接进入迭代循环
+                @SuppressWarnings("unchecked")
+                List<TLConversationHistory> input =
+                        (List<TLConversationHistory>) msg.getParam(AI_P_LLMINPUT);
+                history = withContextSystem(input);   // 补 index0 system（会话增量不含）
+                msgStartIdx = 0;                      // 通知落盘全量（新 roundId 新行，无覆盖）
+                sessionMsgStartIdx.put(sessionId, 0);
+                // 与正常分支一致：摘要衔接 + 记忆注入（只进发送视图）
+                coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+                sessionCoverSeq.put(sessionId, coverSeq);
+                if (memoryContext != null && !memoryContext.isEmpty()) {
+                    sessionMemoryContext.put(sessionId, memoryContext);
+                }
             } else {
                 // 正常流程：从 context 构建历史（全量，摘要模式不 trim）。
                 // noHistory 模式：不载入历史（每次白纸）——子 agent 无记忆召回时
@@ -1391,7 +1406,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     // 缓存统计（本次 chat）
                     .setParam(AI_P_CACHECREATIONTOKENS, (int) cacheTurn[0])
                     .setParam(AI_P_CACHEHITTOKENS, (int) cacheTurn[1])
-                    .setParam(AI_P_CACHEMISSTOKENS, (int) cacheTurn[2]);
+                    .setParam(AI_P_CACHEMISSTOKENS, (int) cacheTurn[2])
+                    .setParam(AI_P_ROUNDID, roundId);
             // 会话累计缓存统计（从 Provider 读取快照）
             if (llmProvider != null) {
                 long[] sessionCache = llmProvider.getSessionCacheStats(sessionId);
