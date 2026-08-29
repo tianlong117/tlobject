@@ -242,27 +242,39 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             Process process = pb.start();
             StringBuilder output = new StringBuilder();
 
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-
-                boolean finished = process.waitFor(maxExecutionTime, TimeUnit.SECONDS);
-                if (!finished) {
-                    process.destroyForcibly();
-                    return createMsg().setParam(RESULT, false)
-                            .setParam(AI_P_SKILLOUTPUT, "Script execution timeout (" + maxExecutionTime + "s)");
-                }
-
-                String line;
-                int totalBytes = 0;
-                while ((line = reader.readLine()) != null) {
-                    totalBytes += line.getBytes(StandardCharsets.UTF_8).length + 1;
-                    if (totalBytes > maxOutputSize) {
-                        output.append("\n...(output truncated)");
-                        break;
+            // 死锁防护：后台线程持续排空 stdout，防止子进程输出超过管道缓冲(Windows 64KB)
+            // 时阻塞在 write() 上——waitFor 等不到进程退出，进程等不到管道被读。
+            // （如 browser navigate 返回 base64 截图，单次输出可达 90KB+）
+            Thread drainer = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    int totalBytes = 0;
+                    boolean truncated = false;
+                    while ((line = reader.readLine()) != null) {
+                        if (truncated) continue; // 超上限后继续排空管道，但不再累积内存
+                        totalBytes += line.getBytes(StandardCharsets.UTF_8).length + 1;
+                        if (totalBytes > maxOutputSize) {
+                            truncated = true;
+                            output.append("\n...(output truncated)");
+                        } else {
+                            output.append(line).append("\n");
+                        }
                     }
-                    output.append(line).append("\n");
+                } catch (IOException ignored) {
                 }
+            }, "script-output-drainer");
+            drainer.setDaemon(true);
+            drainer.start();
+
+            boolean finished = process.waitFor(maxExecutionTime, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                drainer.join(2000); // 给排空线程收尾时间，避免管道残留
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Script execution timeout (" + maxExecutionTime + "s)");
             }
+            drainer.join(2000); // 等排空线程读完剩余输出（进程已退出，管道会 EOF，不会死等）
 
             int exitCode = process.exitValue();
 
