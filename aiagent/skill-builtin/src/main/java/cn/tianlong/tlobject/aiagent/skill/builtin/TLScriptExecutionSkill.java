@@ -236,6 +236,11 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
             ProcessBuilder pb = new ProcessBuilder(cmdList);
             pb.redirectErrorStream(true); // stderr 合并到 stdout
+            // 强制子进程 UTF-8 输出：Windows 下 Python 默认 stdout 是 GBK(cp936)，
+            // 而本类用 UTF-8 读管道，中文会变乱码（webui 工具卡乱码根因）。
+            // PYTHONIOENCODING 对所有 python 解释器生效，不影响其他脚本。
+            if ("python".equalsIgnoreCase(interpreter) || interpreter.startsWith("python"))
+                pb.environment().put("PYTHONIOENCODING", "utf-8");
 
             putLog("Executing script: " + String.join(" ", cmdList), LogLevel.DEBUG);
 
