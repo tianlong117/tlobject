@@ -15,12 +15,9 @@
         <module name="jettyServer"
                 port="8081"
                 contextType="no webapp"
-                resourceBase="TLOBJECT_HOME\demo\web\src\main\webapp"
+                resourceBase="demo/web/src/main/webapp"
                 loglevel="debug"
-                connector="http;https"
-                httpsPort="8443"
-                sslCerFile="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\classes\tomcat.keystore"
-                sslCerFilePwd="dqqaz123"
+                connector="http"
         />
     </modulesParams>
     <modules>

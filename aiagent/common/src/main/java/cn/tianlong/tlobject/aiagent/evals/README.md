@@ -246,7 +246,7 @@ mvn exec:java -pl demo/tlobject
 --- 失败用例 ---
   [FAIL] 简单数学计算 (math-simple-001)
 ==============================
-报告已保存: D:\...\data\evals\reports\eval_report_20260729_095918.json
+报告已保存: .../data\evals\reports\eval_report_20260729_095918.json
 ```
 
 ### 5.3 级联评测 `/eval cascade [agent]`
@@ -301,7 +301,7 @@ mvn exec:java -pl demo/tlobject
 ========== 评测报告 ==========
 总计: 8 | 通过: 7 | 失败: 1 | 通过率: 87.5%
 ==============================
-级联报告已保存: D:\...\data\evals\reports\eval_report_20260729_140000.json
+级联报告已保存: .../data\evals\reports\eval_report_20260729_140000.json
 ```
 
 > 每个目标块开头显示 `— 手写用例` 或 `— 自动生成`，一目了然。

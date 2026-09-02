@@ -1,6 +1,6 @@
 ﻿<config xmlns='http://www.ehcache.org/v3'>
 
-    <persistence directory="TLOBJECT_HOME\demo\web\src\main\webapp\ehcache"/>
+    <persistence directory="data/ehcache"/>
     <!-- 1、声明一个名为foo的Cache-->
     <cache alias="userinfo">
         <!--2、foo的键值对被声明为字符串类型，如果没有指明，默认是Object类型。-->

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <moduleConfig>
     <params>
-        <templatePath value="TLOBJECT_HOME\demo\web\src\main\webapp\WEB-INF\templates" />
+        <templatePath value="demo/web/src/main/webapp/WEB-INF/templates" />
         <prefixPath value="/demo/"/>
         <resource.loader    value="file"/>
         <input.encoding value="UTF-8"/>

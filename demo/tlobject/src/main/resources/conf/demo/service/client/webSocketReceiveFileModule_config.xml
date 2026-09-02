@@ -3,7 +3,7 @@
     <params>
         <msgHandler value="clientInterfaceModule"  />
         <fileSessionPoolName value="reUsedSingleThreadPoolGroup" />
-        <filePath   value="data/wsclient\" />
+        <filePath   value="data/wsclient/" />
         <maxSessions   value="100" />
     </params>
     <modulesParams>

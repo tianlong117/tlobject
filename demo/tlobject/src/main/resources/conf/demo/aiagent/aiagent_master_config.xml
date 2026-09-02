@@ -154,11 +154,6 @@
                statup="true"
                description="文件操作专家，读写、列表、删除文件。仅用于本地文件操作任务。网页下载请用 browser，代码执行请用 codeAgent。"/>
 
-         <!--agent name="cloudRevenueAgent"
-               sameClassAs="aiagent"
-               statup="true"
-               description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/-->
-
         <agent name="codeAgent"
                sameClassAs="aiagent"
                configfile="codeAgent_config.xml"
@@ -192,12 +187,6 @@
 
     </agents>
     <skills>
-        <skill name="liantongyun"
-               sameClassAs="scriptExecutionSkill"
-               statup="true"
-               interpreter="python"
-               maxExecutionTime="120"
-               allowedScriptDir="skills/liantongyun/scripts"/>
         <skill name="skillmd_test"
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"

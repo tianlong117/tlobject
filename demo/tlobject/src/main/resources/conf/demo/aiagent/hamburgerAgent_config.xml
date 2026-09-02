@@ -33,7 +33,7 @@
                sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
-               args="-y @modelcontextprotocol/server-filesystem D:/tlobjectapp/tlobject"
+               args="-y @modelcontextprotocol/server-filesystem ."
                description="MCP文件系统工具集"/>
     </agents>
 

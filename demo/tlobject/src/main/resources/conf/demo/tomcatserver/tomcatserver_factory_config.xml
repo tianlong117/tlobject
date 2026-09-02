@@ -11,12 +11,9 @@
         <module name="tomcat"
                 port="8081"
                 contextType="webapp"
-                resourceBase="TLOBJECT_HOME\demo\web\target\demo-web"
+                resourceBase="demo/web/target/demo-web"
                 loglevel="debug"
-                connector="http;https"
-                httpsPort="8443"
-                sslCerFile="TLOBJECT_HOME\demo\web\target\demo-web\WEB-INF\classes\tomcat.keystore"
-                sslCerFilePwd="dqqaz123"
+                connector="http"
         />
     </modulesParams>
     <factoryBoot>

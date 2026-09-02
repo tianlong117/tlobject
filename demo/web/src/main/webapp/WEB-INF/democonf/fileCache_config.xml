@@ -4,7 +4,7 @@
        <!--
         cachePath:缓存文件路径。
         -->
-       <cachePath value="TLOBJECT_HOME\demo\web\src\main\webapp\demofilecache" />
+       <cachePath value="data/demofilecache" />
        <!--
          缓存文件锁数量。为平衡缓存文件及锁的数量，多个文件共用一把锁。
          根据缓存文件的数量适当配置相应锁的数量
