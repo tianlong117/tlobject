@@ -234,7 +234,6 @@ public class startup extends TLAppStartUp {
 | 场景 | 位置/入口 | 说明 |
 |------|-----------|------|
 | 消息最小示例 | `cn.tianlong.java.demo.base.startup` | 消息互动/名字互动/工厂创立 |
-| 聊天室 | `demo/.../demo/chatroom/` | socket 聊天室 server + client |
 | 数据库 | `demo/.../demo/db/` | 消息化 DAO（建库脚本 `tldbdemo1/2.sql`） |
 | Redis | `demo/.../demo/redis/` | Redis 消息动作 |
 | Web | `demo/web/` | Jetty / Tomcat Web 应用 |

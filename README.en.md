@@ -233,7 +233,6 @@ A complete agent framework built on the message-object model: user input → LLM
 | Scenario | Entry point | What |
 |----------|-------------|------|
 | Minimal messaging | `cn.tianlong.java.demo.base.startup` | messages / names / factory creation |
-| Chatroom | `demo/.../demo/chatroom/` | socket chat server + client |
 | Database | `demo/.../demo/db/` | message-based DAO (schemas `tldbdemo1/2.sql`) |
 | Redis | `demo/.../demo/redis/` | Redis message actions |
 | Web | `demo/web/` | Jetty / Tomcat webapp |
