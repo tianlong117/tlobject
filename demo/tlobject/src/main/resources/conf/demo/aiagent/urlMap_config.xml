@@ -4,8 +4,8 @@
     appCenter 的 prefixUrl = contextPath("/") + tlobjectPath("/api") = "/api"，
     因此 url 为 uri 去掉 "/api" 前缀后的路径（如 /api/chat → /chat）。
 
-    认证说明：不走 beforeMsgTable 的 webauth 策略链（TLWAuth 拒绝输出为 200 纯文本
-    "no auth"，与 webui 前端 401 JSON 约定不符）；登录校验由 webui 模块各 action
+    认证说明：不走 webauth 策略链（其拒绝输出为 200 纯文本 "no auth"，
+    与 webui 前端 401 JSON 约定不符）；登录校验由 webui 模块各 action
     内自检（HttpSession "userId"，与 TLWebChatServlet 同一会话约定）。
 -->
 <moduleConfig>

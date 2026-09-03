@@ -6,7 +6,7 @@
 > 在 TLObject 的世界里，"造物主"就是统一对象工厂——每个对象由它创建、由它命名、由它赋予生命。
 > 对象之间从不"调用"彼此，只通过**消息**交流。
 
-作者：天珑（tianlong117） · 博客：https://blog.csdn.net/tianlong117
+作者：天龙 · 博客：https://blog.csdn.net/tianlong117
 
 ---
 
