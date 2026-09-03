@@ -188,7 +188,7 @@ public class startup extends TLAppStartUp {
 配置的组织（以 `demo/tlobject/src/main/resources/conf/` 为例）：
 
 - `conf/tlobject/` — 各应用共享的"全模块"组合配置
-- `conf/demo/` — 按场景自包含的配置目录（aiagent / aitest / base / chatroom / db / jettyserver / redis / service / task / tomcatserver），每个场景一个独立"世界"
+- `conf/demo/` — 按场景自包含的配置目录（aiagent / aitest / base / db / jettyserver / redis / service / task / tomcatserver），每个场景一个独立"世界"
 
 **说明**：仓库内 DB 口令、登录账号均为演示占位值；DB 类 Demo 需自备 MySQL 建库（SQL 见 `demo/`）；Web Demo 的 HTTPS 需自备证书。
 

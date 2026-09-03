@@ -187,7 +187,7 @@ Config files are XML named `{moduleName}_config.xml`, parsed by `TLModuleConfig`
 Config layout (e.g. under `demo/tlobject/src/main/resources/conf/`):
 
 - `conf/tlobject/` — shared all-module configs for full applications
-- `conf/demo/` — self-contained per-scenario config sets (aiagent / aitest / base / chatroom / db / jettyserver / redis / service / task / tomcatserver), each its own little "world"
+- `conf/demo/` — self-contained per-scenario config sets (aiagent / aitest / base / db / jettyserver / redis / service / task / tomcatserver), each its own little "world"
 
 **Note**: DB passwords and login accounts are demo placeholders; DB demos need your own MySQL schemas (SQL scripts under `demo/`); HTTPS web demos need your own certificate.
 
