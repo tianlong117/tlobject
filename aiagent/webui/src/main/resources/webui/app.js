@@ -575,6 +575,10 @@ function bindEvents() {
   });
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
+  // 参数弹框：点遮罩关闭
+  $('#paramModal').addEventListener('click', e => {
+    if (e.target === $('#paramModal')) $('#paramModal').classList.add('hidden');
+  });
   bindUpload();
 }
 
@@ -745,9 +749,10 @@ async function loadAgents() {
     const rows = (r.data || []).map(m => {
       const key = m.key != null ? m.key : (m.name || '?');
       const cls = m.className ? m.className.split('.').pop() : '?';
-      return { key, cls };
+      return { key, cls, type: 'agent' };
     });
     renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
+    attachToolOps(box, rows);
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
 async function loadSkills() {
@@ -758,28 +763,89 @@ async function loadSkills() {
     const rows = (r.data || []).map(m => {
       const key = m.key != null ? m.key : (m.name || '?');
       const cls = m.className ? m.className.split('.').pop() : '?';
-      return { key, cls };
+      // 目录脚本 skill 的实例类固定为 TLScriptExecutionSkill → 操作 type=skill；其余 Java 类 skill → baseSkill
+      const type = cls === 'TLScriptExecutionSkill' ? 'skill' : 'baseSkill';
+      return { key, cls, type };
     });
     renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
+    attachToolOps(box, rows);
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
-async function loadParam() {
-  const tool = $('#paramTool').value.trim();
-  const box = $('#paramBox');
-  if (!tool) { toast('请输入工具名', 'err'); return; }
-  try {
-    const r = await apiCommand('param', { toolName: tool });
-    box.innerHTML = '';
-    if (r.success) {
-      const p = r.data || {};
-      const entries = Object.entries(p);
-      if (!entries.length) { box.innerHTML = '<div class="empty">（无参数）</div>'; return; }
-      renderTable(box, [['k', '参数'], ['v', '值']], entries.map(([k, v]) => ({ k, v: typeof v === 'object' ? JSON.stringify(v) : v })));
+
+/** 列表表格右侧追加"操作"列：参数 / 卸载 / 重载，按行携带家族名自动操作。
+ *  家族名无 ':' 的是顶层自注册模块（如 aiagent_master），无父路径可解析，不给按钮。 */
+function attachToolOps(box, rows) {
+  const trs = [...box.querySelectorAll('table.tbl tr')];
+  if (!trs.length) return;
+  trs[0].insertAdjacentHTML('beforeend', '<th>操作</th>');
+  trs.slice(1).forEach((tr, i) => {
+    const r = rows[i] || {};
+    const td = document.createElement('td');
+    if (r.key && r.key.indexOf(':') > 0) {
+      const family = r.key;
+      const type = r.type;
+      const b1 = document.createElement('button');
+      b1.textContent = '参数';
+      b1.title = '查看参数: ' + family;
+      b1.onclick = () => loadParam(family);
+      const b2 = document.createElement('button');
+      b2.textContent = '卸载';
+      b2.title = '卸载: ' + family;
+      b2.onclick = () => {
+        if (!confirm('确认卸载 ' + family + ' ?')) return;
+        runToolOp('uninstall', type, family);
+      };
+      const b3 = document.createElement('button');
+      b3.textContent = '重载';
+      b3.title = '重载: ' + family;
+      b3.onclick = () => runToolOp('reload', type, family);
+      td.appendChild(b1);
+      td.appendChild(b2);
+      td.appendChild(b3);
     } else {
-      box.innerHTML = '<div class="fail-msg">' + esc(r.error || r.message) + '</div>';
+      td.textContent = '—';
     }
-  } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+    tr.appendChild(td);
+  });
 }
+
+/** 行内卸载/重载：复用后端 /uninstall /reload 接口（type + 家族名），结果 toast，卸载成功后刷新列表 */
+async function runToolOp(action, type, family) {
+  try {
+    const r = await apiCommand(action, { type, name: family });
+    toast((r.success ? '✓ ' : '✗ ') + (r.message || r.error || action), r.success ? 'ok' : 'err');
+    if (r.success && action === 'uninstall') {
+      if (type === 'agent') loadAgents(); else loadSkills();
+    }
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/** 行内查看参数（家族名自动带入，无需手输）：弹框展示，点遮罩或"关闭"退出 */
+async function loadParam(family) {
+  const modal = $('#paramModal');
+  const body = $('#pmBody');
+  $('#pmTitle').textContent = '参数: ' + family;
+  body.innerHTML = '<div class="empty">加载中...</div>';
+  modal.classList.remove('hidden');
+  try {
+    const r = await apiCommand('param', { toolName: family });
+    body.innerHTML = '';
+    if (!r.success) {
+      body.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+      return;
+    }
+    const p = r.data || {};
+    const entries = Object.entries(p);
+    if (!entries.length) { body.innerHTML = '<div class="empty">（无参数）</div>'; return; }
+    const tab = document.createElement('div');
+    body.appendChild(tab);
+    renderTable(tab, [['k', '参数'], ['v', '值']], entries.map(([k, v]) => ({ k, v: typeof v === 'object' ? JSON.stringify(v) : v })));
+  } catch (e) { body.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+function closeParam() {
+  $('#paramModal').classList.add('hidden');
+}
+
 async function doInstall() {
   const type = $('#installType').value;
   const name = $('#installName').value.trim();
@@ -796,30 +862,6 @@ async function doInstall() {
   if (target) params.targetAgent = target;
   try {
     const r = await apiCommand('install', params);
-    msgBox.innerHTML = r.success
-      ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
-      : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
-  } catch (e) { msgBox.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
-}
-async function doUninstall() {
-  const type = $('#opType').value;
-  const name = $('#opName').value.trim();
-  const msgBox = $('#opMsg');
-  if (!name) { toast('请输入名称/家族名', 'err'); return; }
-  try {
-    const r = await apiCommand('uninstall', { type, name });
-    msgBox.innerHTML = r.success
-      ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
-      : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
-  } catch (e) { msgBox.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
-}
-async function doReload() {
-  const type = $('#opType').value;
-  const name = $('#opName').value.trim();
-  const msgBox = $('#opMsg');
-  if (!name) { toast('请输入名称/家族名', 'err'); return; }
-  try {
-    const r = await apiCommand('reload', { type, name });
     msgBox.innerHTML = r.success
       ? '<div class="ok-msg">✓ ' + esc(r.message) + '</div>'
       : '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
