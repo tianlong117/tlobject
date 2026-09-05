@@ -240,25 +240,26 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             if (h.getSeq() > fromSeq) filtered.add(h);
         }
         int startIdx = Math.max(0, filtered.size() - limit);
-        // 孤儿 tool 修正：视图开头是 tool 时，向前补其 assistant(tool_calls)
-        while (startIdx < filtered.size()
+        // 孤儿 tool 修正（单次补簇）：视图开头是 tool（其 assistant 被 fromSeq 截掉）时，
+        // 向前在完整历史中借回 [assistant..簇起点) 段插到该 tool 前；同簇只需补一次。
+        // ⚠ 勿改回循环补：addAll(0,prefix)+startIdx 同幅前进会让 startIdx 停在同一个 tool 上
+        // 无限插入同一前缀 → 死循环。
+        if (startIdx < filtered.size()
                 && filtered.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
             TLConversationHistory first = filtered.get(startIdx);
             int idxInFull = history.indexOf(first);
-            if (idxInFull <= 0) break;
-            boolean extended = false;
-            for (int i = idxInFull - 1; i >= 0; i--) {
-                TLConversationHistory h = history.get(i);
-                if (h.isAssistantWithToolCalls()) {
-                    List<TLConversationHistory> prefix =
-                            new ArrayList<>(history.subList(i, idxInFull));
-                    filtered.addAll(0, prefix);
-                    startIdx += prefix.size();
-                    extended = true;
-                    break;
+            if (idxInFull > 0) {
+                for (int i = idxInFull - 1; i >= 0; i--) {
+                    TLConversationHistory h = history.get(i);
+                    if (h.isAssistantWithToolCalls()) {
+                        List<TLConversationHistory> prefix =
+                                new ArrayList<>(history.subList(i, idxInFull));
+                        filtered.addAll(startIdx, prefix);
+                        startIdx += prefix.size();
+                        break;
+                    }
                 }
             }
-            if (!extended) break;
         }
         List<TLConversationHistory> result =
                 new ArrayList<>(filtered.subList(Math.max(0, startIdx), filtered.size()));

@@ -2616,25 +2616,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             systems.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
         }
         int startIdx = Math.max(0, rest.size() - contextViewSize);
-        // 孤儿 tool 修正：视图开头是 tool 时，向前在 full 中找其 assistant(tool_calls) 并入
-        while (startIdx < rest.size()
+        // 孤儿 tool 修正（单次补簇）：尾部截取把窗口边界切在 tool 簇中间时，窗口头是 tool、
+        // 其 assistant(tool_calls) 在窗外——向 full 借回 [assistant..簇起点) 段，插到该 tool 前。
+        // 簇内其余 tool 随前置段一并覆盖，只需补一次；助手更早被裁丢时下方 sanitizeToolPairs 兜底删除。
+        // ⚠ 勿改回循环补：addAll(0,prefix)+startIdx 同幅前进会使 startIdx 永远停在同一个 tool 上，
+        // 同一前缀无限插入 → 死循环（线程 100% CPU，round 卡在 roundStart 后无任何输出）。
+        if (startIdx < rest.size()
                 && rest.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
             TLConversationHistory first = rest.get(startIdx);
             int idxInFull = full.indexOf(first);
-            if (idxInFull <= 0) break;
-            boolean extended = false;
-            for (int i = idxInFull - 1; i >= 0; i--) {
-                TLConversationHistory h = full.get(i);
-                if (h.isAssistantWithToolCalls()) {
-                    List<TLConversationHistory> prefix =
-                            new ArrayList<>(full.subList(i, idxInFull));
-                    rest.addAll(0, prefix);
-                    startIdx += prefix.size();
-                    extended = true;
-                    break;
+            if (idxInFull > 0) {
+                for (int i = idxInFull - 1; i >= 0; i--) {
+                    TLConversationHistory h = full.get(i);
+                    if (h.isAssistantWithToolCalls()) {
+                        List<TLConversationHistory> prefix =
+                                new ArrayList<>(full.subList(i, idxInFull));
+                        rest.addAll(startIdx, prefix);
+                        startIdx += prefix.size();
+                        break;
+                    }
                 }
             }
-            if (!extended) break;
         }
         List<TLConversationHistory> result = new ArrayList<>(systems);
         result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
