@@ -93,6 +93,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 组装视图大小：发送给 LLM 的 context 原始消息条数（摘要 coverSeq 衔接后取尾部） */
     protected int contextViewSize = 40;
 
+    /** 发送视图 token 预算（0=不限制）。消息按条数裁剪不按体量，超大单条/恢复巨量历史会超模型
+     *  上下文 → 400 "maximum context length"；buildSendList 据此做发送视图级裁剪（不落 context）。
+     *  默认 1048576（DeepSeek 1M），小上下文模型按 agent <params> contextTokenLimit 调小。 */
+    protected long contextTokenLimit = 1048576L;
+
     // ======================== 推理/思考链 (ReAct) ========================
 
     /** 推理模式：off | prompt | native | auto */
@@ -248,6 +253,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             if (params.get("contextViewSize") != null) {
                 try { contextViewSize = Integer.parseInt(params.get("contextViewSize")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("contextTokenLimit") != null) {
+                try { contextTokenLimit = Long.parseLong(params.get("contextTokenLimit")); }
                 catch (NumberFormatException ignored) {}
             }
             if (params.get("enableCheckpoint") != null)
@@ -2592,6 +2601,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (memoryContext != null && !memoryContext.isEmpty()) {
                 all.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
             }
+            sanitizeToolPairs(all);
+            trimToContextBudget(all);
             return all;
         }
         List<TLConversationHistory> systems = new ArrayList<>();
@@ -2627,7 +2638,75 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         List<TLConversationHistory> result = new ArrayList<>(systems);
         result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
         sanitizeToolPairs(result);
+        trimToContextBudget(result);
         return result;
+    }
+
+    /**
+     * 发送视图 token 预算裁剪（只作用本次发送拷贝，不写回 context，不影响保存/恢复）：
+     * 超预算时从最旧的非 system 消息开始丢（工具链完整性交给 sanitizeToolPairs 兜底——
+     * 被丢的 assistant(tool_calls) 其后续 tool 响应会成为孤儿被一并清理）；
+     * 丢到只剩单条仍超（单条消息自身巨量，如大文件读取/整段粘贴）则按 0.8 比例循环截断内容。
+     * token 为无 tokenizer 粗估（CJK≈1.25/字、ASCII≈0.35/字符 + 结构开销），预算已留 10% 裕量。
+     */
+    private void trimToContextBudget(List<TLConversationHistory> list) {
+        if (contextTokenLimit <= 0 || list.size() <= 1) return;
+        long budget = (long) (contextTokenLimit * 0.9) - defaultMaxTokens;
+        if (budget < 2000) budget = 2000;
+        while (estimateTokens(list) > budget && list.size() > 1) {
+            int idx = 0;
+            while (idx < list.size() && list.get(idx).getRole() == TLConversationHistory.Role.system) idx++;
+            if (idx >= list.size()) break;
+            list.remove(idx);
+        }
+        sanitizeToolPairs(list);
+        if (list.size() <= 1) return;
+        // 单条消息自身超预算：循环按 0.8 比例截断最长的非 system 消息（下限 200 字符防死循环）
+        int guard = 0;
+        while (estimateTokens(list) > budget && guard++ < 8) {
+            int maxI = -1;
+            long maxLen = -1;
+            for (int i = 0; i < list.size(); i++) {
+                if (list.get(i).getRole() == TLConversationHistory.Role.system) continue;
+                String c = list.get(i).getContent();
+                long l = c == null ? 0 : c.length();
+                if (l > maxLen) { maxLen = l; maxI = i; }
+            }
+            if (maxI < 0 || maxLen <= 0) break;
+            TLConversationHistory h = list.get(maxI);
+            String content = h.getContent();
+            if (content == null || content.length() <= 400) break;
+            int keep = Math.max(200, (int) (content.length() * 0.8));
+            h.setContent(content.substring(0, keep) + "\n…(内容过长，发送时已截断)");
+        }
+    }
+
+    /** 无 tokenizer 的粗估：CJK≈1.25 token/字、ASCII≈0.35 token/字符，外加每条消息/工具调用结构开销 */
+    private long estimateTokens(List<TLConversationHistory> list) {
+        long toks = 0;
+        for (TLConversationHistory h : list) {
+            toks += 6;
+            String c = h.getContent();
+            if (c != null) {
+                long cjk = 0;
+                for (int i = 0; i < c.length(); i++) {
+                    if (c.charAt(i) > 127) cjk++;
+                }
+                toks += (long) ((c.length() - cjk) * 0.35 + cjk * 1.25) + 2;
+            }
+            if (h.getName() != null) toks += h.getName().length() / 4 + 2;
+            if (h.getToolCalls() != null) {
+                for (TLToolCall tc : h.getToolCalls()) {
+                    toks += 10;
+                    if (tc.getFunctionName() != null) toks += tc.getFunctionName().length() / 4;
+                    if (tc.getArguments() != null) {
+                        toks += tc.getArguments().toString().length() / 4;
+                    }
+                }
+            }
+            if (h.getToolCallId() != null) toks += 8;
+        }
+        return toks;
     }
 
     /**
