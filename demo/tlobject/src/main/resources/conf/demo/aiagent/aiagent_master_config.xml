@@ -13,6 +13,11 @@
         <defaultTemperature value="0.7"/>
         <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
         <defaultMaxTokens value="4096"/>
+        <!-- contextTokenLimit: 发送给 LLM 的上下文 token 预算（默认 1048576 = DeepSeek 1M 上下文）。
+             历史按条数裁剪不按体量，超大单条内容（大文件读取/长工具输出/恢复巨量历史）会超模型上下文 → HTTP 400。
+             框架按此预算自动丢弃最旧消息、单条仍超则截断后再发送（仅影响当轮发送，不删历史/不影响恢复）。
+             模型上下文较小（如 128K）请按实际调小；0 = 关闭自动裁剪。 -->
+        <contextTokenLimit value="1048576"/>
         <!-- defaultMemoryTopK: 记忆召回注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
         <!-- defaultMemoryStore: 默认长期记忆模块名 -->

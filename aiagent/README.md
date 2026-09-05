@@ -295,6 +295,7 @@ Agent框架的核心模块。接收用户输入，编排LLM、Skill、Context、
 | `defaultModel` | String | `"gpt-4o"` | 默认模型 |
 | `defaultTemperature` | double | 0.7 | 默认采样温度 |
 | `defaultMaxTokens` | int | 4096 | 默认最大token |
+| `contextTokenLimit` | long | 1048576 | 发送给 LLM 的上下文 token 预算（0=关闭）。历史按条数裁剪不按体量，超大单条内容会超模型上下文 400；框架按预算自动丢最旧消息/截断超长单条后再发送（仅影响当轮发送，不删历史） |
 
 #### 动作方法
 
