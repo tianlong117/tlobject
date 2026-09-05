@@ -215,6 +215,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             case AGENT_UNREGISTERAGENT:
                 returnMsg = unregisterMember(fromWho, msg);
                 break;
+            case AGENT_RELOADAGENT:
+                returnMsg = reloadMember(fromWho, msg);
+                break;
             case AGENT_GETDESCRIPTION:
                 returnMsg = createMsg().setParam(RESULT, true)
                         .setParam(AI_P_AGENTDESCRIPTION, agentDescription != null ? agentDescription : "");
@@ -336,17 +339,23 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         memberNames = list.toArray(new String[0]);
     }
 
-    /** 卸载成员：从内存和配置文件移除 */
+    /** 卸载成员：从内存、registry 和配置文件移除 */
     protected synchronized TLMsg unregisterMember(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
         if (agentName.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
         }
+        TLBaseModule oldModule = (TLBaseModule) modules.get(agentName);
         removeMember(agentName);
         modules.remove(agentName);
         if (modulesClass != null) modulesClass.remove(agentName);
         if (modulesParams != null) modulesParams.remove(agentName);
         if (supervisorName != null && supervisorName.equals(agentName)) supervisorName = null;
+
+        // 从 registry 注销（成员家族名 = 本组家族名:成员名，级联清理其子节点）
+        String registryKey = oldModule != null ? oldModule.getFamilyName() : getName() + ":" + agentName;
+        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                .setParam(REGISTRY_P_KEY, registryKey).setSystemParam(IGNOREMODULEISNULL, true));
 
         // 持久化：从配置文件删除
         boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
@@ -359,6 +368,35 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         }
         putLog("Group member unregistered: " + agentName + " (group " + name + ")", LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
+    }
+
+    /**
+     * 重载成员：按 modulesClass 中保留的配置重建实例并换入（与 TLToolManager 重载同构：
+     * getNewModule 全新创建 → modules 换入 → registry 重新注册）。
+     * 成员无 functions 表（组按 memberNames 调度），重载即换新实例；老实例在换入后被 GC。
+     */
+    protected synchronized TLMsg reloadMember(Object fromWho, TLMsg msg) {
+        String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (agentName.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+        }
+        if (modules.get(agentName) == null
+                || modulesClass == null || modulesClass.get(agentName) == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "member not found: " + agentName);
+        }
+        try {
+            TLBaseModule newModule = (TLBaseModule) getNewModule(agentName);
+            if (newModule == null) {
+                return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + agentName);
+            }
+            modules.put(agentName, newModule);
+            registerToRegistry(agentName, newModule, "agent");
+            putLog("Group member reloaded: " + agentName + " (group " + name + ")", LogLevel.DEBUG);
+            return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
+        } catch (Exception e) {
+            putLog("Failed to reload group member: " + agentName + " error: " + e, LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + e);
+        }
     }
 
     /**

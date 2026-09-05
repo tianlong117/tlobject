@@ -188,8 +188,49 @@ public class TLAgentWorkflow extends TLBaseModule
             case AGENT_STOPCHAT:
                 putLog("Workflow [" + name + "] stop requested", LogLevel.INFO);
                 return createMsg().setParam(RESULT, true);
+            case AGENT_RELOADAGENT:
+                return reloadNodeModule(fromWho, msg);
             default:
                 return null;
+        }
+    }
+
+    /**
+     * 重载工作流的私有节点模块（AI_P_AGENTNAME = 节点id/模块名）。
+     * 节点模块是 workflow 自身 &lt;modules&gt; 声明的私有实例（与 TLAgentGroup 成员同模式），
+     * 重载 = 按 modulesClass 保留的配置重建新实例 → modules 换入 → registry 重注册。
+     * 仅支持配置条目齐全的模块节点；msg 级动态节点（无 modulesClass 条目）拒绝。
+     */
+    protected TLMsg reloadNodeModule(Object fromWho, TLMsg msg) {
+        String nid = msg.getStringParam(AI_P_AGENTNAME, "");
+        if (nid.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
+        }
+        if (modules.get(nid) == null
+                || modulesClass == null || modulesClass.get(nid) == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "node module not found: " + nid);
+        }
+        try {
+            TLBaseModule newModule = (TLBaseModule) getNewModule(nid);
+            if (newModule == null) {
+                return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + nid);
+            }
+            modules.put(nid, newModule);
+            // 显式重注册（与 TLAgentGroup.registerToRegistry 同构：key = 模块自身家族名）
+            String familyName = newModule.getFamilyName();
+            if (familyName != null && !familyName.isEmpty()) {
+                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_REGISTER)
+                        .setParam(REGISTRY_P_KEY, familyName)
+                        .setParam(MODULENAME, nid)
+                        .setParam(INSTANCE, newModule)
+                        .setSystemParam(IGNOREMODULEISNULL, true));
+            }
+            putLog("Workflow node module reloaded: " + nid + " (workflow " + name + ")", LogLevel.DEBUG);
+            return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, nid);
+        } catch (Exception e) {
+            putLog("Failed to reload workflow node module: " + nid + " error: " + e, LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + e);
         }
     }
 
