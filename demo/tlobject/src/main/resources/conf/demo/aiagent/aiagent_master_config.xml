@@ -215,6 +215,7 @@
                interpreter="python"
                maxExecutionTime="60"
                idleTimeoutSeconds="300"
+               maxTextChars="30000"
                allowedScriptDir="skills/browser/scripts"
                skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
         <skill name="desktop"
@@ -296,7 +297,9 @@
     </afterMsgTable>
 
     <modulesParams>
-        <module name="aiContext" maxContextMessages="50" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。
+        <!-- aiContext 模块参数：maxContextMessages=历史条数上限；toolResultCharLimit=tool 结果入史最大字符数
+             （源头截断：browser 整页抓取/大文件读取等巨量输出入库前限长，防上下文超限 400 与历史膨胀；0=不限） -->
+        <module name="aiContext" maxContextMessages="50" toolResultCharLimit="20000" defaultSystemMessage="你是一个智能助手，当前日期 {{date}}，会话ID {{sessionId}}。回复时注意：绝对不要使用任何emoji表情符号（如汉堡披萨金钱等图标），全部使用纯文本。表格中也不要插入emoji。
 
 当你缺少必要信息无法完成任务时，调用 request_clarification 工具请求用户确认，不要猜测。
 

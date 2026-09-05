@@ -47,6 +47,8 @@ import java.util.concurrent.TimeUnit;
  * - port: 常驻进程端口，0=自动选空闲端口（默认）
  * - maxExecutionTime: 单次动作超时秒数，默认 60
  * - idleTimeoutSeconds: 空闲回收秒数，默认 300（0=不回收）
+ * - maxTextChars: 页面正文(text)返回最大字符数，默认 30000（整页提取可达百万字符，
+ *   超限截断防上下文超限 400/历史膨胀；图片 base64 不受影响）
  *
  * 创建日期：2026/8/29
  * 作者:tianlong
@@ -58,6 +60,7 @@ public class TLBrowserSkill extends TLBaseSkill {
     private int port = 0;
     private int maxExecutionTime = 60;
     private int idleTimeoutSeconds = 300;
+    private int maxTextChars = 30000;
 
     private OkHttpClient httpClient;
     /** 短超时 client：health 轮询与 shutdown 用（不能卡住 JVM 退出/启动等待） */
@@ -103,6 +106,10 @@ public class TLBrowserSkill extends TLBaseSkill {
             }
             if (params.get("idleTimeoutSeconds") != null) {
                 try { idleTimeoutSeconds = Integer.parseInt(params.get("idleTimeoutSeconds")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("maxTextChars") != null) {
+                try { maxTextChars = Integer.parseInt(params.get("maxTextChars")); }
                 catch (NumberFormatException ignored) {}
             }
         }
@@ -424,13 +431,26 @@ public class TLBrowserSkill extends TLBaseSkill {
                         .setParam(AI_P_SKILLOUTPUT, "Browser action failed (HTTP " + resp.code() + "): " + respBody);
             }
             boolean ok;
+            String output = respBody;
             try {
-                ok = JsonParser.parseString(respBody).getAsJsonObject().get("ok").getAsBoolean();
+                com.google.gson.JsonObject obj = JsonParser.parseString(respBody).getAsJsonObject();
+                ok = obj.get("ok") != null && !obj.get("ok").isJsonNull()
+                        ? obj.get("ok").getAsBoolean() : true;
+                // 页面正文超限截断（navigate/extract 整页 text 可达百万字符——上下文超限 400 主因）
+                if (maxTextChars > 0 && obj.has("text") && obj.get("text").isJsonPrimitive()) {
+                    String t = obj.get("text").getAsString();
+                    if (t.length() > maxTextChars) {
+                        obj.addProperty("text", t.substring(0, maxTextChars)
+                                + "\n…[页面正文过长，已截断保留前 " + maxTextChars
+                                + " 字符；如需完整内容请用 extract 指定局部范围]");
+                        output = gson.toJson(obj);
+                    }
+                }
             } catch (Exception e) {
                 ok = true;
             }
             return createMsg().setParam(RESULT, ok)
-                    .setParam(AI_P_SKILLOUTPUT, respBody);
+                    .setParam(AI_P_SKILLOUTPUT, output);
         } catch (IOException e) {
             // 超时/连接失败：常驻进程可能卡死，杀掉让下次调用自愈重启
             putLog("Browser action failed, recycling process: " + e, LogLevel.WARN);

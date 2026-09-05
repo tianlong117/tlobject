@@ -28,6 +28,10 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     /** 最大保留消息数（-1 = 全量保留不 trim；兼容旧配置 maxHistoryTurns） */
     protected int maxContextMessages = -1;
 
+    /** tool 结果入史最大字符数（源头截断：browser 抓整页/大文件读取等巨量输出不落历史，
+     *  否则累积数 MB → 超模型上下文 400 且恢复/每轮发送都背巨块。0 = 不限制） */
+    protected int toolResultCharLimit = 20000;
+
     /** sessionId -> 消息序号计数器（线性递增 id，摘要 coverSeq 对齐边界） */
     protected Map<String, Long> seqCounter;
 
@@ -61,6 +65,11 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                 } catch (NumberFormatException ignored) {}
             } else if (params.get("maxHistoryTurns") != null) {
                 maxContextMessages = maxHistoryTurns;
+            }
+            if (params.get("toolResultCharLimit") != null) {
+                try {
+                    toolResultCharLimit = Integer.parseInt(params.get("toolResultCharLimit"));
+                } catch (NumberFormatException ignored) {}
             }
             defaultSystemMessage = params.get("defaultSystemMessage");
         }
@@ -118,6 +127,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         // 支持直接传入TLConversationHistory对象
         TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
         if (entry != null) {
+            capToolResult(entry);
             entry.setSeq(nextSeq(sessionId));
             history.add(entry);
         } else {
@@ -131,6 +141,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             }
             String content = msg.getStringParam("content", "");
             TLConversationHistory h = new TLConversationHistory(role, content);
+            capToolResult(h);
             if (msg.containsParam("toolCalls")) {
                 h.setToolCalls((List<TLToolCall>) msg.getListParam("toolCalls", null));
             }
@@ -176,7 +187,11 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         List<TLConversationHistory> newHistory = (List<TLConversationHistory>)
                 msg.getListParam(AI_P_MESSAGEHISTORY, null);
         if (newHistory != null) {
-            sessions.put(sessionId, new ArrayList<>(newHistory));
+            List<TLConversationHistory> copy = new ArrayList<>(newHistory);
+            if (toolResultCharLimit > 0) {
+                for (TLConversationHistory h : copy) capToolResult(h);
+            }
+            sessions.put(sessionId, copy);
             trimHistory(sessions.get(sessionId));
             // 更新 seq 计数器为 max(seq)，之后的递增从恢复点继续
             long maxSeq = 0;
@@ -284,6 +299,17 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     /** 会话内线性递增 seq（第一条消息 = 1；默认 system 消息保持 seq=0） */
     protected long nextSeq(String sessionId) {
         return seqCounter.merge(sessionId, 1L, Long::sum);
+    }
+
+    /** tool 结果源头限长（toolResultCharLimit，0=不限制）。仅作用于 tool 角色消息，
+     *  截断后追加标记说明。history 一旦写入即定长，后续恢复/每轮发送/摘要都基于定长内容。 */
+    protected void capToolResult(TLConversationHistory h) {
+        if (h == null || toolResultCharLimit <= 0) return;
+        if (h.getRole() != TLConversationHistory.Role.tool) return;
+        String c = h.getContent();
+        if (c == null || c.length() <= toolResultCharLimit) return;
+        h.setContent(c.substring(0, toolResultCharLimit)
+                + "\n…[tool 结果过长，已截断保留前 " + toolResultCharLimit + " 字符，如需完整内容请缩小操作范围]");
     }
 
     /**

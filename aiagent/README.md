@@ -363,6 +363,7 @@ Agent框架的核心模块。接收用户输入，编排LLM、Skill、Context、
 |------|------|--------|------|
 | `sessions` | Map<String, List> | ConcurrentHashMap | sessionId → 消息历史列表 |
 | `maxHistoryTurns` | int | 50 | 最大保留轮次，超出自动裁剪 |
+| `toolResultCharLimit` | int | 20000 | tool 结果入史最大字符数（0=不限）。源头截断：browser 整页抓取/大文件读取等巨量输出写历史前限长，防上下文超限 400 与历史膨胀 |
 | `defaultSystemMessage` | String | null | 新会话的默认系统提示词 |
 
 #### 动作方法
