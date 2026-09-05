@@ -32,6 +32,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
      *  否则累积数 MB → 超模型上下文 400 且恢复/每轮发送都背巨块。0 = 不限制） */
     protected int toolResultCharLimit = 20000;
 
+    /** 判定为 base64 图片载荷的最小连续长度（截屏 PNG base64 动辄十万+字符） */
+    private static final int MIN_B64_CHARS = 5000;
+    /** 双引号包裹的 base64 串（JSON 工具结果形如 "screenshot_base64":"..."，可带 data:image 前缀） */
+    private static final java.util.regex.Pattern QUOTED_B64 = java.util.regex.Pattern.compile(
+            "\"(?:data:[A-Za-z0-9.+/]+;base64,)?[A-Za-z0-9+/=]{" + MIN_B64_CHARS + ",}\"");
+
     /** sessionId -> 消息序号计数器（线性递增 id，摘要 coverSeq 对齐边界） */
     protected Map<String, Long> seqCounter;
 
@@ -302,14 +308,58 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     }
 
     /** tool 结果源头限长（toolResultCharLimit，0=不限制）。仅作用于 tool 角色消息，
-     *  截断后追加标记说明。history 一旦写入即定长，后续恢复/每轮发送/摘要都基于定长内容。 */
+     *  截断前先剥离截图 base64 载荷；截断后追加标记说明。history 一旦写入即定长，
+     *  后续恢复/每轮发送/摘要都基于定长内容。 */
     protected void capToolResult(TLConversationHistory h) {
-        if (h == null || toolResultCharLimit <= 0) return;
+        if (h == null) return;
         if (h.getRole() != TLConversationHistory.Role.tool) return;
+        stripImagePayload(h);
+        if (toolResultCharLimit <= 0) return;
         String c = h.getContent();
         if (c == null || c.length() <= toolResultCharLimit) return;
         h.setContent(c.substring(0, toolResultCharLimit)
                 + "\n…[tool 结果过长，已截断保留前 " + toolResultCharLimit + " 字符，如需完整内容请缩小操作范围]");
+    }
+
+    /**
+     * 截图 base64 载荷降级为占位符（同包 TLAiAgent 发送视图共用）。
+     * 原理：base64 文本 LLM 读不懂（非视觉输入），却以 tool 消息随每轮请求重发，
+     * 一屏截屏十几万字符 ≈ 十几万 token——1.2M 上下文爆炸即 browser/desktop 截图类巨块累积所致。
+     * webui 实时渲染走 toolEvent 直接送达完整 base64，不经历史，展示不受影响；
+     * 历史与后续发送仅存占位提示。始终生效（不随 toolResultCharLimit 开关）。
+     * @return 是否发生了替换
+     */
+    static boolean stripImagePayload(TLConversationHistory h) {
+        if (h == null || h.getRole() != TLConversationHistory.Role.tool) return false;
+        String c = h.getContent();
+        if (c == null || c.isEmpty()) return false;
+        boolean changed = false;
+        StringBuilder sb = null;
+        java.util.regex.Matcher m = QUOTED_B64.matcher(c);
+        while (m.find()) {
+            if (sb == null) sb = new StringBuilder(c.length());
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(
+                    "\"[截图/图片 base64 已省略，原 " + (m.group().length() - 2) + " 字符；如需查看请要求重新截图]\""));
+            changed = true;
+        }
+        if (changed) {
+            h.setContent(m.appendTail(sb).toString());
+            return true;
+        }
+        // 整条消息即一段裸 base64（无引号包裹）
+        String trimmed = c.trim();
+        if (trimmed.length() <= MIN_B64_CHARS) return false;
+        int b64 = 0;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char ch = trimmed.charAt(i);
+            if (Character.isLetterOrDigit(ch) || ch == '/' || ch == '+' || ch == '=') b64++;
+        }
+        if (b64 > trimmed.length() * 95 / 100) {
+            h.setContent("[截图/图片 base64 已省略，原 " + trimmed.length()
+                    + " 字符；如需查看请要求重新截图]");
+            return true;
+        }
+        return false;
     }
 
     /**

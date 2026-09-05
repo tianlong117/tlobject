@@ -2602,6 +2602,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 all.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
             }
             sanitizeToolPairs(all);
+            stripImagePayloads(all);
             trimToContextBudget(all);
             return all;
         }
@@ -2638,8 +2639,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         List<TLConversationHistory> result = new ArrayList<>(systems);
         result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
         sanitizeToolPairs(result);
+        stripImagePayloads(result);
         trimToContextBudget(result);
         return result;
+    }
+
+    /** 发送视图兜底：截图 base64 载荷降级为占位符（同一轮内 tool 刚执行完、尚未入史裁剪的本地列表也挡） */
+    private static void stripImagePayloads(List<TLConversationHistory> list) {
+        for (TLConversationHistory h : list) {
+            TLAiContext.stripImagePayload(h);
+        }
     }
 
     /**
