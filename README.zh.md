@@ -86,7 +86,7 @@ putMsg("worker", msg);        // 无需 new —— 工厂早已把它创好、�
 - **消息的富语义**：一条 `TLMsg` 原生支持同步/异步/延时发送、链式延续（`nextMsg`）、路由表分发（`msgTable`）、发布订阅（`TLMsgBus`）、广播、阻塞队列——异步与并发是框架的内建能力，而非事后补丁
 - **统一生命周期**：`init → runInitMsg → runStartMsg → 运行 → destroy`，工厂托管一切，模块自己只管业务
 - **完整生态**：数据库 DAO、Jetty/Tomcat/Netty、WebSocket、HTTP、缓存、Redis、定时任务、日志、Excel……15 个顶层模块、40+ 开箱即用的组件（见[模块与子框架](#模块与子框架)）
-- **AI Agent 子框架**：在消息模型之上构建的完整智能体框架——多轮对话、工具调用、记忆、多子 Agent 编排、MCP、HITL 审批（见 [aiagent/README.md](aiagent/README.md)）
+- **AI Agent 子框架**：在消息模型之上构建的完整智能体框架——多轮对话、工具调用、记忆、多子 Agent 编排、MCP、HITL 审批（见 [aiagent/README.zh.md](aiagent/README.zh.md)）
 - **工程友好**：内置日志分级、运行监控、参数校验、会话数据、异常处理；配置即文档，新人看 XML 就能理解系统结构
 
 ---
@@ -225,7 +225,7 @@ public class startup extends TLAppStartUp {
 - 三级记忆：会话上下文、短期记忆（TTL）、长期记忆（文件/DB，摘要分层 + 向量召回可选）
 - 多 Agent 编排：子 Agent 委托、Agent 组、工作流 DAG、错误自愈监管
 - 工程能力：HITL 人工审批门禁、Evals 评测体系、会话持久化与断点恢复、Token 统计、Web 交互界面（webui）、`/test` Mock 回归测试
-- 详细文档（约 1300 行，含架构图/核心类/扩展开发）：**`aiagent/README.md`**
+- 详细文档（约 1300 行，含架构图/核心类/扩展开发）：**`aiagent/README.zh.md`**
 
 ---
 
