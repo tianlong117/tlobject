@@ -52,6 +52,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             try {
                 sleep(waitTime);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();   // 恢复中断标志，交由上层决定是否退出
                 if (threadTask != null)
                     return threadTask.getResult();
                 return createMsg().setParam(TASKRESULTTIMEOUT,true);

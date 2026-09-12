@@ -344,11 +344,13 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     protected  void splitActionsArray(ConcurrentHashMap<String,ArrayList<TLMsg>> msgTableList){
         HashMap<String,ArrayList<TLMsg>> tmpMsgList =new HashMap<>() ;
+        ArrayList<String> multiKeys =new ArrayList<>() ;
         for(String action : msgTableList.keySet())
         {
 
             if(action.indexOf(";") !=-1)
             {
+                multiKeys.add(action);
                 String[] actionArray =TLDataUtils.splitStrToArray(action,";");
                 if(actionArray ==null )
                     continue;
@@ -375,6 +377,10 @@ public abstract class TLBaseModule extends TLBaseObject {
                 }
             }
         }
+        // 展开后移除多键原条目：beforeMsgTable/afterMsgTable 按 action 精确查表，原键永远命不中，
+        // 留着只会让本方法在 configure()/reloadConfig() 二次调用时把同一批 msg 再展开一遍
+        for(String action : multiKeys)
+            msgTableList.remove(action);
         if(tmpMsgList.isEmpty())
             return;
         for(String action : tmpMsgList.keySet())
@@ -384,6 +390,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             {
                 ArrayList<TLMsg> actionMsgList = msgTableList.get(action);
                 msgList.addAll(actionMsgList);
+                msgTableList.put(action, msgList);   // 合并结果必须写回，否则展开出来的 msg 被静默丢弃
             }
            else
                msgTableList.put(action, msgList);

@@ -117,7 +117,7 @@ public class TLObjectFactory extends TLBaseModule {
         if (params != null) {
             if (params.get("package") != null)
                 packageName = params.get("package");
-            if (params.get("package") != null)
+            if (params.get("defaultLogModule") != null)
                 defaultLogModule = params.get("defaultLogModule");
             if (params.get("ifModuleMonitor") !=null)
                 ifModuleMonitor = Boolean.parseBoolean(params.get("ifModuleMonitor"));
@@ -818,7 +818,7 @@ public class TLObjectFactory extends TLBaseModule {
          return cparams ;
     }
     private Object createModule(String newModuleName, String classFilename, String configFile, HashMap<String, String> cparams) {
-        if (!newModuleName.equals(DEFAULTLOG) || !newModuleName.equals(defaultLogModule))
+        if (!newModuleName.equals(DEFAULTLOG) && !newModuleName.equals(defaultLogModule))
             putLog(" 创建模块:" + newModuleName, LogLevel.DEBUG, "createModule");
         Object module = createObject(newModuleName, classFilename);
         if (module == null) {

@@ -443,10 +443,11 @@ public  class TLModuleConfig extends TLBaseModule {
                 break;
             if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag)))
             {
-                if (findex != null && sonMap!= null)
-                    if(hashMap ==null)
-                        hashMap =new HashMap<>();
+                if (findex != null && sonMap != null) {
+                    if (hashMap == null)
+                        hashMap = new HashMap<>();
                     hashMap.put(findex, sonMap);
+                }
             }
             if (xpp.getEventType() == XmlPullParser.START_TAG) {
                 String name = xpp.getName();
@@ -454,11 +455,13 @@ public  class TLModuleConfig extends TLBaseModule {
                     sonMap = new HashMap<>();
                     // 按属性名取值，不依赖属性顺序（DOM Transformer 会按字母重排）
                     findex = xpp.getAttributeValue(null, "name");
-                }
-                for (int i = 0; i < xpp.getAttributeCount(); i++) {
-                    String attrName = xpp.getAttributeName(i);
-                    if (!"name".equals(attrName)) {
-                        sonMap.put(attrName, xpp.getAttributeValue(i));
+                    // 属性收集必须限定在 tag 元素内，否则 <module> 的嵌套子标签
+                    // （如 <params><param name=x value=y/>）会把属性写进上一个模块的配置
+                    for (int i = 0; i < xpp.getAttributeCount(); i++) {
+                        String attrName = xpp.getAttributeName(i);
+                        if (!"name".equals(attrName)) {
+                            sonMap.put(attrName, xpp.getAttributeValue(i));
+                        }
                     }
                 }
             }
@@ -538,10 +541,11 @@ public  class TLModuleConfig extends TLBaseModule {
                 break;
             if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals(tag)))
             {
-                if (msgid != null && msglist != null)
-                    if(msgTable ==null)
-                        msgTable =new LinkedHashMap<>();
-                msgTable.put(msgid, msglist);
+                if (msgid != null && msglist != null) {
+                    if (msgTable == null)
+                        msgTable = new LinkedHashMap<>();
+                    msgTable.put(msgid, msglist);
+                }
             }
             if (xpp.getEventType() == XmlPullParser.START_TAG) {
                 String name = xpp.getName();
