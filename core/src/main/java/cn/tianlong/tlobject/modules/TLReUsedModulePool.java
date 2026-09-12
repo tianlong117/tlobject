@@ -61,8 +61,6 @@ public   class TLReUsedModulePool extends TLBaseModule {
             maxUserNumber = Integer.parseInt(params.get("maxUserNumber"));
         if ( params.get("moduleInPool") != null)
             moduleInPool = params.get("moduleInPool");
-        else if ( params.get("modueInPool") != null)
-            putLog("参数名 modueInPool 已更正为 moduleInPool，旧名不再读取，请修改配置文件",LogLevel.ERROR,"initProperty");
     }
 
     @Override
