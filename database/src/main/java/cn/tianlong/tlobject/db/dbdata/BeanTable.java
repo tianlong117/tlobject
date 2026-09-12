@@ -80,11 +80,24 @@ public class BeanTable extends TLBaseTableModel {
     public int add(Object bean ) {
         BeanMap beanMap= new BeanMap(bean);
         LinkedHashMap<String, Object> data =new LinkedHashMap<>();
-        for (Object key :beanMap.keySet())
-        {
-            String keyStr =String.valueOf(key);
-            if(!keyStr.equals("class"))
-                data.put(String.valueOf(key),beanMap.get(key));
+        // 按表结构取数：BeanMap 的 key 是 bean 属性名，除了真正的字段还包含 isEmpty() 这类
+        // 派生属性，直接拿去当列名会因列不存在而插入失败；且列名(user_name)与属性名(userName)
+        // 形态不同，必须按 ColumnModel 做 fieldName→columnName 映射
+        List<TLTable.ColumnModel> columns = (table instanceof TLTable)
+                ? ((TLTable) table).getTableStructure() : null;
+        if (columns != null && !columns.isEmpty()) {
+            for (TLTable.ColumnModel cm : columns) {
+                String field = cm.getFieldName();
+                if (field != null && beanMap.containsKey(field))
+                    data.put(cm.getColumnName(), beanMap.get(field));
+            }
+        } else {
+            // 拿不到表结构（如虚拟表）时退回原行为
+            for (Object key : beanMap.keySet()) {
+                String keyStr = String.valueOf(key);
+                if (!keyStr.equals("class"))
+                    data.put(keyStr, beanMap.get(key));
+            }
         }
        return add(data);
     }

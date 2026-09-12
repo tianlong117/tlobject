@@ -4,6 +4,7 @@ package cn.tianlong.tlobject.db.dbdata;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.*;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.util.*;
@@ -56,7 +57,15 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_SQL,sql)
                 .setParam(DB_P_TABLENAME,tableName);
         TLMsg resultMsg =putMsg(DEFAULTDATABASE,domsg);
+        // putMsg 在目标模块不存在时返回 null（框架同时会 shutdown），直接解引用会 NPE
+        if (resultMsg == null) {
+            putLog("数据库模块无响应，无法确认表是否存在：" + tableName, LogLevel.ERROR, "isTableExist");
+            return false;
+        }
         boolean result =resultMsg.getBooleanParam(RESULT,false);
+        // 原来返回值被调用方直接丢弃 → 建表失败后所有后续操作持续失败却没有任何提示
+        if (!result)
+            putLog("表不存在或建表失败：" + tableName, LogLevel.ERROR, "isTableExist");
         return result ;
     }
 
