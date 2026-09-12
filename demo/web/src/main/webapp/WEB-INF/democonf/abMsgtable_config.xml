@@ -5,7 +5,7 @@
     <msgTable>
         <!--
      <msgid  value="urlMap" >
-         <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" postion="1" />
+         <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" position="1" />
      </msgid>
 
      <msgid  value="velocity" >
@@ -13,7 +13,7 @@
               daction="writeCache" ddestination="servletCache" />
      </msgid>
      <msgid  value="appCenter" >
-         <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" postion="1"/>
+         <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" position="1"/>
          <msg action="addBeforeMsg"  maction="velocity" daction="getCache" ddestination="servletCache" />
      </msgid>
      <msgid  value="servletDbTest" >

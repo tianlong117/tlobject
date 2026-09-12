@@ -59,9 +59,9 @@ public class TLAppStartUp extends TLBaseModule {
         // Create a Parser
         CommandLineParser parser = new BasicParser( );
         options.addOption("d", "configPath", true, "配置文件目录");
-        options.addOption("n", "appname ", true, "应用名称" );
+        options.addOption("n", "appname", true, "应用名称" );
         options.addOption("m", "factoryConfigFile", true, "模块工厂配置文件名称");
-        options.addOption("f", "app configFile ", true, "应用配置文件" );
+        options.addOption("f", "appconfigFile", true, "应用配置文件" );
         options.addOption("h", "help", false, "帮助");
         // Parse the program arguments
 

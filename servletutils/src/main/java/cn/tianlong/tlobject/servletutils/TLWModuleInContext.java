@@ -36,7 +36,7 @@ public class TLWModuleInContext extends TLBaseSessionData {
     }
 
     @Override
-    protected TLMsg deletSessionData(Object fromWho, TLMsg msg) {
+    protected TLMsg deleteSessionData(Object fromWho, TLMsg msg) {
         String key = (String) msg.getParam("key");
         if(key !=null)
             servletContext.removeAttribute(key);

@@ -17,7 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
  * <moduleConfig>
  *     <msgTable>
  *      <msgid  value="urlMap" >
- *          <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" postion="1" />
+ *          <msg action="addBeforeMsg"  ddestination="msglog" daction="transferLog" position="1" />
  *      </msgid>
  *
  *      <msgid  value="velocity" >
@@ -25,7 +25,7 @@ import java.util.concurrent.ScheduledExecutorService;
  *               daction="writeCache" ddestination="servletCache" />
  *      </msgid>
  *      <msgid  value="appCenter" >
- *          <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" postion="1"/>
+ *          <msg action="addAfterMsg" maction="index" ddestination="tllog" daction="startLog" position="1"/>
  *          <msg action="addBeforeMsg"  maction="velocity" daction="getCache" ddestination="servletCache" />
  *      </msgid>
  *     </msgTable>
@@ -77,7 +77,7 @@ public  class TLABMsgTableAdd extends TLBaseModule {
                 continue;
             TLMsg logmsg=createMsg().setDestination(ddes)
                     .setAction(daction).setMsgId(dmsgid).addArgs(lmsg.getArgs());
-            String position = (String) lmsg.getParam("postion");
+            Object position = lmsg.getParam("position");
             String maction= (String) lmsg.getParam("maction");
             TLMsg addlogMsg =createMsg();
             String msgtype=lmsg.getAction();

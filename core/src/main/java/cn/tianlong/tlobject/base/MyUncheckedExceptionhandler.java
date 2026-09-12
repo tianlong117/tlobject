@@ -1,11 +1,11 @@
 package cn.tianlong.tlobject.base;
 
 
-public class MyUnchecckedExceptionhandler implements Thread.UncaughtExceptionHandler {
+public class MyUncheckedExceptionhandler implements Thread.UncaughtExceptionHandler {
     private IObject module;
     private TLMsg msg;
 
-    public  MyUnchecckedExceptionhandler(IObject module, TLMsg msg){
+    public  MyUncheckedExceptionhandler(IObject module, TLMsg msg){
         this.module =module;
         this.msg =msg ;
     }

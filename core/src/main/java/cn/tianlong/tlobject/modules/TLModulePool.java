@@ -21,7 +21,7 @@ public   class TLModulePool extends TLBaseModule {
     protected int  initNumbs=20;
     protected int  maxNumbs=100;
     protected int  waitTime=2000;
-    protected String modueName;
+    protected String moduleName;
     protected AtomicInteger nowNumbs = new AtomicInteger(0);
     protected ConcurrentLinkedQueue modulePool = new ConcurrentLinkedQueue();
     public TLModulePool(){
@@ -46,7 +46,7 @@ public   class TLModulePool extends TLBaseModule {
             if ( params.get("waitTime") != null)
                 waitTime = Integer.parseInt(params.get("waitTime"));
             if ( params.get("moduleName") != null)
-                modueName = params.get("moduleName");
+                moduleName = params.get("moduleName");
         }
     }
     @Override
@@ -70,8 +70,8 @@ public   class TLModulePool extends TLBaseModule {
         putLog("对象加入池",LogLevel.DEBUG,"pooladd");
     }
     protected   IObject makeModuleInPool() {
-        if(modueName !=null && !modueName.isEmpty())
-          return  (IObject)getNewModule(modueName,modueName);
+        if(moduleName !=null && !moduleName.isEmpty())
+          return  (IObject)getNewModule(moduleName,moduleName);
         return null ;
     };
 

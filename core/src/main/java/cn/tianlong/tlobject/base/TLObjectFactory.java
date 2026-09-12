@@ -355,7 +355,7 @@ public class TLObjectFactory extends TLBaseModule {
                     modules.remove(msg.getParam(FACTORY_P_MODULENAME));
                 break;
             case FACTORY_GETRUNMODULES:
-                returnMsg = getRunModuesInFactory(fromWho, msg);
+                returnMsg = getRunModulesInFactory(fromWho, msg);
                 break;
             case EXCEPTIONHANDLER_HANDLER:
                 returnMsg = exceptionHandler(fromWho, msg);
@@ -366,7 +366,7 @@ public class TLObjectFactory extends TLBaseModule {
         return returnMsg;
     }
 
-    private TLMsg getRunModuesInFactory(Object fromWho, TLMsg msg) {
+    private TLMsg getRunModulesInFactory(Object fromWho, TLMsg msg) {
         ArrayList<Map<String, Object>> moduleList =  new ArrayList<>();
         for(String key :modules.keySet()){
             HashMap<String ,Object> map =new HashMap<>();

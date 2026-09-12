@@ -1,7 +1,7 @@
 package cn.tianlong.tlobject.modules;
 
 import cn.tianlong.tlobject.base.*;
-import cn.tianlong.tlobject.base.MyUnchecckedExceptionhandler;
+import cn.tianlong.tlobject.base.MyUncheckedExceptionhandler;
 
 import java.io.File;
 import java.net.URL;
@@ -42,9 +42,15 @@ public class TLMonitorConfigModule extends TLBaseModule {
         fileLasttime=new ConcurrentHashMap<>();
         moduleConfigFiles.put(name,configFile);
         fileLasttime.put(name, Long.valueOf(0));
-        String modules[] = params.get("modules").split(";");
+        // modules 未配置时只监听自身配置文件，而不是 NPE 掉整个模块启动
+        String modulesStr = params.get("modules");
+        if(modulesStr ==null || modulesStr.trim().isEmpty())
+            return;
+        String modules[] = modulesStr.split(";");
         for(int i=0;i<modules.length;i++){
                 modules[i]=modules[i].trim();
+                if(modules[i].isEmpty())
+                    continue;
                 moduleConfigFiles.put(modules[i],"");
                 fileLasttime.put(modules[i], Long.valueOf(0));
         }
@@ -54,7 +60,7 @@ public class TLMonitorConfigModule extends TLBaseModule {
     protected TLBaseModule init() {
         putMsg(this,createMsg().setAction("checkModules")
                 .setSystemParam(IFTASKDEAMON,true)
-                .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
+                .setSystemParam(EXCEPTIONHANDLER,new MyUncheckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
         putLog("监听配置文件模块启动",LogLevel.DEBUG);
         return  this ;
@@ -101,9 +107,11 @@ public class TLMonitorConfigModule extends TLBaseModule {
                 }
                 checkModules();
             } catch (InterruptedException e) {
-                putLog("config monitor interrupted, restarting",LogLevel.WARN,"exception1");
+                // 中断来自线程池 shutdownNow / destroy：退出循环，不能再 init() 重投任务
+                // （中断标志被重新置位会让下一轮 sleep 立即抛异常，形成紧循环不断新增监听任务）
                 Thread.currentThread().interrupt();
-                init();
+                putLog("config monitor interrupted, exit",LogLevel.DEBUG,"exception1");
+                break;
             }
         }
         putLog("配置文件监听结束",LogLevel.DEBUG);

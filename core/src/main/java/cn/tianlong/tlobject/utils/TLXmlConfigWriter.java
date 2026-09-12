@@ -44,8 +44,8 @@ public class TLXmlConfigWriter {
     /** 按文件规范路径映射锁对象，保证同一文件的并发修改串行化 */
     private static final ConcurrentHashMap<String, Object> FILE_LOCKS = new ConcurrentHashMap<>();
 
-    /** 备份文件名中时间戳的格式 */
-    private static final String DATE_FORMAT = "yyyyMMdd_HHmmss";
+    /** 备份文件名中时间戳的格式（带毫秒：一次热卸载会连写两次配置，秒级会覆盖掉操作前的备份） */
+    private static final String DATE_FORMAT = "yyyyMMdd_HHmmss_SSS";
 
     // ==================== 公共 API ====================
 
@@ -151,8 +151,9 @@ public class TLXmlConfigWriter {
     /**
      * 修改前备份原文件。
      * <p>
-     * 备份文件与源文件在同一目录，命名格式：{@code 原文件名_backup_yyyyMMdd_HHmmss.扩展名}。
-     * 例如 {@code agent_config.xml} → {@code agent_config_backup_20260720_143052.xml}。
+     * 备份文件与源文件在同一目录，命名格式：{@code 原文件名_backup_yyyyMMdd_HHmmss_SSS.扩展名}。
+     * 例如 {@code agent_config.xml} → {@code agent_config_backup_20260720_143052_123.xml}。
+     * 带毫秒是必需的：一次热卸载/热安装会连写两次配置，秒级时间戳会让第二次覆盖掉操作前的备份。
      * <p>
      * 原文件不存在时静默跳过（首次新建场景无需备份）。
      */

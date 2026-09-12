@@ -4,7 +4,7 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.base.MyUnchecckedExceptionhandler;
+import cn.tianlong.tlobject.base.MyUncheckedExceptionhandler;
 
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -38,7 +38,7 @@ public class TLSessionData extends TLBaseSessionData {
         if(expire >0L)
         putMsg(this,createMsg().setAction("checkTask")
                 .setSystemParam(IFTASKDEAMON,true)
-                .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
+                .setSystemParam(EXCEPTIONHANDLER,new MyUncheckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
         return this ;
     }
@@ -63,11 +63,11 @@ public class TLSessionData extends TLBaseSessionData {
         putLog(e.getMessage() +e.getCause(),LogLevel.ERROR);
         putMsg(this,createMsg().setAction("checkTask")
                 .setSystemParam(IFTASKDEAMON,true)
-                .setSystemParam(EXCEPTIONHANDLER,new MyUnchecckedExceptionhandler(this,createMsg().setAction("restart")))
+                .setSystemParam(EXCEPTIONHANDLER,new MyUncheckedExceptionhandler(this,createMsg().setAction("restart")))
                 .setWaitFlag(false));
     }
     @Override
-    protected TLMsg deletSessionData(Object fromWho, TLMsg msg) {
+    protected TLMsg deleteSessionData(Object fromWho, TLMsg msg) {
         String key = (String) msg.getParam("sid");
         if(key !=null)
         {
@@ -108,9 +108,12 @@ public class TLSessionData extends TLBaseSessionData {
                 Thread.sleep(delay*1000);
                 checkSessionTime();
             } catch (InterruptedException e) {
-                putLog("session check interrupted, restarting",LogLevel.WARN,"exception1");
+                // 中断来自线程池 shutdownNow / destroy：必须退出循环。
+                // 原实现在这里 interrupt()+init()，中断标志被重新置位会让下一轮 sleep 立即抛异常，
+                // 形成紧循环且每轮再投一个 checkTask，非 daemon worker 被占满后进程无法退出。
                 Thread.currentThread().interrupt();
-                init();
+                putLog("session check interrupted, exit",LogLevel.DEBUG,"exception1");
+                break;
             }
         }
     }

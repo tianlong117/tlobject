@@ -76,7 +76,7 @@ public  class TLMsgLog extends TLBaseModule {
             TLMsg addlogMsg =createMsg();
             addlogMsg.setAction(msgList.get(i).getAction());
             addlogMsg.setParam("msg",logmsg);
-            addlogMsg.setParam("position",msgList.get(i).getParam("postion"));
+            addlogMsg.setParam("position",msgList.get(i).getParam("position"));
             addlogMsg.setParam("action",msgList.get(i).getParam("maction"));
             putMsg((IObject) returnMsg.getParam("instance"),addlogMsg);
             putLog("监听 :"+moduleName+"->"+msgList.get(i).getParam("maction"),LogLevel.DEBUG);

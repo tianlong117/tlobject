@@ -36,7 +36,7 @@ public abstract class TLBaseSessionData extends TLBaseModule {
                 returnMsg=putSessionData( fromWho,  msg);
                 break;
             case "delete":
-                returnMsg=deletSessionData( fromWho,  msg);
+                returnMsg=deleteSessionData( fromWho,  msg);
                 break;
             default:
                 returnMsg=checkMsgAction(fromWho,msg);
@@ -44,7 +44,7 @@ public abstract class TLBaseSessionData extends TLBaseModule {
         return returnMsg;
     }
 
-    protected abstract TLMsg deletSessionData(Object fromWho, TLMsg msg);
+    protected abstract TLMsg deleteSessionData(Object fromWho, TLMsg msg);
 
     protected abstract TLMsg putSessionData(Object fromWho, TLMsg msg);
 

@@ -305,6 +305,10 @@ public class TLMsgTaskConsole extends TLMsgScanner {
         // 兼容新旧两种返回格式
         if (tasksObj instanceof Map) {
             Map<String, Object> tasks = (Map<String, Object>) tasksObj;
+            // 新版 TLMsgTask 恒返回 Map，必须在这里登记 taskId：
+            // 否则 taskMsgTable 恒为 null，checkTaskId/shutdownCheck/setTaskStatus 一律判"任务不存在"，
+            // start/stop/restart 与 t=x s=status 全部失效
+            taskMsgTable = new HashMap<>();
             if (tasks.isEmpty()) {
                 System.out.println("  (无任务)");
                 return;
@@ -314,6 +318,7 @@ public class TLMsgTaskConsole extends TLMsgScanner {
             for (Map.Entry<String, Object> entry : tasks.entrySet()) {
                 String taskId = entry.getKey();
                 Map<String, Object> info = (Map<String, Object>) entry.getValue();
+                taskMsgTable.put(taskId, createMsg().setParam("status", info.get("status")));
                 printTaskInfo(i, taskId, info);
                 i++;
             }

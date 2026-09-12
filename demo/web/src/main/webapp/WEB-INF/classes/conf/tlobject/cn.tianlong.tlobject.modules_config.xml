@@ -25,7 +25,7 @@
         <module name="reUsedModulePool" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" />
        <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool">
             <params>
-                <param name="modueInPool">singleThreadPool</param>
+                <param name="moduleInPool">singleThreadPool</param>
             </params>
         </module>
     </modules>

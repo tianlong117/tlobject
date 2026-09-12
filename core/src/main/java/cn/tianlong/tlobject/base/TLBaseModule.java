@@ -1365,9 +1365,15 @@ public abstract class TLBaseModule extends TLBaseObject {
             return;
         if(msg.isNull("msg")) return;
         if (msg.getParam("msg") instanceof TLMsg) {
+            // position 有两种来源：XML 属性（String）与代码 setParam（Integer），都要认
             int position = -1;
-            if (msg.getParam("position") != null && msg.getParam("position") instanceof Integer)
-                position = (int) msg.getParam("position");
+            Object posObj = msg.getParam("position");
+            if (posObj instanceof Number)
+                position = ((Number) posObj).intValue();
+            else if (posObj != null) {
+                try { position = Integer.parseInt(posObj.toString().trim()); }
+                catch (NumberFormatException ignored) {}
+            }
             addMsg(tableVar, key, (TLMsg) msg.getParam("msg"), position);
         } else if (msg.getParam("msg") instanceof ArrayList) {
             ArrayList msgs = (ArrayList) msg.getParam("msg");
@@ -1385,7 +1391,8 @@ public abstract class TLBaseModule extends TLBaseObject {
         ArrayList<TLMsg> msgList = tableVar.get(key);
         if (msgList == null) {
             msgList = new ArrayList<TLMsg>();
-            if (position == -1)
+            // position 越界（如 position="3" 而表为空）时退化为追加，避免 IndexOutOfBoundsException
+            if (position < 0 || position > msgList.size())
                 msgList.add(msg);
             else
                 msgList.add(position, msg);

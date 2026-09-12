@@ -28,8 +28,8 @@ public   class TLReUsedModulePool extends TLBaseModule {
     protected int  maxModuleNumbs=200;
     protected int  waitPoolTime=5000;
     protected int  maxUserNumber =0;
-    protected String modueInPool;
-    protected AtomicInteger nowModuePoolIndex = new AtomicInteger(0);
+    protected String moduleInPool;
+    protected AtomicInteger nowModulePoolIndex = new AtomicInteger(0);
     protected AtomicInteger nowUseingModulesSize = new AtomicInteger(0);
     protected int nowUserNumber;
     protected CopyOnWriteArrayList<Object> modulePool = new CopyOnWriteArrayList<>() ;
@@ -59,23 +59,25 @@ public   class TLReUsedModulePool extends TLBaseModule {
             waitPoolTime = Integer.parseInt(params.get("waitPoolTime"));
         if ( params.get("maxUserNumber") != null)
             maxUserNumber = Integer.parseInt(params.get("maxUserNumber"));
-        if ( params.get("modueInPool") != null)
-            modueInPool = params.get("modueInPool");
+        if ( params.get("moduleInPool") != null)
+            moduleInPool = params.get("moduleInPool");
+        else if ( params.get("modueInPool") != null)
+            putLog("参数名 modueInPool 已更正为 moduleInPool，旧名不再读取，请修改配置文件",LogLevel.ERROR,"initProperty");
     }
 
     @Override
     protected TLBaseModule init() {
         if(autoInit==false)
             return this ;
-        if(modueInPool ==null || modueInPool.isEmpty())
+        if(moduleInPool ==null || moduleInPool.isEmpty())
             return this ;
-        makePool(initModuleNumbs, modueInPool);
+        makePool(initModuleNumbs, moduleInPool);
         return this ;
     }
-    protected synchronized void makePool(int moduleNumber,String modueName){
+    protected synchronized void makePool(int moduleNumber,String moduleName){
         for(int i =0 ; i < moduleNumber ;i++)
         {
-            Object module=getNewModule(modueName+moduleNameIndex,modueName);
+            Object module=getNewModule(moduleName+moduleNameIndex,moduleName);
             if(module!=null)
             {
                 modulePool.add( module);
@@ -83,11 +85,11 @@ public   class TLReUsedModulePool extends TLBaseModule {
             }
              else
             {
-                putLog("模块池创建失败,模块名："+modueName,LogLevel.ERROR,"getModuleInPool");
+                putLog("模块池创建失败,模块名："+moduleName,LogLevel.ERROR,"getModuleInPool");
                 return;
             }
         }
-        putLog("模块池创建新模块，,模块名："+modueName+" 创建数量:"+moduleNumber,LogLevel.DEBUG,"getModuleInPool");
+        putLog("模块池创建新模块，,模块名："+moduleName+" 创建数量:"+moduleNumber,LogLevel.DEBUG,"getModuleInPool");
     }
 
     @Override
@@ -163,9 +165,9 @@ public   class TLReUsedModulePool extends TLBaseModule {
     protected TLMsg makePool(Object fromWho, TLMsg msg) {
         if(!modulePool.isEmpty())
             return createMsg().setParam(RESULT,false) ;
-        modueInPool = (String) msg.getParam(MODULENAME);
+        moduleInPool = (String) msg.getParam(MODULENAME);
         setPoolParam(msg.getArgs());
-        makePool(initModuleNumbs, modueInPool);
+        makePool(initModuleNumbs, moduleInPool);
         return createMsg().setParam(RESULT,true) ;
     }
 
@@ -209,18 +211,18 @@ public   class TLReUsedModulePool extends TLBaseModule {
                 module =useingModules.get(user);
                 if(module ==null)
                 {
-                    int index  =  nowModuePoolIndex.getAndIncrement();
+                    int index  =  nowModulePoolIndex.getAndIncrement();
                     int modulePoolSize =modulePool.size();
                     if(index >= modulePoolSize)
                     {
                         if(modulePoolSize <maxModuleNumbs)
                         {
                             int moduleNumber =index-modulePoolSize+1;
-                            makePool(moduleNumber, modueInPool);
+                            makePool(moduleNumber, moduleInPool);
                         }
                         else {
                             index =0;
-                            nowModuePoolIndex.set(0);
+                            nowModulePoolIndex.set(0);
                         }
                     }
                     module =modulePool.get(index);

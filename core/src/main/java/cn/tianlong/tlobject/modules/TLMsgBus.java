@@ -38,7 +38,7 @@ public class TLMsgBus extends TLBaseModule {
         TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case "registBus":
-                regsitBus( fromWho,  msg);
+                registBus( fromWho,  msg);
                 break;
             case "unRegistBus":
                 unRegistBus( fromWho,  msg);
@@ -80,12 +80,16 @@ public class TLMsgBus extends TLBaseModule {
         // 扇出给全部订阅者；任一订阅者返回非 null 即整体 ack（兼容旧单订阅者语义）
         TLMsg ack = null;
         for (Object object : list) {
-            TLMsg r = object instanceof String ? putMsg((String)object,msg) : putMsg((IObject)object,msg);
+            // 每个订阅者一份独立 msg：共享同一实例时 putMsg 会把 waitFlag 就地翻成 true，
+            // 导致首个订阅者异步、其余订阅者变同步直调；异步订阅者还会与总线线程并发读写
+            // 同一个非并发容器 args/systemArgs（对照 TLMsgBroadCast 同样是逐接收者拷贝）
+            TLMsg send = createMsg().copyFrom(msg);
+            TLMsg r = object instanceof String ? putMsg((String)object,send) : putMsg((IObject)object,send);
             if (r != null && ack == null) ack = r;
         }
         return ack;
     }
-    private void regsitBus(Object fromWho, TLMsg msg) {
+    private void registBus(Object fromWho, TLMsg msg) {
         String destination = (String) msg.getParam("destination");
         Object object=msg.getParam("object");
         if (object == null || destination == null) return;   // ConcurrentHashMap 禁 null key

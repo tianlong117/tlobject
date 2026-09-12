@@ -28,6 +28,6 @@
        <module name="checkpoint" classfile="cn.tianlong.tlobject.modules.TLCheckpointModule" />
        <module name="flowAnalyzer" classfile="cn.tianlong.tlobject.modules.TLMsgFlowAnalyzer" />
        <module name="auth" classfile="cn.tianlong.tlobject.modules.TLAuthModule" />
-       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" modueInPool="singleThreadPool"/>
+       <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool" moduleInPool="singleThreadPool"/>
     </modules>
 </moduleConfig>

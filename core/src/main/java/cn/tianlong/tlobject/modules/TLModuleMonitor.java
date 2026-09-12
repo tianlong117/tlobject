@@ -211,9 +211,9 @@ public  class TLModuleMonitor extends TLBaseModule {
         }
         List<String> msgids ;
         if(type.equals("start"))
-            msgids =  moduleConfig.get("msgidStart");
+            msgids =  moduleConfig.get("msgidsStart");
         else
-           msgids =  moduleConfig.get("msgidEnd");
+           msgids =  moduleConfig.get("msgidsEnd");
         if(msgid ==null || msgids==null)
             return false ;
         if(!msgids.contains(msgid) )

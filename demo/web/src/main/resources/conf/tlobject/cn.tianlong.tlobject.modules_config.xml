@@ -29,7 +29,7 @@
        <module name="auth" classfile="cn.tianlong.tlobject.modules.TLAuthModule" />
        <module name="reUsedSingleThreadPoolGroup" classfile="cn.tianlong.tlobject.modules.TLReUsedModulePool">
             <params>
-                <param name="modueInPool">singleThreadPool</param>
+                <param name="moduleInPool">singleThreadPool</param>
             </params>
         </module>
     </modules>

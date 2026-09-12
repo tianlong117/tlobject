@@ -1,7 +1,7 @@
 package cn.tianlong.tlobject.network.common;
 
 
-import cn.tianlong.tlobject.base.MyUnchecckedExceptionhandler;
+import cn.tianlong.tlobject.base.MyUncheckedExceptionhandler;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -69,7 +69,7 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         netSession.start(null, params);
         TLMsg checkSessionTimeOutMsg =createMsg().setAction("checkSessions")
                 .setSystemParam(IFTASKDEAMON, true)
-                .setSystemParam(EXCEPTIONHANDLER, new MyUnchecckedExceptionhandler(this, createMsg().setAction("checkSessions")));
+                .setSystemParam(EXCEPTIONHANDLER, new MyUncheckedExceptionhandler(this, createMsg().setAction("checkSessions")));
         invokeActionInThread("checkSessions",this,checkSessionTimeOutMsg);
         return this;
     }
