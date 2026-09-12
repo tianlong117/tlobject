@@ -81,7 +81,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     private final BlockingQueue<ConsoleEvent> eventQueue = new LinkedBlockingQueue<>();
-    private boolean busy = false;
+    // busy 会被 reader 线程读（Ctrl-C/Ctrl-D 分支）、主线程写 —— 同文件的 running/thinking 都是
+    // volatile，这里原来漏了；不加的话 reader 可能读到陈旧的 false 而漏发停止信号
+    private volatile boolean busy = false;
     private boolean drainInput = false;
     private long currentStart = 0L;
     private Thread readerThread;

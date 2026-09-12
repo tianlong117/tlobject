@@ -79,6 +79,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /** 审批请求注册表：approvalId → TLApprovalRequest */
     private final ConcurrentHashMap<String, TLApprovalRequest> pendingApprovals = new ConcurrentHashMap<>();
+    /** pendingApprovals 的上限：超过后淘汰已决策的旧条目（PENDING 的不动） */
+    private static final int MAX_PENDING_APPROVALS = 500;
 
     /**
      * 会话级拒绝记忆：key = sessionId|toolName|argsKey → 拒绝原因。
@@ -370,6 +372,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         request.setRiskLevel(riskLevel);
         request.setRationale(rationale);
         request.setTimeoutMs(approvalTimeoutMs);
+        evictDecidedApprovals();       // 先腾地方，避免 pendingApprovals 只增不减
         pendingApprovals.put(request.getApprovalId(), request);
 
         // 4. 排期超时
@@ -589,7 +592,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         // 4. 按操作名匹配
         String operation = extractOperation(toolName, args);
-        return operation != null && ops.contains(operation);
+        if (operation == null) {
+            // 规则里配了具体操作、却提取不到操作名（如 script_execution/code_execution 的参数不在
+            // operation/method/action 三个键里），原来的 `operation != null && ...` 会直接判成
+            // "不需审批" —— 规则配了 action 反而等于放行。这里取安全侧：提取不到就当需要审批。
+            putLog("审批规则命中了工具 " + toolName + "，但提取不到操作名，按需要审批处理", LogLevel.WARN);
+            return true;
+        }
+        return ops.contains(operation);
     }
 
     /**
@@ -605,20 +615,22 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 return op != null ? op.toString().toLowerCase() : null;
             case "http_request":
             case "httpRequestSkill":
-                // http_request 的 method 参数：GET/POST/PUT/DELETE
+                // http_request 的 method 参数：GET/POST/PUT/DELETE。
+                // 规则侧统一转小写（见 parseRules），这里必须同样小写 —— 原来返回大写，
+                // 导致 <rule name="http_request" action="POST"/> 永远匹配不上、请求被静默放行
                 Object method = args.get("method");
-                return method != null ? method.toString().toUpperCase() : null;
+                return method != null ? method.toString().toLowerCase() : null;
             case "script_execution":
             case "scriptExecutionSkill":
-                // script_execution 无细分操作，全部需审批
+                // 无细分操作：返回 null，由调用方按"提取不到就需审批"处理（安全侧）
                 return null;
             default:
-                // 其他工具：尝试通用 operation/method/action 参数
+                // 其他工具：尝试通用 operation/method/action 参数（统一小写，与规则侧一致）
                 if (args.containsKey("operation")) {
                     return args.get("operation").toString().toLowerCase();
                 }
                 if (args.containsKey("method")) {
-                    return args.get("method").toString().toUpperCase();
+                    return args.get("method").toString().toLowerCase();
                 }
                 if (args.containsKey("action")) {
                     return args.get("action").toString().toLowerCase();
@@ -766,6 +778,24 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         }
     }
 
+    /**
+     * 清理已决策的审批请求。
+     * <p>
+     * {@code pendingApprovals} 原来只增不减（handleApprove / handleReject / 超时任务都不 remove），
+     * 每个请求永久占一条 entry、还带着完整的 toolArgs。这里在每次登记新请求时顺手淘汰一批
+     * <b>非 PENDING</b> 的旧条目 —— 待审批的绝不淘汰，所以不会影响在途审批。
+     */
+    private void evictDecidedApprovals() {
+        if (pendingApprovals.size() <= MAX_PENDING_APPROVALS)
+            return;
+        for (Map.Entry<String, TLApprovalRequest> e : pendingApprovals.entrySet()) {
+            if (pendingApprovals.size() <= MAX_PENDING_APPROVALS)
+                break;
+            if (!TLApprovalRequest.PENDING.equals(e.getValue().getState()))
+                pendingApprovals.remove(e.getKey(), e.getValue());
+        }
+    }
+
     // ======================== 超时处理 ========================
 
     private void scheduleTimeout(String approvalId, long timeoutMs) {
@@ -776,6 +806,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 request.setState(TLApprovalRequest.EXPIRED);
                 request.setRejectionReason("审批超时（" + (timeoutMs / 1000) + "秒）");
                 putLog("Approval expired: id=" + approvalId, LogLevel.INFO);
+                // 原来只改状态不唤醒：等待线程要一直挂到自己的 latch 超时才返回，
+                // 两条超时路径各走各的（且都会把状态设一遍）
+                signalDecision(approvalId);
             }
         }, timeoutMs, TimeUnit.MILLISECONDS);
     }
@@ -861,6 +894,11 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         if (timeoutScheduler != null && !timeoutScheduler.isShutdown()) {
             timeoutScheduler.shutdownNow();
+        }
+        // 先把挂在 waitForDecision 上的线程全部唤醒：调度器被 shutdown 后超时任务不会再触发，
+        // 不唤醒的话这些线程要一直等到自己的 latch 超时（默认 5 分钟）才返回，关停会卡住
+        for (java.util.concurrent.CountDownLatch latch : decisionLatches.values()) {
+            latch.countDown();
         }
         return super.destroy(fromWho, msg);
     }

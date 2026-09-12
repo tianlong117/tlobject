@@ -48,17 +48,23 @@ public class TLEvalReport {
         int totalTokens = 0;
         int totalIterations = 0;
         long totalLatency = 0;
+        // avgTokens / avgIterations 只统计 agent_chat 用例（README 的口径）：
+        // skill_execute 不跑 LLM，tokens 恒为 0，一起做分母会把均值稀释
+        int agentChatCount = 0;
 
         for (TLEvalRunResult r : results) {
             if (r.passed) summary.passed++; else summary.failed++;
-            totalTokens += r.totalTokens;
-            totalIterations += r.iterations;
             totalLatency += r.latencyMs;
+            if ("agent_chat".equals(r.callType)) {
+                totalTokens += r.totalTokens;
+                totalIterations += r.iterations;
+                agentChatCount++;
+            }
         }
 
         summary.passRate = summary.total > 0 ? (double) summary.passed / summary.total : 0.0;
-        summary.avgTokens = summary.total > 0 ? (double) totalTokens / summary.total : 0.0;
-        summary.avgIterations = summary.total > 0 ? (double) totalIterations / summary.total : 0.0;
+        summary.avgTokens = agentChatCount > 0 ? (double) totalTokens / agentChatCount : 0.0;
+        summary.avgIterations = agentChatCount > 0 ? (double) totalIterations / agentChatCount : 0.0;
         summary.avgLatencyMs = summary.total > 0 ? (double) totalLatency / summary.total : 0.0;
     }
 

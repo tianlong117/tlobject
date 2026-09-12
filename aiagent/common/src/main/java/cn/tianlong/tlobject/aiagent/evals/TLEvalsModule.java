@@ -42,17 +42,24 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     public TLEvalsModule(String name) { super(name); }
     public TLEvalsModule(String name, TLObjectFactory modulefactory) { super(name, modulefactory); }
 
+    /** 配置值非 null 且非空才覆盖默认值（避免 <xxx value=""/> 把默认值清成空串） */
+    private static String nonEmptyOr(String current, String configured) {
+        return (configured != null && !configured.trim().isEmpty()) ? configured : current;
+    }
+
     @Override
     protected TLBaseModule init() {
         judges.put("exact_match", new TLExactMatchJudge());
         judges.put("llm_judge", new TLLlmJudge());
         judges.put("constraint", new TLConstraintJudge());
 
-        if (params.containsKey("evalCaseDir")) evalCaseDir = params.get("evalCaseDir");
-        if (params.containsKey("reportOutputDir")) reportOutputDir = params.get("reportOutputDir");
-        if (params.containsKey("targetAgent")) targetAgent = params.get("targetAgent");
-        if (params.containsKey("judgeProvider")) judgeProvider = params.get("judgeProvider");
-        if (params.containsKey("contextModule")) contextModule = params.get("contextModule");
+        // 用 get != null && 非空 判断，与其它模块一致：containsKey 遇到 <xxx value=""/>
+        // 会把默认值覆盖成空字符串
+        evalCaseDir = nonEmptyOr(evalCaseDir, params.get("evalCaseDir"));
+        reportOutputDir = nonEmptyOr(reportOutputDir, params.get("reportOutputDir"));
+        targetAgent = nonEmptyOr(targetAgent, params.get("targetAgent"));
+        judgeProvider = nonEmptyOr(judgeProvider, params.get("judgeProvider"));
+        contextModule = nonEmptyOr(contextModule, params.get("contextModule"));
 
         ensureDir(reportOutputDir);
 
@@ -437,6 +444,17 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         String sessionId = "eval_" + evalCase.id + "_" + System.currentTimeMillis();
         long startTime = System.currentTimeMillis();
 
+        // agent_chat 的用户消息必须是字符串：input 配成对象时 getInput() 会返回
+        // "{url=..., method=GET}" 这种 toString 文本，LLM 读不懂，早点报错比默默跑出怪结果好
+        Object rawInput = evalCase.getInputRaw();
+        if (rawInput != null && !(rawInput instanceof String)) {
+            result.passed = false;
+            result.error = "agent_chat 用例的 input 必须是字符串，实际是 "
+                    + rawInput.getClass().getSimpleName() + "（对象类型请改用 skill_execute）";
+            result.latencyMs = 0;
+            return result;
+        }
+
         try {
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
@@ -593,11 +611,21 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         try {
             TLMsg getMsg = createMsg().setAction(CONTEXT_GETMESSAGES).setParam(AI_P_SESSIONID, sessionId);
             TLMsg result = putMsg(contextModule, getMsg);
-            if (result == null) return toolNames;
+            if (result == null) {
+                // 失败会让 constraint 的 mustCallTools 报"缺少必须的工具调用"，而真因是取不到
+                // 上下文数据——原来连日志都没有（直接 return），排查时会被误导
+                putLog("提取 tool calls 失败：contextModule(" + contextModule + ") 无响应，"
+                        + "constraint 的 mustCallTools 将因此误报", LogLevel.WARN);
+                return toolNames;
+            }
 
             List<TLConversationHistory> history =
                     (List<TLConversationHistory>) result.getListParam(AI_P_MESSAGEHISTORY, null);
-            if (history == null) return toolNames;
+            if (history == null) {
+                putLog("提取 tool calls 失败：contextModule(" + contextModule + ") 返回的消息里没有 "
+                        + AI_P_MESSAGEHISTORY + "，constraint 的 mustCallTools 将因此误报", LogLevel.WARN);
+                return toolNames;
+            }
 
             for (TLConversationHistory entry : history) {
                 if (entry.getToolCalls() != null) {
@@ -609,7 +637,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
         } catch (Exception e) {
-            putLog("提取 tool calls 失败: " + e.toString(), LogLevel.DEBUG);
+            putLog("提取 tool calls 失败: " + e.toString(), LogLevel.WARN);
         }
         return toolNames;
     }
@@ -647,10 +675,16 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
     /** 扫描目录中的 JSON 文件并加载用例 */
     private void scanFilesInDir(File dir, List<TLEvalCase> cases) {
-        File[] files = dir.listFiles((d, name) -> name.endsWith(".json"));
+        File[] files = dir.listFiles();
         if (files == null) return;
         Arrays.sort(files, Comparator.comparing(File::getName));
         for (File f : files) {
+            // 递归子目录：原来只扫一层，按 math/ http/ llm/ 分目录组织的用例会被静默漏掉
+            if (f.isDirectory()) {
+                scanFilesInDir(f, cases);
+                continue;
+            }
+            if (!f.getName().endsWith(".json")) continue;
             try {
                 List<TLEvalCase> loaded = loadCasesFromFile(f);
                 cases.addAll(loaded);

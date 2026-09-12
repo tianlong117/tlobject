@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.evals;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.base.TLMsg;
 
 import java.util.Map;
@@ -28,12 +29,17 @@ public class TLLlmJudge implements TLEvalJudge, TLAiAgentParamString {
         String evalPrompt = buildEvalPrompt(evalCase.getInput(), runResult.getResponse(), judgePrompt);
 
         try {
+            // Provider 只从 AI_P_MESSAGEHISTORY 取消息（见 TLLlmProvider.doCompletionStream /
+            // TLOpenAiProvider.completion，都没有 userMessage 回退）——原来只塞 AI_P_USERMESSAGE
+            // 会让请求体带上空的 messages 数组，LLM Judge 实际是坏的
+            java.util.List<TLConversationHistory> judgeHistory = new java.util.ArrayList<>();
+            judgeHistory.add(new TLConversationHistory(TLConversationHistory.Role.user, evalPrompt));
+
             TLMsg llmMsg = context.evalsModule.createMsg()
                     .setAction(LLM_COMPLETION)
-                    .setParam(AI_P_USERMESSAGE, evalPrompt)
+                    .setParam(AI_P_MESSAGEHISTORY, judgeHistory)
                     .setParam(AI_P_TEMPERATURE, 0.1)
-                    .setParam(AI_P_MAXTOKENS, 512)
-                    .setParam("skipHistory", true);
+                    .setParam(AI_P_MAXTOKENS, 512);
 
             String model = config.getString("model");
             if (model != null && !model.isEmpty()) {
@@ -99,10 +105,12 @@ public class TLLlmJudge implements TLEvalJudge, TLAiAgentParamString {
                 output.reason = r != null ? r.toString() : "";
             }
         } catch (Exception e) {
-            output.pass = response.toLowerCase().contains("\"pass\": true")
-                    || response.toLowerCase().contains("\"pass\":true");
-            output.score = output.pass ? 0.8 : 0.3;
-            output.reason = "JSON解析失败，从文本推断: " + response.substring(0, Math.min(200, response.length()));
+            // 解析失败不要给一个能跨过阈值的分数（原来是 0.8，默认 passThreshold=0.7 → 直接判通过）。
+            // 判据本身不可信时按失败处理，避免"评审器坏掉"被当成"用例通过"。
+            output.pass = false;
+            output.score = 0.0;
+            output.reason = "裁判输出无法解析为 JSON，判为不通过（可能是模型未按格式输出）。原始输出前 200 字: "
+                    + (response != null ? response.substring(0, Math.min(200, response.length())) : "null");
         }
         return output;
     }

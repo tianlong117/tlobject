@@ -271,7 +271,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 (List<TLFunctionDefinition>) msg.getListParam(AI_P_FUNCTIONDEFS, null);
 
         String jsonBody = buildRequestBody(msg, messages, tools, true);
-        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null);
+        Request request = buildHttpRequest(getCompletionsPath(), jsonBody, null,
+                msg.getStringParam(AI_P_SESSIONID, "default"));
 
         String resultFor = msg.getStringParam(RESULTFOR, fromWho.toString());
         String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
@@ -294,12 +295,26 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
      * 取消所有进行中的HTTP请求
      */
     protected TLMsg cancel(Object fromWho, TLMsg msg) {
+        // 只取消本会话在途的请求。原来无条件 cancel 该 Provider 的全部 queued/running calls，
+        // 而 Provider 是跨会话共享的（子 agent 通过 owner:name 借用同一实例），
+        // 一个会话按停止会把其他会话正在进行的 LLM 调用一起打断（对方那轮被记为"已中断"）。
+        // 请求在构建时用 sessionId 打了 tag（见 buildRequest）。
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        int cancelled = 0;
         for (Call call : okHttpClient.dispatcher().queuedCalls()) {
-            call.cancel();
+            if (sessionId == null || sessionId.equals(call.request().tag())) {
+                call.cancel();
+                cancelled++;
+            }
         }
         for (Call call : okHttpClient.dispatcher().runningCalls()) {
-            call.cancel();
+            if (sessionId == null || sessionId.equals(call.request().tag())) {
+                call.cancel();
+                cancelled++;
+            }
         }
+        if (sessionId != null && cancelled == 0)
+            putLog("cancel: 本会话无在途请求 session=" + sessionId, LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true);
     }
 
@@ -339,6 +354,11 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
      * 构建HTTP请求
      */
     protected Request buildHttpRequest(String path, String jsonBody, Map<String, String> extraHeaders) {
+        return buildHttpRequest(path, jsonBody, extraHeaders, null);
+    }
+
+    protected Request buildHttpRequest(String path, String jsonBody, Map<String, String> extraHeaders,
+                                       String sessionId) {
         String url = apiBaseUrl;
         if (url.endsWith("/")) url = url.substring(0, url.length() - 1);
         url += path;
@@ -349,6 +369,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         Request.Builder builder = new Request.Builder()
                 .url(url)
                 .post(body);
+        // 打上会话标记：cancel 时据此只取消本会话的请求，避免跨会话误杀（provider 是跨会话共享的）
+        if (sessionId != null)
+            builder.tag(sessionId);
 
         // 基础认证头
         Map<String, String> allHeaders = buildHeaders();

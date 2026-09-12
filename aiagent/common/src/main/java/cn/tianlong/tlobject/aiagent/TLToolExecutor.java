@@ -99,7 +99,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         final CountDownLatch latch;
         final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
         volatile boolean aborted;
-        final List<ThreadTask> activeTasks = new ArrayList<>();
+        // add 在 executeTools 的 fire 循环里（worker 线程），遍历在 cancelSession（用户按停止的线程）
+        // 与 cleanupStaleStates（别的会话线程）—— 普通 ArrayList 会 CME 或静默丢元素
+        final List<ThreadTask> activeTasks = new java.util.concurrent.CopyOnWriteArrayList<>();
         volatile long createdAt;
 
         ExecutionState(String executionId, String sessionId, CountDownLatch latch) {

@@ -706,8 +706,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         boolean cascade = msg.parseBoolean("cascade", false);
         cancelFlags.computeIfAbsent(sid, k -> new java.util.concurrent.atomic.AtomicBoolean()).set(true);
         // 1) 取消在途 LLM HTTP（级联模式跳过：子 agent 共享 provider，误杀会波及其他会话）
+        // 带上 sessionId：provider 跨会话共享，不指定的话 cancel 会把别的会话在途调用一起打断
         if (!cascade && llmProvider != null) {
-            putMsg(llmProvider, createMsg().setAction(LLM_CANCEL));
+            putMsg(llmProvider, createMsg().setAction(LLM_CANCEL).setParam(AI_P_SESSIONID, sid));
         }
         // 2) C：杀掉该会话 worker 线程派生的外部进程
         Thread worker = chatThreads.get(sid);
@@ -1458,6 +1459,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             currentChatUserId.remove();
             sessionRoundIds.remove(sessionId);
             sessionUserIds.remove(sessionId);
+            // 这三个原来只在流式路径的 cleanupStreamState 里清，非流式 doChat 走 finally 时会漏：
+            // 每个 sessionId 永久留下一条用户消息原文（可能很长）与一段记忆召回文本，长期运行累积
+            sessionUserMessages.remove(sessionId);
+            sessionCoverSeq.remove(sessionId);
+            sessionMemoryContext.remove(sessionId);
             // 清除中断标志（可能来自 worker.interrupt() 或 provider 回调），
             // 防止返回 ThreadTask 后继续传播导致后续模块误抛 InterruptedException
             while (Thread.interrupted()) { /* drain all pending interrupt flags */ }

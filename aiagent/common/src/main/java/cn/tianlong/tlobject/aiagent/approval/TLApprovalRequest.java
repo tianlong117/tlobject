@@ -45,7 +45,10 @@ public class TLApprovalRequest {
     // ======================== 构造器 ========================
 
     public TLApprovalRequest() {
-        this.approvalId = UUID.randomUUID().toString().substring(0, 8);
+        // 取 16 位而非原来的 8 位：8 位十六进制只有 32bit，生日悖论下约 7.7 万个 ID 就有 50%
+        // 碰撞概率，撞上会让 pendingApprovals/decisionLatches 里后一条覆盖前一条
+        // （前一个等待线程等不到唤醒、授权/拒绝还可能落到另一条待审请求上）
+        this.approvalId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
         this.createdAt = System.currentTimeMillis();
         this.state = PENDING;
         this.toolArguments = new LinkedHashMap<>();

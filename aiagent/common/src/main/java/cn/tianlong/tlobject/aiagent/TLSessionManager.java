@@ -35,6 +35,15 @@ public class TLSessionManager extends TLBaseSessionManager {
 
     // ======================== 实现抽象方法 ========================
 
+    /**
+     * 每个会话文件当前已写入的行数。文件版是只追加不覆盖的，
+     * 原来每次都 {@code Files.lines(file).count()} 全文件扫描来算 roundSeq，
+     * 而一轮对话会发 8 次左右 sessionUpdated —— n 轮就是 O(n²) 次行读取，
+     * 且那个 Stream 没有关闭，等于每次调用泄漏一个文件句柄。
+     */
+    private final java.util.concurrent.ConcurrentHashMap<String, Integer> roundSeqCounters =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     @Override
     protected void storeRound(Map<String, Object> roundData) {
         if (!enableCheckpoint) return;
@@ -46,11 +55,18 @@ public class TLSessionManager extends TLBaseSessionManager {
             if (!dir.exists()) dir.mkdirs();
 
             java.io.File file = new java.io.File(dir, sessionFileName(agentName, sessionId));
-            int lineCount = 0;
-            if (file.exists()) {
-                lineCount = (int) java.nio.file.Files.lines(file.toPath()).count();
-            }
+            String counterKey = file.getAbsolutePath();
+            // 首次见到该文件时才扫一次（进程重启后重新计数），之后走内存计数
+            Integer lineCount = roundSeqCounters.computeIfAbsent(counterKey, k -> {
+                if (!file.exists()) return 0;
+                try (java.util.stream.Stream<String> lines = java.nio.file.Files.lines(file.toPath())) {
+                    return (int) lines.count();      // try-with-resources：原来这里不关会泄漏句柄
+                } catch (Exception e) {
+                    return 0;
+                }
+            });
             roundData.put("roundSeq", lineCount + 1);
+            roundSeqCounters.put(counterKey, lineCount + 1);
             roundData.put("timestamp", System.currentTimeMillis());
 
             String json = gson.toJson(roundData);
