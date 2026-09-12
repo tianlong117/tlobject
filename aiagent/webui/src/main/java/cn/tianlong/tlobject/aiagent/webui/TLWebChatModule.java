@@ -107,8 +107,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 onStreamChunk(msg);
                 break;
             case "approvalEvent":
-                onApprovalEvent(msg);
-                return createMsg().setParam(RESULT, true);  // ack：发布方据此确认有订阅者处理
+                // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null，
+                // 让发布方回退到控制台直接打印，避免"以为有人渲染"而审批提示消失
+                return onApprovalEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -604,6 +605,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
      */
     @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        // 先从总线注销订阅。否则销毁后实例仍留在 receivers 列表里：approvalEvent 会被投给
+        // 这个死实例，它还返回 ack，发布方（ConsoleReviewer）据此以为有人渲染了审批框，
+        // 于是跳过控制台兜底打印 —— 审批提示直接消失；模块重载时新旧实例还会各投一遍
+        try {
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "approvalEvent").setParam("object", this));
+        } catch (Exception e) {
+            putLog("msgBus 注销审批事件订阅失败: " + e, LogLevel.DEBUG);
+        }
         for (TLWebChannel c : streamWriters.values()) {
             try { c.close(); } catch (Exception ignored) {}
         }
@@ -724,8 +734,12 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (!evt.isEmpty()) channel.write(GSON.toJson(evt));
     }
 
-    /** 审批事件（msgBus 回调）：按 sessionId 定位属主推送给其 SSE 连接；未知则广播 */
-    private void onApprovalEvent(TLMsg msg) {
+    /**
+     * 审批事件（msgBus 回调）：按 sessionId 定位属主推送给其 SSE 连接；未知则广播。
+     *
+     * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
+     */
+    private boolean onApprovalEvent(TLMsg msg) {
         String sid = msg.getStringParam("sessionId", "");
         String owner = sid.isEmpty() ? null : sessionOwner.get(sid);
         Map<String, Object> evt = new LinkedHashMap<>();
@@ -737,18 +751,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         evt.put("sessionId", sid);
         evt.put("args", msg.getStringParam("args", "{}"));
         String json = GSON.toJson(evt);
+        boolean sent = false;
         if (owner != null) {
             java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(owner);
             if (list != null) for (TLWebChannel c : list) {
-                if (c.isOpen()) c.write(json);
+                if (c.isOpen()) { c.write(json); sent = true; }
             }
         } else {
             for (java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list : eventChannels.values()) {
                 for (TLWebChannel c : list) {
-                    if (c.isOpen()) c.write(json);
+                    if (c.isOpen()) { c.write(json); sent = true; }
                 }
             }
         }
+        return sent;
     }
 
     private void subscribeApprovalEvents() {

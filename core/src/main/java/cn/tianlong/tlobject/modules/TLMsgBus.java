@@ -96,7 +96,13 @@ public class TLMsgBus extends TLBaseModule {
         String destination = (String) msg.getParam("destination");
         Object object=msg.getParam("object");
         if (object == null || destination == null) return createMsg().setParam(RESULT, false);   // ConcurrentHashMap 禁 null key
-        receivers.computeIfAbsent(destination, k -> new CopyOnWriteArrayList<>()).add(object);
+        CopyOnWriteArrayList<Object> list = receivers.computeIfAbsent(destination, k -> new CopyOnWriteArrayList<>());
+        // 幂等：同一订阅者重复注册不再重复投递。startMsg 重跑（如模块重载）会再发一次 registBus，
+        // 不去重的话同一实例在列表里出现两次，事件会被投递两遍（审批框弹两次）
+        for (Object exist : list)
+            if (exist == object)
+                return createMsg().setParam(RESULT, true);
+        list.add(object);
         return createMsg().setParam(RESULT, true);
     }
 }

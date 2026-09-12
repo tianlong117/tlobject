@@ -107,6 +107,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     protected TLBaseModule init() { return this; }
 
     @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        // 从总线注销订阅，否则模块卸载/重载后旧实例仍留在 receivers 里，继续 ack 审批事件
+        try {
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "approvalEvent").setParam("object", this));
+        } catch (Exception e) {
+            putLog("msgBus 注销审批事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
+        }
+        return super.destroy(fromWho, msg);
+    }
+
+    @Override
     protected void setModuleParams() {
         super.setModuleParams();
         if (params != null) {
@@ -140,9 +152,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 onStreamChunkEvent(msg);
                 break;
             case "approvalEvent":
-                // 审批事件（经 msgBus 订阅）：主循环渲染审批框并重打提示符，无需回车
+                // 审批事件（经 msgBus 订阅）：主循环渲染审批框并重打提示符，无需回车。
+                // ack 只在控制台真的在跑时才给（非 null=已处理），否则事件排进没人消费的队列，
+                // 发布方却以为有人渲染了 —— 返回 null 让它回退到直接打印
                 offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
-                return createMsg().setParam(RESULT, true);  // ack：发布方据此确认有订阅者处理
+                return running ? createMsg().setParam(RESULT, true) : null;
         }
         return null;
     }
