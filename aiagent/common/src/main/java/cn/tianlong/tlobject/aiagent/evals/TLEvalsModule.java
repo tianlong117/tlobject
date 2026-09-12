@@ -33,6 +33,12 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     private String reportOutputDir = "data/evals/reports/";
     private String targetAgent = "aiagent";
     private String judgeProvider = "openAiProvider";
+    /**
+     * @deprecated 已不再使用。取/清会话历史都改走目标 Agent 的黑盒接口
+     * （AGENT_GETCONTEXT / AGENT_CLEARCONTEXT）—— 直接按裸名寻址拿到的是工厂里的 aiContext 单例，
+     * 不是被评测 Agent 的私有 context。保留字段只为兼容老配置里的 contextModule 项。
+     */
+    @Deprecated
     private String contextModule = "aiContext";
 
     private final Map<String, TLEvalJudge> judges = new LinkedHashMap<>();
@@ -486,7 +492,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 result.error = "Agent chat 返回失败";
             }
 
-            result.toolCalls = extractToolCalls(sessionId);
+            result.toolCalls = extractToolCalls(targetModule, sessionId);
             runAllJudges(evalCase, result);
 
         } catch (Exception e) {
@@ -496,8 +502,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             try { runAllJudges(evalCase, result); } catch (Exception ignored) {}
         } finally {
             try {
-                putMsg(contextModule, createMsg()
-                        .setAction(CONTEXT_CLEAR)
+                // 走 Agent 的黑盒接口清它自己的会话（原来发给裸名 contextModule = 工厂单例，
+                // 清的从来不是被评测 Agent 的上下文）
+                sendToTarget(targetModule, createMsg()
+                        .setAction(AGENT_CLEARCONTEXT)
                         .setParam(AI_P_SESSIONID, sessionId));
             } catch (Exception ignored) {}
         }
@@ -606,15 +614,17 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     // ======================== Tool Calls 提取 ========================
 
     @SuppressWarnings("unchecked")
-    protected List<String> extractToolCalls(String sessionId) {
+    protected List<String> extractToolCalls(String targetAgent, String sessionId) {
         List<String> toolNames = new ArrayList<>();
         try {
-            TLMsg getMsg = createMsg().setAction(CONTEXT_GETMESSAGES).setParam(AI_P_SESSIONID, sessionId);
-            TLMsg result = putMsg(contextModule, getMsg);
+            // 必须走 Agent 的黑盒接口（AGENT_GETCONTEXT），不能直接 putMsg("aiContext", ...)：
+            // 每个 Agent 的 context 是它用 getMyModule 建的私有实例（singleton=false，不注册进工厂
+            // modules 表），而裸名寻址拿到的是共享配置里那个 singleton="true" 的 aiContext ——
+            // 里面没有评测会话的数据，toolCalls 恒为空，mustCallTools 必然误报"缺少必须的工具调用"
+            TLMsg getMsg = createMsg().setAction(AGENT_GETCONTEXT).setParam(AI_P_SESSIONID, sessionId);
+            TLMsg result = sendToTarget(targetAgent, getMsg);
             if (result == null) {
-                // 失败会让 constraint 的 mustCallTools 报"缺少必须的工具调用"，而真因是取不到
-                // 上下文数据——原来连日志都没有（直接 return），排查时会被误导
-                putLog("提取 tool calls 失败：contextModule(" + contextModule + ") 无响应，"
+                putLog("提取 tool calls 失败：" + targetAgent + " 无响应，"
                         + "constraint 的 mustCallTools 将因此误报", LogLevel.WARN);
                 return toolNames;
             }
@@ -622,7 +632,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             List<TLConversationHistory> history =
                     (List<TLConversationHistory>) result.getListParam(AI_P_MESSAGEHISTORY, null);
             if (history == null) {
-                putLog("提取 tool calls 失败：contextModule(" + contextModule + ") 返回的消息里没有 "
+                putLog("提取 tool calls 失败：" + targetAgent + " 返回的消息里没有 "
                         + AI_P_MESSAGEHISTORY + "，constraint 的 mustCallTools 将因此误报", LogLevel.WARN);
                 return toolNames;
             }
