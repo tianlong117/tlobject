@@ -73,7 +73,13 @@ public class TLWebSocketClientAgent extends TLBaseModule {
         return this ;
     }
     protected void connect(HashMap<String, String> params) {
+        // 重新发起连接前先释放上一个 client 的资源：原来每次都 getNewModule 新建一个模块实例，
+        // 旧实例（连同它的 OkHttpClient 连接池/调度线程池、活着的 WebSocket、私有线程池）
+        // 只被本方法丢弃、又不在工厂 destroy 的遍历范围内 —— 重连 N 次就积 N 套
+        if (mclient != null)
+            mclient.release();
         TLWebSocketClient mclient = (TLWebSocketClient) getNewModule("webSocketClient","webSocketClient");
+        this.mclient = mclient;     // 记录当前实例，供下次 connect 释放（否则只靠 loginResult 回调赋值，首连之后仍是旧引用）
         String curl =(params.get(URL)!=null)? params.get(URL):url ;
         String ccerFile =(params.get("cerFile")!=null)? params.get("cerFile"):cerFile ;
         TLMsg connectMsg =createMsg().setAction(WEBSOCKET_CONNECT)

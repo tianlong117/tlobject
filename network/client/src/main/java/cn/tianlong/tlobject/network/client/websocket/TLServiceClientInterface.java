@@ -64,6 +64,10 @@ public class TLServiceClientInterface extends TLSocketClientAgentPool {
             msg.setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,defaultServer);
             return toService(fromWho,msg) ;
         }
+        // msgid 不在映射表且未配 defaultServer 时 services 仍为 null，
+        // 原代码直接 services.size() 会 NPE
+        if (services == null)
+            return createMsg().setParam(RESULT, false);
         int serviceSize =services.size();
         if( serviceSize==1 )
         {

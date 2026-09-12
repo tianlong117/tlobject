@@ -28,6 +28,8 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
     protected ConcurrentHashMap<Integer, HashMap<String, Object>> files = new ConcurrentHashMap<>();
     protected ConcurrentHashMap<String, CopyOnWriteArrayList<Integer>> channelSessions = new ConcurrentHashMap<>();
     protected TLNetSession netSession;
+    /** 会话超时检查线程的退出标志：原来 while(true) 永不退出，模块销毁/reload 后会累积线程 */
+    protected volatile boolean checkRunning = true;
     protected Type jsonType = new TypeToken<Map<String, Object>>() {
     }.getType();
 
@@ -97,8 +99,15 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
     }
 
     private void checkSessions(Object fromWho, TLMsg msg) throws InterruptedException {
-        do {
-            Thread.sleep(2000);
+        while (checkRunning) {
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();   // 恢复中断标志
+                break;
+            }
+            if (!checkRunning)
+                break;
             for (Integer sessionId : files.keySet()) {
                 HashMap<String, Object> channelFile = files.get(sessionId);
                 Long time = (Long) channelFile.get("time");
@@ -108,8 +117,15 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
                     closeStream(sessionId, false);
                 }
             }
-        } while (true);
+        }
     }
+
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        checkRunning = false;      // 让 checkSessions 的循环退出，否则线程永不回收
+        return super.destroy(fromWho, msg);
+    }
+
     private TLMsg receiveBinary(Object fromWho, TLMsg msg) {
         if (msg.isNull(WEBSOCKET_P_BINARYCMDCODE))
             return createMsg().setParam(RESULT, false);

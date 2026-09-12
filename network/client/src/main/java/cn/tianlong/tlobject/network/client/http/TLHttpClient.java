@@ -136,6 +136,12 @@ public class TLHttpClient extends TLBaseModule {
         String url = msg.getStringParam(HTTP_P_URL,"").trim();
         if(url.isEmpty())
             return null;
+        // 只判 isEmpty 不够：url 短于 8 字符时下面的 substring 会 StringIndexOutOfBounds
+        if(url.length() < 8)
+        {
+            putLog("url is wrong:"+url, LogLevel.WARN, "builder");
+            return null;
+        }
         String httpprotocol = url.substring(0,7);
         String httpsprotocol = url.substring(0,8);
         if(!httpprotocol.equals("http://") && !httpsprotocol.equals("https://"))
@@ -361,6 +367,9 @@ public class TLHttpClient extends TLBaseModule {
                 } catch (IOException e) {
                 }
             }
+            // 失败路径的 response 不返回给调用方，必须关闭，否则每个 4xx/5xx 泄漏一个连接
+            // （成功路径的 body 已被 string() 消费并归还连接，其 Response 仍按原样返回）
+            response.close();
             String url = msg.getStringParam(HTTP_P_URL, "");
             putLog("response error:" + url, LogLevel.ERROR, "httpCall");
             return createMsg().setParam(HTTP_ERROR, true);

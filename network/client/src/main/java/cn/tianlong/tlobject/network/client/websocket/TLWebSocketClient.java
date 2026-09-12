@@ -127,7 +127,28 @@ public class TLWebSocketClient extends TLHttpClient {
         int sessionId = (int) msg.getParam(WEBSOCKET_P_BINARYSESSION);
         binarySendModule.setSendError(sessionId);
     }
+    /**
+     * 释放当前连接资源：关闭 WebSocket，并关停 OkHttpClient 的连接池与调度线程池。
+     * OkHttpClient 自带连接池 + 调度线程池（WebSocket 还有 ping 定时线程），
+     * 只丢引用不释放的话，每次 connect 都会积一套线程与 Socket。
+     */
+    public synchronized void release() {
+        if (mWebSocket != null) {
+            try { mWebSocket.close(1000, "release"); } catch (Exception ignored) {}
+            try { mWebSocket.cancel(); } catch (Exception ignored) {}
+            mWebSocket = null;
+        }
+        if (client != null) {
+            try { client.dispatcher().cancelAll(); } catch (Exception ignored) {}
+            try { client.dispatcher().executorService().shutdown(); } catch (Exception ignored) {}
+            try { client.connectionPool().evictAll(); } catch (Exception ignored) {}
+            client = null;
+        }
+        connected = false;
+    }
+
     protected TLMsg connect(Object fromWho, TLMsg msg) {
+        release();      // 重建前先释放上一次的 client/WebSocket，否则重连会累积资源
         if (msg.parseBoolean(HTTP_P_ISHTTPS, false) == true) {
             String cerFile = (String) msg.getParam(SSL_SCERFILE);
             TLSslUtils.SSLParams sslParams;
@@ -242,7 +263,9 @@ public class TLWebSocketClient extends TLHttpClient {
     public synchronized boolean webSocketSend(String content) {
         if (connected == false)
             return false;
-        int contentsize = content.length()*3*8 ;
+        // *3 = UTF-8 最坏情况（全中文）；原来还多乘了 8，使有效阈值降到约 700K 字符，
+        // 超过就必然等满 3 秒后发送失败
+        int contentsize = content.length()*3 ;
         boolean IfQueueCanWrite= IfQueueCanWrite(contentsize);
         if( IfQueueCanWrite ==true)
             return mWebSocket.send(content);

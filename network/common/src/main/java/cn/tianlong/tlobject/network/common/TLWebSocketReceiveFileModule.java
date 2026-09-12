@@ -35,6 +35,8 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
     protected ConcurrentHashMap<Integer, HashMap<String, Object>> files = new ConcurrentHashMap<>();
     protected TLNetSession netSession;
     protected TLReUsedModulePool sessionPool ;
+    /** 会话超时检查线程的退出标志：原来 while(true) 永不退出，模块销毁/reload 后会累积线程 */
+    protected volatile boolean checkRunning = true;
     protected Type jsonType = new TypeToken<Map<String, Object>>() { }.getType();
 
     public TLWebSocketReceiveFileModule(String name, TLObjectFactory modulefactory) {
@@ -74,13 +76,22 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         return this;
     }
 
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        checkRunning = false;      // 让 checkSessions 的循环退出，否则线程永不回收
+        return super.destroy(fromWho, msg);
+    }
+
     protected void checkSessions(Object fromWho, TLMsg msg) {
-        do {
+        while (checkRunning) {
             try {
                 Thread.sleep(2000);
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                Thread.currentThread().interrupt();   // 恢复中断标志，不要只 printStackTrace
+                break;
             }
+            if (!checkRunning)
+                break;
             for (Integer sessionId : files.keySet())
             {
                 HashMap<String, Object> fileSessionData = files.get(sessionId);
@@ -134,7 +145,11 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
         TLMsg resultMsg = getMsg(this, serverMsg);
-        if( resultMsg ==null || resultMsg.getBooleanParam(RESULT, false))
+        // RESULT==false 才是发送失败：与同包 TLBaseWebSocketSendFile 的判据一致
+        // （原来写成"RESULT 为 true 就失败"反了）。必须用 parseBoolean 而不是 getBooleanParam：
+        // 客户端这条链的 RESULT 是 Boolean，服务端（TLUserManagerModule）返回的是 Integer 1/0，
+        // 而 getBooleanParam 只认 Boolean —— 只翻极性不改取值方式会把现在侥幸正常的服务端弄坏
+        if( resultMsg ==null || resultMsg.parseBoolean(RESULT, false) == false)
         {
             netSession.removeSessionId(String.valueOf(sessionId));
             return createMsg().setParam(RESULT, false);

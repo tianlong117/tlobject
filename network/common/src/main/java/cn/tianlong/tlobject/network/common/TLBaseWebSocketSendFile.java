@@ -134,6 +134,10 @@ abstract public  class TLBaseWebSocketSendFile extends TLBaseModule {
         }
         int waitTime =msg.getIntParam(WEBSOCKET_P_SENDFILEAPPWAITTIMEONSEND,0) ;
         TLMsg appResultMsg = netSession.waitServerReturnUntilTimeOut(appSessionId,null,null,waitTime,0) ;
+        // 对端无回应而被中断时，returnServerMsg 会返回 null（同文件上面那处 wait 就判了空），
+        // 这里不判会让 addMap 直接 NPE
+        if (appResultMsg == null)
+            return sendResultMsg ;
         return  appResultMsg.addMap(sendResultMsg.getArgs()) ;
     }
     public static TLMsg sendFiles(TLBaseModule execModule ,TLMsg msg) {

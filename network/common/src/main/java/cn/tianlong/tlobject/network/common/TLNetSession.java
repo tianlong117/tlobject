@@ -68,9 +68,16 @@ public class TLNetSession extends TLBaseModule {
                 e.printStackTrace();
             }
         }
-        sessionsId = new ConcurrentHashMap<>(initialCapacity);
-        msgSessions = new ConcurrentHashMap<>(initialCapacity);
-        threads = new ConcurrentHashMap<>(initialCapacity);
+        // 这三个 map 是 static，是跨模块握手的共享结构（一端存回复、另一端等回复），
+        // 必须共享；但原来每次 init 都整体替换 —— 新建一个 TLNetSession 实例
+        // （每个 websocket 模块都会建一个）就会把前一个实例在途的会话整表丢掉，
+        // 等待方收不到 interrupt，只能睡满 waitTime 后假失败。改为只创建一次。
+        if (sessionsId == null)
+            sessionsId = new ConcurrentHashMap<>(initialCapacity);
+        if (msgSessions == null)
+            msgSessions = new ConcurrentHashMap<>(initialCapacity);
+        if (threads == null)
+            threads = new ConcurrentHashMap<>(initialCapacity);
         return this ;
     }
     @Override

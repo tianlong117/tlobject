@@ -116,6 +116,9 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         putMsg(serverObj,msg) ;
     }
     protected TLBaseModule addServer(String serverName ,HashMap<String, String> serverParams){
+        // 调用方传进来的是配置解析出的共享 Map（servers.get(serverName)），
+        // 直接改会污染配置对象；拷贝一份再补默认值
+        serverParams = new HashMap<>(serverParams);
         serverParams.put("autoConnect","false") ;
         if(serverParams.get(RESULTFOR) ==null)
             serverParams.put(RESULTFOR,name);
