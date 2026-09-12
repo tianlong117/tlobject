@@ -753,9 +753,12 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     private void subscribeApprovalEvents() {
         try {
-            putMsg("msgBus", createMsg().setAction("registBus")
+            TLMsg regMsg = putMsg("msgBus", createMsg().setAction("registBus")
                     .setParam("destination", "approvalEvent").setParam("object", this));
-            putLog("webui 已订阅审批事件（msgBus approvalEvent）", LogLevel.INFO);
+            if (regMsg == null || !Boolean.TRUE.equals(regMsg.getParam(RESULT)))
+                putLog("webui 订阅审批事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅审批事件（msgBus approvalEvent）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("msgBus 订阅审批事件失败: " + e, LogLevel.WARN);
         }

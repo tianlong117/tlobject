@@ -225,10 +225,12 @@ public   class TLReUsedModulePool extends TLBaseModule {
                     }
                     module =modulePool.get(index);
                     useingModules.put(user,module);
+                    // 只在"新分配到一个模块"时计数（当前持有模块的用户数）；
+                    // 命中缓存再加会让计数只增不减地虚高，到 maxUserNumber 后直接返回 null 丢消息
+                    nowUserNumber= nowUseingModulesSize.incrementAndGet();
                 }
             }
         }
-        nowUserNumber= nowUseingModulesSize.incrementAndGet();
         putLog("模块使用，user:"+user+".当前使用数量:" + nowUserNumber,LogLevel.DEBUG,"getModuleInPool");
         return module ;
     }
@@ -238,7 +240,7 @@ public   class TLReUsedModulePool extends TLBaseModule {
     public Object  getExistUserModuleInPool(String user){
         if(ifReachMaxUser())
             return null;
-        nowUserNumber= nowUseingModulesSize.incrementAndGet();
+        // 纯查询：用户已有模块就直接返回，不改变持有计数
         return useingModules.get(user);
     }
     private boolean ifReachMaxUser() {

@@ -38,10 +38,10 @@ public class TLMsgBus extends TLBaseModule {
         TLMsg returnMsg=null;
         switch (msg.getAction()) {
             case "registBus":
-                registBus( fromWho,  msg);
+                returnMsg = registBus( fromWho,  msg);
                 break;
             case "unRegistBus":
-                unRegistBus( fromWho,  msg);
+                returnMsg = unRegistBus( fromWho,  msg);
                 break;
             default:
                 return onBus( fromWho,  msg);
@@ -49,12 +49,13 @@ public class TLMsgBus extends TLBaseModule {
         return returnMsg;
     }
 
-    private void unRegistBus(Object fromWho, TLMsg msg) {
+    /** 返回 RESULT=true/false，调用方可判断注销是否真的生效；否则失败与成功无法区分 */
+    private TLMsg unRegistBus(Object fromWho, TLMsg msg) {
         String destination = (String) msg.getParam("destination");
         Object object = msg.getParam("object");
-        if (destination == null) return;   // ConcurrentHashMap 禁 null key
+        if (destination == null) return createMsg().setParam(RESULT, false);   // ConcurrentHashMap 禁 null key
         CopyOnWriteArrayList<Object> list = receivers.get(destination);
-        if (list == null) return;
+        if (list == null) return createMsg().setParam(RESULT, false);
         if (object == null) {
             // 旧调用方式：未指定 object，移除该 destination 全部订阅
             receivers.remove(destination);
@@ -62,6 +63,7 @@ public class TLMsgBus extends TLBaseModule {
             list.remove(object);
             if (list.isEmpty()) receivers.remove(destination);
         }
+        return createMsg().setParam(RESULT, true);
     }
 
     @Override
@@ -89,10 +91,12 @@ public class TLMsgBus extends TLBaseModule {
         }
         return ack;
     }
-    private void registBus(Object fromWho, TLMsg msg) {
+    /** 返回 RESULT=true/false，调用方可判断订阅是否真的登记上（如参数缺失被拒） */
+    private TLMsg registBus(Object fromWho, TLMsg msg) {
         String destination = (String) msg.getParam("destination");
         Object object=msg.getParam("object");
-        if (object == null || destination == null) return;   // ConcurrentHashMap 禁 null key
+        if (object == null || destination == null) return createMsg().setParam(RESULT, false);   // ConcurrentHashMap 禁 null key
         receivers.computeIfAbsent(destination, k -> new CopyOnWriteArrayList<>()).add(object);
+        return createMsg().setParam(RESULT, true);
     }
 }

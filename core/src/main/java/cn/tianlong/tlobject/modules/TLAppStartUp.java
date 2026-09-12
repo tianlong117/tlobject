@@ -72,7 +72,7 @@ public class TLAppStartUp extends TLBaseModule {
             throw new RuntimeException(e);
         }
         if( commandLine.hasOption('h') ) {
-            System.out.println( "Help Message") ;
+            printHelp();      // 原来只打一句 "Help Message"，真正的用法说明永远看不到
             exit(0);
         }
         HashMap<String,String> argsMap =new HashMap<>() ;
@@ -88,10 +88,6 @@ public class TLAppStartUp extends TLBaseModule {
     }
     public static boolean checkArgs(HashMap<String,String> argsMap)
     {
-        if(argsMap.containsKey("help")){
-            printHelp();
-            return false ;
-        }
         if(!argsMap.containsKey("configPath"))
         {
             System.out.println("缺少配置文件路径");

@@ -132,6 +132,8 @@ public  class TLMsgLog extends TLBaseModule {
         logBuffer.append(msg.getPrevious());
         logBuffer.append(" 参数： ");
         HashMap<String ,Object> args=msg.getArgs();
+        if (args == null || args.isEmpty())
+            return logBuffer.toString();          // 无参消息 args 为 null，直接返回已拼接部分
         for (String key : args.keySet()) {
             if(args.get(key) instanceof  String)
             {

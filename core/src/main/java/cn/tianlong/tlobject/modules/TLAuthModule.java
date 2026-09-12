@@ -637,7 +637,7 @@ public class TLAuthModule extends TLBaseModule {
             if (userStateMsg == null)
                 userStateMsg = resolveUserState(stateMsg);
             if (userStateMsg != null && userStateMsg.getParam(USER_P_ROLE) != null) {
-                List userRoles = (List) userStateMsg.getParam(USER_P_ROLE);
+                List<String> userRoles = toRoleList(userStateMsg.getParam(USER_P_ROLE));
                 if (userRoles != null && userRoles.contains(defaultSuperRole))
                     return null;
             }
@@ -685,9 +685,7 @@ public class TLAuthModule extends TLBaseModule {
         if (rolePolicy != null && !rolePolicy.isEmpty()) {
             if (userStateMsg == null)
                 userStateMsg = resolveUserState(stateMsg);
-            List userRoles = null;
-            if (userStateMsg != null && userStateMsg.getParam(USER_P_ROLE) != null)
-                userRoles = (List) userStateMsg.getParam(USER_P_ROLE);
+            List<String> userRoles = userStateMsg == null ? null : toRoleList(userStateMsg.getParam(USER_P_ROLE));
             if (userRoles == null) {
                 if (rolePolicy.contains(USER_V_ROLE_GUEST) && !rolePolicy.contains("!" + USER_V_ROLE_GUEST))
                     return null;
@@ -897,5 +895,35 @@ public class TLAuthModule extends TLBaseModule {
                 putLog("TLAuthModule config parse error:" + t.toString(), LogLevel.WARN);
             }
         }
+    }
+
+    /**
+     * role 归一化：用户侧可能给 List / Set / 数组 / 字符串（分号或逗号分隔），
+     * 策略侧 policyToSet 统一转的是 HashSet，两侧不对称会对不上（或直接 CCE）。
+     * 无法识别的类型返回 null，调用方按"无角色"处理。
+     */
+    private static List<String> toRoleList(Object v) {
+        if (v == null)
+            return null;
+        List<String> roles = new ArrayList<>();
+        if (v instanceof Collection) {
+            for (Object o : (Collection<?>) v)
+                if (o != null && !String.valueOf(o).trim().isEmpty())
+                    roles.add(String.valueOf(o).trim());
+            return roles;
+        }
+        if (v instanceof String[]) {
+            for (String s : (String[]) v)
+                if (s != null && !s.trim().isEmpty())
+                    roles.add(s.trim());
+            return roles;
+        }
+        if (v instanceof String) {
+            for (String s : ((String) v).split("[;,，；]"))
+                if (!s.trim().isEmpty())
+                    roles.add(s.trim());
+            return roles;
+        }
+        return null;
     }
 }

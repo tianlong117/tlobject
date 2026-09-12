@@ -217,8 +217,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         // 订阅审批事件：审批模块经消息总线发布，控制台自行渲染（解耦，不直接依赖审批模块）
         try {
-            putMsg("msgBus", createMsg().setAction("registBus")
+            TLMsg regMsg = putMsg("msgBus", createMsg().setAction("registBus")
                     .setParam("destination", "approvalEvent").setParam("object", this));
+            if (regMsg == null || !Boolean.TRUE.equals(regMsg.getParam(RESULT)))
+                putLog("msgBus 订阅审批事件被拒绝", cn.tianlong.tlobject.modules.LogLevel.WARN);
         } catch (Exception e) {
             putLog("msgBus 订阅审批事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
         }
