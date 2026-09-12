@@ -42,6 +42,8 @@ public class TLTomcat extends TLBaseModule {
     protected String sslCerFilePwd = "/";
     protected String connector = "http";
     protected ArrayList<String> connectorList;
+    /** HTTPS connector 是否真的创建成功（创建失败时启动日志要如实反映，不能无条件打 "HTTPS started"） */
+    protected boolean httpsStarted = false;
     protected int minThreads = 10;
     protected int maxThreads = 200;
     protected int idleTimeout = 30000;
@@ -124,9 +126,12 @@ public class TLTomcat extends TLBaseModule {
             try {
                 Connector httpsConnector = createSslConnector();
                 tomcat.getService().addConnector(httpsConnector);
+                httpsStarted = true;
                 putLog("Tomcat HTTPS Connector: " + host + ":" + httpsPort, LogLevel.INFO);
             } catch (Exception e) {
-                putLog("HTTPS 配置错误: " + e.getMessage(), LogLevel.ERROR);
+                // 原来是静默降级：配了 https 但证书错，服务器照常启动且后面的日志还会打"HTTPS started"，
+                // 运维可能几个月后才发现。这里明确记为 ERROR 并在启动日志里如实反映。
+                putLog("HTTPS 配置错误，HTTPS 未启用: " + e.getMessage(), LogLevel.ERROR);
                 e.printStackTrace();
             }
         }
@@ -257,7 +262,10 @@ public class TLTomcat extends TLBaseModule {
         if (connectorList.contains("http"))
             putLog("Tomcat HTTP started: " + host + ":" + port, LogLevel.INFO);
         if (connectorList.contains("https"))
-            putLog("Tomcat HTTPS started: " + host + ":" + httpsPort, LogLevel.INFO);
+            // 只有 connector 真的加进去了才算启动，否则如实报未启用（原来无条件打 "started" 会误导）
+            putLog(httpsStarted ? "Tomcat HTTPS started: " + host + ":" + httpsPort
+                                : "Tomcat HTTPS 未启用（connector 创建失败）",
+                   httpsStarted ? LogLevel.INFO : LogLevel.ERROR);
 
         // 异步等待，避免阻塞消息线程
         Thread waitThread = new Thread(() -> {

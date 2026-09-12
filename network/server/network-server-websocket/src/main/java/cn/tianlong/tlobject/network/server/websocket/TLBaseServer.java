@@ -81,8 +81,11 @@ import java.util.concurrent.atomic.AtomicInteger;
             ResourceLeakDetector.setLevel(ResourceLeakDetector.Level.ADVANCED);
             future.channel().closeFuture().sync();
         } finally {
-            bossGroup.shutdownGracefully();
-            workerGroup.shutdownGracefully();
+            // 两个 group 的构造在 try 之外：第二个构造失败时它仍为 null，直接解引用会在 finally 里 NPE
+            if(bossGroup !=null)
+                bossGroup.shutdownGracefully();
+            if(workerGroup !=null)
+                workerGroup.shutdownGracefully();
             runFlag=false;
         }
         return runFlag ;
@@ -111,9 +114,6 @@ import java.util.concurrent.atomic.AtomicInteger;
             case "setMaxClient":
                 returnMsg=setMaxClient(fromWho,msg);
                 break;
-            case "destroy":
-                returnMsg=stop(fromWho,msg);
-                break;
             default:
                 returnMsg = null;
         }
@@ -128,7 +128,9 @@ import java.util.concurrent.atomic.AtomicInteger;
     }
 
     private TLMsg setMaxClient(Object fromWho, TLMsg msg) {
-        if(msg.getParam("setMaxClient")!=null)
+        // 原来判断用 "setMaxClient"、取值用 "maxClient"：只写 maxClient 时永远不更新，
+        // 只写 setMaxClient 时取值为 null → toString() NPE。统一按 maxClient 取值。
+        if(msg.getParam("maxClient")!=null)
             maxClient= Integer.valueOf( msg.getParam("maxClient").toString());
         return createMsg().setParam("result",maxClient);
     }
@@ -156,11 +158,29 @@ import java.util.concurrent.atomic.AtomicInteger;
 
     protected  void afterServerRun(){};
 
+    /**
+     * 模块销毁时停服。
+     * <p>
+     * 原来这里只在 checkMsgAction 里写了 {@code case "destroy"}，但框架的 runAction 会先把
+     * "destroy" 拦到 TLBaseModule.destroy，那条分支永远走不到 —— 结果是工厂关闭时
+     * Netty 的 boss/worker 线程组不会被 shutdown，run() 里的 closeFuture().sync() 也不会返回。
+     */
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        if (bossGroup != null || workerGroup != null)
+            putLog("服务器销毁，释放 Netty 线程组: " + serverName, LogLevel.DEBUG, "destroy");
+        stop(fromWho, msg);
+        return super.destroy(fromWho, msg);
+    }
+
     protected TLMsg stop(Object fromWho, TLMsg msg) {
-        bossGroup.shutdownGracefully();
-        workerGroup.shutdownGracefully();
-        putLog(" 服务器停止，网址是 : " + "http://localhost:" + port,LogLevel.WARN);
+        // 服务器从未启动时两个 group 为 null，直接解引用会 NPE；stop 本身也要可重复调用
+        if(bossGroup !=null)
+            bossGroup.shutdownGracefully();
+        if(workerGroup !=null)
+            workerGroup.shutdownGracefully();
         runFlag=false;
+        putLog(" 服务器停止，网址是 : " + "http://localhost:" + port,LogLevel.WARN);
         return createMsg().setParam("result","stoped");
     }
 }

@@ -40,6 +40,14 @@ public class TLUrlUtils {
         return false ;
     }
 
+    /**
+     * @deprecated 这是 <b>JVM 级全局设置</b>：调用后本进程内所有 {@code HttpsURLConnection}
+     * （含其他库与模块）都不再校验证书和主机名，等于全局关闭 HTTPS 身份验证。
+     * 仅用于临时排障，不要在生产调用。自签名证书请改用 truststore
+     * （见 {@link cn.tianlong.tlobject.network.common.TLSslUtils}）。
+     * 原调用点（TLHttpProxy）已移除，保留方法只为兼容外部调用者。
+     */
+    @Deprecated
     public static void trustEveryoneForHttps() {
         try {
             HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier() {

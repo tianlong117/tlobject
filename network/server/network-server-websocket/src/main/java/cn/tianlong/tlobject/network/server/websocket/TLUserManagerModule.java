@@ -20,7 +20,9 @@ import static java.lang.Thread.sleep;
 
 public class TLUserManagerModule extends TLBaseModule {
     protected String userType = "token";
-    protected String tokenSecret = "sdfsdfsdfsdfsdfwervdgert";
+    /** 代码内置的默认密钥，仅作兜底；生产部署必须在配置里用 tokenSecret 覆盖（见 initProperty 的告警） */
+    protected static final String DEFAULT_TOKEN_SECRET = "sdfsdfsdfsdfsdfwervdgert";
+    protected String tokenSecret = DEFAULT_TOKEN_SECRET;
     protected String tokenIssure = "qinqin";
     protected String serverName;
     protected int tokenExpireMinute = 30;
@@ -58,6 +60,11 @@ public class TLUserManagerModule extends TLBaseModule {
                 tokenSecret = params.get("tokenSecret");
             if (params.get("tokenIssure") != null)
                 tokenIssure = params.get("tokenIssure");
+            // 默认密钥写死在代码里，任何看过源码的人都能用它伪造任意 userid 的 token。
+            // 且默认 userType 就是 "token"，漏配这一项等于直接用默认密钥验签。
+            if (DEFAULT_TOKEN_SECRET.equals(tokenSecret))
+                putLog("tokenSecret 仍在使用代码内置的默认值，任何拿到源码的人都能伪造 token，请务必在配置里显式设置",
+                        LogLevel.ERROR, "initProperty");
             if (params.get("tokenExpireMinute") != null)
                 tokenExpireMinute = Integer.parseInt(params.get("tokenExpireMinute"));
             if (params.get("logInOne") != null)
@@ -192,6 +199,10 @@ public class TLUserManagerModule extends TLBaseModule {
 
         if(userChannels ==null || userChannels.isEmpty())
             return false;
+        // 遍历中不能直接 userChannels.remove（ArrayList 会抛 ConcurrentModificationException），
+        // 先收集失效通道，循环结束后统一移除
+        ArrayList<Channel> deadChannels = new ArrayList<>();
+        boolean allWritten = true;
         for (Channel channel : userChannels)
         {
             if (channel ==null)
@@ -206,25 +217,33 @@ public class TLUserManagerModule extends TLBaseModule {
                 do{
                     if(!channel.isActive())
                     {
-                        userChannels.remove(channel)  ;
+                        deadChannels.add(channel);
+                        allWritten = false;   // 这一片没发出去，不能再对外报成功
                         break;
                     }
                    isWrite =channel.isWritable();
                     if(isWrite ==true) {
                         channel.writeAndFlush(tws);
                     } else if (++retries >= 100) {
+                        allWritten = false;   // 背压持续 5 秒仍未写出：原来这里静默丢片却仍返回 true
                         break;
                     } else {
-                        try { Thread.sleep(50); } catch (InterruptedException e) { break; }
+                        try { Thread.sleep(50); } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                            allWritten = false;
+                            break;
+                        }
                     }
                 }while (isWrite==false);
             }
             else
-                userChannels.remove(channel)  ;
-            if(userChannels.isEmpty())
-                return false ;
+                deadChannels.add(channel);
         }
-        return true ;
+        if(!deadChannels.isEmpty())
+            userChannels.removeAll(deadChannels);
+        if(userChannels.isEmpty())
+            return false ;
+        return allWritten ;
     }
     private TLMsg otherLogin(Object fromWho, TLMsg msg) {
         String userid = (String) msg.getParam(USERMANAGER_P_USERID);

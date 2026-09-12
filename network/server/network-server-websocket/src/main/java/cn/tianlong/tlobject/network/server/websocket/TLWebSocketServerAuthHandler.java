@@ -1,9 +1,10 @@
 package cn.tianlong.tlobject.network.server.websocket;
 
-import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.*;
 import io.netty.handler.codec.http.*;
+import io.netty.util.ReferenceCountUtil;
 
 import java.net.InetSocketAddress;
 
@@ -15,23 +16,32 @@ import static io.netty.handler.codec.http.HttpVersion.HTTP_1_1;
  * 描述:
  * 作者:tianlong
  */
-public class TLWebSocketServerAuthHandler extends ChannelInboundHandlerAdapter implements IObject {
+public class TLWebSocketServerAuthHandler extends ChannelInboundHandlerAdapter {
     protected TLWebSocketServer socketServer;
 
     public TLWebSocketServerAuthHandler(TLWebSocketServer socketServer) {
         this.socketServer = socketServer;
     }
 
+    /** 403 应答：显式补 Content-Length，并在写完后关连接（不要再手写 ctx.close，避免响应还没 flush 就断） */
+    private static void writeForbidden(ChannelHandlerContext ctx) {
+        FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, HttpResponseStatus.FORBIDDEN,
+                Unpooled.EMPTY_BUFFER);
+        response.headers().set(HttpHeaderNames.CONTENT_LENGTH, 0);
+        ctx.channel().writeAndFlush(response).addListener(ChannelFutureListener.CLOSE);
+    }
+
     @Override
     public void channelRead(final ChannelHandlerContext ctx, Object msg) throws Exception {
         if (!(msg instanceof FullHttpRequest)) {
+            ReferenceCountUtil.release(msg);   // 这一层不消费就自己释放，不能指望下游
             ctx.close();
             return;
         }
         final FullHttpRequest req = (FullHttpRequest) msg;
         if (req.method() != HttpMethod.GET) {
-            ctx.channel().writeAndFlush(new DefaultFullHttpResponse(HTTP_1_1, HttpResponseStatus.FORBIDDEN));
-            ctx.close();
+            writeForbidden(ctx);
+            req.release();      // 请求被丢弃，引用计数对象必须释放，否则 ByteBuf 泄漏
             return;
         }
         HttpHeaders httpHeaders = req.headers();
@@ -60,26 +70,10 @@ public class TLWebSocketServerAuthHandler extends ChannelInboundHandlerAdapter i
         boolean ifLogin = socketServer.login(loginMsg, clientChannel);
         if (ifLogin == true) {
             ctx.pipeline().remove("authHandler");
-            ctx.fireChannelRead(msg);
+            ctx.fireChannelRead(msg);   // 所有权交给下游，由下游释放，此处不能 release
         } else {
-            FullHttpResponse response = new DefaultFullHttpResponse(HTTP_1_1, HttpResponseStatus.FORBIDDEN);
-            ctx.channel().writeAndFlush(response);
-            ctx.close();
+            writeForbidden(ctx);
+            req.release();              // 认证失败同样要释放
         }
-    }
-
-    @Override
-    public String getName() {
-        return null;
-    }
-
-    @Override
-    public TLMsg putMsg(IObject toWho, TLMsg msg) {
-        return null;
-    }
-
-    @Override
-    public TLMsg getMsg(Object fromWho, TLMsg msg) {
-        return null;
     }
 }

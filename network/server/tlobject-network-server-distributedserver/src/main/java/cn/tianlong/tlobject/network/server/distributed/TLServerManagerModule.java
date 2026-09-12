@@ -17,7 +17,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * 作者:tianlong
  */
 public class TLServerManagerModule extends TLBaseServiceModule {
-    protected String tokenSecret = "sdfsdfsdfsdfsdfwervdgert";
+    /** 代码内置的默认密钥，仅作兜底；生产部署必须在配置里用 tokenSecret 覆盖（见 initProperty 的告警） */
+    protected static final String DEFAULT_TOKEN_SECRET = "sdfsdfsdfsdfsdfwervdgert";
+    protected String tokenSecret = DEFAULT_TOKEN_SECRET;
     protected String tokenIssure = "qinqin";
     protected int tokenExpireMinute = 30;
     protected String msgBroadCast ;
@@ -35,6 +37,10 @@ public class TLServerManagerModule extends TLBaseServiceModule {
                 tokenSecret = params.get("tokenSecret");
             if (params.get("tokenIssure") != null)
                 tokenIssure = params.get("tokenIssure");
+            // 默认密钥写死在代码里，看过源码即可伪造任意 userid 的 token
+            if (DEFAULT_TOKEN_SECRET.equals(tokenSecret))
+                putLog("tokenSecret 仍在使用代码内置的默认值，任何拿到源码的人都能伪造 token，请务必在配置里显式设置",
+                        LogLevel.ERROR, "initProperty");
             if (params.get("tokenExpireMinute") != null)
                 tokenExpireMinute = Integer.parseInt(params.get("tokenExpireMinute"));
             if (params.get("msgBroadCast") != null)
@@ -117,7 +123,9 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         TLMsg qmsg = createMsg().setAction("getServer")
                 .setParam("server",server);
         TLMsg returnMsg =putMsg("serverConfigInDB", qmsg);
-        HashMap<String,Object> serverInfo = (HashMap<String, Object>) returnMsg.getMapParam(DB_R_RESULT,null);
+        // 不能强转 HashMap：dbutils 的 MapHandler 产出的是 CaseInsensitiveHashMap（extends LinkedHashMap），
+        // 强转必 ClassCastException；按 Map 接口用即可
+        Map<String,Object> serverInfo = returnMsg.getMapParam(DB_R_RESULT,null);
         return  serverInfo ;
     }
     private List<Map<String,Object>> getServerParamForConnect(String server) {
@@ -149,7 +157,10 @@ public class TLServerManagerModule extends TLBaseServiceModule {
     private TLMsg onLogin(Object fromWho, TLMsg msg)
     {
         String server = (String) msg.getParam(USERMANAGER_P_USERID);
-        serverPool.add(server);
+        // 队列允许重复：服务器频繁重连会堆积同名条目，定时任务会反复处理同一个 server。
+        // 已在队列里就不再入队（消费端 poll 后即可重新入队）。
+        if(server !=null && !serverPool.contains(server))
+            serverPool.add(server);
         return  null;
     }
     private void serverlogin(Object fromWho, TLMsg msg) {

@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.network.client.http.TLUrlUtils;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.jsoup.Connection;
@@ -39,6 +40,22 @@ public class TLHttpProxy extends TLBaseModule {
 
     public TLHttpProxy(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
+    }
+
+    @Override
+    protected void initProperty() {
+        super.initProperty();
+        // staticFileType 原来声明后从未被填充 → urlIsStatic 恒返回 false → getUrlFile 的缓存分支永不生效。
+        // 从配置读（分号分隔的扩展名列表，如 "jpg;png;css;js"）
+        if (params != null && params.get("staticFileType") != null) {
+            String[] types = TLDataUtils.splitStrToArray(params.get("staticFileType"), ";");
+            if (types != null) {
+                for (String t : types) {
+                    if (t != null && !t.trim().isEmpty())
+                        staticFileType.add(t.trim());
+                }
+            }
+        }
     }
 
     @Override
@@ -119,7 +136,7 @@ public class TLHttpProxy extends TLBaseModule {
 
     private void putData(HashMap<String,Object> datas) {
         TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setArgs(datas);
-        putMsg("socketClientAgentPool",gmsg);
+        putMsg(M_SOCKETCLIENTAGENTPOOL,gmsg);
     }
 
     private void getUrlFile(Object fromWho, TLMsg msg) {
@@ -131,9 +148,9 @@ public class TLHttpProxy extends TLBaseModule {
         String host = (String) msg.getParam("host");
         url =makeUrl(url,host);
         boolean isStatic =urlIsStatic(url);
-        boolean isHttps =TLUrlUtils.isHttps(url);
-        if(isHttps)
-            TLUrlUtils.trustEveryoneForHttps();
+        // 原来 https 时会调 TLUrlUtils.trustEveryoneForHttps()：那是 JVM 级全局设置，
+        // 一旦调用，本进程内所有 HttpsURLConnection 都不再校验证书与主机名（影响面远超本模块）。
+        // 自签名证书应通过 truststore 配置解决，不能全局关校验。
         InputStream inputStream ;
         if(isStatic)
            inputStream = getCacheFile(url);
@@ -168,7 +185,7 @@ public class TLHttpProxy extends TLBaseModule {
     }
     private void putFile(InputStream cacheFileInputStream, TLMsg msg) {
         TLMsg gmsg =createMsg().setAction(WEBSOCKET_SENDFILE).setArgs(msg.getArgs()).setParam(WEBSOCKET_P_SENDINPUTSTREAM,cacheFileInputStream);
-         putMsg("socketClientAgentPool",gmsg);
+         putMsg(M_SOCKETCLIENTAGENTPOOL,gmsg);
     }
 
 }

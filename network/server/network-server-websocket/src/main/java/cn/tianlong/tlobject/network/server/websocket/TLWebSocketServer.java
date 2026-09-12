@@ -15,6 +15,7 @@ import io.netty.handler.codec.http.HttpObjectAggregator;
 import io.netty.handler.codec.http.HttpServerCodec;
 import io.netty.handler.codec.http.websocketx.BinaryWebSocketFrame;
 import io.netty.handler.codec.http.websocketx.TextWebSocketFrame;
+import io.netty.handler.codec.http.websocketx.WebSocketFrameAggregator;
 import io.netty.handler.codec.http.websocketx.WebSocketServerProtocolHandler;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.stream.ChunkedWriteHandler;
@@ -37,6 +38,10 @@ public class TLWebSocketServer extends TLBaseServer {
     protected String sslCerFile;
     private String sslCerFilePwd;
     private long clientIdleTime =10L;    // 客户idle 间隔
+    /** 单个 WebSocket 帧上限，默认沿用 Netty 的 65536；外部客户端发大 JSON/base64 时需调大 */
+    protected int maxFramePayloadLength = 65536;
+    /** 分片消息重组后的总长上限：原来没有聚合器，ContinuationWebSocketFrame 被静默丢弃 → 分片消息必丢 */
+    protected int maxFrameContentLength = 1048576;
 
     public TLWebSocketServer(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
@@ -52,6 +57,10 @@ public class TLWebSocketServer extends TLBaseServer {
                 sslCerFilePwd =params.get(SSL_SCERFILE_PWD);
             if( params.get("clientIdleTime")!=null)
                 clientIdleTime =Long.parseLong(params.get("clientIdleTime"));
+            if( params.get("maxFramePayloadLength")!=null)
+                maxFramePayloadLength =Integer.parseInt(params.get("maxFramePayloadLength"));
+            if( params.get("maxFrameContentLength")!=null)
+                maxFrameContentLength =Integer.parseInt(params.get("maxFrameContentLength"));
         }
     }
     @Override
@@ -105,6 +114,8 @@ public class TLWebSocketServer extends TLBaseServer {
         else if (channelName instanceof String)
         {
             Channel channel = channels.get(channelName);
+            if(channel ==null)      // 与上面两个分支一致地跳过 null，避免把 null 塞进列表传出去
+                return null;
             userChannels.add(channel);
         }
         else if (channelName instanceof String[])
@@ -163,11 +174,13 @@ public class TLWebSocketServer extends TLBaseServer {
         return null;
     }
     protected void closeChannel(String channelName) {
-        Channel channel = channels.get(channelName);
+        // 用 remove 的返回值判定：原来先 get 再 remove 再无条件递减，
+        // 若期间 channelInactive 已把条目摘走，这里的 get 是过期读 → 计数被多减一次。
+        // remove 本身是原子的，摘到才计数。close 触发的 channelInactive 会因为条目已摘除而不再重复减。
+        Channel channel = channels.remove(channelName);
         if (channel != null) {
-            channels.remove(channelName);
-            channel.close();
             currentChannelNumbs.decrementAndGet() ;
+            channel.close();
         }
     }
     protected TLMsg putToClient(Object fromWho, TLMsg msg) {
@@ -200,9 +213,10 @@ public class TLWebSocketServer extends TLBaseServer {
     }
 
     protected void removeChannel(String chanaelName) {
-        if(channels.containsKey(chanaelName))
+        // containsKey + remove 是 check-then-act：并发时（业务线程与 event loop）两个线程都判 true，
+        // 后到的 remove 返回 null 却仍递减 → 计数多减 + 重复发 logout。用 remove 的返回值判定。
+        if(channels.remove(chanaelName) != null)
         {
-            channels.remove(chanaelName);
             currentChannelNumbs.decrementAndGet() ;
             TLMsg clientMsg = createMsg().setMsgId("logout").setParam(USERMANAGER_P_USERCHANNEL, chanaelName).setParam(USERMANAGER_P_SERVERNAME,serverName);;
             clientMsgHandler.getMsg(this, clientMsg);
@@ -223,6 +237,9 @@ public class TLWebSocketServer extends TLBaseServer {
         if(channel ==null)
             return 0;
         Boolean isWrite ;
+        // 原来这里没有 sleep、没有重试上限：通道持续不可写时调用线程 100% CPU 自旋、永远卡住。
+        // 与 putBinaryToChannel 对齐，加退避与上限，超时如实返回 0。
+        int retries = 0;
         do{
             if(!channel.isActive())
             {
@@ -232,6 +249,14 @@ public class TLWebSocketServer extends TLBaseServer {
             isWrite =channel.isWritable();
             if(isWrite ==true)
                 channel.writeAndFlush(tws);
+            else if (++retries >= 100)
+                return 0;
+            else {
+                try { Thread.sleep(50); } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return 0;
+                }
+            }
         }while (isWrite==false);
         return 1;
     }
@@ -289,7 +314,12 @@ public class TLWebSocketServer extends TLBaseServer {
             pipeline.addLast(new ChunkedWriteHandler());
             pipeline.addLast(new HttpObjectAggregator(65535));
             pipeline.addLast("authHandler",new TLWebSocketServerAuthHandler((TLWebSocketServer)server));
-            pipeline.addLast(new WebSocketServerProtocolHandler("/ws",null,true));
+            // 帧上限可配（默认仍是 Netty 的 65536）：原来硬用 3 参构造，外部客户端单帧 >64KB
+            // 会直接触发 CorruptedWebSocketFrameException 并关连接
+            pipeline.addLast(new WebSocketServerProtocolHandler("/ws",null,true,maxFramePayloadLength));
+            // 分片消息聚合：原来没有聚合器，ContinuationWebSocketFrame 走到 WebSocketServerHandler
+            // 会被静默丢弃（只处理 Text/Binary），分片消息除首片外全丢且首片被当完整消息解析
+            pipeline.addLast(new WebSocketFrameAggregator(maxFrameContentLength));
             pipeline.addLast(new WebSocketServerHandler(server));
         }
     }

@@ -62,6 +62,9 @@ public class TLServerConfigInDB extends TLBaseTableModel {
         String servername = (String) msg.getParam("username");
         TLMsg returnMsg =getServer(fromWho,msg.setParam("server",servername));
         Map<String,Object> serverInfo = returnMsg.getMapParam(DB_R_RESULT,null);
+        // 查不到该服务器时 serverInfo 为 null，直接 get 会 NPE（任意 username 即可触发）
+        if(serverInfo ==null || !serverInfo.containsKey("password"))
+            return null ;
         String inputPasswd =msg.getStringParam("passwd","");
         if(inputPasswd.equals(serverInfo.get("password")))
             return createMsg().setParam("userid",servername);
@@ -135,25 +138,35 @@ public class TLServerConfigInDB extends TLBaseTableModel {
        return  putMsg(table, qmsg);
     }
 
+    /**
+     * 按 servers 表的主标识列 server 删除。
+     * 原实现的 SQL 是从 ModuleParamsInDBModel 复制粘贴来的（where module=? and param_key=?），
+     * 这两列在 servers 表里并不存在。
+     */
     protected TLMsg delete(Object fromWho, TLMsg msg) {
-        String sql = "delete from  [table] where module=?  and param_key =?";
+        String sql = "delete from  [table] where server=?";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("module", msg.getParam("module"));
-        sqlparams.put("param_key", msg.getParam("param_key"));
+        sqlparams.put("server", msg.getParam("server"));
         TLMsg dmsg = createMsg().setAction(DB_DELETE)
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, sqlparams);
         return putMsg(table, dmsg);
     }
-    protected TLMsg insert(Object fromWho, TLMsg msg) {
 
-        String sql = "insert into  [table]  (module,param_key,param_value,param_type,remark) values(?,?,?,?,?)  ";
+    /**
+     * 插入一台服务器。
+     * 原实现同样是复制粘贴来的（列 module/param_key/param_value/param_type/remark，servers 表里不存在）。
+     * 这里沿用本类其他 SQL 用到的 servers 列；如实际表还有 NOT NULL 列，请按 DDL 补全。
+     */
+    protected TLMsg insert(Object fromWho, TLMsg msg) {
+        String sql = "insert into  [table]  (server,ip,url,servertype,group_name,status) values(?,?,?,?,?,?)  ";
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("module", msg.getParam("module"));
-        sqlparams.put("param_key", msg.getParam("param_key"));
-        sqlparams.put("param_value", msg.getParam("param_value"));
-        sqlparams.put("param_type", msg.getParam("param_type"));
-        sqlparams.put("remark", msg.getParam("remark"));
+        sqlparams.put("server", msg.getParam("server"));
+        sqlparams.put("ip", msg.getParam("ip"));
+        sqlparams.put("url", msg.getParam("url"));
+        sqlparams.put("servertype", msg.getParam("servertype"));
+        sqlparams.put("group_name", msg.getParam("group_name"));
+        sqlparams.put("status", msg.getParam("status"));
         TLMsg insertmsg = createMsg().setAction(DB_INSERT)
                     .setParam(DB_P_SQL, sql)
                     .setParam(DB_P_PARAMS, sqlparams);
