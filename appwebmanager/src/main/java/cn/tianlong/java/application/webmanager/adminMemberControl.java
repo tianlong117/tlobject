@@ -48,7 +48,7 @@ public class adminMemberControl extends TLWServModule {
 
     private void memberdelete(Object fromWho, TLMsg msg) {
         String userid = (String) msg.getParam("userid");
-        putMsg("membersModle",createMsg().setAction("delete")
+        putMsg("membersModel",createMsg().setAction("delete")
                 .setParam("userid",userid));
         outData outData =creatOutDataMsg("memberdelete");
         outData.addData("code","0");
@@ -64,7 +64,7 @@ public class adminMemberControl extends TLWServModule {
         if(newpass.equals(repass))
         {
             String newPassword= DigestUtils.md5Hex(repass+userid);
-            putMsg("membersModle",createMsg().setAction("changePassword")
+            putMsg("membersModel",createMsg().setAction("changePassword")
                     .setParam("password",newPassword).setParam("userid",userid));
             outData.addData("code","0");
             outData.addData("message","更改成功");
@@ -95,7 +95,7 @@ public class adminMemberControl extends TLWServModule {
         TLMsg getMsg =createMsg().setAction("userList")
                 .setParam("start",start)
                 .setParam("username",username);
-        TLMsg resultMsg =putMsg("membersModle",getMsg);
+        TLMsg resultMsg =putMsg("membersModel",getMsg);
         List datas = (List) resultMsg.getParam("result");
         outData odata =  creatOutDataMsg("memberlist");
         odata.addData("members",datas);

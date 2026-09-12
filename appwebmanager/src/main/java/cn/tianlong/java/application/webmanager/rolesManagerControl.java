@@ -5,7 +5,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.db.dbdata.MapInDB;
-import cn.tianlong.tlobject.db.dbdata.TLDataInDbUtils;
+import cn.tianlong.tlobject.db.dbdata.TLDataInDBUtils;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.apache.commons.collections.CollectionUtils;
 
@@ -274,7 +274,7 @@ public class rolesManagerControl extends adminCommon {
         int ifsystem = (int) role.get("ifsystem");
         if(ifsystem ==1)
             return putResultToClient(false,"roleDelete","系统角色，无法删除");
-        TLMsg returnMsg =putMsg("managerModle",createMsg().setAction("countByRole").setParam("roleid",roleid));
+        TLMsg returnMsg =putMsg("managerModel",createMsg().setAction("countByRole").setParam("roleid",roleid));
         Long roleUserNumbers= (Long) returnMsg.getParam("number");
         if(roleUserNumbers >0L){
             return putResultToClient(false,"roleDelete","该角色下有用户，无法删除");
@@ -678,7 +678,7 @@ public class rolesManagerControl extends adminCommon {
         if(authModuleObj ==null)
             return;
         String  policiesName=authModuleObj.getFieldNameInApp("policies");
-        MapInDB mapInDB =TLDataInDbUtils.getMapInDBModule(policiesName,moduleFactory,0L);
+        MapInDB mapInDB =TLDataInDBUtils.getMapInDBModule(policiesName,moduleFactory,0L);
         if(authPolicy.isEmpty())
             mapInDB.remove(actionid) ;
         else
@@ -691,7 +691,7 @@ public class rolesManagerControl extends adminCommon {
          TLMsg returnMsg =putMsg(authModule,createMsg().setAction(AUTH_GETPOLICY));
          Map policys =returnMsg.getArgs();
          String  policiesName=authModuleObj.getFieldNameInApp("policies");
-         MapInDB mapInDB =TLDataInDbUtils.getMapInDBModule(policiesName,moduleFactory,0L);
+         MapInDB mapInDB =TLDataInDBUtils.getMapInDBModule(policiesName,moduleFactory,0L);
          mapInDB.putAll(policys) ;
      }
     public String getPolicyRolesByActione(String actionid) {

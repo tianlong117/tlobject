@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <!--
-  数据库的总配置，默认数据库名为database，对应的模块为TLDataBase。
+  数据库的总配置，默认数据库名为database，对应的模块为TLDatabase。
   这里的数据库概念为逻辑概念。一个数据库里面可以包含许多个实际数据库。
   数据库相当于一个表工厂，任何一个表模块（对象）通过数据库产生。 表模块实例存在于database中，不存在模块工厂里，这样表名与其他模块名不冲突。
   每个表有个概念名字，在配置文件中配置具体指向的实际数据表，通过名字获取表模块实例而操作表。
@@ -14,7 +14,7 @@
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg =  putMsg(tb, querymsg);
          ArrayList<LinkedHashMap> datas = (ArrayList<LinkedHashMap>) returnMsg.getListParam(RESULT,null);

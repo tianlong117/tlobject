@@ -1,9 +1,9 @@
-package cn.tianlong.java.application.webmanager.dbmodle;
+package cn.tianlong.java.application.webmanager.dbmodel;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTableModle;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLBaseTableModel;
+import cn.tianlong.tlobject.db.TLDatabase;
 import org.apache.commons.codec.digest.DigestUtils;
 
 import java.text.SimpleDateFormat;
@@ -18,9 +18,9 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.USER_P_USERID;
  * 描述:
  * 作者:tianlong
  */
-public class managerModle extends TLBaseTableModle {
+public class managerModel extends TLBaseTableModel {
 
-    public managerModle(String name , TLObjectFactory modulefactory){
+    public managerModel(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
         tableName="managers";
     }
@@ -86,7 +86,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("userid", userid);
         TLMsg qmsg = createMsg().setAction("query")
                 .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
+                .setParam("resultType", TLDatabase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
         TLMsg resultMsg= putMsg(table, qmsg);
         Map infos = (Map)resultMsg.getMapParam(DB_R_RESULT,null);
@@ -120,7 +120,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("creator", creator);
         TLMsg qmsg = createMsg().setAction("query")
                 .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
+                .setParam("resultType", TLDatabase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
         return putMsg(table, qmsg);
     }
@@ -132,7 +132,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("userid", userid);
         TLMsg qmsg = createMsg().setAction("query")
                 .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
+                .setParam("resultType", TLDatabase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
        return putMsg(table, qmsg);
     }
@@ -152,7 +152,7 @@ public class managerModle extends TLBaseTableModle {
         String   sql =" select count(*) as number from [table]  ";
         if(creator !=null)
             sql =sql+"  where creator=?  ";
-        TLMsg qmsg = createMsg().setAction(DB_QUERY).setParam(DB_P_SQL, sql).setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP);
+        TLMsg qmsg = createMsg().setAction(DB_QUERY).setParam(DB_P_SQL, sql).setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP);
         if(creator !=null){
             LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
             sqlparams.put("creator", creator);
@@ -212,14 +212,14 @@ public class managerModle extends TLBaseTableModle {
         }
         sql =sql+fromSql+whereStr+orderStr+limitStr;
         TLMsg qmsg = createMsg().setAction(DB_QUERY).setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
        TLMsg resultMsg= putMsg(table, qmsg);
        if( page ==1)
        {
            countsql =countsql +fromSql+whereStr;
            TLMsg countmsg = createMsg().setAction(DB_QUERY).setParam(DB_P_SQL, countsql)
-                   .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                   .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                    .setParam(DB_P_PARAMS, sqlparams);
            TLMsg returnMsg= putMsg(table, countmsg);
            Map<String,Object> map = (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
@@ -235,7 +235,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("roleid", roleid);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         return putMsg(table, qmsg);
     }
@@ -247,7 +247,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("roleid", roleid);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg= putMsg(table, qmsg);
         Map infos = (Map)resultMsg.getParam(DB_R_RESULT);
@@ -311,7 +311,7 @@ public class managerModle extends TLBaseTableModle {
         sqlparams.put("userid", userid);
         TLMsg qmsg = createMsg().setAction("query")
                 .setParam("sql", sql)
-                .setParam("resultType", TLDataBase.RESULT_TYPE.MAP)
+                .setParam("resultType", TLDatabase.RESULT_TYPE.MAP)
                 .setParam("params", sqlparams);
         TLMsg resultMsg= putMsg(table, qmsg);
         Map infos = (Map)resultMsg.getParam(DB_R_RESULT);

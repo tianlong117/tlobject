@@ -51,7 +51,7 @@ public class DbDemo extends TLBaseModule {
        param.put(DB_P_TABLENAME, "userTable");
        TLMsg returnMsg =putMsg(MSG_GETTABLE,param);
        //使用简化工具获得表
-        TLTable tb1 =TLDataBase.getTable("userTable",this);
+        TLTable tb1 =TLDatabase.getTable("userTable",this);
         return this ;
     }
 
@@ -144,7 +144,7 @@ public class DbDemo extends TLBaseModule {
         dbFieles.put("name","String");
         dbFieles.put("number","String");
 
-        int number= TLDBUtilis.batchInsertList(this,tableName,listMap,null);
+        int number= TLDBUtils.batchInsertList(this,tableName,listMap,null);
         println("导入execl文件，导入数据 :"+number+"个");
     }
 
@@ -156,7 +156,7 @@ public class DbDemo extends TLBaseModule {
         TLMsg querymsg = new TLMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SERVERNAME,"dbserver2")
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_CACHENAME,"testuser")
                 .setParam(DB_P_CACHEMODULE,"caffeine")
                 .setParam(DB_P_CACHEEXPTIME,2)
@@ -177,7 +177,7 @@ public class DbDemo extends TLBaseModule {
         TLMsg querymsg = new TLMsg().setAction(DB_UPDATE)
                 .setParam(DB_P_SERVERNAME,"dbserver2")
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_CACHENAME,"testuser")
                 .setParam(DB_P_CACHEMODULE,"caffeine")
                 .setParam(DB_P_CACHEEXPTIME,2)
@@ -383,7 +383,7 @@ public class DbDemo extends TLBaseModule {
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
        //         .setParam(DB_P_TABLENAME,"userTable")
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_CACHENAME,"user")
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(tb, querymsg);
@@ -396,7 +396,7 @@ public class DbDemo extends TLBaseModule {
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANMAP)
                 .setParam(DB_P_BEANCLASS,userBean.class)
                 .setParam(DB_P_PRIMARYKEY,"name")
                 .setParam(DB_P_PARAMS, sqlparams);
@@ -426,7 +426,7 @@ public class DbDemo extends TLBaseModule {
         if(username ==null)
             return  ;
      //   BeanTable beanTable =new BeanTable("userTable","name",moduleFactory);
-         BeanTable beanTable = TLDataBase.getBeanTable("userTable","name",this);
+         BeanTable beanTable = TLDatabase.getBeanTable("userTable","name",this);
 
         Map<String, Object> data =beanTable.get(username);
         if(data !=null &&!data.isEmpty())

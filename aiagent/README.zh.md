@@ -279,7 +279,7 @@ aiagent/
 **继承**: `TLBaseModule`
 **实现**: `TLAiAgentParamString`
 **模块名**: `"aiagent"`
-**类比**: `TLDataBase` (数据库模块的入口)
+**类比**: `TLDatabase` (数据库模块的入口)
 
 Agent框架的核心模块。接收用户输入，编排LLM、Skill、Context、Memory之间的消息交互，实现完整的 **用户输入 → LLM分析 → Skill调用 → 结果返回** 闭环。
 
@@ -345,7 +345,7 @@ Agent框架的核心模块。接收用户输入，编排LLM、Skill、Context、
 <memoryStores> →  HashMap<String, HashMap<String, String>> memoryStores
 ```
 
-遵循 `TLDataBase.myConfig` 的 `getHashMap(xpp, tag, subtag)` 模式。
+遵循 `TLDatabase.myConfig` 的 `getHashMap(xpp, tag, subtag)` 模式。
 
 ---
 

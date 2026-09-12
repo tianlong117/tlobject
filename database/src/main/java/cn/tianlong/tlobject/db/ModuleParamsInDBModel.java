@@ -9,9 +9,9 @@ import java.util.*;
  * 描述:
  * 作者:tianlong
  */
-public class moduleParamsInDBModle extends TLBaseTableModle {
+public class ModuleParamsInDBModel extends TLBaseTableModel {
 
-    public moduleParamsInDBModle(String name , TLObjectFactory modulefactory){
+    public ModuleParamsInDBModel(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
         tableName="module_params";
     }
@@ -41,7 +41,7 @@ public class moduleParamsInDBModle extends TLBaseTableModle {
         sqlparams.put("module", module);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table, qmsg);
         ArrayList<HashMap<String, Object>> result = (ArrayList<HashMap<String, Object>>) returnMsg.getParam(DB_R_RESULT);

@@ -2,8 +2,8 @@ package cn.tianlong.java.demo.db;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTableModle;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLBaseTableModel;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLDateUtils;
@@ -16,7 +16,7 @@ import java.util.*;
  * 描述:
  * 作者:tianlong
  */
-public class userTableModle extends TLBaseTableModle {
+public class userTableModle extends TLBaseTableModel {
 
     public userTableModle(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
@@ -85,7 +85,7 @@ public class userTableModle extends TLBaseTableModle {
         sqlparams.put("number", number);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_ORDERBY,"name")
                 .setParam(DB_P_PARAMS, sqlparams);
         if(ifCache)

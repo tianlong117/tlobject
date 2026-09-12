@@ -98,7 +98,7 @@ public class startup extends TLAppStartUp {
     }
 
     private void queryByUserName(Object fromWho, TLMsg msg) {
-        IObject module = (IObject) getModule("moduleParamsInDBModle");
+        IObject module = (IObject) getModule("ModuleParamsInDBModel");
         System.out.println("查询 username="+msg.getParam("username"));
         Long  startTime =System.currentTimeMillis();
         Map<String,Object> datas = (Map<String, Object>) putMsgAndGetResult("dbDemo",msg.setAction("queryTb"),DB_R_RESULT ,HashMap.class);

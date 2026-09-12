@@ -2,8 +2,8 @@ package cn.tianlong.java.demo.db;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTableModle;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLBaseTableModel;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 
 import java.lang.reflect.InvocationTargetException;
@@ -16,7 +16,7 @@ import java.util.LinkedHashMap;
  * 描述:
  * 作者:tianlong
  */
-public class userModle extends TLBaseTableModle {
+public class userModle extends TLBaseTableModel {
 
     public userModle(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
@@ -42,7 +42,7 @@ public class userModle extends TLBaseTableModle {
         sqlparams.put("name", username);
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam("cacheName","users")
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg  returnMsg = putMsg(table, querymsg);

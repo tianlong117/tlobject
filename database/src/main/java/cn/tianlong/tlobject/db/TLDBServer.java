@@ -36,23 +36,46 @@ public class TLDBServer extends TLBaseModule {
     }
 
 
+    /** 连不上时的最大重试次数（原来是无上限 do-while，数据库不可用则启动线程永久阻塞） */
+    private int maxConnectRetries = 20;
+    /** 重试间隔：按指数退避，从 retryBaseInterval 起翻倍，上限 maxRetryInterval */
+    private int retryBaseInterval = 2000;
+    private int maxRetryInterval = 10000;
+
     @Override
     protected TLBaseModule init() {
         setConnector();
+        if (params != null) {
+            if (params.get("maxConnectRetries") != null)
+                maxConnectRetries = Integer.parseInt(params.get("maxConnectRetries"));
+            if (params.get("retryBaseInterval") != null)
+                retryBaseInterval = Integer.parseInt(params.get("retryBaseInterval"));
+            if (params.get("maxRetryInterval") != null)
+                maxRetryInterval = Integer.parseInt(params.get("maxRetryInterval"));
+        }
         Object conn = connector.connect();
         if(conn ==null)
         {
             putLog("数据库没有连接",LogLevel.ERROR,"init");
-           do {
-               try {
-                   sleep(2000) ;
-                   putLog("数据库连接中",LogLevel.ERROR,"init");
-                   conn = connector.connect();
-               } catch (InterruptedException e) {
-                   e.printStackTrace();
-                   return null ;
-               }
-           }while (conn ==null) ;
+            int interval = retryBaseInterval;
+            int attempt = 0;
+            while (conn == null && attempt < maxConnectRetries) {
+                attempt++;
+                try {
+                    sleep(interval);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();     // 恢复中断标志，不要只 printStackTrace
+                    putLog("数据库连接等待被中断，放弃重试",LogLevel.ERROR,"init");
+                    return null;
+                }
+                putLog("数据库连接中，第" + attempt + "次重试",LogLevel.ERROR,"init");
+                conn = connector.connect();
+                interval = Math.min(interval * 2, maxRetryInterval);
+            }
+            if (conn == null) {
+                putLog("数据库连接失败，已重试" + maxConnectRetries + "次，放弃（模块启动失败，交由上层处理）",LogLevel.ERROR,"init");
+                return null;
+            }
         }
         putLog("数据库连接",LogLevel.DEBUG,"init");
         connector.close(conn);

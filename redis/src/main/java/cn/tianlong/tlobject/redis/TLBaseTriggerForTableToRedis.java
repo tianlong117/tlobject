@@ -4,7 +4,7 @@ package cn.tianlong.tlobject.redis;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLDBTrigger;
-import cn.tianlong.tlobject.db.TLDBUtilis;
+import cn.tianlong.tlobject.db.TLDBUtils;
 import cn.tianlong.tlobject.db.TLTable;
 import cn.tianlong.tlobject.modules.LogLevel;
 
@@ -39,7 +39,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
     protected void initProperty() {
          super.initProperty();
         if(params !=null && params.get("fields")!=null )
-            fields =TLDBUtilis.fieldsStrToMap(params.get("fields"));
+            fields =TLDBUtils.fieldsStrToMap(params.get("fields"));
         if(params !=null && params.get("tableDefaultValue")!=null )
         {
             tableDefaultValue =new HashMap<>();
@@ -142,7 +142,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
             for(String key : fields){
                 String value =redisDatas.get(key);
                 String ftype =getValueType(key);
-                Object fvalue =TLDBUtilis.stringToDBValue(ftype,value);
+                Object fvalue =TLDBUtils.stringToDBValue(ftype,value);
                 dbData.put(key,fvalue);
             }
         }
@@ -152,7 +152,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
             {
                 String value =redisDatas.get(key);
                 String ftype =getValueType(key);
-                Object fvalue =TLDBUtilis.stringToDBValue(ftype,value);
+                Object fvalue =TLDBUtils.stringToDBValue(ftype,value);
                 dbData.put(key,fvalue);
             }
         }
@@ -164,7 +164,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
         {
             String value =redisDatas.get(key);
             String ftype =getValueType(key);
-            Object fvalue =TLDBUtilis.stringToDBValue(ftype,value);
+            Object fvalue =TLDBUtils.stringToDBValue(ftype,value);
             dbData.put(key,fvalue);
         }
         return dbData ;
@@ -175,7 +175,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
         {
             HashMap<String,Object> dbData =new HashMap<>();
             String ftype =getValueType(key);
-            Object fvalue =TLDBUtilis.stringToDBValue(ftype,value);
+            Object fvalue =TLDBUtils.stringToDBValue(ftype,value);
             dbData.put(key,fvalue);
             dblist.add(dbData);
         }
@@ -187,7 +187,7 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
         {
             HashMap<String,Object> dbData =new HashMap<>();
             String ftype =getValueType(key);
-            Object fvalue =TLDBUtilis.stringToDBValue(ftype,value);
+            Object fvalue =TLDBUtils.stringToDBValue(ftype,value);
             dbData.put(key,fvalue);
             dblist.add(dbData);
         }

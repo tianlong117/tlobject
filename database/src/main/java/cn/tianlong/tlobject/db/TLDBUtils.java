@@ -15,7 +15,7 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
  * 描述:
  * 作者:tianlong
  */
-public class TLDBUtilis {
+public class TLDBUtils {
 
     public static String createReplaceSql(String[] fields ,String tableName){
           return  createInsertOrReplaceSql( fields ,tableName,"replace ") ;
@@ -101,7 +101,8 @@ public class TLDBUtilis {
                 else
                 {
                     Date date=TLDateUtils.strToDay(value,null);
-                    result =new java.sql.Timestamp(date.getTime());
+                    // strToDay 解析失败返回 null（不抛异常），不判空会 NPE
+                    result =(date !=null)? new java.sql.Timestamp(date.getTime()) : null;
                 }
                 break;
             case "Integer":
@@ -190,7 +191,7 @@ public class TLDBUtilis {
         }
         else
             fieldsNames =  dbFields.keySet().toArray(new String[0]);
-        sql =TLDBUtilis.createInsertSql(fieldsNames,tableName) ;
+        sql =TLDBUtils.createInsertSql(fieldsNames,tableName) ;
         int rows =datas.size();
         Object[][] bparams = new Object[rows][fieldsNames.length];
         List<String> dbFildsList = Arrays.asList(fieldsNames);
@@ -203,7 +204,7 @@ public class TLDBUtilis {
                 else
                 {
                     String ftype =dbFields.get(fieldName);
-                    bparams[i][j] =TLDBUtilis.stringToDBValue(ftype, (String) map.get(fieldName));
+                    bparams[i][j] =TLDBUtils.stringToDBValue(ftype, (String) map.get(fieldName));
                 }
             }
         }

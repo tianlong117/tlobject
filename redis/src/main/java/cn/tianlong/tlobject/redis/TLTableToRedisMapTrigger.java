@@ -2,7 +2,7 @@ package cn.tianlong.tlobject.redis;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.*;
@@ -130,8 +130,8 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
             if(result !=null && !result.isEmpty()  )
             {
                 HashMap<String,Object> dbData =redisToDbdata(result);
-                TLDataBase.RESULT_TYPE result_type = (TLDataBase.RESULT_TYPE) nmsg.getParam(DB_P_RESULTTYPE);
-                if(result_type.equals(TLDataBase.RESULT_TYPE.MAPLIST))
+                TLDatabase.RESULT_TYPE result_type = (TLDatabase.RESULT_TYPE) nmsg.getParam(DB_P_RESULTTYPE);
+                if(result_type.equals(TLDatabase.RESULT_TYPE.MAPLIST))
                 {
                     List<Map> dbresult =new ArrayList();
                     dbresult.add(dbData);

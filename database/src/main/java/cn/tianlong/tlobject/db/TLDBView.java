@@ -11,7 +11,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 
-import static cn.tianlong.tlobject.db.TLDataBase.getResultSetHandler;
+import static cn.tianlong.tlobject.db.TLDatabase.getResultSetHandler;
 
 
 /**
@@ -24,7 +24,7 @@ public class TLDBView extends TLTable {
 
     private String sql ;
     private String runSql ;
-    private TLDataBase.RESULT_TYPE resultType;
+    private TLDatabase.RESULT_TYPE resultType;
 
     public TLDBView() {
         super();
@@ -43,9 +43,9 @@ public class TLDBView extends TLTable {
         runSql =sql ;
         params.put("connOnDB","false");
         if(params.get("resultType")==null)
-            resultType=TLDataBase.RESULT_TYPE.MAPLIST;
+            resultType=TLDatabase.RESULT_TYPE.MAPLIST;
         else
-            resultType =TLDataBase.RESULT_TYPE.valueOf(params.get("resultType").toUpperCase());
+            resultType =TLDatabase.RESULT_TYPE.valueOf(params.get("resultType").toUpperCase());
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {

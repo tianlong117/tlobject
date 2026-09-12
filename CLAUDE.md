@@ -122,7 +122,7 @@ Built-in modules extending `TLBaseModule`:
 
 **数据库记忆模块 (`TLDatabaseMemoryModule`):**
 - 继承 `TLBaseMemory`，实现 5 个抽象方法：`store/retrieve/search/delete/clearAll`
-- **关键模式**: 必须通过 `DB_GETTABLE` 获取 table 引用，再直接发消息给 table 模块。`TLDataBase` 不代理表操作！
+- **关键模式**: 必须通过 `DB_GETTABLE` 获取 table 引用，再直接发消息给 table 模块。`TLDatabase` 不代理表操作！
   ```java
   // 正确: 先拿引用再发消息
   TLMsg getMsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME, "aiMemory");

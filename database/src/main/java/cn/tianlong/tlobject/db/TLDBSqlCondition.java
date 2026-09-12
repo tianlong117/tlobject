@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.db;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 
 import static cn.tianlong.tlobject.base.TLParamString.*;
@@ -100,8 +101,12 @@ public class TLDBSqlCondition {
         }
 
         private String sqlOfIn() {
-            String [] array = new String[]{this.value.toString()};
+            // 占位符个数必须与 valueOfIn 生成的参数个数一致：两者都从同一个 toArray 取值。
+            // （曾一度写成 new String[]{value.toString()}，numb 恒为 1 → SQL 只有 1 个 ? 却绑定 N 个参数）
+            Object [] array = toArray(this.value);
             int numb =array.length;
+            if(numb ==0)
+                return varName+" "+relation+" ( null ) " ;   // 空集合：in 语义下匹配不到任何行
             int i=0;
             String insql=varName+" "+relation+" ( " ;
             for(Object value :array){
@@ -118,7 +123,8 @@ public class TLDBSqlCondition {
             return varName ;
         }
         public Object getValue(){
-            if(relation.equals("in"))
+            // 与 getSqlStr 用同一判断（原来只认硬编码 "in"，not in 时 SQL 出 N 个 ? 却返回裸数组）
+            if(relation.equals(DB_P_EXP_IN) || relation.equals(DB_P_EXP_NOTIN))
                 return valueOfIn();
             else
                 return value ;
@@ -126,7 +132,7 @@ public class TLDBSqlCondition {
 
         private  LinkedHashMap<String, Object> valueOfIn() {
             LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-            Object [] array = (Object[]) this.value;
+            Object [] array = toArray(this.value);
             int i =0;
             for(Object value :array){
                 i++ ;
@@ -134,6 +140,17 @@ public class TLDBSqlCondition {
             }
             return sqlparams ;
         }
+    }
+
+    /** in / not in 的值可能是数组、集合或单值，统一成 Object[]，保证占位符与参数一一对应 */
+    private static Object[] toArray(Object value) {
+        if (value == null)
+            return new Object[0];
+        if (value instanceof Object[])
+            return (Object[]) value;
+        if (value instanceof Collection)
+            return ((Collection<?>) value).toArray();
+        return new Object[]{value};
     }
 
 }

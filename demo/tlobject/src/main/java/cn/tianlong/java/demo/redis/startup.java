@@ -3,7 +3,7 @@ package cn.tianlong.java.demo.redis;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.modules.TLAppStartUp;
 import cn.tianlong.tlobject.redis.TLRedisMap;
 import cn.tianlong.tlobject.utils.TLDataUtils;
@@ -77,7 +77,7 @@ public class startup extends TLAppStartUp {
        String sql = "select * from  [table]  ";
         TLMsg querymsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST);
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST);
         TLMsg  returnMsg = putMsg(userTable, querymsg);
         ArrayList<LinkedHashMap> datasList = (ArrayList<LinkedHashMap>) returnMsg.getListParam(DB_R_RESULT,null);
         if(datasList ==null || datasList.isEmpty())

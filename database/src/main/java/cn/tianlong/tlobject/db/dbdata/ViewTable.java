@@ -14,7 +14,7 @@ import java.util.Map;
  * 描述:
  * 作者:tianlong
  */
-public class ViewTable extends TLBaseTableModle {
+public class ViewTable extends TLBaseTableModel {
 
 
     public ViewTable(String tableName ,  TLObjectFactory moduleFactory){
@@ -27,7 +27,7 @@ public class ViewTable extends TLBaseTableModle {
     @Override
     protected TLBaseModule init() {
         if(dataBase ==null)
-            dataBase = (TLDataBase) getModule(databaseName);
+            dataBase = (TLDatabase) getModule(databaseName);
         TLMsg tmsg = createMsg().setAction(DB_GETVIEW).setParam(DB_P_VIEWNAME,tableName);
         TLMsg returnmsg =putMsg(dataBase,tmsg);
         table= (TLBaseDataUnit) returnmsg.getParam(INSTANCE);
@@ -53,14 +53,14 @@ public class ViewTable extends TLBaseTableModle {
         return (String) returnMsg.getParam(DB_P_SQL);
     }
     public ArrayList<Map<String,Object>> get( ) {
-        TLMsg sqlmsg =createMsg().setAction(DB_QUERY).setParam(DB_P_RESULTTYPE,TLDataBase.RESULT_TYPE.MAPLIST)  ;
+        TLMsg sqlmsg =createMsg().setAction(DB_QUERY).setParam(DB_P_RESULTTYPE,TLDatabase.RESULT_TYPE.MAPLIST)  ;
         TLMsg returnMsg = putMsg(table,sqlmsg);
         return (ArrayList<Map<String,Object>> ) returnMsg.getParam(DB_R_RESULT);
     }
     public ArrayList<Map<String,Object>> get( LinkedHashMap<String, Object> sqlparams) {
 
         TLMsg updatemsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE,TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE,TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returMsg = putMsg(table,  updatemsg);
         return (ArrayList<Map<String,Object>> )  returMsg.getParam(DB_R_RESULT);

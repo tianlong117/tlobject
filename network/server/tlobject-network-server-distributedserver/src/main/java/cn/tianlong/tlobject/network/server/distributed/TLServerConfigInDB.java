@@ -2,8 +2,8 @@ package cn.tianlong.tlobject.network.server.distributed;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTableModle;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLBaseTableModel;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.utils.TLDateUtils;
 
 import java.util.HashMap;
@@ -15,7 +15,7 @@ import java.util.Map;
  * 描述:
  * 作者:tianlong
  */
-public class TLServerConfigInDB extends TLBaseTableModle {
+public class TLServerConfigInDB extends TLBaseTableModel {
 
     public TLServerConfigInDB(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
@@ -76,7 +76,7 @@ public class TLServerConfigInDB extends TLBaseTableModle {
         sqlparams.put("group_name", group);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(table, qmsg);
     }
@@ -111,7 +111,7 @@ public class TLServerConfigInDB extends TLBaseTableModle {
         sqlparams.put("server", server);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         return  putMsg(table, qmsg);
     }
@@ -130,7 +130,7 @@ public class TLServerConfigInDB extends TLBaseTableModle {
         sqlparams.put("server", server);
         TLMsg qmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
        return  putMsg(table, qmsg);
     }

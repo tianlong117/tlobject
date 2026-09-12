@@ -13,7 +13,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.*;
 
-import static cn.tianlong.tlobject.db.TLDataBase.getResultSetHandler;
+import static cn.tianlong.tlobject.db.TLDatabase.getResultSetHandler;
 
 
 /**
@@ -229,7 +229,7 @@ public class TLTable extends TLBaseDataUnit {
     protected TLMsg total(Object fromWho, TLMsg msg) {
         String sql = "select count(*) as total from [table] ";
         TLMsg amsg = createMsg().copyFrom(msg).setAction(DB_QUERY).setParam(DB_P_SQL, sql);
-        amsg.setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP);
+        amsg.setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP);
         TLMsg returnMsg = getMsg(fromWho, amsg);
         Map<String, Object> result = (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
         return createMsg().setParam(DB_R_RESULT, result.get("total"));
@@ -259,7 +259,7 @@ public class TLTable extends TLBaseDataUnit {
             if (sqlParams ==null || sqlParams.isEmpty())
                 return null;
             else
-                sqlconditon=TLDBUtilis.makeSqlCondition(sqlParams);
+                sqlconditon=TLDBUtils.makeSqlCondition(sqlParams);
         }
         return sqlconditon ;
     }
@@ -300,7 +300,7 @@ public class TLTable extends TLBaseDataUnit {
         else
             sql = sql.replace("[table]", dbtable);
         Object resultType = msg.getParam(DB_P_RESULTTYPE);
-        TLDataBase.RESULT_TYPE dbType =TLDataBase.getResultType(resultType);
+        TLDatabase.RESULT_TYPE dbType =TLDatabase.getResultType(resultType);
         ResultSetHandler rsh = getResultSetHandler(dbType,msg);
         if (rsh == null) {
             putLog("ResultSetHandler is wrong :" +  msg.getParam(DB_P_RESULTTYPE), LogLevel.WARN, "query");
@@ -315,7 +315,7 @@ public class TLTable extends TLBaseDataUnit {
             cacheName= (String) msg.getParam(DB_P_CACHENAME);
             cacheKey =msg.getStringParam(DB_P_CACHEKEY,null);
             if(cacheKey ==null || cacheKey.isEmpty())
-                 cacheKey =TLDataBase.makeCacheKey(sql,sqlParamsList);
+                 cacheKey =TLDatabase.makeCacheKey(sql,sqlParamsList);
             Object cacheValue =getCache(cacheName,cacheKey, dbType);
             if(isCacheValue(cacheValue))
             {
@@ -352,14 +352,25 @@ public class TLTable extends TLBaseDataUnit {
             for (String key1 : sqlParamsList.keySet()) {
                 if (key1.indexOf("[in]") >= 0) {
                     ArrayList<Object> indatas = (ArrayList) sqlParamsList.get(key1);
-                    Object[] newParams = new Object[sqlParams.length + indatas.size() - 1];
+                    // 空列表按"1 个 null"处理：in (null) 匹配不到任何行，且占位符/参数个数仍一致
+                    // （原来空列表会 new Object[len-1] 后 arraycopy len 个 → ArrayIndexOutOfBounds）
+                    int addCount = indatas.isEmpty() ? 1 : indatas.size();
+                    Object[] newParams = new Object[sqlParams.length + addCount - 1];
                     System.arraycopy(sqlParams, 0, newParams, 0, sqlParams.length);
-                    for (Object datas : indatas) {
-                        newParams[i] = datas;
+                    if (indatas.isEmpty()) {
+                        newParams[i] = null;
                         i++;
+                        sql = sql.replace(key1, "?");
+                    } else {
+                        for (Object datas : indatas) {
+                            newParams[i] = datas;
+                            i++;
+                        }
+                        // 必须用 replace（字面量）而不是 replaceAll：key 形如 "[in]userid"，
+                        // 在正则里 [ 和 ] 是字符类，replaceAll 根本匹配不到，占位符不会被替换
+                        sql = sql.replace(key1, makeQuestionMark(indatas.size()));
                     }
                     sqlParams = newParams;
-                    sql = sql.replaceAll(key1, makeQuestionMark(indatas.size()));
                 } else {
                     sqlParams[i] = sqlParamsList.get(key1);
                     i++;
@@ -407,7 +418,7 @@ public class TLTable extends TLBaseDataUnit {
             TLMsg qmsg = createMsg().setAction(DB_QUERY)
                     .setParam(DB_P_SQL, sql)
                     .copyParam(DB_P_PARAMS, msg);
-            TLDataBase.RESULT_TYPE result_type = (msg.getParam(DB_P_RESULTTYPE) != null) ? (TLDataBase.RESULT_TYPE) msg.getParam(DB_P_RESULTTYPE) : TLDataBase.RESULT_TYPE.MAP;
+            TLDatabase.RESULT_TYPE result_type = (msg.getParam(DB_P_RESULTTYPE) != null) ? (TLDatabase.RESULT_TYPE) msg.getParam(DB_P_RESULTTYPE) : TLDatabase.RESULT_TYPE.MAP;
             qmsg.setParam(DB_P_RESULTTYPE, result_type);
             qreturnMsg = query(qmsg);
         }
@@ -651,6 +662,8 @@ public class TLTable extends TLBaseDataUnit {
     }
 
     public static String makeQuestionMark(int number) {
+        if (number <= 0)
+            return "";          // 原来 number=0 时 deleteCharAt(-1) 抛 StringIndexOutOfBoundsException
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < number; ++i) {
             sb.append("?,");

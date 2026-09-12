@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 描述:
  * 作者:tianlong
  */
-public class MapInDB extends TLBaseTableModle {
+public class MapInDB extends TLBaseTableModel {
     private  String  defaultTable ="tldataunits";
     protected  Long cacheExptime =0L ;   //缓存过期时间毫秒
     protected Map<String, Object> cacheMap ;
@@ -106,7 +106,7 @@ public class MapInDB extends TLBaseTableModle {
             }
             else {
                 type =getObjectType(value);
-                dbvalue =TLDBUtilis.objectToString(value);
+                dbvalue =TLDBUtils.objectToString(value);
             }
         }
         else
@@ -173,7 +173,7 @@ public class MapInDB extends TLBaseTableModle {
         }
         int datasize =datas.size();
         String sql = " replace into  [table] ( id ,mid,mkey,value,type ) values(?,?,?,?,?)";
-        int result =TLDBUtilis.batchInsertList(sql,datas, (TLTable) table);
+        int result =TLDBUtils.batchInsertList(sql,datas, (TLTable) table);
         if(result==datasize)
         {
             if(cacheExptime > 0L)
@@ -227,7 +227,7 @@ public class MapInDB extends TLBaseTableModle {
         sqlparams.put("mid", name);
         TLMsg insertmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
         ArrayList<Map<String,String>> result = (ArrayList<Map<String, String>>) resultMsg.getParam(DB_R_RESULT);
@@ -262,7 +262,7 @@ public class MapInDB extends TLBaseTableModle {
         else  if(type.equals("TLMsg"))
             mvalue= TLMsgUtils.jsonToMsg(value);
         else
-            mvalue=TLDBUtilis.stringToDBValue(type,value) ;
+            mvalue=TLDBUtils.stringToDBValue(type,value) ;
         return mvalue ;
     }
 
@@ -273,7 +273,7 @@ public class MapInDB extends TLBaseTableModle {
         sqlparams.put("id",id);
         TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
         Map<String,String> result = (Map<String, String>) resultMsg.getMapParam(DB_R_RESULT,null);
@@ -286,7 +286,7 @@ public class MapInDB extends TLBaseTableModle {
         sqlparams.put("mid",name);
         TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
         ArrayList<Map<String,String>> result = (ArrayList<Map<String, String>>) resultMsg.getParam(DB_R_RESULT);
@@ -304,7 +304,7 @@ public class MapInDB extends TLBaseTableModle {
         sqlparams.put("mid", name);
         TLMsg insertmsg = createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
         Map<String,Object> result = (Map<String, Object>) resultMsg.getParam(DB_R_RESULT);
@@ -361,7 +361,7 @@ public class MapInDB extends TLBaseTableModle {
         sqlparams.put("mid", name);
         TLMsg insertmsg = createMsg().setAction(DB_DELETE)
                 .setParam(DB_P_SQL, sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.ARRAYLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.ARRAYLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
         int result = (int) resultMsg.getParam(DB_R_RESULT);

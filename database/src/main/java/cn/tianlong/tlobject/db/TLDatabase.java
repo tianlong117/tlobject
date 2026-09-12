@@ -21,7 +21,7 @@ import java.util.*;
  * 作者:tianlong
  */
 
-public class TLDataBase extends TLBaseModule {
+public class TLDatabase extends TLBaseModule {
     protected String dbPackageName;
     private final static String prefixTable = "table_";
     private final static String prefixBeanTable = "bean_";
@@ -36,15 +36,15 @@ public class TLDataBase extends TLBaseModule {
     protected HashMap<String, Object> dbObjs = new HashMap<>();
     protected HashMap<String, String> triggerName = new HashMap<>();
 
-    public TLDataBase() {
+    public TLDatabase() {
         super();
     }
 
-    public TLDataBase(String name) {
+    public TLDatabase(String name) {
         super(name);
     }
 
-    public TLDataBase(String name, TLObjectFactory modulefactory) {
+    public TLDatabase(String name, TLObjectFactory modulefactory) {
         super(name, modulefactory);
     }
 
@@ -186,14 +186,19 @@ public class TLDataBase extends TLBaseModule {
         Connection conn = getConnection(dbserver);
         if (conn == null)
             return false;
+        java.sql.ResultSet tables = null;
         try {
             DatabaseMetaData meta = conn.getMetaData();
-            java.sql.ResultSet tables = meta.getTables(null, null, tableName, null);
-            boolean exists = tables.next();
-            conn.close();
-            return exists;
+            tables = meta.getTables(null, null, tableName, null);
+            return tables.next();
         } catch (SQLException e) {
             return false;
+        } finally {
+            // 原来只有成功路径 conn.close()，异常路径直接 return false → 连接泄漏（ResultSet 也从没关过）
+            if (tables != null) {
+                try { tables.close(); } catch (SQLException ignored) {}
+            }
+            try { conn.close(); } catch (SQLException ignored) {}
         }
     }
 
@@ -1011,20 +1016,20 @@ public class TLDataBase extends TLBaseModule {
     }
 
     static public  RESULT_TYPE getResultType(Object resultType){
-        TLDataBase.RESULT_TYPE dbType ;
+        TLDatabase.RESULT_TYPE dbType ;
         if (resultType == null)
-            dbType = TLDataBase.RESULT_TYPE.MAPLIST;
+            dbType = TLDatabase.RESULT_TYPE.MAPLIST;
         else if (resultType instanceof String)
-            dbType = TLDataBase.RESULT_TYPE.valueOf(((String) resultType).toUpperCase());
-        else if (resultType instanceof TLDataBase.RESULT_TYPE)
-            dbType = (TLDataBase.RESULT_TYPE) resultType;
+            dbType = TLDatabase.RESULT_TYPE.valueOf(((String) resultType).toUpperCase());
+        else if (resultType instanceof TLDatabase.RESULT_TYPE)
+            dbType = (TLDatabase.RESULT_TYPE) resultType;
         else
-            dbType = TLDataBase.RESULT_TYPE.MAPLIST;
+            dbType = TLDatabase.RESULT_TYPE.MAPLIST;
         return dbType ;
     }
-    static public  ResultSetHandler  getResultSetHandler(  TLDataBase.RESULT_TYPE dbType,TLMsg msg){
+    static public  ResultSetHandler  getResultSetHandler(  TLDatabase.RESULT_TYPE dbType,TLMsg msg){
         String handerkey = null;
-        if (dbType == TLDataBase.RESULT_TYPE.KEYED)
+        if (dbType == TLDatabase.RESULT_TYPE.KEYED)
             handerkey = (String) msg.getParam(DB_P_HANDERKEY);
         ResultSetHandler rsh = getResultSetHandler(dbType, handerkey);
         if (rsh == null) {

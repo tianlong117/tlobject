@@ -14,29 +14,29 @@ import java.util.List;
  * 描述:
  * 作者:tianlong
  */
-public abstract class TLBaseTableModle extends TLBaseModule {
+public abstract class TLBaseTableModel extends TLBaseModule {
 
     protected String tableName;
-    protected TLDataBase dataBase;
+    protected TLDatabase dataBase;
     protected String databaseName = DEFAULTDATABASE;
     protected TLBaseDataUnit table;
-    public TLBaseTableModle() {
+    public TLBaseTableModel() {
         super();
     }
-    public TLBaseTableModle(String name ) {
+    public TLBaseTableModel(String name ) {
         super(name);
     }
-    public TLBaseTableModle(String name , TLObjectFactory modulefactory){
+    public TLBaseTableModel(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
     }
-    public TLBaseTableModle(String name ,TLObjectFactory moduleFactory ,String tableName){
+    public TLBaseTableModel(String name ,TLObjectFactory moduleFactory ,String tableName){
         this.moduleFactory = moduleFactory;
         this.name  =name ;
         if(tableName!=null && !tableName.isEmpty())
         this.tableName =tableName ;
         init();
     }
-    public TLBaseTableModle(String name ,TLObjectFactory moduleFactory ,TLBaseDataUnit table){
+    public TLBaseTableModel(String name ,TLObjectFactory moduleFactory ,TLBaseDataUnit table){
         this.moduleFactory = moduleFactory;
         this.name  =name ;
         this.table=table ;
@@ -59,7 +59,7 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     }
     protected TLBaseDataUnit getTable(String tableName){
         if(dataBase ==null)
-            dataBase = (TLDataBase) getModule(databaseName);
+            dataBase = (TLDatabase) getModule(databaseName);
         TLMsg tmsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME,tableName);
         TLMsg returnmsg =putMsg(dataBase,tmsg);
         table= (TLBaseDataUnit) returnmsg.getParam(INSTANCE);
@@ -68,7 +68,7 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     protected TLBaseDataUnit setTable(String tableName){
         if(tableName!=null)
             this.tableName=tableName;
-        dataBase = (TLDataBase) getModule(databaseName);
+        dataBase = (TLDatabase) getModule(databaseName);
         return  getTable(this.tableName) ;
     }
     public  String getTableName(){
@@ -93,9 +93,9 @@ public abstract class TLBaseTableModle extends TLBaseModule {
         }
         return createMsg().setParam("result",totalNumber);
     }
-    protected TLMsg queryBy(String fieldName,Object fieldValue,String[] fields,TLDataBase.RESULT_TYPE resultType ,String action_tag ){
+    protected TLMsg queryBy(String fieldName,Object fieldValue,String[] fields,TLDatabase.RESULT_TYPE resultType ,String action_tag ){
        if(resultType ==null )
-           resultType =TLDataBase.RESULT_TYPE.MAP;
+           resultType =TLDatabase.RESULT_TYPE.MAP;
         String  queryfields ="*" ;
        if( fields !=null)
           queryfields = StringUtils.join(fields, ",");
@@ -112,7 +112,7 @@ public abstract class TLBaseTableModle extends TLBaseModule {
         return putMsg(table,sqlmsg);
     }
      protected TLMsg insertHashMap(LinkedHashMap<String, Object> data ,String tableName) {
-        String insertSql = TLDBUtilis.createInsertSql(data,tableName);
+        String insertSql = TLDBUtils.createInsertSql(data,tableName);
         TLMsg insertmsg = createMsg().setAction(DB_INSERT)
                     .setParam(DB_P_SQL, insertSql)
                     .setParam(DB_P_PARAMS, data);
@@ -126,7 +126,7 @@ public abstract class TLBaseTableModle extends TLBaseModule {
     }
 
     private TLMsg replaceHashMap(LinkedHashMap<String,Object> data, String tableName) {
-        String insertSql = TLDBUtilis.createReplaceSql(data,tableName);
+        String insertSql = TLDBUtils.createReplaceSql(data,tableName);
         TLMsg insertmsg = createMsg().setAction(DB_INSERT)
                 .setParam(DB_P_SQL, insertSql)
                 .setParam(DB_P_PARAMS, data);

@@ -5,7 +5,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import java.util.ArrayList;
 import java.util.Map;
 
-public class TLDataInDbUtils {
+public class TLDataInDBUtils {
 
     public static MapInDB getMapInDBModule(String mapName, TLObjectFactory moduleFactory, Long minute){
         MapInDB mapInDB =new MapInDB(mapName,moduleFactory,minute);

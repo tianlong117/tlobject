@@ -260,7 +260,7 @@ public class managerControl extends adminCommon {
         }
         String userid = (String) msg.getParam("userid");
         TLMsg usermsg = createMsg().setAction("findUser").setParam("userid", userid);
-        TLMsg returnMsg = putMsg("managerModle", usermsg);
+        TLMsg returnMsg = putMsg("managerModel", usermsg);
         if(returnMsg==null)
         {
              outData.addData("code","2");
@@ -294,7 +294,7 @@ public class managerControl extends adminCommon {
                 .setParam("userName", username).setParam("role", role).
                         setParam("userid", userid));
         TLMsg loginmsg =createMsg().setAction("updateLoginState").setParam("loginip",userip).setParam("userid",userid);
-        putMsg("managerModle", loginmsg);
+        putMsg("managerModel", loginmsg);
         outData.addData("code","0");
         outData.addData("message","系统登录");
         putOutData(outData);

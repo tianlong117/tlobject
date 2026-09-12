@@ -2926,7 +2926,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 添加包名前缀（与TLDataBase.addPackage相同的模式）
+     * 添加包名前缀（与TLDatabase.addPackage相同的模式）
      */
     protected String addPackage(String name, String packageName) {
         if (packageName == null || packageName.isEmpty())
@@ -3007,7 +3007,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /**
      * 解析AI Agent自定义XML配置段：providers, skills, memoryStores。
-     * 遵循TLDataBase.myConfig模式。
+     * 遵循TLDatabase.myConfig模式。
      */
     protected class myConfig extends TLModuleConfig {
         protected HashMap<String, HashMap<String, String>> providers;

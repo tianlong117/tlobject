@@ -3,8 +3,8 @@ package cn.tianlong.tlobject.execl;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLBaseTableModle;
-import cn.tianlong.tlobject.db.TLDBUtilis;
+import cn.tianlong.tlobject.db.TLBaseTableModel;
+import cn.tianlong.tlobject.db.TLDBUtils;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -16,7 +16,7 @@ import java.util.Set;
  * 描述:
  * 作者:tianlong
  */
-public class TLExeclToDbModule extends TLBaseTableModle {
+public class TLExeclToDbModule extends TLBaseTableModel {
     private HashMap<String ,String> dbFields ;
     public TLExeclToDbModule(String name , TLObjectFactory modulefactory){
         super(name,modulefactory);
@@ -25,7 +25,7 @@ public class TLExeclToDbModule extends TLBaseTableModle {
     protected void initProperty() {
         super.initProperty();
         if(params !=null && params.get("fields")!=null )
-            dbFields =TLDBUtilis.fieldsStrToMap(params.get("fields"));
+            dbFields =TLDBUtils.fieldsStrToMap(params.get("fields"));
     }
     @Override
     protected TLBaseModule init() {
@@ -58,7 +58,7 @@ public class TLExeclToDbModule extends TLBaseTableModle {
         }
         else
             fieldsNames =  dbFields.keySet().toArray(new String[0]);
-        sql =TLDBUtilis.createInsertSql(fieldsNames,tableName) ;
+        sql =TLDBUtils.createInsertSql(fieldsNames,tableName) ;
         int rows =listMap.size();
         Object[][] bparams = new Object[rows][fieldsNames.length];
         List<String> dbFildsList = Arrays.asList(fieldsNames);
@@ -71,7 +71,7 @@ public class TLExeclToDbModule extends TLBaseTableModle {
                 else
                 {
                     String ftype =dbFields.get(fieldName);
-                    bparams[i][j] =TLDBUtilis.stringToDBValue(ftype, (String) map.get(fieldName));
+                    bparams[i][j] =TLDBUtils.stringToDBValue(ftype, (String) map.get(fieldName));
                 }
             }
         }

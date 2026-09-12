@@ -14,7 +14,7 @@ import java.util.*;
  * 描述:
  * 作者:tianlong
  */
-public class BeanTable extends TLBaseTableModle {
+public class BeanTable extends TLBaseTableModel {
 
     protected  String primaryKey ;
     protected  Boolean IfPrimaryKeyAuto =false;
@@ -41,7 +41,7 @@ public class BeanTable extends TLBaseTableModle {
         name=tableName;
         init();
     }
-    public BeanTable(String tableName , String primaryKey,TLDataBase dataBase){
+    public BeanTable(String tableName , String primaryKey,TLDatabase dataBase){
         this.moduleFactory =dataBase.getFactory();
         this.tableName  =tableName ;
         this.primaryKey =primaryKey ;
@@ -49,7 +49,7 @@ public class BeanTable extends TLBaseTableModle {
         databaseName =dataBase.getName();
         init();
     }
-    public BeanTable(String tableName , String primaryKey,Boolean IfPrimaryKeyAuto ,TLDataBase dataBase){
+    public BeanTable(String tableName , String primaryKey,Boolean IfPrimaryKeyAuto ,TLDatabase dataBase){
         this( tableName , primaryKey,dataBase);
         this.IfPrimaryKeyAuto =IfPrimaryKeyAuto ;
     }
@@ -99,20 +99,20 @@ public class BeanTable extends TLBaseTableModle {
         int datasize =datas.size();
         if(datasize ==0)
              return false;
-        int result =TLDBUtilis.insertList( datas , (TLTable) table);
+        int result =TLDBUtils.insertList( datas , (TLTable) table);
         return (result==datasize)?true : false ;
     }
     public boolean addAllByBatch(List<LinkedHashMap> datas){
         int datasize =datas.size();
         if(datasize ==0)
             return false;
-        int result =TLDBUtilis.batchInsertList( "",datas , (TLTable) table);
+        int result =TLDBUtils.batchInsertList( "",datas , (TLTable) table);
         return (result==datasize)?true : false ;
     }
     public ArrayList<Map<String,Object>> query(String sql,LinkedHashMap<String, Object> sqlparams ) {
         TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST);
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST);
         if(sqlparams !=null)
             sqlmsg.setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table,sqlmsg);
@@ -140,7 +140,7 @@ public class BeanTable extends TLBaseTableModle {
         sqlparams.put(primaryKey, primaryKeyValue);
         TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
        TLMsg returnMsg = putMsg(table,sqlmsg);
        return (Map<String, Object>) returnMsg.getParam(DB_R_RESULT,Map.class);
@@ -151,26 +151,26 @@ public class BeanTable extends TLBaseTableModle {
         sqlparams.put(primaryKey, primaryKeyValue);
         TLMsg sqlmsg =createMsg().setAction(DB_QUERY)
                 .setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANMAP)
                 .setParam(DB_P_BEANCLASS,beanClass)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table,sqlmsg);
         return (Map<String, Object>) returnMsg.getParam(DB_R_RESULT,Map.class);
     }
     public Map<String,Object> get(Object primaryKeyValue ,String[] fields) {
-        TLMsg returnMsg= queryBy(this.primaryKey,primaryKeyValue, fields,TLDataBase.RESULT_TYPE.MAP ,null );
+        TLMsg returnMsg= queryBy(this.primaryKey,primaryKeyValue, fields,TLDatabase.RESULT_TYPE.MAP ,null );
         return (Map<String, Object>) returnMsg.getParam(DB_R_RESULT,Map.class);
     }
     public ArrayList<Map<String,Object>> get(TLDBSqlCondition sqlCondition) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_SQLCONDITION, sqlCondition);
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Map<String, Object>>) returMsg.getParam(DB_R_RESULT,ArrayList.class);
     }
     public Map<String,Object> getBeanMap(TLDBSqlCondition sqlCondition, Class beanClass) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANMAP)
                 .setParam(DB_P_BEANCLASS,beanClass)
                 .setParam(DB_P_PRIMARYKEY,primaryKey)
                 .setParam(DB_P_SQLCONDITION, sqlCondition);
@@ -179,7 +179,7 @@ public class BeanTable extends TLBaseTableModle {
     }
     public ArrayList<Object> getBeanList(TLDBSqlCondition sqlCondition, Class beanClass) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANLIST)
                 .setParam(DB_P_BEANCLASS,beanClass)
                 .setParam(DB_P_SQLCONDITION, sqlCondition);
         TLMsg returMsg = putMsg(table, idmsg);
@@ -187,7 +187,7 @@ public class BeanTable extends TLBaseTableModle {
     }
     public ArrayList<Map<String,Object>> get(TLDBSqlCondition sqlCondition, String[] fields) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_FIELDS,fields)
                 .setParam(DB_P_SQLCONDITION, sqlCondition);
         TLMsg returMsg = putMsg(table, idmsg);
@@ -195,14 +195,14 @@ public class BeanTable extends TLBaseTableModle {
     }
     public ArrayList<Map<String,Object>> getAll( LinkedHashMap<String,Object> params) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, params);
         TLMsg returMsg = putMsg(table, idmsg);
         return (ArrayList<Map<String, Object>>) returMsg.getParam(DB_R_RESULT,ArrayList.class);
     }
     public ArrayList<Map<String,Object>> getAll( LinkedHashMap<String,Object> params,String[] fields ) {
         TLMsg idmsg=createMsg().setAction(DB_QUERY)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_FIELDS,fields)
                 .setParam(DB_P_PARAMS, params);
         TLMsg returnMsg = putMsg(table, idmsg);
@@ -221,7 +221,7 @@ public class BeanTable extends TLBaseTableModle {
     }
     public Map<String,Object> getAllBeanMap( Class beanClass) {
         TLMsg sqlmsg =createMsg().setAction(DB_FINDALL)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANMAP)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANMAP)
                 .setParam(DB_P_BEANCLASS,beanClass)
                 .setParam(DB_P_PRIMARYKEY,primaryKey) ;
         TLMsg returnMsg = putMsg(table,sqlmsg);
@@ -229,7 +229,7 @@ public class BeanTable extends TLBaseTableModle {
     }
     public ArrayList<Object> getAllBeanList( Class beanClass) {
         TLMsg sqlmsg =createMsg().setAction(DB_FINDALL)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANLIST)
                 .setParam(DB_P_BEANCLASS,beanClass) ;
         TLMsg returnMsg = putMsg(table,sqlmsg);
         return (ArrayList<Object> )returnMsg.getParam(DB_R_RESULT,ArrayList.class);
@@ -239,7 +239,7 @@ public class BeanTable extends TLBaseTableModle {
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put(fieldName,  value);
         TLMsg updatemsg=createMsg().setAction(DB_QUERY).setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE,TLDataBase.RESULT_TYPE.MAPLIST)
+                .setParam(DB_P_RESULTTYPE,TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table,  updatemsg);
         return (ArrayList<Map<String,Object>> ) returnMsg.getParam(DB_R_RESULT,ArrayList.class);
@@ -249,7 +249,7 @@ public class BeanTable extends TLBaseTableModle {
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
         sqlparams.put(fieldName,  value);
         TLMsg updatemsg=createMsg().setAction(DB_QUERY).setParam(DB_P_SQL,sql)
-                .setParam(DB_P_RESULTTYPE, TLDataBase.RESULT_TYPE.BEANLIST)
+                .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.BEANLIST)
                 .setParam(DB_P_BEANCLASS,beanClass)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg returnMsg = putMsg(table,  updatemsg);

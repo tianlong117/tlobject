@@ -23,7 +23,7 @@
             <msg  destination="userManagerModule" action="logout" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="findUser" msgTableUseType="useMsg" >
-            <msg  destination="membersModle" action="findUser" msgTableUseType="useMsg" />
+            <msg  destination="membersModel" action="findUser" msgTableUseType="useMsg" />
         </msgid>
         <msgid  value="receiveBinaryFile"  msgTableUseType="useMsg" >
             <msg  destination="webSocketReceiveFileModule" action="receiveBinaryFile"   msgTableUseType="useMsg" />

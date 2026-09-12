@@ -3,7 +3,7 @@
     <modules>
        <!-- 系统模块 -->
            <!-- modules -->
-     <module name="managerModle" classfile="cn.tianlong.java.application.webmanager.dbmodle.managerModle" />
+     <module name="managerModel" classfile="cn.tianlong.java.application.webmanager.dbmodel.managerModel" />
      <module name="managerControl" classfile="cn.tianlong.java.application.webmanager.managerControl"   />
      <module name="adminMemberControl" classfile="cn.tianlong.java.application.webmanager.adminMemberControl"  />
      <module name="menuManagerControl" classfile="cn.tianlong.java.application.webmanager.menuManagerControl" />

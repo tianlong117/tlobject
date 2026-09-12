@@ -150,13 +150,13 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
     }
 
 
-    protected boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDataBase.RESULT_TYPE resultType,int exptime){
+    protected boolean writeCache(String tableName,String cacheKey,Object cacheValue, TLDatabase.RESULT_TYPE resultType,int exptime){
 
         String valueType =resultType.toString().toLowerCase();
         return cacheModule.writeCache( tableName,cacheKey,cacheValue,exptime,valueType);
     }
 
-    protected Object getCache (String tableName,String cacheKey ,TLDataBase.RESULT_TYPE resultType){
+    protected Object getCache (String tableName,String cacheKey ,TLDatabase.RESULT_TYPE resultType){
         String valueType =resultType.toString().toLowerCase();
         return cacheModule.getCache( tableName,cacheKey,valueType);
     }

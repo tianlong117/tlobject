@@ -163,7 +163,7 @@ public class managersManagerControl extends adminCommon {
         }
         int status =Integer.parseInt((String) msg.getParam("status"));
         TLMsg updateMsg =createMsg().setAction("updatState").setParam(USER_P_USERID,userid).setParam("status",status);
-        TLMsg returnMsg =putMsg("managerModle",updateMsg);
+        TLMsg returnMsg =putMsg("managerModel",updateMsg);
         if(status ==0){
             String userobj =getUserObjName();
             putMsg(userobj,createMsg().setAction(USER_SETOFFLINE).setParam(USER_P_USERID,userid));
@@ -182,7 +182,7 @@ public class managersManagerControl extends adminCommon {
             return;
         }
         TLMsg updateMsg =createMsg().setAction("updatState").setParam(USER_P_USERID,userid).setParam("status",0);
-        putMsg("managerModle",updateMsg);
+        putMsg("managerModel",updateMsg);
         String userobj =getUserObjName();
         putMsg(userobj,createMsg().setAction(USER_SETOFFLINE).setParam(USER_P_USERID,userid));
         putResultToClient(true,"setOffline");
@@ -481,7 +481,7 @@ public class managersManagerControl extends adminCommon {
             return;
         }
         TLMsg addMsg =createMsg().setAction("changePassword").addMap(msg.getArgs());
-        TLMsg returnMsg =putMsg("managerModle",addMsg);
+        TLMsg returnMsg =putMsg("managerModel",addMsg);
         int result = (int) returnMsg.getParam(DB_R_RESULT);
         putResultToClient(result,"managerPasswdSubmit");
     }
@@ -514,7 +514,7 @@ public class managersManagerControl extends adminCommon {
             }
         }
         TLMsg addMsg =createMsg().setAction("updateUser").addMap(msg.getArgs());
-        TLMsg returnMsg =putMsg("managerModle",addMsg);
+        TLMsg returnMsg =putMsg("managerModel",addMsg);
         int addnumb = (int) returnMsg.getParam(DB_R_RESULT);
         boolean result =false;
         if(addnumb ==1)
@@ -576,7 +576,7 @@ public class managersManagerControl extends adminCommon {
         else
             userMsg =createMsg().setAction("getByCreator").setParam("creator",userid);
         userMsg.setParam("userid",selectedUser);
-        TLMsg returnMsg =putMsg("managerModle",userMsg);
+        TLMsg returnMsg =putMsg("managerModel",userMsg);
         Map<String,Object> userInfo = (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
         return  userInfo ;
     }
@@ -595,7 +595,7 @@ public class managersManagerControl extends adminCommon {
             return;
         }
         TLMsg userMsg =createMsg().setAction("deleteUser").setParam("userid",deletedUserid);
-        TLMsg returnMsg =putMsg("managerModle",userMsg);
+        TLMsg returnMsg =putMsg("managerModel",userMsg);
         int deletenumb = (int) returnMsg.getParam(DB_R_RESULT);
         boolean result =false;
         if(deletenumb ==1)
@@ -625,7 +625,7 @@ public class managersManagerControl extends adminCommon {
         String creator = getUserid();
         TLMsg addMsg =createMsg().setAction("addUser").addMap(msg.getArgs())
                 .setParam("creator",creator);
-        TLMsg returnMsg =putMsg("managerModle",addMsg);
+        TLMsg returnMsg =putMsg("managerModel",addMsg);
         int addnumb = (int) returnMsg.getParam(DB_R_RESULT);
         boolean result =false;
         if(addnumb ==1)
@@ -634,7 +634,7 @@ public class managersManagerControl extends adminCommon {
             result = addUserRole(userid, roleidArray);
             if(result ==false){
                 TLMsg userMsg =createMsg().setAction("deleteUser").setParam("userid",userid);
-                putMsg("managerModle",userMsg);
+                putMsg("managerModel",userMsg);
             }
         }
        putResultToClient(result,"managerAddSubmit");
@@ -677,7 +677,7 @@ public class managersManagerControl extends adminCommon {
         TLMsg userMsg=createMsg().setAction("getAllUser").setArgs(msg.getArgs());
         if(! ifHaveAuth())
             userMsg.setParam("creator",userid);
-        TLMsg returnMsg =putMsg("managerModle",userMsg);
+        TLMsg returnMsg =putMsg("managerModel",userMsg);
         ArrayList<Map<String, Object>> managerList = (ArrayList<Map<String, Object>>) returnMsg.getParam(DB_R_RESULT);
         Long count ;
         if(!returnMsg.isNull("number"))

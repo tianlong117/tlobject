@@ -4,7 +4,7 @@ import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.io.File;
@@ -218,7 +218,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
     protected TLBaseModule init() {
         if (persistTokenStats) {
             try {
-                tokenStatsTable = TLDataBase.getTable("aiTokenStats", this);
+                tokenStatsTable = TLDatabase.getTable("aiTokenStats", this);
                 if (tokenStatsTable == null) {
                     putLog("init: aiTokenStats table not found, DB persist disabled", LogLevel.WARN);
                 }

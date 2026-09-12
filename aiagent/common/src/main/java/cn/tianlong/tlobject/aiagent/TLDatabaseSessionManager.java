@@ -3,7 +3,7 @@ package cn.tianlong.tlobject.aiagent;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
-import cn.tianlong.tlobject.db.TLDataBase;
+import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.*;
@@ -29,8 +29,8 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
 
     @Override
     protected TLBaseModule init() {
-        roundsTable = TLDataBase.getTable("aiSessionRounds", this);
-        sessTable   = TLDataBase.getTable("aiSessions", this);
+        roundsTable = TLDatabase.getTable("aiSessionRounds", this);
+        sessTable   = TLDatabase.getTable("aiSessions", this);
         return this;
     }
 
@@ -48,8 +48,8 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     protected void storeRound(Map<String, Object> roundData) {
         // 惰性重试：init() 时数据库可能未就绪（多实例并发写 SQLite 时表模块初始化可能失败），
         // 每次保存前重试获取，就绪后自然恢复（否则会话汇总会静默丢失）
-        if (roundsTable == null) roundsTable = TLDataBase.getTable("aiSessionRounds", this);
-        if (sessTable == null) sessTable = TLDataBase.getTable("aiSessions", this);
+        if (roundsTable == null) roundsTable = TLDatabase.getTable("aiSessionRounds", this);
+        if (sessTable == null) sessTable = TLDatabase.getTable("aiSessions", this);
         if (!enableCheckpoint || roundsTable == null) return;
         try {
             String sessionId = (String) roundData.getOrDefault("sessionId", "");
