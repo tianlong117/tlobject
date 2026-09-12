@@ -82,6 +82,11 @@ public class TLSQLiteConnect extends TLBaseModule implements TLBaseConnectorInte
         if (!msg.isNull("params"))
             params = (HashMap<String, String>) msg.getParam("params");
 
+        // params 为 null 时下面直接解引用会 NPE（与 HikariCP/c3p0 同款问题）
+        if (params == null) {
+            putLog("SQLite connect failed: missing params", LogLevel.ERROR);
+            return;
+        }
         String dburl = params.get("dburl");
         if (dburl == null || dburl.isEmpty()) {
             putLog("SQLite connect failed: missing dburl param", LogLevel.ERROR);
@@ -210,11 +215,16 @@ public class TLSQLiteConnect extends TLBaseModule implements TLBaseConnectorInte
         try {
             return dataSource.getConnection();
         } catch (SQLException e) {
-            putLog("SQLite connect failed: " + (params != null ? params.get("dburl") : "unknown"),
+            // 与另两个连接器统一：URL 去掉可能带凭据的 query 部分，并带上 SQLState/errorCode
+            putLog("SQLite connect failed: " + TLBaseConnectorInterface.logSafeDbUrl(params)
+                           + " SQLState=" + e.getSQLState() + " errorCode=" + e.getErrorCode(),
                    LogLevel.ERROR);
             return null;
         }
     }
+
+    // 无需 destroy：SQLiteDataSource 只是 URL 载体，每次 getConnection 新建连接、由调用方 close，
+    // 没有池/后台线程需要释放（与 Hikari/c3p0 不同）
 
     @Override
     public void close(Object conn) {

@@ -24,7 +24,8 @@
         <dependency>
             <groupId>com.mchange</groupId>
             <artifactId>c3p0</artifactId>
-            <version>0.9.5.2</version>
+            <!-- 0.9.5.2 受 CVE-2018-20433（XXE，CVSS 9.8）影响，0.9.5.3 修复；0.9.5.5 是最后一版 -->
+            <version>0.9.5.5</version>
         </dependency>
     </dependencies>
 
