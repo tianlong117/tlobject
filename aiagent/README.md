@@ -1703,6 +1703,19 @@ and omitting `merge.*` there raises no warning, since there is no such thing as 
 
 **Fields that are not declared fall back to the default (adaptive)**: list-like values are appended without losing data, while scalars are still overwritten (unchanged from before the rework).
 
+#### Upstream Type Contract
+
+**For a given field name, every upstream node should return the same type** — collections with
+collections, scalars with scalars. `adaptive` rests on exactly this premise: same-type collections
+append, same-type scalars overwrite.
+
+When types disagree (say one upstream returns `"timeout"` and another returns `["a","b"]`), the
+merge result is decided by the type of **whichever value arrives first** — the same pair of types
+yields different results depending on arrival order (scalar→list overwrites, list→scalar appends).
+That is an **upstream contract violation**: the engine emits a WARN after the workflow finishes
+(with the field name and both types) but **does not change the merge behavior**. Fix the upstream
+node rather than relying on a merge strategy to paper over it — that would only hide the problem.
+
 #### Which Fields Can Be Merged
 
 The field name = **the parameter name in the message produced by the upstream node** (the args key of `TLMsg`). An ordinary LLM agent returns only
