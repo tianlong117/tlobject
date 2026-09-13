@@ -44,7 +44,7 @@ Memory flows through **AOP message hooks**: auto-recall before a chat → inject
 
 - **Sub-agent delegation**: intent-based description routing; the master agent has no type special-casing
 - **Agent groups**: sequential chains / parallel merge / supervisor review & summary
-- **Workflow DAG + expression DSL**: `&&` parallel, `||` fallback, `->` sequence, `if` value-branch — express an orchestration in one line
+- **Workflow DAG + expression DSL**: `&&` parallel, `||` fallback, `->` sequence, `if` value-branch — express an orchestration in one line; name a merge point (`... as m1`) and declare how upstream outputs combine per field (`issues:append, score:min`) instead of the default last-write-wins
 - **Checkpoint resume / direct output**: pause & resume mid-run (`/resume`); sub-agent results can bypass LLM re-processing (directOutput)
 
 ### 6. Engineering & safety

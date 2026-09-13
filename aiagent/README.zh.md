@@ -33,6 +33,8 @@
    - [单元测试 /test](#单元测试-test)
    - [HITL 人工审批](#hitl-人工审批)
    - [会话管理与断点恢复](#会话管理与断点恢复)
+   - [Web 交互窗口](#web-交互窗口aiagentwebui)
+   - [工作流编排与字段级合并](#工作流编排与字段级合并tlagentworkflow)
 
 ---
 
@@ -1390,3 +1392,93 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 - 审批：审批请求经 SSE 推送到浏览器弹框，可编辑参数后批准或拒绝
 - 用户隔离：登录身份透传 agentService，data/{uid}/ 会话与记忆按用户隔离
 - 实现：TLWebChatModule（业务）+ TLWebChatServlet（IO 适配，TLJettyServer extraServlets 挂载），静态页内嵌 jar classpath
+
+### 工作流编排与字段级合并（TLAgentWorkflow）
+
+**工作流**用 DAG 描述多 Agent 流水线：每个节点是一个 AGENT（对应 `<modules>` 里的私有实例），
+边声明依赖，引擎自动推导执行顺序。节点/边有三种来源（优先级从高到低）：
+
+```
+msg.expression > msg.nodes/edges > XML <expression> > XML <nodes>/<edges>
+```
+
+表达式是最常用的入口，比手写 nodes/edges 简洁：
+
+```xml
+<params>
+    <expression value="(poetA &amp;&amp; poetB) -> poetc"/>
+</params>
+```
+
+| 语法 | 含义 |
+|------|------|
+| `A && B` | 并行：A、B 都跑，全部完成后继续（自动生成汇聚节点） |
+| `A \|\| B` | 回退：A 失败才跑 B |
+| `A -> B` | 顺序：B 等 A 完成，且 A 的产出正文并入 B 的提示词 |
+| `if (A.score > 0.5) B else C` | 值分支 |
+| `(A && B) as m1` | 给汇聚点命名，供字段级合并指向它（见下） |
+
+#### 一个节点的结果分三条通道
+
+理解这点才能理解 merge 能改什么、不能改什么：
+
+| 通道 | 内容 | 谁在管 | 何时跑 |
+|------|------|--------|--------|
+| ① args 字段合并 | `issues` / `score` 等**逐字段** | **可配的 Reducer** | 每次进节点 |
+| ② `upstreamResponses` | `【节点名】\n正文` 列表 | 框架固定逻辑 | 每次进节点 |
+| ③ 最终汇总 `AI_P_RESPONSE` | 重新扫全部节点产出拼接 | 框架固定逻辑 | 工作流收尾一次 |
+
+**m1 之类的汇聚点每次都会跑 ②**——两个上游的正文都收进 `upstreamResponses`，带 `【节点名】`
+前缀区分来源，下游节点把它们拼成 `userMessage`。这是框架硬编码的，与是否配置 Reducer 无关。
+poetA/poetB 这类**普通 agent 只产出 `aiResponse`**，所以它们的结果实际走的是 ② 这条通道。
+
+#### 字段级合并：改的是通道 ①
+
+多个上游产出**同名参数**时（如两个检查节点各自返回 `issues`），通道 ① 默认是覆盖——
+后面的把前面的盖掉。声明合并策略可以让它们累加：
+
+```xml
+<params>
+    <expression value="(poetA &amp;&amp; poetB) as m1 -> poetc"/>
+    <merge.m1 value="issues:append, score:min"/>
+</params>
+```
+
+格式 `merge.<合并点名> = <字段>:<策略>(, <字段>:<策略>)*`，合并点名即 `as` 里的名字。
+
+| 策略 | 行为 |
+|------|------|
+| `lastWriteWins` / `last` / `overwrite` | 后写赢（默认） |
+| `append` | 列表追加（单值作为元素加入） |
+| `min` / `max` / `sum` | 数值归并，**兼容字符串数字**，脏值忽略不抛异常 |
+| `or` / `and` | 布尔归并 |
+| `mapMerge` | Map 浅合并 |
+| `setUnion` | 去重并集 |
+| `adaptive` | 类型自适应（默认）：List/Set 追加，其余覆盖 |
+
+**未声明的字段走默认（adaptive）**：列表类追加不丢数据，标量仍覆盖（与改造前一致）。
+
+#### 哪些字段能合并
+
+字段名 = **上游节点产出消息里的参数名**（`TLMsg` 的 args 键）。普通 LLM agent 只返回
+`aiResponse` 一条正文，所以要按字段合并，上游得是「除 `aiResponse` 外还带业务参数」的节点——
+比如 skill 节点（结果进 `AI_P_SKILLOUTPUT`），或自定义节点（`TLMsg.setParam` 写什么就有什么）。
+
+保留字段（配了会 WARN 并忽略）：
+
+| 字段 | 原因 |
+|------|------|
+| `aiResponse` / `upstreamResponses` | 框架正文通道（②），归框架独占 |
+| 最终汇总 | 收尾重扫节点产出（③），不经合并 |
+
+#### 三个容易踩的点
+
+1. **`as` 命名了却没配 `merge.<名字>`** —— 命名本身就是「我要配它」的声明，只命名不配置
+   等于白命名，启动时 WARN 提示。不需要定制就别写 `as`。
+2. **`as` 只能命名汇聚点** —— 后面必须解析到一个 `JOIN`（`&&`/`||`/`if` 生成的），
+   命名单个节点或条件节点会编译报错。
+3. **表达式模式和静态节点模式通用** —— `as` 给生成节点命名；静态模式则直接用
+   `<node id="...">` 的 id 作为合并点名。
+
+配置错误都在**加载期**报错或告警（未知策略名 / 保留字段 / 找不到同名合并点 / 白命名），
+不会等到运行期才以「字段被悄悄覆盖」的形式暴露。
