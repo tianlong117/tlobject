@@ -1606,6 +1606,12 @@ msg.expression > msg.nodes/edges > XML <expression> > XML <nodes>/<edges>
 | `if (A.score > 0.5) B else C` | 值分支 |
 | `(A && B) as m1` | 给汇聚点命名，供字段级合并指向它（见下） |
 
+> **没有循环**：引擎是纯无环 DAG（拓扑排序 + 入度计数都建立在无环前提上，回边会让
+> "节点只执行一次"的完成集合、活入边计数、累积式状态合并全部失效）。迭代需求由
+> **其他层**承担：agent 内部的 ReAct 循环（工具调用反复进行直到不再需要）、
+> 组的 supervisor 打回重跑、节点的 `onFailure="retry"`。节点 `type` 写错（如 `loop`）
+> 会告警并跳过该节点，不会静默退化成普通 agent 节点。
+
 #### 一个节点的结果分三条通道
 
 理解这点才能理解 merge 能改什么、不能改什么：

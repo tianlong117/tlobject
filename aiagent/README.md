@@ -1653,6 +1653,14 @@ The expression form is the most common entry point and is more concise than hand
 | `if (A.score > 0.5) B else C` | Value branch |
 | `(A && B) as m1` | Names the merge point so that field-level merge can target it (see below) |
 
+> **There are no loops**: the engine is a pure acyclic DAG (topological sort and in-degree
+> counting both rest on acyclicity; back edges would invalidate the "each node runs once"
+> completion set, the live-incoming-edge counting, and the accumulating state merge).
+> Iteration is handled at **other layers**: the ReAct loop inside an agent (tool calls repeat
+> until none are needed), a group supervisor sending work back, and node-level
+> `onFailure="retry"`. A mistyped node `type` (e.g. `loop`) warns and skips the node instead
+> of silently degrading it to a plain agent node.
+
 #### A Node's Result Travels Over Three Channels
 
 This is essential to understanding what merge can and cannot change:
