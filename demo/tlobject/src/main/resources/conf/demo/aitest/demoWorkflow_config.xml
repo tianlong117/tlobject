@@ -57,6 +57,20 @@
         MCP 无 chat 动作会 FAILED）——应声明为节点 Agent 的 <agents> 工具
       · 本配置的表达式等价写法：poetA && poetB
         （原 DAG 的 merge join 由 && 自动汇聚替代，结果自动汇总所有节点产出）
+      · (A && B) as m1   给括号表达式的汇聚点命名（as 后面必须解析到一个汇聚点，
+        命名单个节点或条件节点会编译报错）。命名的用途见"七"。
+
+    七、字段级合并（merge）：多个上游产出同名参数时怎么合并。
+    默认按值类型走：列表类追加（不丢数据）、标量覆盖（与改造前一致）；
+    aiResponse 正文由框架单独收集成【节点名】分段，不受本配置影响。
+    要改默认，在 <params> 里按合并点声明（合并点名 = as 里的名字，或静态节点的 id）：
+      <merge.m1 value="issues:append, score:min"/>
+    可用策略（大小写不敏感）：
+      lastWriteWins/last/overwrite — 后写赢（默认）      append — 列表追加
+      min / max / sum              — 数值归并（兼容字符串数字）
+      or / and                     — 布尔归并            mapMerge — Map 浅合并
+      setUnion                     — 去重并集            adaptive — 类型自适应（默认）
+    未声明的合并点走默认策略；策略名写错在加载时 WARN 并回落默认，不中断工作流。
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
     （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>；

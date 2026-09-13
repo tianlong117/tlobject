@@ -262,14 +262,22 @@ public class TLWorkflowEngine implements TLParamString {
         if (incoming == null || incoming.isEmpty()) return null;
         TLMsg merged = new TLMsg();
         List<String> upstreamResponses = new ArrayList<>();
+        Map<String, TLStateReducer> fieldReducers = fieldReducersOf(nodeId);
         for (TLWorkflowEdge edge : incoming) {
             TLMsg up = context.getOutput(edge.getFrom());
             if (up != null) {
-                merged.addArgs(up.getArgs());
-                // 收集上游正文（addArgs 是覆盖式合并，多个上游的 aiResponse 会互相覆盖丢失）。
-                // 已携带 upstreamResponses 的输出（JOIN/FANOUT 汇聚产物）不再重复收录——
-                // 其上游正文已随 args 合并进 merged，重复收录会产生【__eN】冗余段
-                if (up.getParam("upstreamResponses") == null) {
+                mergeUpstreamArgs(merged, up.getArgs(), fieldReducers);
+                // 收集上游正文（args 里多个上游的 aiResponse 会互相覆盖丢失）。
+                // 汇聚点产物自带 upstreamResponses，必须整段收纳而不是丢弃——否则链式汇聚
+                // (A && B) as m1 -> (m1 && C) as m2 里 m1 收集的正文在下游就没了；
+                // 也不能再叠加它自己的 aiResponse：那等于把已收录的某一段重复加一次
+                //（菱形 A→m1、A→C 场景会出现两份 A）
+                Object collected = up.getParam("upstreamResponses");
+                if (collected instanceof List) {
+                    for (Object o : (List<?>) collected) {
+                        if (o != null) upstreamResponses.add(o.toString());
+                    }
+                } else {
                     String resp = up.getStringParam("aiResponse", "");
                     if (!resp.isEmpty()) {
                         upstreamResponses.add("【" + edge.getFrom() + "】\n" + resp);
@@ -281,6 +289,41 @@ public class TLWorkflowEngine implements TLParamString {
             merged.setParam("upstreamResponses", upstreamResponses);
         }
         return merged;
+    }
+
+    /**
+     * 框架独占字段：由 collectUpstreamInput 的正文收集逻辑在 reducer 之后无条件写入，
+     * 声明合并策略没有任何效果（不影响运行，但会误导配置者）。见 TLAgentWorkflow 加载告警。
+     */
+    public static final Set<String> RESERVED_MERGE_FIELDS =
+            Collections.unmodifiableSet(new HashSet<>(Collections.singletonList("upstreamResponses")));
+
+    /** 取节点的字段级合并策略（无声明返回 null，调用方走默认） */
+    private Map<String, TLStateReducer> fieldReducersOf(String nodeId) {
+        TLWorkflowNode node = nodes.get(nodeId);
+        if (node == null) return null;
+        Map<String, TLStateReducer> reducers = node.getFieldReducers();
+        return reducers.isEmpty() ? null : reducers;
+    }
+
+    /**
+     * 按字段合并上游 args。已声明策略的字段用它；其余交给 {@link TLReducers#ADAPTIVE}——
+     * 列表类字段追加不丢数据，标量保持覆盖（与改造前行为一致）。
+     *
+     * <p>{@code upstreamResponses} 不在这里合并（它由本方法下方的正文收集逻辑写回），
+     * 但多个汇聚点串联时会经上游 args 带过来，ADAPTIVE 会让它按列表追加而不是互相覆盖。
+     */
+    private void mergeUpstreamArgs(TLMsg merged, Map<String, ?> incoming, Map<String, TLStateReducer> fieldReducers) {
+        if (incoming == null || incoming.isEmpty()) return;
+        for (Map.Entry<String, ?> entry : incoming.entrySet()) {
+            String field = entry.getKey();
+            TLStateReducer reducer = fieldReducers != null ? fieldReducers.get(field) : null;
+            if (reducer == null) reducer = TLReducers.ADAPTIVE;
+            Object existing = merged.getParam(field);
+            Object value = reducer.reduce(existing, entry.getValue());
+            if (value == null) merged.removeParam(field);
+            else merged.setParam(field, value);
+        }
     }
 
     /** 构建节点的完整输入：工作流初始输入 + 上游产出 */

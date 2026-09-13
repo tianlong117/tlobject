@@ -57,6 +57,26 @@
         （见 poetc_config.xml：factoryShared 共享主工厂实例）
       · 本配置的表达式等价写法：poetA && poetB
         （原 DAG 的 merge join 由 && 自动汇聚替代，结果自动汇总所有节点产出）
+      · (A && B) as m1   给括号表达式的汇聚点命名，用途是让"七"的字段级合并能指到它。
+        as 是可选语法——不需要定制合并策略就别命名（不写照样走默认）。命名了却没配
+        merge.m1 会在启动时 WARN（白命名）。as 后面必须解析到一个汇聚点，
+        命名单个节点或条件节点会编译报错。
+
+    七、字段级合并（merge）：多个上游产出同名参数时怎么合并。
+    默认按值类型走：列表类追加（不丢数据）、标量覆盖（与改造前一致）。
+    要改默认，在 <params> 里按合并点声明（合并点名 = as 里的名字，或静态节点的 id）：
+      <merge.m1 value="issues:append, score:min"/>
+    · 字段名 = 上游节点产出里的参数名（agent 返回消息的 args 键）。普通 agent 只回正文，
+      所以要按字段合并，上游得是「除 aiResponse 外还带业务参数」的节点——比如 skill 节点
+      （结果进 AI_P_SKILLOUTPUT），或你自己写的节点（TLMsg.setParam 写什么就有什么）。
+    · aiResponse 正文由框架单独收集成【节点名】分段，不进本配置；
+      upstreamResponses 由框架独占写入，配了会被忽略（加载时 WARN）。
+    可用策略（大小写不敏感）：
+      lastWriteWins/last/overwrite — 后写赢（默认）      append — 列表追加
+      min / max / sum              — 数值归并（兼容字符串数字）
+      or / and                     — 布尔归并            mapMerge — Map 浅合并
+      setUnion                     — 去重并集            adaptive — 类型自适应（默认）
+    未声明的合并点走默认策略；策略名写错或字段被保留，在加载时 WARN 并回落默认。
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
     （XML expression 在启动期编译一次并缓存，失败回退 <nodes>/<edges>；
@@ -76,7 +96,15 @@
         <!-- 直出：作为工具被调用时，完整汇总（诗A+诗B+评判全文）不经上游 LLM 再加工，原样返回用户 -->
         <directOutput value="true"/>
         <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式" -->
-        <expression value="(poetA &amp;&amp; poetB) -> poetc"/>
+        <expression value="(poetA &amp;&amp; poetB) as m1 -> poetc"/>
+        <!-- m1 的字段级合并。注意：本 demo 的两个诗人只返回 aiResponse，没有业务字段，
+             所以这条对本次运行不产生实际效果（留着示范写法；换成带业务参数的节点即生效） -->
+        <merge.m1 value="issues:append"/>
+        <!-- 字段级合并（可选）：as 命名合并点 → merge.<名字> 声明策略。本 demo 的诗人
+             只返回 aiResponse（正文走【节点名】分段，不受此配置影响），没有需要合并的
+             业务字段，所以不命名也不配置。真要定制时的写法：
+             <expression value="(poetA &amp;&amp; poetB) as m1 -> poetc"/>
+             <merge.m1 value="issues:append, score:min"/> -->
     </params>
 
     <!-- 工作流自有的私有模块——每个节点一个独立实例。

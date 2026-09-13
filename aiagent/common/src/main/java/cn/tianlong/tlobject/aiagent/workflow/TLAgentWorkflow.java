@@ -60,6 +60,12 @@ public class TLAgentWorkflow extends TLBaseModule
     /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
     private boolean directOutput = false;
 
+    /**
+     * 字段级合并策略（合并点名 → 字段 → 策略），来自 &lt;params&gt; 的 merge.&lt;合并点名&gt;。
+     * 适用于静态节点和表达式生成的节点。
+     */
+    private Map<String, Map<String, TLStateReducer>> mergeReducers = new HashMap<>();
+
     public TLAgentWorkflow() { super(); }
     public TLAgentWorkflow(String name) { super(name); }
     public TLAgentWorkflow(String name, TLObjectFactory factory) { super(name, factory); }
@@ -89,6 +95,9 @@ public class TLAgentWorkflow extends TLBaseModule
             if (params.get("directOutput") != null) {
                 directOutput = "true".equals(params.get("directOutput"));
             }
+            // 字段级合并策略（merge.<合并点名>）：配置在 <params> 段，适用于静态节点和
+            // 表达式生成的节点——后者拿不到 <node> 子元素，不能只挂在节点解析路径上
+            mergeReducers = parseMergeConfig(params);
             // XML 表达式模式：启动期编译一次并缓存（失败回退 XML nodes/edges）
             if (params.get("expression") != null) {
                 try {
@@ -96,6 +105,7 @@ public class TLAgentWorkflow extends TLBaseModule
                             TLWorkflowExprParser.compile(params.get("expression"));
                     xmlExprNodes = compiled.nodes;
                     xmlExprEdges = compiled.edges;
+                    applyMergeConfig(xmlExprNodes);
                     putLog("Workflow [" + name + "] expression compiled: "
                             + params.get("expression"), LogLevel.DEBUG);
                 } catch (RuntimeException e) {
@@ -108,8 +118,87 @@ public class TLAgentWorkflow extends TLBaseModule
         configuredEdges = ((myConfig) mconfig).getEdges();
 
         if (!configuredNodes.isEmpty()) {
+            applyMergeConfig(configuredNodes);
             putLog("Workflow [" + name + "] loaded: " + configuredNodes.size()
                     + " nodes, " + configuredEdges.size() + " edges", LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * 解析字段级合并策略：{@code <merge.<合并点名> value="<字段>:<策略>, ..."/>}。
+     * 合并点名 = 表达式的 {@code as m1} 名字，或静态节点的 id。
+     * 策略名不合法加载时就报警——否则要等运行到该合并点才以"字段被覆盖"的形式暴露，很难查。
+     */
+    private Map<String, Map<String, TLStateReducer>> parseMergeConfig(Map<String, String> params) {
+        Map<String, Map<String, TLStateReducer>> all = new HashMap<>();
+        if (params == null) return all;
+        for (Map.Entry<String, String> e : params.entrySet()) {
+            String key = e.getKey();
+            if (!key.startsWith(TLWorkflowNode.MERGE_KEY_PREFIX)) continue;
+            String pointId = key.substring(TLWorkflowNode.MERGE_KEY_PREFIX.length());
+            Map<String, TLStateReducer> reducers = new HashMap<>();
+            for (String pair : (e.getValue() != null ? e.getValue() : "").split(",")) {
+                int colon = pair.indexOf(':');
+                if (colon <= 0) {
+                    if (!pair.trim().isEmpty()) {
+                        putLog("Workflow [" + name + "] merge." + pointId + " 格式应为"
+                                + " <字段>:<策略>，忽略: " + pair.trim(), LogLevel.WARN);
+                    }
+                    continue;
+                }
+                String field = pair.substring(0, colon).trim();
+                String strategy = pair.substring(colon + 1).trim();
+                if (TLWorkflowEngine.RESERVED_MERGE_FIELDS.contains(field)) {
+                    putLog("Workflow [" + name + "] merge." + pointId + " 字段 '" + field
+                            + "' 由框架独占（正文收集逻辑覆盖），配置无效已忽略", LogLevel.WARN);
+                    continue;
+                }
+                TLStateReducer reducer = TLReducers.byName(strategy);
+                if (reducer == null) {
+                    putLog("Workflow [" + name + "] merge." + pointId + " 字段 '" + field
+                            + "' 的策略 '" + strategy + "' 未知，回落默认策略。可用: "
+                            + TLReducers.knownNames(), LogLevel.WARN);
+                    continue;
+                }
+                reducers.put(field, reducer);
+            }
+            if (!reducers.isEmpty()) all.put(pointId, reducers);
+        }
+        return all;
+    }
+
+    /** 把合并策略挂到节点上（表达式生成的节点也走这里） */
+    private void applyMergeConfig(Map<String, TLWorkflowNode> target) {
+        if (target == null || target.isEmpty()) return;
+        // as 命名的合并点却没有对应配置：命名本身就是"我要配它"的声明，
+        // 而 merge.* 是唯一入口——只命名不配置等于白命名（走默认），提示一下
+        if (mergeReducers.isEmpty()) {
+            List<String> namedOnly = new ArrayList<>();
+            for (TLWorkflowNode node : target.values()) {
+                // 自动生成的 __eN 不算——那不是用户写的名字
+                if (node.getType() == TLWorkflowNodeType.JOIN
+                        && !node.getId().startsWith("__")) {
+                    namedOnly.add(node.getId());
+                }
+            }
+            if (!namedOnly.isEmpty()) {
+                putLog("Workflow [" + name + "] 以下合并点已用 as 命名但未配置合并策略，"
+                        + "走默认（列表追加 / 标量覆盖）: " + namedOnly
+                        + "。不需要定制就去掉 as，需要则加 <merge.<名字> value=\"字段:策略\"/>",
+                        LogLevel.WARN);
+            }
+            return;
+        }
+        for (Map.Entry<String, Map<String, TLStateReducer>> e : mergeReducers.entrySet()) {
+            TLWorkflowNode node = target.get(e.getKey());
+            if (node == null) {
+                putLog("Workflow [" + name + "] merge." + e.getKey()
+                        + " 找不到同名合并点（拼写错误？），配置未生效", LogLevel.WARN);
+                continue;
+            }
+            node.getFieldReducers().putAll(e.getValue());
+            putLog("Workflow [" + name + "] merge." + e.getKey() + " 已生效: " + e.getValue().keySet(),
+                    LogLevel.DEBUG);
         }
     }
 
@@ -271,6 +360,7 @@ public class TLAgentWorkflow extends TLBaseModule
                         TLWorkflowExprParser.compile((String) exprParam);
                 workflowNodes = compiled.nodes;
                 workflowEdges = compiled.edges;
+                applyMergeConfig(workflowNodes);
                 putLog("Workflow [" + name + "] expression run: "
                         + ((String) exprParam).trim(), LogLevel.DEBUG);
             } catch (RuntimeException e) {
@@ -354,6 +444,7 @@ public class TLAgentWorkflow extends TLBaseModule
 
             if (node.getSameClassAs() != null) {
                 HashMap<String, String> nodeParams = new HashMap<>(node.getParams());
+                nodeParams.keySet().removeIf(k -> k.startsWith(TLWorkflowNode.MERGE_KEY_PREFIX));
                 // 用 5 参 getModule（ifSaveModule=true）落本地缓存，
                 // 避免 runAgentNode 的 getMyModule 再建一个实例（首轮双实例）
                 Object inst = getModule(nid, node.getSameClassAs(), false, true, nodeParams);
@@ -526,9 +617,11 @@ public class TLAgentWorkflow extends TLBaseModule
             }
         }
 
-        // 节点参数透传（temperature、systemMessage 等），运行时覆盖模块默认值
+        // 节点参数透传（temperature、systemMessage 等），运行时覆盖模块默认值。
+        // merge.* 是图级配置（字段合并策略），不是消息参数——透传会把配置漏给下游 agent
         if (node.getParams() != null) {
             for (Map.Entry<String, String> e : node.getParams().entrySet()) {
+                if (e.getKey().startsWith(TLWorkflowNode.MERGE_KEY_PREFIX)) continue;
                 msg.setParam(e.getKey(), e.getValue());
             }
         }

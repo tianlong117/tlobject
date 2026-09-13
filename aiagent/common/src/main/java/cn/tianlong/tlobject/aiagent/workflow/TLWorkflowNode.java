@@ -11,6 +11,12 @@ import java.util.Map;
  */
 public class TLWorkflowNode {
 
+    /**
+     * 字段级合并策略的配置前缀：{@code <param name="merge.<字段>" value="<策略>"/>}。
+     * 这是图级配置不是消息参数——runAgentNode 会按此前缀过滤，不往下游透传。
+     */
+    public static final String MERGE_KEY_PREFIX = "merge.";
+
     /** 节点唯一标识 */
     private String id;
 
@@ -29,8 +35,15 @@ public class TLWorkflowNode {
     /** Agent类型节点：调用的action */
     private String action = "chat";
 
-    /** 节点参数（表达式、合并策略等） */
+    /** 节点参数（表达式、timeout 等） */
     private Map<String, String> params;
+
+    /**
+     * 字段级合并策略：key = 上游产出的字段名。
+     * 来源是节点配置里的 merge.&lt;字段&gt; = &lt;策略名&gt;（见 TLAgentWorkflow.parseFieldReducers）。
+     * 未声明的字段由引擎按类型自适应合并。
+     */
+    private Map<String, TLStateReducer> fieldReducers;
 
     /** 单节点超时（毫秒，0=不限制） */
     private long timeout;
@@ -79,6 +92,15 @@ public class TLWorkflowNode {
         return params;
     }
     public void setParams(Map<String, String> params) { this.params = params; }
+
+    /** 字段级合并策略（无声明时返回空 Map，调用方可直接 get） */
+    public Map<String, TLStateReducer> getFieldReducers() {
+        if (fieldReducers == null) fieldReducers = new HashMap<>();
+        return fieldReducers;
+    }
+    public void setFieldReducers(Map<String, TLStateReducer> fieldReducers) {
+        this.fieldReducers = fieldReducers;
+    }
 
     public long getTimeout() { return timeout; }
     public void setTimeout(long timeout) { this.timeout = timeout; }

@@ -34,8 +34,14 @@ oss.py
 README_scraper.md
 analysis_structure.txt
 deepseek*.txt
+# 上面这条漏掉文件名拼错的变体（deeseek），单独兜一下
+deeseek*.txt
 docs/a2a_protocol_design_analysis.md
 # 运行期/测试产物
+poet*.txt
+_music_scan_worker.py
+_music_scan_state.json
+music_ape_report.py
 hamburger_order.txt
 pizza_order.txt
 headlines_found.txt

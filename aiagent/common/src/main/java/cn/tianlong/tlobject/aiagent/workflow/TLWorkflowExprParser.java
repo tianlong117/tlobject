@@ -11,7 +11,7 @@ import java.util.*;
  * expr    := orExpr ( "->" orExpr )*        // 顺序链（优先级最松）
  * orExpr  := andExpr ( "||" andExpr )*      // 回退：左失败才跑右
  * andExpr := atom ( "&&" atom )*            // 并行：全部执行 + 汇聚
- * atom    := "(" expr ")" | ifClause | IDENT
+ * atom    := "(" expr ")" ("as" IDENT)? | ifClause | IDENT
  * ifClause:= "if" "(" cond ")" atom "else" atom   // else-if 用嵌套：if(c1) A else (if(c2) B else C)
  * cond    := IDENT "." IDENT op literal     // 单层 path，对齐 TLWorkflowContext.getValueByPath
  * op      := ">" | ">=" | "<" | "<=" | "==" | "!="
@@ -23,6 +23,7 @@ import java.util.*;
  * A && B -> C                              // A、B 并行，都完成后 C（合并 A/B 产出）
  * (A || B) -> C                            // A 失败则回退 B，C 收活分支结果
  * A -> if (A.conf >= 0.5) B else C         // 值分支（条件自动等 A 产出）
+ * (A && B) as m1 -> C                      // 给汇聚点命名，供 &lt;params&gt; 的 merge.m1 声明合并策略
  * }</pre>
  *
  * <h3>语义要点</h3>
@@ -32,7 +33,11 @@ import java.util.*;
  *   <li>{@code ||} 左右子树的 AGENT 节点自动设 onFailure="skip"，失败放行路由</li>
  *   <li>if 条件引用的前缀节点（如 A.conf 的 A）若在图中会自动补依赖边；前缀在条件之后出现会构成环，
  *       由引擎拓扑排序检测报 CYCLE_DETECTED</li>
- *   <li>生成节点 id 形如 __e1（用户 IDENT 禁止 __ 前缀）</li>
+ *   <li>生成节点 id 形如 __e1（用户 IDENT 禁止 __ 前缀）；
+ *       {@code (A && B) as m1} 把自动生成的汇聚点改名 m1，供 {@code <params>} 的
+ *       {@code merge.<节点名>} 声明字段级合并策略（见 {@link TLStateReducer}）。
+ *       m1 必须解析为一个汇聚点（&& / || / if 生成），否则报错——命名一个不存在的合并点
+ *       会静默失效，不如当场报出来</li>
  * </ul>
  *
  * 零外部依赖，纯静态工具，不接触工厂。
@@ -55,9 +60,9 @@ public class TLWorkflowExprParser {
         }
     }
 
-    /** 保留字 */
+    /** 保留字（as 用于汇聚点命名，同样不得作 IDENT） */
     private static final Set<String> RESERVED = new HashSet<>(Arrays.asList(
-            "if", "else", "true", "false", "and", "or", "not"));
+            "if", "else", "true", "false", "and", "or", "not", "as"));
 
     /** 子图形状：入口节点集 + 唯一出口节点 */
     private static class Shape {
@@ -116,10 +121,7 @@ public class TLWorkflowExprParser {
     }
 
     private Shape addAgent(String ident) {
-        if (usedIdents.contains(ident)) {
-            throw new ExprParseException("duplicate node id: " + ident, pos);
-        }
-        usedIdents.add(ident);
+        registerUserId(ident);
         TLWorkflowNode n = new TLWorkflowNode();
         n.setId(ident);
         n.setType(TLWorkflowNodeType.AGENT);
@@ -130,14 +132,45 @@ public class TLWorkflowExprParser {
         return new Shape(Collections.singletonList(ident), ident);
     }
 
-    /** 新建汇聚节点（JOIN），兼作结果载体 */
-    private Shape addJoin() {
-        String id = nextGenId();
+    /**
+     * 新建汇聚节点（JOIN），兼作结果载体。
+     *
+     * @param retainId as 指定的固定 id（null = 自动生成 __eN）；指定后不占用生成序列
+     */
+    private Shape addJoin(String retainId) {
+        String id = retainId != null ? retainId : nextGenId();
+        registerId(id);
         TLWorkflowNode n = new TLWorkflowNode();
         n.setId(id);
         n.setType(TLWorkflowNodeType.JOIN);
         out.nodes.put(id, n);
         return new Shape(Collections.singletonList(id), id);
+    }
+
+    /** 登记解析器生成的 id（__ 前缀合法，仅供内部使用） */
+    private void registerId(String id) {
+        if (usedIdents.contains(id)) {
+            throw new ExprParseException("duplicate node id: " + id, pos);
+        }
+        usedIdents.add(id);
+    }
+
+    /** 登记用户书写的 id：额外禁止 __ 前缀（解析器自用，避免与生成 id 撞号） */
+    private void registerUserId(String id) {
+        if (id.startsWith("__")) {
+            throw new ExprParseException("ident must not start with '__': " + id, pos);
+        }
+        registerId(id);
+    }
+
+    /** 校验 as 别名：不得与已有节点重名、不得是保留字（与 readIdent 同一套规则） */
+    private void checkAliasName(String alias) {
+        if (RESERVED.contains(alias)) {
+            throw new ExprParseException("reserved word: " + alias, pos);
+        }
+        if (usedIdents.contains(alias)) {
+            throw new ExprParseException("duplicate node id: " + alias, pos);
+        }
     }
 
     /**
@@ -146,6 +179,7 @@ public class TLWorkflowExprParser {
      */
     private Shape addCondition(String expression) {
         String id = nextGenId();
+        registerId(id);
         TLWorkflowNode n = new TLWorkflowNode();
         n.setId(id);
         n.setType(TLWorkflowNodeType.CONDITION);
@@ -214,7 +248,7 @@ public class TLWorkflowExprParser {
             for (int i = afterLeft; i < afterRight; i++) setSkipOnFailure(agentIds.get(i));
             // 路由（读左出口 RESULT）+ 汇聚
             Shape route = addCondition(null);
-            Shape sink = addJoin();
+            Shape sink = addJoin(null);
             addEdge(left.exit, route.exit, null);
             addEdge(route.exit, sink.exit, "true");
             for (String to : right.entries) {
@@ -233,7 +267,7 @@ public class TLWorkflowExprParser {
         skipWs();
         while (tryConsume("&&")) {
             Shape right = parseAtom();
-            Shape sink = addJoin();
+            Shape sink = addJoin(null);
             addEdge(left.exit, sink.exit, null);
             addEdge(right.exit, sink.exit, null);
             List<String> entries = new ArrayList<>(left.entries);
@@ -243,19 +277,48 @@ public class TLWorkflowExprParser {
         return left;
     }
 
-    /** atom := "(" expr ")" | ifClause | IDENT */
+    /** atom := "(" expr ")" ("as" IDENT)? | ifClause | IDENT */
     private Shape parseAtom() {
         skipWs();
         if (tryConsume("(")) {
             Shape inner = parseExpr();
             skipWs();
             if (!tryConsume(")")) throw new ExprParseException("expected ')'", pos);
-            return inner;
+            return parseJoinAlias(inner);
         }
         if (peekKeyword("if")) {
             return parseIf();
         }
         return addAgent(readIdent());
+    }
+
+    /**
+     * "as" IDENT —— 给括号表达式的出口汇聚点改名，供 merge.&lt;名字&gt; 声明合并策略。
+     * 出口不是 JOIN（如 {@code (if (C.x > 1) A else B)} 的出口是合流节点，括号内是单节点时出口是它自己）
+     * 时直接报错：命名一个不存在的合并点会静默失效，不如当场报出来。
+     */
+    private Shape parseJoinAlias(Shape inner) {
+        if (!tryKeyword("as")) return inner;
+        String alias = readIdent();
+        checkAliasName(alias);
+        TLWorkflowNode node = out.nodes.get(inner.exit);
+        if (node == null || node.getType() != TLWorkflowNodeType.JOIN) {
+            throw new ExprParseException(
+                    "'as " + alias + "' 只能命名汇聚点（&& / || / if 生成的合并节点），"
+                            + "当前表达式出口是 " + (node != null ? node.getType() : "null"), pos);
+        }
+        // 改名：汇聚点的出口边在括号内已连好，入口边还要等外层 -> 连接，
+        // 两边的 from/to 都存的是旧 id，必须同步改，否则边指向一个不存在的节点
+        for (TLWorkflowEdge edge : out.edges) {
+            if (inner.exit.equals(edge.getFrom())) edge.setFrom(alias);
+            if (inner.exit.equals(edge.getTo())) edge.setTo(alias);
+        }
+        out.nodes.remove(inner.exit);
+        node.setId(alias);
+        out.nodes.put(alias, node);
+        usedIdents.remove(inner.exit);
+        usedIdents.add(alias);
+        return new Shape(inner.entries, alias);
     }
 
     /** ifClause := "if" "(" cond ")" atom "else" atom */
@@ -275,7 +338,7 @@ public class TLWorkflowExprParser {
         for (String to : thenShape.entries) addEdge(condNode.exit, to, "true");
         for (String to : elseShape.entries) addEdge(condNode.exit, to, "false");
         // 重建合流点（依赖引擎 join-aware 跳过传播）
-        Shape sink = addJoin();
+        Shape sink = addJoin(null);
         addEdge(thenShape.exit, sink.exit, null);
         addEdge(elseShape.exit, sink.exit, null);
 
@@ -336,6 +399,14 @@ public class TLWorkflowExprParser {
     private void consumeKeyword(String kw) {
         if (!peekKeyword(kw)) throw new ExprParseException("expected '" + kw + "'", pos);
         pos += kw.length();
+    }
+
+    /** 可选关键字：命中则跳过空白并消费，返回是否命中（返回 false 时不移动 pos） */
+    private boolean tryKeyword(String kw) {
+        skipWs();
+        if (!peekKeyword(kw)) return false;
+        pos += kw.length();
+        return true;
     }
 
     /** IDENT：[A-Za-z_][A-Za-z0-9_]*，排除保留字与 __ 前缀（'-' 与 "->" 冲突，不允许） */
