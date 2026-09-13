@@ -1701,6 +1701,31 @@ and omitting `merge.*` there raises no warning, since there is no such thing as 
 | `setUnion` | Deduplicated union |
 | `adaptive` | Type-adaptive (default): List/Set are appended, everything else is overwritten |
 
+> `append` **always produces a List** (a single value is wrapped as a one-element list). It is only
+> invoked when there are 2+ upstreams, so a single upstream never gets wrapped.
+
+**Custom strategies**: when the ten built-ins are not enough, implement `TLStateReducer` and write
+the fully-qualified class name (must be public, have a no-arg constructor, and be stateless):
+
+```java
+public class LongestReducer implements TLStateReducer {
+    @Override
+    public Object reduce(Object existing, Object incoming) {
+        String a = existing != null ? existing.toString() : "";
+        String b = incoming != null ? incoming.toString() : "";
+        return a.length() >= b.length() ? a : b;      // keep the longer one
+    }
+}
+```
+
+```xml
+<merge.m1 value="issues:cn.your.pkg.LongestReducer"/>
+```
+
+Rule: a value containing `.` is loaded as a class name; one without is resolved as a built-in
+strategy name — so a typo like `appendd` still reports the available built-ins instead of being
+mistaken for a class name.
+
 **Fields that are not declared fall back to the default (adaptive)**: list-like values are appended without losing data, while scalars are still overwritten (unchanged from before the rework).
 
 #### Upstream Type Contract

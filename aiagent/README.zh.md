@@ -1654,6 +1654,30 @@ poetA/poetB 这类**普通 agent 只产出 `aiResponse`**，所以它们的结�
 | `setUnion` | 去重并集 |
 | `adaptive` | 类型自适应（默认）：List/Set 追加，其余覆盖 |
 
+> `append` **一定产出 List**（单值会被包成单元素列表）——它只在上游≥2 个时被调用，
+> 所以不会出现"本来单上游却被包成列表"的情况。
+
+**自定义策略**：内置的十个不够用时，实现 `TLStateReducer` 接口，写全限定类名即可
+（须 public、有无参构造、无状态）：
+
+```java
+public class LongestReducer implements TLStateReducer {
+    @Override
+    public Object reduce(Object existing, Object incoming) {
+        String a = existing != null ? existing.toString() : "";
+        String b = incoming != null ? incoming.toString() : "";
+        return a.length() >= b.length() ? a : b;      // 取更长的那个
+    }
+}
+```
+
+```xml
+<merge.m1 value="issues:cn.your.pkg.LongestReducer"/>
+```
+
+判定规则：含 `.` 的配置值当类名加载，不含的按内置策略名解析——所以把 `append`
+拼成 `appendd` 仍会提示可用内置名，不会被误当成类名。
+
 **未声明的字段走默认（adaptive）**：列表类追加不丢数据，标量仍覆盖（与改造前一致）。
 
 #### 上游类型契约

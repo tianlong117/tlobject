@@ -87,10 +87,13 @@
     · aiResponse 正文由框架单独收集成【节点名】分段，不进本配置；
       upstreamResponses 由框架独占写入，配了会被忽略（加载时 WARN）。
     可用策略（大小写不敏感）：
-      lastWriteWins/last/overwrite — 后写赢（默认）      append — 列表追加
+      lastWriteWins/last/overwrite — 后写赢（默认）      append — 列表追加（一定产出 List）
       min / max / sum              — 数值归并（兼容字符串数字）
       or / and                     — 布尔归并            mapMerge — Map 浅合并
       setUnion                     — 去重并集            adaptive — 类型自适应（默认）
+    也支持自定义策略：写实现 TLStateReducer 的类全限定名（public + 无参构造 + 无状态），
+    如 <merge.m1 value="issues:cn.your.pkg.LongestReducer"/>。含 '.' 才当类名，
+    所以内置名拼错仍会提示可用内置名，不会被误当类名。
     未声明的合并点走默认策略；策略名写错或字段被保留，在加载时 WARN 并回落默认。
 
     运行时优先级：msg 的 expression > msg 的 nodes/edges > XML expression > XML nodes/edges
