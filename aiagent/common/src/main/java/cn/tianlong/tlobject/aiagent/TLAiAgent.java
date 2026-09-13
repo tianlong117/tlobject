@@ -109,10 +109,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     // ======================== Agent管理（主控模式） ========================
 
-    /** 会话级 token 累计：sessionId → {prompt, completion, total} */
+    /**
+     * 会话级 token 累计（sessionId → {prompt, completion, total}）。
+     * agent 自身维护的一份，与 agentMonitor 的进程级/会话级统计独立。
+     * <p><b>已知取舍</b>：本 map 以 sessionId 为键且从不删除——每个聊过天的会话永久留一条
+     * （约 100 字节：三个 long）。同类 map 里 {@code chatThreads} 等 9 个都在终态清理里 remove，
+     * 只有本 map 与 {@code cancelFlags} 没有。按当前规模（万级会话 ≈ 2MB）接受不处理；
+     * 若将来单进程要服务百万级会话，再按 agentMonitor.evictOldest 的思路加界。</p>
+     */
     private final Map<String, long[]> sessionTokenUsage = new ConcurrentHashMap<>();
 
-    /** 会话级取消标志：sessionId → cancelled；/stop 置 true，chat 循环协作式退出 */
+    /**
+     * 会话级取消标志（sessionId → cancelled）：/stop 置 true，chat 循环协作式退出。
+     * 本 map 同样从不删除（见上面 sessionTokenUsage 的取舍说明）——一条 AtomicBoolean
+     * 约 80 字节，万级会话无感；百万级会话时再按 evictOldest 的思路加界。
+     */
     private final Map<String, java.util.concurrent.atomic.AtomicBoolean> cancelFlags = new ConcurrentHashMap<>();
 
     /** 会话级 worker 线程：sessionId → 执行 doChat 的线程；stopChat 用于 interrupt + 定位其派生进程 */
