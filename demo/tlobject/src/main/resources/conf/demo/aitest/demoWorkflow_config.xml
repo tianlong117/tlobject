@@ -62,9 +62,26 @@
 
     七、字段级合并（merge）：多个上游产出同名参数时怎么合并。
     默认按值类型走：列表类追加（不丢数据）、标量覆盖（与改造前一致）；
+    aiResponse 正文由框架单独收集成【节点名】分段，不进本配置；
+      upstreamResponses 由框架独占写入，配了会被忽略（加载时 WARN）。
     aiResponse 正文由框架单独收集成【节点名】分段，不受本配置影响。
-    要改默认，在 <params> 里按合并点声明（合并点名 = as 里的名字，或静态节点的 id）：
-      <merge.m1 value="issues:append, score:min"/>
+    要改默认，在 <params> 里按合并点声明。合并点怎么指认，两种模式不同：
+      · 表达式模式：as 起的名字
+          <expression value="(poetA &amp;&amp; poetB) as m1 -> poetc"/>
+          <merge.m1 value="issues:append"/>
+      · 静态节点模式：join 节点的 id 本身就是合并点名字（不需要 as）
+          <nodes>
+              <node id="poetA" type="agent" action="chat"/>
+              <node id="poetB" type="agent" action="chat"/>
+              <node id="merge" type="join"/>        &lt;!-- 合并点 = merge --&gt;
+          </nodes>
+          <edges>
+              <edge from="poetA" to="merge"/>
+              <edge from="poetB" to="merge"/>
+          </edges>
+          <merge.merge value="issues:append"/>
+      两种模式的策略写法完全一样，只是"怎么指到那个合并点"不同；
+      静态模式不写 merge.* 也不会告警（那里没有"起了名却没配"这回事）。
     可用策略（大小写不敏感）：
       lastWriteWins/last/overwrite — 后写赢（默认）      append — 列表追加
       min / max / sum              — 数值归并（兼容字符串数字）
