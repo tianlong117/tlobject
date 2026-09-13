@@ -51,9 +51,16 @@ An AI Agent sub-framework built on the **TLObject Unified Object Message Program
    - [Example 7: Switching Provider at Runtime](#example-7-switching-provider-at-runtime)
    - [Example 8: Async Call](#example-8-async-call)
 8. [Extension Development](#extension-development)
-   - [Adding a Custom LLM Provider](#adding-a-custom-llm-provider)
-   - [Adding a Custom Skill](#adding-a-custom-skill)
-   - [Adding a Custom Memory Store](#adding-a-custom-memory-store)
+
+## Demo: A Runnable Multi-Agent Application
+   - [1. Run It](#1-run-it)
+   - [2. Console (CLI)](#2-console-cli)
+   - [3. Web UI](#3-web-ui)
+   - [4. Agents and Tools in the Demo](#4-agents-and-tools-in-the-demo)
+   - [5. How the Configuration Is Organized](#5-how-the-configuration-is-organized)
+   - [6. Suggested Learning Path](#6-suggested-learning-path)
+## Demo: A Runnable Multi-Agent Application
+## Demo: A Runnable Multi-Agent Application
 9. [New Feature Modules](#new-feature-modules)
    - [MCP Marketplace and Tool Integration](#mcp-marketplace-and-tool-integration)
    - [Evals Evaluation System](#evals-evaluation-system)
@@ -1299,6 +1306,158 @@ public class MyRedisMemoryModule extends TLBaseMemory {
 
 
 ## Build and Run
+## Demo: A Runnable Multi-Agent Application
+
+`demo/tlobject` is a **complete, runnable AI Agent application** — and the fastest way to understand the framework.
+
+What it demonstrates is not "how to call an LLM once", but **how an application is assembled**: a master
+agent carrying several specialist sub-agents and tools, each sub-agent with its own LLM, Skills and memory.
+The master dispatches by *description routing* — and contains **no type-specific code at all**: adding a
+sub-agent means writing one config file.
+
+### 1. Run It
+
+```bash
+# 1. First time: build (Java 17)
+mvn clean install -DskipTests
+
+# 2. Fill in a real API key (DeepSeek / OpenAI / Claude)
+#    edit apiKey in conf/demo/aiagent/aiagent_master_config.xml
+
+# 3a. Interactive console
+aistart.bat
+
+# 3b. Or: console + web UI in one process
+aistart-web.bat
+```
+
+### 2. Console (CLI)
+
+`aistart.bat` starts an interactive console — just talk, the master agent routes your request automatically:
+
+```
+you(console_user) > write a poem about spring
+you(console_user) > use Python to sum 1..100
+you(console_user) > how much is a hamburger
+```
+
+**Startup arguments**:
+
+| Argument | Meaning |
+|------|------|
+| `-u <userId>` | Log in as a specific user (default `console_user`). The identity drives data isolation (`data/{userId}/`) and authorization roles — the user→role mapping lives in the `users` attribute of `moduleFactory_chat_config.xml` |
+| `-web` | Also start the web UI (same as `aistart-web.bat`) |
+
+**Console commands** (prefix `/`, Tab completion supported):
+
+| Command | Purpose |
+|------|------|
+| `/test` | Run the Mock-Provider deterministic unit suite (no key, no network, reproducible) |
+| `/eval` | Run JSON Evals (three judge types + cascade) |
+| `/trace` | Show the **full stage chain** of the latest round (user input → LLM → tools → final output) |
+| `/trace llm` | Same, with the complete payload of every stage |
+| `/trace replay <N>` | **Replay** the second half from stage N (result becomes a new round) — the tool for "which step went wrong" |
+| `/stats` | Token statistics (process / session / per-call detail) |
+| `/sessions`, `/continue`, `/resume` | List sessions / continue one / resume an unfinished checkpoint |
+| `/mcp` | MCP marketplace: search, install, info, remove |
+| `/install`, `/uninstall`, `/reload` | Runtime hot-plug of Skills / sub-agents / baseSkills |
+| `/approve` | Interact with the approval queue (HITL) |
+| `/param` | Show an agent's effective parameters |
+| `/stream`, `/thinking`, `/clear` | Streaming toggle / reasoning mode / clear screen |
+| `/exit` | Quit |
+
+(Type `/help` or `/?` at any time for the full list.)
+
+### 3. Web UI
+
+`aistart-web.bat` also starts Jetty (port 8080 by default) in the same process. Open:
+
+```
+http://localhost:8080/webui/chat.html
+```
+
+Default accounts `admin` / `tianlong` (password `123456` for both), configured via the `passwords`
+and `port` attributes in `moduleFactory_chat_web_config.xml`.
+
+| Capability | Description |
+|---------|------|
+| Chat | SSE streaming, collapsible reasoning, token stats on the finish line, Markdown rendering |
+| Tool visualization | Every tool call is shown; browser screenshots render inline (double-click to zoom) |
+| Command panel | The whole command table above, in GUI form (sessions / agents / skills / MCP / evals / tests / trace) |
+| Approval dialog | When a dangerous tool needs approval the browser pops a dialog — **edit the arguments before approving**, or reject |
+| Session management | Switch / continue / delete sessions; per-user isolation, occupation detection, targeted kick-off |
+| File upload | Attach files from the chat box (50MB default limit) |
+| Checkpoint resume | Resume an unfinished mid-loop checkpoint from the session list |
+
+Console and web UI **share the same agentService** — two shells over one set of actions.
+
+### 4. Agents and Tools in the Demo
+
+**Master agent**: `aiagent_master` — writes no business logic itself, only routes by description.
+Everything below is a tool to it.
+
+| Sub-agent | Capability | Tools it uses |
+|-----------|------|-----------|
+| `fileAgent` | Read/write files, directory operations | MCP filesystem + `fileOperationSkill` |
+| `codeAgent` | Write code, run scripts, do math | `codeExecutionSkill` + `scriptExecutionSkill` (Python/JS) |
+| `priceTeam` | A pricing team: hamburger agent + pizza agent in **parallel**, a supervisor agent reviews and summarizes | the `calculate_price` custom Skill |
+| `poemWorkflow` | Poetry workflow: two poets in different styles write **in parallel** → a critic reviews (DAG workflow) | workflow nodes reusing agents |
+| `planTask` | Break a complex request into a 3-7 step executable list | — |
+| `dbAgent` | Database queries and operations | the database module |
+| `cloudRevenueAgent` | Cloud revenue reporting (a real business sample) | `scriptExecutionSkill` |
+
+**Master-level Skills**:
+
+| Skill | Capability |
+|-------|------|
+| `browser` | Browser automation: open pages, click, fill forms, screenshot (keep-alive mode, Playwright) |
+| `desktop` | Desktop GUI automation: mouse, keyboard, screen capture (pyautogui) |
+| `skillInstallerSkill` | **Let the LLM install Skills itself** — turn a script into a new Skill by asking |
+| `liantongyun` | A cloud-business script (business sample) |
+| `skillmd_test` | Demonstration: a Skill that is nothing but an md file |
+
+Built-in Skills (`http_request` / `file_operation` / `code_execution`) are attached per sub-agent as needed;
+demo-written Skills live under `demo/tlobject/.../skills/` (`calculate_price`, `demo_echo`, …).
+
+### 5. How the Configuration Is Organized
+
+```
+conf/demo/aiagent/
+├── moduleFactory_chat_config.xml     # Factory: includes framework configs + declares app modules
+│                                     #   (agentService / chatConsole / auth / output guard …)
+├── aiagent_master_config.xml         # Master agent: <agents> roster + <skills> inventory
+│                                     #   + providers (models & keys) + msgTools (message tools)
+├── aiagent_config.xml                # Class-level defaults for agent modules
+├── fileAgent_config.xml              # One per sub-agent: its own providers / skills / agents
+├── codeAgent_config.xml
+├── priceTeam_config.xml              # Group: <agents> roster (supports role="supervisor")
+├── poemWorkflow_config.xml           # Workflow: DAG defined by the expression DSL
+├── auth_config.xml                   # Authorization: policies (guest/member/admin) + per-module rules
+├── approvalGate_config.xml           # HITL approval: rules keyed by tool function name
+├── sessionManager_config.xml         # Session store (file-based or database-based)
+├── md/                               # Agent persona & job description (frontmatter + body = systemPrompt)
+└── skills/                           # Skills with scripts (browser / desktop / liantongyun)
+```
+
+Key points:
+
+- **One `{name}_config.xml` per agent**, self-contained (its own LLM, tools, session policy), no interference
+- **Personas live in markdown** (`md/fileAgent.md`, …) and are loaded automatically; the body is the system
+  prompt, and an explicit `systemMessage` in the config wins
+- **Adding a sub-agent = one config file + one line in the master's `<agents>`** — no Java code changes
+
+### 6. Suggested Learning Path
+
+1. `mvn clean install -DskipTests` → `aistart.bat` → chat a bit, feel the description routing
+2. Type `/test` — get the framework green with Mock first (no cost, no key, deterministic)
+3. Open `aiagent_master_config.xml`, tweak `fileAgent`'s description, restart, watch the routing change
+4. Copy `fileAgent_config.xml`, turn it into your own agent, add one line to the master's `<agents>`
+5. `/trace` a round to see its stages; `/trace replay` to replay from the middle
+6. `aistart-web.bat` and go through the web UI — tool visualization and the approval dialog
+
+---
+
+
 
 ```bash
 # Build the entire AI Agent module

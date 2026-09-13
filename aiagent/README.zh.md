@@ -27,6 +27,16 @@
 6. [XML配置](#xml配置)
 7. [使用示例](#使用示例)
 8. [扩展开发](#扩展开发)
+
+## Demo：一个可直接运行的多 Agent 应用
+   - [一、跑起来](#一跑起来)
+   - [二、命令行界面](#二命令行界面)
+   - [三、Web 界面](#三web-界面)
+   - [四、Demo 里的 Agent 与工具](#四demo-里的-agent-与工具)
+   - [五、配置怎么组织](#五配置怎么组织)
+   - [六、建议的上手顺序](#六建议的上手顺序)
+## Demo：一个可直接运行的多 Agent 应用
+## Demo：一个可直接运行的多 Agent 应用
 9. [新功能模块](#新功能模块)
    - [MCP 市场与工具集成](#mcp-市场与工具集成)
    - [Evals 评测体系](#evals-评测体系)
@@ -1233,6 +1243,156 @@ public class MyRedisMemoryModule extends TLBaseMemory {
 ---
 
 ## 构建与运行
+## Demo：一个可直接运行的多 Agent 应用
+
+`demo/tlobject` 是一个**完整可运行的 AI Agent 应用**，也是理解本框架最好的入口。
+
+它演示的不是"如何调用一次 LLM"，而是**一个应用如何组装**：一个主控 Agent 挂若干专业子 Agent
+与工具，子 Agent 各自有独立的 LLM、Skill 与记忆，主控通过"描述路由"把用户请求分派下去——
+**主控里没有任何类型特判代码**，加一个子 Agent 只要写一份配置。
+
+### 一、跑起来
+
+```bash
+# 1. 首次：构建（Java 17）
+mvn clean install -DskipTests
+
+# 2. 填真实 Key（DeepSeek / OpenAI / Claude 任选）
+#    编辑 conf/demo/aiagent/aiagent_master_config.xml 里的 apiKey
+
+# 3a. 命令行交互式对话
+aistart.bat
+
+# 3b. 或者：控制台 + Web 窗口同时启动
+aistart-web.bat
+```
+
+### 二、命令行界面
+
+`aistart.bat` 启动交互式控制台，直接说话即可（请求由主控 Agent 自动分派给子 Agent）：
+
+```
+你(console_user) > 帮我写一首关于春天的诗
+你(console_user) > 用 Python 算一下 1 到 100 的和
+你(console_user) > 汉堡多少钱一个
+```
+
+**启动参数**：
+
+| 参数 | 作用 |
+|------|------|
+| `-u <userId>` | 用指定用户身份登录（默认 `console_user`）。身份影响数据隔离目录 `data/{userId}/` 与授权角色——用户与角色映射配置在 `moduleFactory_chat_config.xml` 的 `users` 属性 |
+| `-web` | 同时启动 Web 窗口（等同于 `aistart-web.bat`） |
+
+**控制台命令**（输入 `/` 开头的命令，支持 Tab 补全）：
+
+| 命令 | 作用 |
+|------|------|
+| `/test` | 跑 Mock Provider 驱动的确定性单元测试（无需 Key、无需网络，结果可复现） |
+| `/eval` | 跑 JSON 用例评测（三类评判器 + 级联） |
+| `/trace` | 查看当前会话最新一轮的**完整环节链**（用户输入 → LLM → 工具 → 最终输出） |
+| `/trace llm` | 同上，附每个环节的完整 payload |
+| `/trace replay <N>` | 从第 N 个环节**断点重放**后半段（结果作为新一轮）——排查"哪一步开始跑偏"的利器 |
+| `/stats` | Token 统计（进程级 / 会话级 / 逐次调用明细） |
+| `/sessions`、`/continue`、`/resume` | 历史会话列表 / 继续某会话 / 恢复未完成的断点 |
+| `/mcp` | MCP 工具市场：搜索、安装、查看、卸载 |
+| `/install`、`/uninstall`、`/reload` | Skill / 子 Agent / baseSkill 的运行时热插拔 |
+| `/approve` | 审批队列交互（HITL） |
+| `/param` | 查看 Agent 的实际生效参数 |
+| `/stream`、`/thinking`、`/clear` | 流式开关 / 推理模式切换 / 清屏 |
+| `/exit` | 退出 |
+
+（运行中输入 `/help` 或 `/?` 可随时查看全部命令）
+
+### 三、Web 界面
+
+`aistart-web.bat` 在同一进程里再起一个 Jetty（默认 8080），浏览器打开：
+
+```
+http://localhost:8080/webui/chat.html
+```
+
+默认账号 `admin` / `tianlong`（密码都是 `123456`），配置在 `moduleFactory_chat_web_config.xml`
+的 `passwords` 与 `port` 属性。
+
+| 界面能力 | 说明 |
+|---------|------|
+| 聊天 | SSE 流式输出、推理过程可折叠、结束行显示 Token 统计、Markdown 渲染 |
+| 工具可视化 | 工具调用逐条展示；browser 的截图直接渲染成图片（双击放大） |
+| 命令面板 | 上面那张命令表全部图形化（会话 / Agent / Skill / MCP / 评测 / 测试 / 追踪） |
+| 审批弹框 | 危险工具触发审批时浏览器弹出对话框，**可编辑参数后再批准**，或拒绝 |
+| 会话管理 | 多会话切换、继续、删除；多用户数据隔离、占用检测与定向踢下线 |
+| 文件上传 | 聊天框可传文件（默认上限 50MB） |
+| 断点续跑 | 会话列表里恢复未完成的 mid-loop 断点 |
+
+控制台与 Web 界面**共用同一个 agentService**，只是两个 UI 壳——所有命令走同一批 action。
+
+### 四、Demo 里的 Agent 与工具
+
+**主控 Agent**：`aiagent_master`——自己不写业务，只按 description 路由；下面这些都是它的工具。
+
+| 子 Agent | 能力 | 用到的工具 |
+|-----------|------|-----------|
+| `fileAgent` | 文件读写、目录操作 | MCP filesystem + `fileOperationSkill` |
+| `codeAgent` | 写代码、执行脚本、算数 | `codeExecutionSkill` + `scriptExecutionSkill`（Python/JS） |
+| `priceTeam` | 询价小组：汉堡 Agent + 披萨 Agent **并行**，监理 Agent 审核汇总 | `calculate_price` 自定义 Skill |
+| `poemWorkflow` | 诗歌工作流：两个不同风格的诗人**并行**创作 → 诗人评判（DAG 工作流） | 工作流节点复用 agent |
+| `planTask` | 把复杂需求拆成 3-7 步可执行清单 | — |
+| `dbAgent` | 数据库查询与操作 | 数据库模块 |
+| `cloudRevenueAgent` | 联通云收入统计（真实业务样例） | `scriptExecutionSkill` |
+
+**主控直属 Skill**：
+
+| Skill | 能力 |
+|-------|------|
+| `browser` | 浏览器自动化：打开网页、点击、填表、截图（常驻模式，Playwright） |
+| `desktop` | 桌面 GUI 自动化：鼠标、键盘、截屏（pyautogui） |
+| `skillInstallerSkill` | **让 LLM 自己装 Skill**：一句话把脚本注册成新 Skill |
+| `liantongyun` | 联通云业务脚本（业务样例） |
+| `skillmd_test` | 演示：只靠一个 md 文件即成为可用 Skill |
+
+内置 Skill（`http_request` / `file_operation` / `code_execution`）各子 Agent 按需挂载；
+demo 自己写的 Skill 在 `demo/tlobject/.../skills/` 下（`calculate_price`、`demo_echo` 等）。
+
+### 五、配置怎么组织
+
+```
+conf/demo/aiagent/
+├── moduleFactory_chat_config.xml     # 工厂：include 框架基础配置 + 声明应用级模块
+│                                     #   agentService / chatConsole / 认证 / 输出过滤…
+├── aiagent_master_config.xml         # 主 Agent：<agents> 子 Agent 名单 + <skills> 工具清单
+│                                     #   + providers（模型与 Key）+ msgTools（消息工具）
+├── aiagent_config.xml                # Agent 模块的类级默认参数
+├── fileAgent_config.xml              # 每个子 Agent 一份：自己的 providers / skills / agents
+├── codeAgent_config.xml
+├── priceTeam_config.xml              # 组：<agents> 名单（支持 role="supervisor" 监理）
+├── poemWorkflow_config.xml           # 工作流：表达式 DSL 定义 DAG
+├── auth_config.xml                   # 授权：策略（guest/member/admin）+ 模块级规则
+├── approvalGate_config.xml           # HITL 审批：按工具函数名配规则
+├── sessionManager_config.xml         # 会话存储（文件版 / 数据库版二选一）
+├── md/                               # Agent 的人设与职责（frontmatter + 正文即 systemPrompt）
+└── skills/                           # 带脚本的 Skill（browser / desktop / liantongyun）
+```
+
+要点：
+
+- **一个 Agent 一个 `{name}_config.xml`**，自成一体（自己的 LLM、工具、会话策略），互不干扰
+- **Agent 的人设写在 md 里**（`md/fileAgent.md` 等），框架自动加载；md 正文即 system prompt，
+  显式写在配置里的 `systemMessage` 优先
+- **加一个子 Agent = 写一份配置 + 在主控的 `<agents>` 里加一行**，不需要改任何 Java 代码
+
+### 六、建议的上手顺序
+
+1. `mvn clean install -DskipTests` → `aistart.bat` → 随便聊两句，感受"描述路由"
+2. 控制台敲 `/test`——先用 Mock 把框架跑通（不花钱、不需要 Key，结果确定）
+3. 打开 `aiagent_master_config.xml`，把 `fileAgent` 的 description 改一下再重启，看路由怎么变
+4. 复制一份 `fileAgent_config.xml` 改成自己的 Agent，在主控 `<agents>` 里加一行
+5. `/trace` 看一轮请求走了哪些环节，`/trace replay` 从中间某环节重放
+6. `aistart-web.bat` 用 Web 界面跑一遍，体验工具可视化与审批弹框
+
+---
+
+
 
 ```bash
 # 构建整个AI Agent模块
