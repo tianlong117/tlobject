@@ -181,6 +181,30 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return createMsg().setParam("success", false).setParam("error", error);
     }
 
+    /** 失败也带数据：用例挂了的时候，报告正文恰恰是最该看的东西 */
+    private TLMsg fail(String error, Map<String, Object> data) {
+        TLMsg msg = fail(error);
+        if (data != null && !data.isEmpty()) msg.setParam("data", data);
+        return msg;
+    }
+
+    /**
+     * 报告相关字段。评测层与测试层的返回字段名一致（见 TLEvalReportMsg），
+     * 所以前端不必区分报告是评测跑的还是测试跑的。
+     */
+    private Map<String, Object> reportData(TLMsg result) {
+        Map<String, Object> d = new HashMap<>();
+        d.put("reportPath", result.getStringParam("reportPath", ""));
+        d.put("reportMarkdown", result.getStringParam("reportMarkdown", ""));
+        d.put("baselineFound", result.parseBoolean("baselineFound", false));
+        d.put("baselineFile", result.getStringParam("baselineFile", ""));
+        d.put("baselineCompared", result.getIntParam("baselineCompared", 0));
+        d.put("regressionCount", result.getIntParam("regressionCount", 0));
+        d.put("improvementCount", result.getIntParam("improvementCount", 0));
+        d.put("regressions", result.getParam("regressions"));
+        return d;
+    }
+
     /** 获取目标 agent 模块名（优先用消息参数 targetAgent，否则用配置的默认值） */
     private String targetAgent(TLMsg msg) {
         return msg.getStringParam("targetAgent", agentModule);
@@ -816,9 +840,17 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "suite":
                 result = putMsg("evals", createMsg().setAction("runEvalSuite"));
                 break;
-            case "list":
-                result = putMsg("evals", createMsg().setAction("listEvalCases"));
-                break;
+            case "list": {
+                // 单独走一条分支：list 的返回是"用例清单"（数组），不能和 suite 一样塞进
+                // ok(..., Map) —— 前端拿到的 data 是对象时 (data||[]).map 会直接抛错
+                TLMsg listResult = putMsg("evals", createMsg().setAction("listEvalCases"));
+                if (listResult == null) return fail("evals 模块未注册（需在配置中声明 evals）");
+                if (!listResult.parseBoolean(RESULT, false)) {
+                    return fail("列出用例失败: " + listResult.getStringParam("error", "未知错误"));
+                }
+                List<String> caseList = listResult.getListParam("caseList", java.util.List.of());
+                return ok("可用评测用例 (" + caseList.size() + " 条)", caseList);
+            }
             case "quick":
                 result = putMsg("evals", createMsg().setAction("runQuickEval"));
                 break;
@@ -840,17 +872,19 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 return fail("未知评测子操作: " + subAction + "，可用: suite, list, quick, run, cascade");
         }
 
-        if (result != null && result.parseBoolean(RESULT, false)) {
-            Map<String, Object> data = new HashMap<>();
-            data.put("passed", result.getIntParam("passed", 0));
-            data.put("failed", result.getIntParam("failed", 0));
-            data.put("total", result.getIntParam("total", 0));
-            data.put("passRate", result.getDoubleParam("passRate", 0.0));
-            data.put("reportPath", result.getStringParam("reportPath", ""));
+        if (result == null) return fail("评测失败: 无响应");
+
+        Map<String, Object> data = reportData(result);
+        data.put("passed", result.getIntParam("passed", 0));
+        data.put("failed", result.getIntParam("failed", 0));
+        data.put("total", result.getIntParam("total", 0));
+        data.put("passRate", result.getDoubleParam("passRate", 0.0));
+
+        if (result.parseBoolean(RESULT, false)) {
             return ok("评测完成: " + data.get("passed") + "/" + data.get("total") + " 通过", data);
         }
-        String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
-        return fail("评测失败: " + err);
+        // 单用例失败会走这里：报告正文照样带上，否则就只剩一个干巴巴的错误字符串
+        return fail("评测失败: " + result.getStringParam("error", "未知错误"), data);
     }
 
     // ======================== 单元测试 ========================
@@ -880,16 +914,26 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         }
         TLMsg result = putMsg("agentTestModule", testMsg);
         if (result == null) return fail("agentTestModule 模块未注册（需在配置中声明 agentTestModule）");
-        if (!result.parseBoolean(RESULT, false)) {
-            return fail("测试失败: " + result.getStringParam("error", "未知错误"));
-        }
+
         int passed = result.getIntParam("passed", 0);
         int failed = result.getIntParam("failed", 0);
-        Map<String, Object> data = new HashMap<>();
+        Map<String, Object> data = reportData(result);
         data.put("passed", passed);
         data.put("failed", failed);
         data.put("total", passed + failed);
-        return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过", data);
+
+        if (result.parseBoolean(RESULT, false)) {
+            return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过", data);
+        }
+        // runAllTests 用 RESULT=(failed==0) 表达"有没有挂"，且不设 error——
+        // 只读 error 会得到毫无信息量的"未知错误"。通过/失败数与具体挂了的用例一起报出来
+        if (failed > 0) {
+            List<String> failedCases = result.getListParam("failedCases", java.util.List.of());
+            String names = failedCases.isEmpty() ? "" : "：" + String.join("、", failedCases);
+            return fail(String.format("测试失败: %d/%d 通过（%d 个未通过%s）",
+                    passed, passed + failed, failed, names), data);
+        }
+        return fail("测试失败: " + result.getStringParam("error", "未知错误"), data);
     }
 
     // ======================== 全链追踪 ========================

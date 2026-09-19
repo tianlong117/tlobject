@@ -44,15 +44,16 @@ Agent 评测体系（Evals）是 tlobject AI Agent 框架的**内置自动化评
 | **批量 + 单用例** | 支持全量 suite 运行、单用例运行、内置 quick 自检 |
 | **控制台集成** | 通过 `/eval` 命令在 TLChatConsole 中直接操作 |
 | **会话隔离** | 每个 agent_chat 用例使用独立 session，自动清理，互不干扰 |
+| **基线对比** | 每次运行与上一次报告按用例对比，直接列出**回归**与**改善**（见 [4.3](#43-基线对比回归检测)） |
 
 ### 1.2 适用场景
 
-- **回归测试**：Agent 升级后跑全量用例，确保核心能力不受影响
+- **回归测试**：Agent 升级后跑全量用例，与上次报告对比出**新挂了哪几条**，而不只是看通过率
 - **质量评估**：对新 Prompt/新 Skill 做 LLM 裁判评估回答质量
 - **性能监控**：通过约束检查监控 Token 用量、延迟、迭代次数是否在预期范围内
 - **Skill 单元测试**：直接向 Skill 发送参数，验证 Skill 的输入→输出正确性
 - **子 Agent 独立验证**：绕过 Master Agent，单独测试某个子 Agent 的能力
-- **CI/CD 集成**：报告为机器可读 JSON，可接入自动化流水线
+- **报告留痕**：报告为机器可读 JSON（含回归/改善对比），可被脚本读取
 
 ---
 
@@ -186,6 +187,12 @@ mvn exec:java -pl demo/tlobject
 
         <!-- 上下文模块（用于提取 tool calls） -->
         <contextModule value="aiContext"/>
+
+        <!-- 是否与上一次报告对比（回归检测），默认 true -->
+        <compareBaseline value="true"/>
+
+        <!-- 指定基准报告（可选）：文件名或路径；留空则自动取报告目录里最近一份 -->
+        <baselineFile value=""/>
     </params>
 </moduleConfig>
 ```
@@ -199,8 +206,41 @@ mvn exec:java -pl demo/tlobject
 | `targetAgent` | 否* | `aiagent` | **默认**被评测的模块名。每条 JSON 用例可通过 `targetAgent` 字段覆盖 |
 | `judgeProvider` | 否* | `openAiProvider` | LLM 裁判使用的 Provider 模块名。仅在使用 `llm_judge` 时需要 |
 | `contextModule` | 否 | `aiContext` | 上下文模块名，用于提取 tool calls 和执行后清理（仅 agent_chat 模式） |
+| `compareBaseline` | 否 | `true` | 是否与上一次报告对比。**默认行为见 [4.3 基线对比](#43-基线对比回归检测)** |
+| `baselineFile` | 否 | 空（自动取最近一份） | 指定基准报告，可写文件名（相对 `reportOutputDir`）或完整路径 |
 
 > \* `targetAgent` 和 `judgeProvider` 可在 JSON 用例中覆盖，因此 XML 中的值仅作为默认值。
+
+### 4.3 基线对比（回归检测）
+
+**解决的问题**：跑完一次评测发现挂了 1 条，但**不知道是这次改坏的，还是上次就挂着**——只看通过率永远回答不了这个问题。
+
+每次评测都会把报告落盘到 `reportOutputDir`（文件名带时间戳），同时读回**上一次**的报告，按 `caseId` 逐条对比：
+
+| 变化 | 含义 |
+|------|------|
+| 上次通过 → 这次失败 | **回归**（regressions） |
+| 上次失败 → 这次通过 | 改善（improvements） |
+
+对比结果同时写进报告 JSON 和控制台输出：
+
+```
+========== 评测报告 ==========
+总计: 5 | 通过: 4 | 失败: 1 | 通过率: 80.0%
+平均 Tokens: 2226 | 平均迭代次数: 1.0 | 平均延迟: 3705ms
+基线对比: eval_report_20260918_143022_110.json | 可比 5 条 | 回归 1 | 改善 0
+  [回归] 简单数学计算 (math-simple-001) — 回复未包含 "42"
+--- 失败用例 ---
+  [FAIL] 简单数学计算 (math-simple-001)
+==============================
+```
+
+**三条需要知道的行为约定：**
+
+1. **找不到基准时显式标记，不当成"无回归"**。报告里 `baselineFound=false`，控制台显示"未找到历史报告，本次无基准可比"。首次运行、清空报告目录、基准文件读坏，都走这条路径——**"没得比"和"比过了没回归"是两回事**，不能混为一谈。
+2. **只在两次都存在的用例上比较**。新增的用例没有基准可比；删掉的用例也不会被算成回归。报告里的 `baselineCompared` 就是实际参与对比的条数，控制台会显示"可比 N 条"——**N 小于总数时说明基准覆盖不全**（例如基准是某次 `/eval run <id>` 的单用例报告）。
+3. **只跟"同一个目标 Agent"的报告比**。报告目录是所有应用共用的（默认 `data/evals/reports/`），所以自动选择基准时会从新到旧跳过目标不一致的报告，用第一份 `targetAgent` 相同的。否则拿另一个应用的结果来比，会凭空比出一堆假回归。用 `baselineFile` 显式指定时不校验目标（这是你自己的选择）。
+4. **`metadata.stability` 标记用例可信度**（`stable` 默认 / `flaky` / `experimental`）。标记随报告落盘，对比结果里带 `[flaky]` 显示——用于区分"真回归"和"这条本来就时好时坏"。标记本身不改变用例的运行与评判。
 
 ---
 
@@ -243,11 +283,15 @@ mvn exec:java -pl demo/tlobject
 ========== 评测报告 ==========
 总计: 5 | 通过: 4 | 失败: 1 | 通过率: 80.0%
 平均 Tokens: 2226 | 平均迭代次数: 1.0 | 平均延迟: 3705ms
+基线对比: eval_report_20260918_143022_110.json | 可比 5 条 | 回归 1 | 改善 0
+  [回归] 简单数学计算 (math-simple-001) — 回复未包含 "42"
 --- 失败用例 ---
   [FAIL] 简单数学计算 (math-simple-001)
 ==============================
 报告已保存: .../data\evals\reports\eval_report_20260729_095918.json
 ```
+
+> **`基线对比` 这一行**：本次是首次运行（目录里没有历史报告）时显示"未找到历史报告，本次无基准可比"；`可比 N 条` 是实际参与对比的用例数，小于总数说明基准覆盖不全。详见 [4.3 基线对比](#43-基线对比回归检测)。
 
 ### 5.3 级联评测 `/eval cascade [agent]`
 
@@ -343,7 +387,8 @@ mvn exec:java -pl demo/tlobject
   "metadata": {
     "category": "分类标签",
     "difficulty": "easy|medium|hard",
-    "tags": ["自定义标签"]
+    "tags": ["自定义标签"],
+    "stability": "stable | flaky | experimental"
   },
   "judges": [
     { "type": "exact_match", "config": { ... } },
@@ -365,7 +410,7 @@ mvn exec:java -pl demo/tlobject
 | `input` | string/object | **是** | **agent_chat 模式**：用户消息字符串；**skill_execute 模式**：JSON 对象（Skill 的输入参数） |
 | `expectedOutput` | string | 否 | 期望的回复文本，被 `exact_match` 评判器使用 |
 | `expectedToolCalls` | string[] | 否 | 期望 Agent 调用的工具名称列表（仅供扩展使用） |
-| `metadata` | object | 否 | 扩展元数据，自由键值对，可用于分类、标记难度等 |
+| `metadata` | object | 否 | 扩展元数据，自由键值对，可用于分类、标记难度等。其中 `stability`（`stable`/`flaky`/`experimental`）会被带进报告，供基线对比区分"真回归"与用例自身波动 |
 | `judges` | array | 否 | 评判器配置列表。空或不填则默认通过 |
 
 #### 6.3.1 目标解析规则
@@ -712,13 +757,25 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
 
 ### 9.1 报告文件
 
-每次评测运行后，报告保存为 `eval_report_<yyyyMMdd_HHmmss>.json`，位于 `reportOutputDir` 目录下。
+每次评测运行**同时产出两份**，文件名相同、位于 `reportOutputDir` 目录下（精确到毫秒，避免同一秒内的两次运行互相覆盖）：
+
+| 文件 | 给谁看 | 内容 |
+|------|--------|------|
+| `eval_report_<yyyyMMdd_HHmmss_SSS>.json` | **机器** | 全量结构化数据。基线对比读它、将来接门禁/CI 也读它 |
+| `eval_report_<yyyyMMdd_HHmmss_SSS>.md` | **人** | 结论 + 基线对比 + 结果表 + 回归/改善 + 失败详情。事后直接翻开就能看懂 |
+
+> 两份分工明确：JSON 要能被 `gson` 原样反序列化回来做对比（自由文本做不到这点），Markdown 是给人读的那一份——不用在两百行缩进 JSON 里找重点。`.md` 渲染失败不影响 JSON。
+>
+> 同一套格式与渲染（`TLEvalReport.toMarkdown`）也被**测试层**（`/test`）复用，其报告落在 `data/aitest/reports/test_report_*.{json,md}`，同样做基线对比。两层用不同文件名前缀，各认各的，不会互相比。
+
+目录里累积的历史报告就是下次运行的对比基准，见 [4.3 基线对比](#43-基线对比回归检测)。
 
 ### 9.2 报告 JSON 结构
 
 ```json
 {
   "timestamp": "2026-07-29T09:59:18",
+  "targetAgent": "aiagent_master",
   "summary": {
     "total": 5,
     "passed": 4,
@@ -726,7 +783,19 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
     "passRate": 0.8,
     "avgTokens": 2226.0,
     "avgIterations": 1.0,
-    "avgLatencyMs": 3705.2
+    "avgLatencyMs": 3705.2,
+    "baselineFound": true,
+    "baselineFile": "eval_report_20260918_143022_110.json",
+    "baselineCompared": 5,
+    "regressions": [
+      {
+        "caseId": "math-simple-001",
+        "caseName": "简单数学计算",
+        "stability": "stable",
+        "reason": "回复未包含 \"42\""
+      }
+    ],
+    "improvements": []
   },
   "results": [
     {
@@ -762,6 +831,15 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
 
 ### 9.3 字段说明
 
+#### 顶层
+
+| 字段 | 说明 |
+|------|------|
+| `timestamp` | 报告生成时间 |
+| `targetAgent` | 本次评测的默认目标模块名。自动选择基准时用它判断"两次评的是不是同一个 Agent" |
+| `summary` | 汇总统计（见下） |
+| `results` | 每条用例的详细结果 |
+
 #### Summary
 
 | 字段 | 说明 |
@@ -773,6 +851,11 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
 | `avgTokens` | 平均 Token 用量（仅 agent_chat 用例参与计算） |
 | `avgIterations` | 平均迭代次数 |
 | `avgLatencyMs` | 平均延迟（毫秒） |
+| `baselineFound` | 是否找到可比的历史报告。**false 表示"没得比"，不等于"无回归"** |
+| `baselineFile` | 对比所用的基准报告文件名 |
+| `baselineCompared` | 实际参与对比的用例数（两次都存在的用例才算） |
+| `regressions` | 回归列表：上次通过、这次失败。每项含 `caseId` / `caseName` / `stability` / `reason` |
+| `improvements` | 改善列表：上次失败、这次通过 |
 
 #### Result
 
@@ -787,6 +870,7 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
 | `error` | 错误信息，null 表示无错误 |
 | `verdicts` | 各评判器裁决 |
 | `passed` | 该用例是否通过 |
+| `stability` | 用例稳定性标记，取自用例 `metadata.stability`（默认 `stable`） |
 
 ---
 
@@ -947,7 +1031,7 @@ if ("mcp_call".equals(callType)) {
 ### Q10：级联评测和 suite 评测有什么区别？
 
 - **`/eval cascade`**：自动发现目标 Agent 的所有子模块（子 Agent、Skill），为每个自动生成基础冒烟用例。**零配置、一键覆盖全链路**，适合日常快速验证。
-- **`/eval suite`**：运行手写的 JSON 用例文件。用例可精细控制输入、期望输出、评判标准。适合**回归测试和质量门禁**。
+- **`/eval suite`**：运行手写的 JSON 用例文件。用例可精细控制输入、期望输出、评判标准。每次跑完会与上一次报告对比，标出**回归与改善**（见 [4.3 基线对比](#43-基线对比回归检测)），适合回归测试。
 
 两者可互补：日常用 cascade 快速冒烟，发版前用 suite 跑完整用例。
 

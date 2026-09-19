@@ -46,11 +46,21 @@ public class TLLlmJudge implements TLEvalJudge, TLAiAgentParamString {
                 llmMsg.setParam(AI_P_MODEL, model);
             }
 
+            // IGNOREMODULEISNULL：judgeProvider 配错（名字写错/该模块不存在）时只让这条裁决失败，
+            // 而不是走 putMsg 默认的那条 moduleFactory.shutdown(-1) —— 配错一个 provider 不该关掉整个应用
+            llmMsg.setSystemParam(IGNOREMODULEISNULL, true);
             TLMsg result = context.evalsModule.putMsg(context.judgeProviderName, llmMsg);
 
-            if (result == null || !result.parseBoolean(RESULT, false)) {
+            if (result == null) {
+                return TLEvalVerdict.fail("llm_judge", 0.0, "LLM Judge 调用失败: null result");
+            }
+            if (TLEvalsModule.isModuleMissing(result)) {
                 return TLEvalVerdict.fail("llm_judge", 0.0,
-                        "LLM Judge 调用失败: " + (result != null ? result.getStringParam("error", "") : "null result"));
+                        "LLM Judge 调用失败: Provider 模块不存在: " + context.judgeProviderName);
+            }
+            if (!result.parseBoolean(RESULT, false)) {
+                return TLEvalVerdict.fail("llm_judge", 0.0,
+                        "LLM Judge 调用失败: " + result.getStringParam("error", ""));
             }
 
             String judgeResponse = result.getStringParam(AI_P_RESPONSE, "");

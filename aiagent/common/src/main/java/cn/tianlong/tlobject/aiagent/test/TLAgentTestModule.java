@@ -1,11 +1,21 @@
 package cn.tianlong.tlobject.aiagent.test;
 
 import cn.tianlong.tlobject.aiagent.*;
+import cn.tianlong.tlobject.aiagent.evals.TLEvalBaseline;
+import cn.tianlong.tlobject.aiagent.evals.TLEvalReport;
+import cn.tianlong.tlobject.aiagent.evals.TLEvalReportMsg;
+import cn.tianlong.tlobject.aiagent.evals.TLEvalRunResult;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
+import java.io.File;
+import java.io.IOException;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -33,6 +43,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * putMsg("agentTestModule", createMsg().setAction("runSingleTest").setParam("caseName", "basicChat"));
  * </pre>
  *
+ * <h3>测试报告</h3>
+ * 每次运行结束写一份报告到 {@code reportOutputDir}（默认 {@code data/aitest/reports/}）：
+ * {@code test_report_*.json}（机器读，供下一次对比）+ 同名 {@code .md}（人读）。
+ * 报告格式与评测层共用（{@link TLEvalReport}），并按用例 id 与上一份测试报告对比出回归/改善——
+ * 测试这层是 mock 驱动、完全可复现，本该是"每次改动都跑"的那一层，只报数字看不出是不是新挂的。
+ *
  * 创建日期：2026/8/12
  * 作者：tianlong
  */
@@ -40,11 +56,32 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
     // ======================== 字段 ========================
 
+    /**
+     * 测试会话的身份标识。
+     * 消息不带 userId 时框架会拿 sessionId 顶替（TLAiAgent 里 currentChatUserId 的兜底），
+     * 而测试的 sessionId 是 test_mock_xxx 这类名字，于是 data/ 顶层全是测试会话目录
+     * （路径规则 data/{userId}/traces/{sessionId}/）。给测试一个固定身份，产物归到 data/aitest/ 下。
+     * 例外：checkpoint 场景故意用独立 userId "test_user"，见该场景注释。
+     */
+    private static final String TEST_USER_ID = "aitest";
+
     /** Mock Provider 引用（在 init() 中获取，或首次测试时懒加载） */
     private TLMockProvider mockProvider;
 
     /** 测试统计 */
     private int passed, failed;
+
+    /** 未通过的用例标签：上层要能报出"挂了哪个"，不然只能看到"有挂的"（每次运行前清空） */
+    private final List<String> failedCases = new ArrayList<>();
+
+    /** 逐用例结果，用于生成报告并与上一次运行对比（每次运行前清空） */
+    private final List<TLEvalRunResult> runResults = new ArrayList<>();
+
+    /** 测试报告输出目录（与 trace 同属 data/aitest/ 命名空间） */
+    private String reportOutputDir = "data/aitest/reports/";
+
+    /** 测试报告文件名前缀——与评测报告区分开，两边的基线扫描各认各的 */
+    private static final String REPORT_PREFIX = "test_report_";
 
     /** testEchoSkill 的函数名（在 XML 中配置的 skill name） */
     private static final String FN_ECHO = "test_echo";
@@ -155,6 +192,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         if (params != null && params.get("caseFile") != null) {
             caseFile = params.get("caseFile");
         }
+        if (params != null && params.get("reportOutputDir") != null
+                && !params.get("reportOutputDir").trim().isEmpty()) {
+            reportOutputDir = params.get("reportOutputDir");
+        }
     }
 
     protected TLMsg runAllTests(Object fromWho, TLMsg msg) {
@@ -177,13 +218,15 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         passed = 0;
         failed = 0;
+        failedCases.clear();
+        runResults.clear();
 
         // 场景 1-9: 按注册表顺序运行（依赖测试 Skill 的用例在注册失败时跳过）
         for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
             String[] def = e.getValue();
             TestFunc func = resolveTestCase(e.getKey());
             if (!skillsOk && def[1] != null) func = skipTest(def[1]);
-            runOne(def[0], func);
+            runOne(e.getKey(), def[0], func);
         }
 
         // === 用户自定义测试用例（XML 配置驱动）===
@@ -203,25 +246,124 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         log("===== AI Agent Unit Tests End =====");
         log(String.format("[TEST] 汇总: 通过=%d, 失败=%d", passed, failed));
 
-        return createMsg().setParam(RESULT, failed == 0)
-                .setParam("passed", passed).setParam("failed", failed);
+        // 报告落盘 + 与上一次测试对比：测试这层是 mock 驱动、完全可复现，
+        // 本该是"每次改动都跑"的那一层，只报数字的话下次又是 11/12，看不出是不是新挂的
+        TLEvalReport report = buildAndSaveReport();
+        if (reportPath != null) log("[TEST] 报告已保存: " + reportPath);
+
+        return TLEvalReportMsg.attach(
+                createMsg().setParam(RESULT, failed == 0)
+                        .setParam("passed", passed).setParam("failed", failed)
+                        .setParam("failedCases", failedCases)
+                        .setParam("reportPath", reportPath),
+                report, true);
     }
 
-    private void runOne(String label, TestFunc func) {
+    // ======================== 测试报告 ========================
+
+    /** 上次报告的绝对路径（保存后填充，供上层显示） */
+    private String reportPath;
+
+    /** 汇总本次结果 → 报告（含与上一份测试报告的对比）→ 落盘 json + md */
+    private TLEvalReport buildAndSaveReport() {
+        TLEvalReport report = new TLEvalReport();
+        report.title = "测试报告";
+        report.timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(new Date());
+        report.targetAgent = M_AIAGENT;
+        report.results = new ArrayList<>(runResults);
+        report.computeSummary();
+        applyReportBaseline(report);
+        saveReportFile(report);
+        return report;
+    }
+
+    /**
+     * 与上一份测试报告按用例 id 对比。
+     * 前缀是 test_report_——和前缀 eval_report_ 的评测报告各认各的，不会互相比。
+     */
+    private void applyReportBaseline(TLEvalReport report) {
+        for (File candidate : TLEvalBaseline.listReportsNewestFirst(new File(reportOutputDir), REPORT_PREFIX)) {
+            try {
+                TLEvalReport baseline = new Gson().fromJson(readFile(candidate), TLEvalReport.class);
+                if (baseline == null) continue;
+                TLEvalBaseline.compare(report, baseline, candidate.getName());
+                return;
+            } catch (Exception e) {
+                putLog("历史测试报告解析失败，跳过: " + candidate.getName() + " - " + e, LogLevel.WARN);
+            }
+        }
+    }
+
+    private void saveReportFile(TLEvalReport report) {
+        try {
+            File dir = new File(reportOutputDir);
+            if (!dir.exists() && !dir.mkdirs()) {
+                putLog("测试报告目录创建失败: " + reportOutputDir, LogLevel.WARN);
+                return;
+            }
+            String base = REPORT_PREFIX + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS").format(new Date());
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            File json = new File(dir, base + ".json");
+            writeFile(json, gson.toJson(report));
+            writeFile(new File(dir, base + ".md"), report.toMarkdown(true));
+            reportPath = json.getAbsolutePath();
+        } catch (Exception e) {
+            putLog("测试报告保存失败: " + e, LogLevel.WARN);
+        }
+    }
+
+    private static void writeFile(File file, String content) throws IOException {
+        try (java.io.Writer w = new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream(file), java.nio.charset.StandardCharsets.UTF_8)) {
+            w.write(content);
+        }
+    }
+
+    private static String readFile(File file) throws IOException {
+        try (Scanner s = new Scanner(file, "UTF-8").useDelimiter("\\A")) {
+            return s.hasNext() ? s.next() : "";
+        }
+    }
+
+    private void runOne(String id, String label, TestFunc func) {
+        long start = System.currentTimeMillis();
+        String error = null;
+        boolean ok = false;
         try {
             TLMsg r = func.run(null, null);
             if (r != null && r.parseBoolean(RESULT, false)) {
-                passed++;
+                ok = true;
                 log("[TEST] 场景" + label + ": PASS");
             } else {
-                failed++;
-                String err = r != null ? r.getStringParam("error", "") : "null result";
-                log("[TEST] 场景" + label + ": FAIL - " + err);
+                error = r != null ? r.getStringParam("error", "") : "null result";
+                log("[TEST] 场景" + label + ": FAIL - " + error);
             }
         } catch (Exception e) {
-            failed++;
-            log("[TEST] 场景" + label + ": FAIL - 异常: " + e);
+            error = "异常: " + e;
+            log("[TEST] 场景" + label + ": FAIL - " + error);
         }
+        if (ok) passed++;
+        else { failed++; failedCases.add(label); }
+        addResult(id, label, ok, error, start);
+    }
+
+    /**
+     * 记一条逐用例结果（报告与基线对比的数据源）。
+     * id 用注册表键（basicChat 这类，稳），name 用显示标签（1-基本Chat）——
+     * 编号重排时 id 不变，对比出来的"回归"才不会被改名误伤。
+     */
+    private void addResult(String id, String name, boolean ok, String error, long startMs) {
+        TLEvalRunResult r = new TLEvalRunResult();
+        r.caseId = id;
+        r.caseName = name;
+        r.targetAgent = M_AIAGENT;
+        // 非 agent_chat：mock 驱动没有真实 token 消耗，算进均值只会得到一堆 0
+        r.callType = "test";
+        r.stability = "stable";
+        r.passed = ok;
+        r.error = error;
+        r.latencyMs = System.currentTimeMillis() - startMs;
+        runResults.add(r);
     }
 
     @FunctionalInterface
@@ -296,17 +438,24 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         boolean skillsOk = registerTestSkills();
         passed = 0;
         failed = 0;
+        failedCases.clear();
+        runResults.clear();
         try {
             TestFunc func = resolveTestCase(caseName);
             if (!skillsOk && def[1] != null) func = skipTest(def[1]);
-            runOne(def[0], func);
+            runOne(caseName, def[0], func);
         } finally {
             unregisterTestSkills();
             restoreOriginalProvider();
         }
         log(String.format("[TEST] 用例[%s]: 通过=%d, 失败=%d", caseName, passed, failed));
-        return createMsg().setParam(RESULT, failed == 0)
-                .setParam("passed", passed).setParam("failed", failed);
+        TLEvalReport report = buildAndSaveReport();
+        return TLEvalReportMsg.attach(
+                createMsg().setParam(RESULT, failed == 0)
+                        .setParam("passed", passed).setParam("failed", failed)
+                        .setParam("failedCases", failedCases)
+                        .setParam("reportPath", reportPath),
+                report, true);
     }
 
     /** 列出可用测试用例（控制台 /test list） */
@@ -328,6 +477,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, "test_mock_basic")
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "1+1等于几？");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -361,6 +511,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg turn1 = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "我叫王小明，是架构师。");
         TLMsg r1 = putMsg(M_AIAGENT, turn1);
         if (!r1.parseBoolean(RESULT, false)) {
@@ -371,6 +522,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg turn2 = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "我叫什么？做什么工作？");
         TLMsg r2 = putMsg(M_AIAGENT, turn2);
 
@@ -404,6 +556,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, "test_mock_singletool")
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "请用 echo 工具输出 hello world");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -579,6 +732,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, "test_mock_parallel")
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "请同时执行三个 echo 任务");
 
         TLMsg response = putMsg(M_AIAGENT, chatMsg);
@@ -640,6 +794,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, "test_mock_timeout")
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "请 sleep 2000 毫秒");
 
@@ -732,6 +887,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 TLMsg cMsg = createMsg()
                         .setAction(AGENT_CHAT)
                         .setSystemParam(AI_P_SESSIONID, sessionId)
+                        .setSystemParam(AI_P_USERID, TEST_USER_ID)
                         .setParam(AI_P_USERMESSAGE, "sleep 5 秒");
                 chatResult.set(putMsg(M_AIAGENT, cMsg));
             }, "test-cancel-chat");
@@ -791,6 +947,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, "test_mock_batch_timeout")
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "并行 sleep 5 秒 x 3");
 
@@ -831,6 +988,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, sessionId)
+                // 这一场景故意用独立的 test_user：checkpoint 存取按 userId 走，这里要验证跨"用户"恢复
                 .setSystemParam("userId", "test_user")
                 .setParam(AI_P_USERMESSAGE, "执行 checkpoint 测试");
 
@@ -863,6 +1021,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMsg chatMsg2 = createMsg()
                 .setAction(AGENT_CHAT)
                 .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "继续对话");
         TLMsg r2 = putMsg(M_AIAGENT, chatMsg2);
 
@@ -1047,6 +1206,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             TLMockProvider mp = getMockProvider();
             for (Map<String, Object> c : cases) {
                 String caseName = (String) c.getOrDefault("name", "?");
+                long caseStart = System.currentTimeMillis();
                 try {
                     mp.clearAllResponses();
 
@@ -1061,6 +1221,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     String target = str(chatCfg, "targetAgent", M_AIAGENT);
                     TLMsg chatMsg = createMsg().setAction(AGENT_CHAT)
                             .setSystemParam(AI_P_SESSIONID, str(chatCfg, "sessionId", "case_" + caseName))
+                            .setSystemParam(AI_P_USERID, TEST_USER_ID)
                             .setParam(AI_P_USERMESSAGE, str(chatCfg, "userMessage", ""));
                     if (chatCfg.containsKey("model")) chatMsg.setParam(AI_P_MODEL, str(chatCfg, "model", null));
                     if (chatCfg.containsKey("temperature"))
@@ -1075,19 +1236,26 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     if (assertCfg != null) {
                         String err = runAsserts(response, assertCfg);
                         if (err != null) {
-                            f++; log("[TEST] 用例[" + caseName + "]: FAIL - " + err);
+                            f++; failedCases.add(caseName);
+                            addResult(caseName, caseName, false, err, caseStart);
+                            log("[TEST] 用例[" + caseName + "]: FAIL - " + err);
                         } else {
-                            p++; log("[TEST] 用例[" + caseName + "]: PASS");
+                            p++; addResult(caseName, caseName, true, null, caseStart);
+                            log("[TEST] 用例[" + caseName + "]: PASS");
                         }
                     } else {
-                        p++; log("[TEST] 用例[" + caseName + "]: PASS (no asserts)");
+                        p++; addResult(caseName, caseName, true, null, caseStart);
+                        log("[TEST] 用例[" + caseName + "]: PASS (no asserts)");
                     }
                 } catch (Exception e) {
-                    f++; log("[TEST] 用例[" + caseName + "]: FAIL - " + e.getMessage());
+                    f++; failedCases.add(caseName);
+                    addResult(caseName, caseName, false, "异常: " + e.getMessage(), caseStart);
+                    log("[TEST] 用例[" + caseName + "]: FAIL - " + e.getMessage());
                 }
             }
         } catch (Exception e) {
             log("[TEST] 加载用例文件失败: " + e.getMessage());
+            failedCases.add("用例文件加载");
             return new int[]{0, 1};
         }
         return new int[]{p, f};

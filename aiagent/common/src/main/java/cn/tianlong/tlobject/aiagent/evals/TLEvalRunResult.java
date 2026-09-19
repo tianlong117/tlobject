@@ -28,6 +28,8 @@ public class TLEvalRunResult {
     public String error;
     public List<TLEvalVerdict> verdicts = new ArrayList<>();
     public boolean passed;
+    /** 用例稳定性标记（用例 metadata.stability），随报告落盘，供两次运行之间对比时区分噪声与真回归 */
+    public String stability;
 
     public TLEvalRunResult() {}
 
@@ -67,4 +69,6 @@ public class TLEvalRunResult {
     public void setVerdicts(List<TLEvalVerdict> verdicts) { this.verdicts = verdicts; }
     public boolean isPassed() { return passed; }
     public void setPassed(boolean passed) { this.passed = passed; }
+    public String getStability() { return stability; }
+    public void setStability(String stability) { this.stability = stability; }
 }

@@ -1459,6 +1459,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     @SuppressWarnings("unchecked")
     private void printEvalResult(Object data) {
+        // /eval list 返回的是用例清单数组（不是 Map），直接逐行打
+        if (data instanceof List) {
+            for (Object line : (List<Object>) data) System.out.println("  " + line);
+            return;
+        }
         if (!(data instanceof Map)) return;
         Map<String, Object> d = (Map<String, Object>) data;
         Object passed = d.get("passed");
@@ -1468,6 +1473,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("✓ 评测完成: " + passed + "/" + total + " 通过"
                 + (passRate instanceof Double ? String.format(" (%.1f%%)", (Double) passRate * 100) : ""));
         if (reportPath != null && !reportPath.isEmpty()) System.out.println("  报告: " + reportPath);
+        printBaseline(d);
+    }
+
+    /** 基线对比一行：让"新挂了哪几条"直接显示出来，而不是只知道通过率变低了 */
+    @SuppressWarnings("unchecked")
+    private void printBaseline(Map<String, Object> d) {
+        // Boolean true 与字符串 "true" 都认（走 webui 的 JSON 通道时类型会变）
+        if (!"true".equals(String.valueOf(d.get("baselineFound")))) {
+            System.out.println("  基线: 未找到历史报告，本次无基准可比");
+            return;
+        }
+        System.out.println("  基线: " + d.get("baselineFile")
+                + " | 可比 " + d.get("baselineCompared") + " 条"
+                + " | 回归 " + d.get("regressionCount")
+                + " | 改善 " + d.get("improvementCount"));
+        Object regressions = d.get("regressions");
+        if (regressions instanceof List) {
+            for (Object r : (List<Object>) regressions) System.out.println("    [回归] " + r);
+        }
     }
 
     /** 打印 /test 结果：list 为 List<String>，运行为 {passed, failed, total} */

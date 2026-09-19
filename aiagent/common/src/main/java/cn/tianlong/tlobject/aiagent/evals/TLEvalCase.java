@@ -69,4 +69,14 @@ public class TLEvalCase {
 
     public Map<String, Object> getMetadata() { return metadata; }
     public void setMetadata(Map<String, Object> metadata) { this.metadata = metadata; }
+
+    /**
+     * 用例稳定性标记，取自 metadata.stability：stable（默认）/ flaky / experimental。
+     * 用 metadata 而不是新增字段，是为了不破坏已有用例的 JSON schema。
+     */
+    public String getStability() {
+        if (metadata == null) return "stable";
+        Object v = metadata.get("stability");
+        return (v != null && !v.toString().trim().isEmpty()) ? v.toString().trim() : "stable";
+    }
 }

@@ -34,6 +34,18 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     private String targetAgent = "aiagent";
     private String judgeProvider = "openAiProvider";
     /**
+     * 评测会话的身份标识。
+     * 评测消息不带 userId 时，框架会拿 sessionId 顶替（TLAiAgent 里 currentChatUserId 的兜底），
+     * 而评测的 sessionId 是 "eval_用例id_时间戳"——每条用例、每次运行都不同，
+     * 于是 data/ 顶层被 eval_xxx 目录铺满（路径规则 data/{userId}/traces/{sessionId}/）。
+     * 给评测一个固定身份，产物就都归到 data/evals/ 下。
+     */
+    private static final String EVAL_USER_ID = "evals";
+    /** 是否与上一次报告对比（回归检测）。找到基准才谈得上回归，找不到时报告里标 baselineFound=false */
+    private boolean compareBaseline = true;
+    /** 指定基准报告（路径或报告目录下的文件名）；留空则自动取报告目录里最近一份 */
+    private String baselineFile = "";
+    /**
      * @deprecated 已不再使用。取/清会话历史都改走目标 Agent 的黑盒接口
      * （AGENT_GETCONTEXT / AGENT_CLEARCONTEXT）—— 直接按裸名寻址拿到的是工厂里的 aiContext 单例，
      * 不是被评测 Agent 的私有 context。保留字段只为兼容老配置里的 contextModule 项。
@@ -66,6 +78,9 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         targetAgent = nonEmptyOr(targetAgent, params.get("targetAgent"));
         judgeProvider = nonEmptyOr(judgeProvider, params.get("judgeProvider"));
         contextModule = nonEmptyOr(contextModule, params.get("contextModule"));
+        baselineFile = nonEmptyOr(baselineFile, params.get("baselineFile"));
+        if (params.get("compareBaseline") != null)
+            compareBaseline = Boolean.parseBoolean(params.get("compareBaseline"));
 
         ensureDir(reportOutputDir);
 
@@ -127,10 +142,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             String reportPath = saveReport(report);
             printSummary(report);
 
-            return createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+            return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                     .setParam("passed", report.summary.passed)
                     .setParam("failed", report.summary.failed)
-                    .setParam("passRate", report.summary.passRate);
+                    .setParam("passRate", report.summary.passRate), report);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
@@ -161,11 +176,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             printSummary(report);
             putLog("报告已保存: " + reportPath, LogLevel.INFO);
 
-            return createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+            return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                     .setParam("total", report.summary.total)
                     .setParam("passed", report.summary.passed)
                     .setParam("failed", report.summary.failed)
-                    .setParam("passRate", report.summary.passRate);
+                    .setParam("passRate", report.summary.passRate), report);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
@@ -183,24 +198,54 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 TLEvalReport report = buildReport(Collections.singletonList(r));
                 String reportPath = saveReport(report);
                 printSummary(report);
-                return createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath);
+                // 单用例失败时 RESULT=false，上层会走"评测失败"分支并读 error ——
+                // 不带上原因的话控制台只会显示"未知错误"，等于把已经知道的原因丢掉。
+                // total/passed 同理：不带就等于把"这条其实过了"显示成"0/0 通过"
+                TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath)
+                        .setParam("total", report.summary.total)
+                        .setParam("passed", report.summary.passed)
+                        .setParam("failed", report.summary.failed)
+                        .setParam("passRate", report.summary.passRate);
+                if (!r.passed) resultMsg.setParam("error", r.error != null ? r.error : "用例未通过");
+                return withBaseline(resultMsg, report);
             }
         }
-        return createMsg().setParam(RESULT, false).setParam("error", "未找到用例: " + caseId);
+        // 报错要能自助：光说"没找到"没法用，把可用 id 列出来（文件名与 id 并不一一对应，
+        // 一个 json 里可以有多条用例，所以这里给的是 id 而不是文件名）
+        StringBuilder available = new StringBuilder();
+        for (int i = 0; i < allCases.size(); i++) {
+            if (i > 0) available.append("、");
+            available.append(allCases.get(i).id);
+            if (available.length() > 120 && i < allCases.size() - 1) {
+                available.append("…（共 ").append(allCases.size()).append(" 条，用 /eval list 查看全部）");
+                break;
+            }
+        }
+        return createMsg().setParam(RESULT, false)
+                .setParam("error", "未找到用例: " + caseId
+                        + (available.length() == 0 ? "（用例目录为空）" : "，可用: " + available));
     }
 
     protected TLMsg listEvalCases(Object fromWho, TLMsg msg) {
         List<TLEvalCase> allCases = scanCaseFiles(new File(evalCaseDir));
-        StringBuilder sb = new StringBuilder();
-        sb.append("===== 可用评测用例 (").append(allCases.size()).append(" 条) =====\n");
+
+        // 用例清单按"给人看的一行"生成（控制台直接打、前端直接列表格），
+        // 顺带把目标一起列出来——"这条用例打的是谁"是理解结果的前提
+        List<String> lines = new ArrayList<>();
         for (TLEvalCase c : allCases) {
             String judgesDesc = c.judges != null
                     ? c.judges.stream().map(j -> j.type).reduce((a, b) -> a + "," + b).orElse("none")
                     : "none";
-            sb.append(String.format("  [%s] %-30s 评判: %s\n", c.id, c.name, judgesDesc));
+            String target = (c.targetAgent != null && !c.targetAgent.isEmpty()) ? c.targetAgent : targetAgent;
+            lines.add(String.format("[%s] %s | 目标: %s | 评判: %s", c.id, c.name, target, judgesDesc));
         }
-        putLog(sb.toString(), LogLevel.INFO);
-        return createMsg().setParam(RESULT, true).setParam("cases", allCases).setParam("count", allCases.size());
+
+        putLog("===== 可用评测用例 (" + allCases.size() + " 条) =====\n  "
+                + String.join("\n  ", lines), LogLevel.INFO);
+        return createMsg().setParam(RESULT, true)
+                .setParam("cases", allCases)
+                .setParam("caseList", lines)
+                .setParam("count", allCases.size());
     }
 
     protected TLMsg runQuickEval(Object fromWho, TLMsg msg) {
@@ -224,8 +269,16 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         String reportPath = saveReport(report);
         printSummary(report);
 
-        return createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath)
-                .setParam("response", r.response);
+        // 单用例动作也要把 total/passed 一起返回：上层默认读 0，不带就等于显示"0/0 通过"，
+        // 哪怕这条其实是过的——比不显示更容易让人以为没跑
+        TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath)
+                .setParam("response", r.response)
+                .setParam("total", report.summary.total)
+                .setParam("passed", report.summary.passed)
+                .setParam("failed", report.summary.failed)
+                .setParam("passRate", report.summary.passRate);
+        if (!r.passed) resultMsg.setParam("error", r.error != null ? r.error : "用例未通过");
+        return withBaseline(resultMsg, report);
     }
 
     // ======================== 级联评测 ========================
@@ -344,11 +397,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         printSummary(report);
         putLog("级联报告已保存: " + reportPath, LogLevel.INFO);
 
-        return createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+        return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                 .setParam("total", report.summary.total)
                 .setParam("passed", report.summary.passed)
                 .setParam("failed", report.summary.failed)
-                .setParam("passRate", report.summary.passRate);
+                .setParam("passRate", report.summary.passRate), report);
     }
 
     /** 为级联目标自动生成基础评测用例（轻量冒烟测试） */
@@ -386,13 +439,14 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         String callType = (evalCase.callType != null && !evalCase.callType.isEmpty())
                 ? evalCase.callType : "agent_chat";
 
-        // skill_execute 模式：直接调用 Skill
-        if ("skill_execute".equals(callType)) {
-            return runSkillCase(evalCase, targetModule, callType);
-        }
+        // skill_execute 模式：直接调用 Skill；agent_chat 模式（默认）：发送 AGENT_CHAT
+        TLEvalRunResult result = "skill_execute".equals(callType)
+                ? runSkillCase(evalCase, targetModule, callType)
+                : runAgentChatCase(evalCase, targetModule, callType);
 
-        // agent_chat 模式（默认）：发送 AGENT_CHAT
-        return runAgentChatCase(evalCase, targetModule, callType);
+        // 稳定性标记随结果落盘：对比两次运行时要靠它区分"真回归"和"flaky 用例的正常波动"
+        result.stability = evalCase.getStability();
+        return result;
     }
 
     /**
@@ -436,7 +490,21 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         if (target instanceof IObject) {
             return putMsg((IObject) target, msg);
         }
+        // IGNOREMODULEISNULL：按名找不到模块时，让 TLBaseModule.putMsg 返回空消息，
+        // 而不是走它默认的那条 moduleFactory.shutdown(-1) —— 用例的 targetAgent 写错
+        // （家族名不存在、Skill 没配到该 Agent 上）只应该让这一条用例失败，
+        // 不能把整个应用一起关掉
+        msg.setSystemParam(IGNOREMODULEISNULL, true);
         return putMsg(targetName, msg);
+    }
+
+    /**
+     * 目标模块不存在时 putMsg 返回的占位消息（见 TLBaseModule.putMsg 的 IGNOREMODULEISNULL 分支）。
+     * 用它把"模块不存在"和"模块存在但返回 null"区分开，好给出能直接看懂的错误。
+     * 包内共用：评测模块与 llm_judge 都要靠它兜住"目标模块不存在"这种情况。
+     */
+    static boolean isModuleMissing(TLMsg response) {
+        return response != null && Boolean.FALSE.equals(response.getParam(IGNOREMODULEISNULL));
     }
 
     /** agent_chat 模式：向目标 Agent 发送 AGENT_CHAT 消息 */
@@ -465,13 +533,16 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             TLMsg chatMsg = createMsg()
                     .setAction(AGENT_CHAT)
                     .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_USERID, EVAL_USER_ID)
                     .setParam(AI_P_USERMESSAGE, evalCase.getInput());
 
             TLMsg response = sendToTarget(targetModule, chatMsg);
             result.latencyMs = System.currentTimeMillis() - startTime;
 
-            if (response == null) {
-                result.error = "Agent 返回 null";
+            if (response == null || isModuleMissing(response)) {
+                result.error = isModuleMissing(response)
+                        ? "目标模块不存在: " + targetModule
+                        : "Agent 返回 null";
                 result.response = "";
                 runAllJudges(evalCase, result);
                 return result;
@@ -551,8 +622,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             TLMsg response = sendToTarget(targetModule, skillMsg);
             result.latencyMs = System.currentTimeMillis() - startTime;
 
-            if (response == null) {
-                result.error = "Skill 返回 null";
+            if (response == null || isModuleMissing(response)) {
+                result.error = isModuleMissing(response)
+                        ? "目标模块不存在: " + targetModule
+                        : "Skill 返回 null";
                 result.response = "";
                 runAllJudges(evalCase, result);
                 return result;
@@ -736,20 +809,80 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
     // ======================== 报告 ========================
 
+    /**
+     * 组装报告。这里会顺带做基线对比（要读报告目录里的上一份报告），
+     * 五个评测入口都走这个方法，所以对比逻辑不必在每个入口重复。
+     */
     protected TLEvalReport buildReport(List<TLEvalRunResult> results) {
         TLEvalReport report = new TLEvalReport();
         report.timestamp = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(new Date());
+        report.targetAgent = targetAgent;
         report.results = results;
         report.computeSummary();
+        applyBaseline(report);
         return report;
+    }
+
+    /**
+     * 与上一次报告对比，填充 regressions / improvements。
+     * 找不到基准、或基准读不出来时，只把 baselineFound 留成 false——
+     * 不能静默当成"本次无回归"，那两者含义完全不同。
+     */
+    private void applyBaseline(TLEvalReport report) {
+        if (!compareBaseline) return;
+
+        // 显式指定的基准（路径或文件名）：用指定的那份，不与自动选择混用
+        if (!baselineFile.isEmpty()) {
+            File base = TLEvalBaseline.resolveBaselineFile(new File(reportOutputDir), baselineFile);
+            if (base == null) {
+                putLog("指定的基准报告不存在，本次不对比: " + baselineFile, LogLevel.WARN);
+                return;
+            }
+            compareWithFile(report, base);
+            return;
+        }
+
+        // 自动选择：从新到旧找第一份"同一目标 Agent"的报告。
+        // 报告目录各应用共用（默认 data/evals/reports/），不比对目标的话，
+        // 拿另一个应用的结果来比会凭空比出假回归
+        for (File candidate : TLEvalBaseline.listReportsNewestFirst(new File(reportOutputDir))) {
+            TLEvalReport baseline = parseReport(candidate);
+            if (baseline == null || !TLEvalBaseline.sameScope(report, baseline)) continue;
+            TLEvalBaseline.compare(report, baseline, candidate.getName());
+            return;
+        }
+        putLog("没有与本次目标一致的历史报告（目标 " + targetAgent + "），本次无基准可比: "
+                + reportOutputDir, LogLevel.INFO);
+    }
+
+    private void compareWithFile(TLEvalReport report, File base) {
+        TLEvalReport baseline = parseReport(base);
+        if (baseline != null) TLEvalBaseline.compare(report, baseline, base.getName());
+    }
+
+    /** 读回一份历史报告；读不出来返回 null（调用方据此不做对比，而不是当成"无回归"） */
+    private TLEvalReport parseReport(File file) {
+        try {
+            return gson.fromJson(readFileToString(file), TLEvalReport.class);
+        } catch (Exception e) {
+            putLog("历史报告解析失败，跳过: " + file.getName() + " - " + e.toString(), LogLevel.WARN);
+            return null;
+        }
     }
 
     protected String saveReport(TLEvalReport report) {
         try {
-            String filename = "eval_report_" + new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date()) + ".json";
-            File outFile = new File(reportOutputDir, filename);
-            String json = gson.toJson(report);
-            writeStringToFile(outFile, json);
+            // 文件名精确到毫秒：只到秒时同一秒内的两次运行会互相覆盖
+            String base = TLEvalBaseline.REPORT_PREFIX
+                    + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS").format(new Date());
+            File outFile = new File(reportOutputDir, base + ".json");
+            writeStringToFile(outFile, gson.toJson(report));
+            // 同名的可读版。渲染出错不影响 JSON——那是基线对比依赖的那一份
+            try {
+                writeStringToFile(new File(reportOutputDir, base + ".md"), report.toMarkdown(compareBaseline));
+            } catch (Exception e) {
+                putLog("可读版报告生成失败（JSON 已保存）: " + e, LogLevel.WARN);
+            }
             return outFile.getAbsolutePath();
         } catch (Exception e) {
             putLog("保存报告失败: " + e.toString(), LogLevel.ERROR);
@@ -778,6 +911,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 s.total, s.passed, s.failed, s.passRate * 100));
         sb.append(String.format("平均 Tokens: %.0f | 平均迭代次数: %.1f | 平均延迟: %.0fms\n",
                 s.avgTokens, s.avgIterations, s.avgLatencyMs));
+        sb.append(baselineLine(s));
         if (s.failed > 0) {
             sb.append("--- 失败用例 ---\n");
             for (TLEvalRunResult r : report.results) {
@@ -786,6 +920,36 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         }
         sb.append("==============================");
         putLog(sb.toString(), LogLevel.INFO);
+    }
+
+    /**
+     * 基线对比摘要 + 回归明细——控制台要能一眼看出"新挂了哪几条"，
+     * 而不是只知道通过率变低了。没找到基准时明说，避免和"无回归"混为一谈。
+     */
+    private String baselineLine(TLEvalReport.Summary s) {
+        if (!compareBaseline) return "基线对比: 已关闭 (compareBaseline=false)\n";
+        if (!s.baselineFound) return "基线对比: 未找到历史报告，本次无基准可比\n";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("基线对比: %s | 可比 %d 条 | 回归 %d | 改善 %d\n",
+                s.baselineFile, s.baselineCompared, s.regressions.size(), s.improvements.size()));
+        for (TLEvalReport.Change c : s.regressions) {
+            sb.append(String.format("  [回归] %s (%s)%s%s\n", c.caseName, c.caseId,
+                    "flaky".equals(c.stability) ? " [flaky]" : "",
+                    c.reason != null ? " — " + abbreviate(c.reason) : ""));
+        }
+        return sb.toString();
+    }
+
+    /** 失败原因可能很长（LLM 裁判的说明），摘要里截断，完整内容在报告 JSON 里 */
+    private static String abbreviate(String text) {
+        if (text == null) return "";
+        return text.length() > 120 ? text.substring(0, 120) + "..." : text;
+    }
+
+    /** 把基线对比结果挂到返回消息上，供控制台/上层显示（字段名与测试层共用，见 TLEvalReportMsg） */
+    private TLMsg withBaseline(TLMsg msg, TLEvalReport report) {
+        return TLEvalReportMsg.attach(msg, report, compareBaseline);
     }
 
     // ======================== 工具方法 ========================

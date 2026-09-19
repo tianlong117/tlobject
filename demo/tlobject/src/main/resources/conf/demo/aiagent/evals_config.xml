@@ -15,5 +15,11 @@
 
         <!-- 上下文模块（用于提取 tool calls） -->
         <contextModule value="aiContext"/>
+
+        <!-- 是否与上一次报告对比（回归检测）：每跑一次就把"新挂了哪几条"标出来 -->
+        <compareBaseline value="true"/>
+
+        <!-- 指定基准报告（可选）：文件名或路径；留空则自动取报告目录里最近一份 -->
+        <baselineFile value=""/>
     </params>
 </moduleConfig>
