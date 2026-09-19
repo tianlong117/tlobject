@@ -30,7 +30,7 @@ public class TLEvalGate {
 
     /**
      * @param report         本次报告
-     * @param passRate       通过率阈值；&lt;=0 表示不启用通过率门禁
+     * @param passRate       通过率阈值；&lt;=0 表示不启用通过率门禁（NaN 同理，调用方需自行校验）
      * @param maxRegressions 允许的回归数上限；&lt;0 表示不检查回归
      */
     public static Result evaluate(TLEvalReport report, double passRate, int maxRegressions) {
@@ -44,7 +44,7 @@ public class TLEvalGate {
 
         int counted = 0, passed = 0;
         for (TLEvalRunResult r : report.results) {
-            if (!isStable(r)) continue;
+            if (r == null || !isStable(r)) continue;
             counted++;
             if (r.passed) passed++;
         }
@@ -52,7 +52,7 @@ public class TLEvalGate {
         if (passRate > 0) {
             if (counted == 0) {
                 // 悄悄放行会更糟：门禁看起来在工作，实际什么都没判
-                failures.add(String.format("没有 stable 用例，无法判定通过率（共 %d 条用例全部被标为 flaky？）",
+                failures.add(String.format("没有 stable 用例，无法判定通过率（共 %d 条用例，全部不是 stable？）",
                         report.results.size()));
             } else {
                 double rate = (double) passed / counted;
@@ -70,8 +70,13 @@ public class TLEvalGate {
                 failures.add("没有可比的基准（未开启基线对比，或目录里没有历史报告），回归无法判定——建立基准后再跑一次即可");
             } else {
                 List<TLEvalReport.Change> regs = new ArrayList<>();
-                for (TLEvalReport.Change c : report.summary.regressions) {
-                    if ("stable".equals(stabilityOf(c.stability))) regs.add(c);
+                // regressions 可能是 null：外部报告 JSON 里显式写 "regressions": null 时
+                // Gson 会反序列化成 null，而 baselineFound 仍为 true。当作"没有回归"处理
+                if (report.summary.regressions != null) {
+                    for (TLEvalReport.Change c : report.summary.regressions) {
+                        if (c == null) continue;
+                        if ("stable".equals(stabilityOf(c.stability))) regs.add(c);
+                    }
                 }
                 if (regs.size() > maxRegressions) {
                     StringBuilder ids = new StringBuilder();
