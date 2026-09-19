@@ -21,5 +21,10 @@
 
         <!-- 指定基准报告（可选）：文件名或路径；留空则自动取报告目录里最近一份 -->
         <baselineFile value=""/>
+
+        <!-- 门禁（默认不启用）：通过率阈值 + 允许的回归数上限。
+             启用前先让套件达到目标通过率，否则门禁会一直红、久了就没人看它了 -->
+        <!-- <gatePassRate value="0.9"/> -->
+        <!-- <gateMaxRegressions value="0"/> -->
     </params>
 </moduleConfig>
