@@ -1474,6 +1474,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 + (passRate instanceof Double ? String.format(" (%.1f%%)", (Double) passRate * 100) : ""));
         if (reportPath != null && !reportPath.isEmpty()) System.out.println("  报告: " + reportPath);
         printBaseline(d);
+        printGate(d);
     }
 
     /** 基线对比一行：让"新挂了哪几条"直接显示出来，而不是只知道通过率变低了 */
@@ -1491,6 +1492,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         Object regressions = d.get("regressions");
         if (regressions instanceof List) {
             for (Object r : (List<Object>) regressions) System.out.println("    [回归] " + r);
+        }
+    }
+
+    /** 门禁一行：只有配了门禁才打印（默认没配时不必每次刷屏） */
+    @SuppressWarnings("unchecked")
+    private void printGate(Map<String, Object> d) {
+        if (!"true".equals(String.valueOf(d.get("gateEnabled")))) return;
+        if ("true".equals(String.valueOf(d.get("gatePassed")))) {
+            System.out.println("  门禁: 通过");
+            return;
+        }
+        System.out.println("  门禁: 不通过");
+        Object failures = d.get("gateFailures");
+        if (failures instanceof List) {
+            for (Object f : (List<Object>) failures) System.out.println("    - " + f);
         }
     }
 

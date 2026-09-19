@@ -202,6 +202,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         d.put("regressionCount", result.getIntParam("regressionCount", 0));
         d.put("improvementCount", result.getIntParam("improvementCount", 0));
         d.put("regressions", result.getParam("regressions"));
+        // 门禁结果（只有套件级动作会有；单用例动作缺省 gateEnabled=false，下游据此判断"没配门禁"）
+        d.put("gatePassed", result.parseBoolean("gatePassed", true));
+        d.put("gateEnabled", result.parseBoolean("gateEnabled", false));
+        d.put("gateFailures", result.getParam("gateFailures"));
         return d;
     }
 
