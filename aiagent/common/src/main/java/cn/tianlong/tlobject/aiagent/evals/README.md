@@ -311,6 +311,8 @@ EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <总超时秒数，
 
 **落盘**：一次生成 = 一个文件（`<目标短名>-<yyyyMMdd-HHmmss>.json`），进 `cases/` 就是正式用例，以后 `/eval suite` 每次都会跑到；不满意整批丢掉就删一个文件。`id` 由生成器起成可读且稳定的名字（基线对比靠它，自动编号会让对比失效）。
 
+落盘目录会先**绝对化**再写：配置里的 `conf/demo/aiagent/evals/cases/` 是相对启动目录的，而从仓库根启动时仓库根本来没有 `conf/`（真实目录在 classpath 的 `target/classes` 下）。不绝对化就会在仓库根新造一个 `conf/`，那是个"评测扫不到、又不在 gitignore 里"的幻觉目录。
+
 **token 与推理**：`analysisMaxTokens` / `casesMaxTokens`（默认 4096 / 8192）与 `reasoningMode`（默认 `disabled`，显式关推理）都可配。别把额度配小：推理模型（DeepSeek V4 等）的 reasoning token 与正文共用 `max_tokens`，被推理吃光时 `content` 是空串，报错会指向真因（"没有拿到有效输出：模型可能把 token 全花在推理上"）而不是笼统的"解析不了"。
 
 **判据策略**（这是它能不能用的关键）：

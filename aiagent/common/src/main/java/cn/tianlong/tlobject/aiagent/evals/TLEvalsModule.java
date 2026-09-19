@@ -118,7 +118,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
         ensureDir(reportOutputDir);
 
+        // 把"配置里写的目录"与实际生效的目录一起打出来：两者不一致是"用例怎么扫不到"的头号原因
+        // （配置相对仓库根，而仓库根没有 conf/，真实目录在 classpath 的 target/classes 下）
+        File realDir = resolveCaseDir(getClass(), evalCaseDir);
         putLog("TLEvalsModule 初始化完成。evalCaseDir=" + evalCaseDir
+                + (realDir.equals(new File(evalCaseDir).getAbsoluteFile()) ? "" : "（实际: " + realDir + "）")
                 + ", targetAgent=" + targetAgent, LogLevel.INFO);
         return this;
     }
@@ -778,30 +782,101 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     protected List<TLEvalCase> scanCaseFiles(File dir) {
         List<TLEvalCase> cases = new ArrayList<>();
 
-        // 1. 先尝试文件系统
+        // 1. 文件系统
+        int fsCount = 0;
         if (dir.exists() && dir.isDirectory()) {
             scanFilesInDir(dir, cases);
-            if (!cases.isEmpty()) return cases;
+            fsCount = cases.size();
         }
 
-        // 2. 回退到 classpath（CLASSPATH/ 前缀或相对路径）
-        String cpPath = evalCaseDir;
-        if (cpPath.startsWith("CLASSPATH/")) cpPath = cpPath.substring(10);
-        if (!cpPath.endsWith("/")) cpPath += "/";
+        // 2. classpath 目录：**文件系统那个目录非空也照样扫**。
+        //    早先的"非空就 return"是个静默陷阱：cwd 下冒出一个 json（比如生成器曾把用例写到
+        //    仓库根新建的 conf/），classpath 里原有的一批用例就会集体消失，而且不报错——
+        //    看起来就像"用例被删了"。两个来源按 id 去重合并，文件系统优先（部署目录可覆盖开发目录）。
+        //    注意用的还是 dir 自己的路径：调用方传自定义 suiteDir 时行为与以前一致（自定义目录
+        //    一般不是 classpath 资源，解析不到就只剩文件系统那一份）
+        File cpDir = classpathCaseDir(dir.getPath());
+        if (cpDir != null && !cpDir.equals(dir.getAbsoluteFile())) {
+            List<TLEvalCase> cpCases = new ArrayList<>();
+            scanFilesInDir(cpDir, cpCases);
+            if (!cpCases.isEmpty()) {
+                if (fsCount > 0) {
+                    putLog("用例来自两个目录，按 id 去重合并：" + dir.getAbsolutePath() + "（" + fsCount
+                            + " 条）+ classpath " + cpDir.getPath() + "（" + cpCases.size() + " 条）"
+                            + "——本地目录会遮蔽 classpath 里的同名用例", LogLevel.WARN);
+                }
+                cases.addAll(cpCases);
+            }
+        }
 
+        // 同 id 只留先到的（文件系统先扫，所以它优先）
+        List<TLEvalCase> deduped = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+        for (TLEvalCase c : cases) {
+            if (c == null) continue;
+            if (c.id == null || seenIds.add(c.id)) deduped.add(c);
+            else putLog("重复用例 id 已跳过: " + c.id, LogLevel.DEBUG);
+        }
+        return deduped;
+    }
+
+    /**
+     * 用例目录的绝对化——生成器落盘前必须过这一道。
+     *
+     * 配置里写的是相对路径（conf/demo/aiagent/evals/cases/），而"相对谁"取决于启动目录：
+     * aistart.bat 不带 cd，从仓库根启动，可仓库根并没有 conf/——conf 在 classpath 下（target/classes），
+     * 靠 classloader 才找得到。于是直接 new File(dir, name) 会在仓库根新造一个 conf/：
+     * 那里评测扫不到（除非它非空后把 classpath 那批遮住，见 scanCaseFiles），又不在 gitignore 里。
+     *
+     * 解析顺序与 scanCaseFiles 的读取顺序一致——谁在供用例，落盘就落在谁那儿：
+     *   1. 已是绝对路径 → 原样
+     *   2. cwd 相对且目录里已有 json → 它（部署模式：conf/ 就在启动目录下）
+     *   3. classpath 里找得到同名目录 → 它（开发模式：conf 在 target/classes 下）
+     *   4. 都没有 → cwd 下的绝对路径（新建；至少落点是确定的，不再随 cwd 漂移）
+     */
+    public static File resolveCaseDir(Class<?> anchor, String dir) {
+        File f = new File(dir);
+        if (f.isAbsolute()) return f;
+        if (f.exists() && f.isDirectory() && hasCaseFiles(f)) return f.getAbsoluteFile();
+        File cpDir = classpathCaseDir(anchor, dir);
+        if (cpDir != null) return cpDir;
+        return f.getAbsoluteFile();
+    }
+
+    /** classpath 里的用例目录（不存在返回 null）。CLASSPATH/ 前缀与裸相对路径都认 */
+    private static File classpathCaseDir(Class<?> anchor, String dir) {
+        if (anchor == null || dir == null || dir.trim().isEmpty()) return null;
+        String cpPath = dir.trim();
+        if (cpPath.startsWith(CLASSPATH + "/")) cpPath = cpPath.substring(CLASSPATH.length() + 1);
+        if (!cpPath.endsWith("/")) cpPath += "/";
         try {
-            java.net.URL dirUrl = getClass().getClassLoader().getResource(cpPath);
+            java.net.URL dirUrl = anchor.getClassLoader().getResource(cpPath);
             if (dirUrl != null && "file".equals(dirUrl.getProtocol())) {
                 File cpDir = new File(dirUrl.toURI());
-                if (cpDir.exists() && cpDir.isDirectory()) {
-                    scanFilesInDir(cpDir, cases);
-                }
+                if (cpDir.exists() && cpDir.isDirectory()) return cpDir;
             }
         } catch (Exception e) {
-            putLog("classpath 扫描失败: " + e.toString(), LogLevel.DEBUG);
+            // 解析不了就是"这个目录不在 classpath 上"，交给调用方的文件系统分支
         }
+        return null;
+    }
 
-        return cases;
+    /** 目录里（含子目录）有没有 json 用例文件 */
+    private static boolean hasCaseFiles(File dir) {
+        File[] files = dir.listFiles();
+        if (files == null) return false;
+        for (File f : files) {
+            if (f.isDirectory()) {
+                if (hasCaseFiles(f)) return true;
+            } else if (f.getName().endsWith(".json")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private File classpathCaseDir(String dir) {
+        return classpathCaseDir(getClass(), dir);
     }
 
     /** 扫描目录中的 JSON 文件并加载用例 */

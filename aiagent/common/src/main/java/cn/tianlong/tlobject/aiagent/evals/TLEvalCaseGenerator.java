@@ -172,7 +172,10 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         // 第二次会先按 id 冲突把新用例丢光、再覆盖掉第一次的文件，两批一起没
         String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date());
         String fileName = TLEvalGenSupport.buildFileName(target, stamp);
-        File outFile = new File(dir, fileName);
+        // 目录先绝对化再拼文件名：配置里是相对路径，相对的是启动目录（仓库根），
+        // 直接拼会在仓库根新造一个 conf/——评测扫不到，还会把 classpath 里的用例遮住
+        File outDir = TLEvalsModule.resolveCaseDir(this.getClass(), dir);
+        File outFile = new File(outDir, fileName);
         try {
             writeCases(outFile, cases);
         } catch (Exception e) {
