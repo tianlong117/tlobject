@@ -35,8 +35,11 @@ public class TLEvalGate {
      */
     public static Result evaluate(TLEvalReport report, double passRate, int maxRegressions) {
         List<String> failures = new ArrayList<>();
+        boolean gateEnabled = passRate > 0 || maxRegressions >= 0;
         if (report == null || report.results == null) {
-            return new Result(true, failures);
+            // 门禁启用时判不了就是失败：悄悄放行会让门禁看起来在工作、实际什么都没判
+            if (gateEnabled) failures.add("报告为空，无法判定门禁");
+            return new Result(!gateEnabled, failures);
         }
 
         int counted = 0, passed = 0;
