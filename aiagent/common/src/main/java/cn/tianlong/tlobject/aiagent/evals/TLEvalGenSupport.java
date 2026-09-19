@@ -62,7 +62,7 @@ public class TLEvalGenSupport {
     public static List<TLEvalCase> validateAndFilter(List<TLEvalCase> raw, List<String> existingIds,
                                                      List<String> dropped) {
         List<TLEvalCase> kept = new ArrayList<>();
-        Set<String> seenIds = new HashSet<>(existingIds == null ? new ArrayList<>() : existingIds);
+        Set<String> seenIds = existingIds == null ? new HashSet<>() : new HashSet<>(existingIds);
         if (raw == null) return kept;
         for (TLEvalCase c : raw) {
             if (c == null) {
@@ -70,7 +70,9 @@ public class TLEvalGenSupport {
                 continue;
             }
             if (c.id == null || c.id.trim().isEmpty()) {
-                dropped.add("缺 id（用例：" + (c.name != null ? c.name : c.input) + "）");
+                String hint = c.name != null ? c.name
+                        : (c.input != null ? String.valueOf(c.input) : "(无名无输入)");
+                dropped.add("缺 id（用例：" + hint + "）");
                 continue;
             }
             // 没有 judges 的用例会被评测直接判通过——那是假绿灯，宁可不要
