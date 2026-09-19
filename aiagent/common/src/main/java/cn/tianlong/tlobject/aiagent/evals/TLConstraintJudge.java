@@ -83,13 +83,16 @@ public class TLConstraintJudge implements TLEvalJudge {
 
         // 必须包含/禁止包含的字符串
         String response = runResult.response != null ? runResult.response : "";
+        // 内容包含判定忽略空白差异：LLM 会写成 "2 元" 而用例里写的是 "2元"，
+        // 逐字匹配会把正确答案判成失败——假红和假绿一样有害，而且更耗人
+        String haystack = stripWhitespace(response);
 
         List<String> mustContain = getStringList(config, "mustContain");
         if (mustContain != null && !mustContain.isEmpty()) {
             checksTotal++;
             List<String> notFound = new ArrayList<>();
             for (String s : mustContain) {
-                if (!response.contains(s)) notFound.add(s);
+                if (!haystack.contains(stripWhitespace(s))) notFound.add(s);
             }
             if (notFound.isEmpty()) checksPassed++;
             else failures.add("回复中缺少关键内容: " + String.join(", ", notFound));
@@ -100,7 +103,7 @@ public class TLConstraintJudge implements TLEvalJudge {
             checksTotal++;
             List<String> found = new ArrayList<>();
             for (String s : mustNotContain) {
-                if (response.contains(s)) found.add(s);
+                if (haystack.contains(stripWhitespace(s))) found.add(s);
             }
             if (found.isEmpty()) checksPassed++;
             else failures.add("回复中包含禁止内容: " + String.join(", ", found));
@@ -142,6 +145,15 @@ public class TLConstraintJudge implements TLEvalJudge {
             }
         }
         return new JudgeConfig("constraint", null);
+    }
+
+    /**
+     * 去掉所有空白（空格/换行/制表符）。
+     * 只用于 mustContain / mustNotContain 的内容包含判定——"文本在不在回复里"这件事
+     * 不该被排版差异影响；长度、token、迭代那几项判据不受影响。
+     */
+    private static String stripWhitespace(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", "");
     }
 
     @SuppressWarnings("unchecked")

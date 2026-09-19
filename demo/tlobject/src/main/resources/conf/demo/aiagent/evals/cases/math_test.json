@@ -17,7 +17,7 @@
       "type": "constraint",
       "config": {
         "maxIterations": 2,
-        "maxTokens": 500
+        "maxTokens": 8000
       }
     }
   ]

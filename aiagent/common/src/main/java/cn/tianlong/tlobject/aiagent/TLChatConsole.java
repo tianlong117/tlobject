@@ -1472,7 +1472,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         String reportPath = (String) d.get("reportPath");
         System.out.println("✓ 评测完成: " + passed + "/" + total + " 通过"
                 + (passRate instanceof Double ? String.format(" (%.1f%%)", (Double) passRate * 100) : ""));
-        if (reportPath != null && !reportPath.isEmpty()) System.out.println("  报告: " + reportPath);
+        if (reportPath != null && !reportPath.isEmpty()) {
+            // 给人看的是同名 .md（JSON 那份是给机器读的）；万一 .md 没生成出来，仍指回 JSON
+            String md = reportPath.endsWith(".json")
+                    ? reportPath.substring(0, reportPath.length() - ".json".length()) + ".md"
+                    : reportPath;
+            System.out.println("  报告: " + (new java.io.File(md).exists() ? md : reportPath));
+        }
         printBaseline(d);
         printGate(d);
     }

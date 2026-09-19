@@ -1,7 +1,7 @@
 {
   "id": "test-http-skill-001",
   "name": "测试httpRequestSkill-百度首页",
-  "targetAgent": "aiagent_master:httpRequestSkill",
+  "targetAgent": "httpRequestSkill",
   "callType": "skill_execute",
   "input": { "url": "https://www.baidu.com", "method": "GET" },
   "judges": [
