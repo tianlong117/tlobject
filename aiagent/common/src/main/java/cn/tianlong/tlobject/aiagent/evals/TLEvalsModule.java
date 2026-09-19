@@ -86,7 +86,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         baselineFile = nonEmptyOr(baselineFile, params.get("baselineFile"));
         if (params.get("compareBaseline") != null)
             compareBaseline = Boolean.parseBoolean(params.get("compareBaseline"));
-        if (params.get("gatePassRate") != null) {
+        if (params.get("gatePassRate") != null && !params.get("gatePassRate").trim().isEmpty()) {
             try {
                 gatePassRate = Double.parseDouble(params.get("gatePassRate"));
                 // "NaN"/"Infinity" 能解析成功但 NaN>0 为假 → 门禁会静默失效，必须挡住
@@ -99,7 +99,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 gatePassRate = 0;
             }
         }
-        if (params.get("gateMaxRegressions") != null) {
+        if (params.get("gateMaxRegressions") != null && !params.get("gateMaxRegressions").trim().isEmpty()) {
             try {
                 gateMaxRegressions = Integer.parseInt(params.get("gateMaxRegressions"));
             } catch (NumberFormatException e) {
@@ -987,7 +987,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
      */
     TLMsg withGate(TLMsg msg, TLEvalReport report) {
         TLEvalGate.Result r = TLEvalGate.evaluate(report, gatePassRate, gateMaxRegressions);
-        return msg.setParam("gatePassed", r.passed).setParam("gateFailures", r.failures);
+        // gateEnabled 单独给下游（CLI）看：门禁没配时 gatePassed 恒为 true，
+        // 只读它会分不清"没配门禁"和"配了且通过"
+        return msg.setParam("gatePassed", r.passed)
+                .setParam("gateEnabled", gatePassRate > 0 || gateMaxRegressions >= 0)
+                .setParam("gateFailures", r.failures);
     }
 
     // ======================== 工具方法 ========================
