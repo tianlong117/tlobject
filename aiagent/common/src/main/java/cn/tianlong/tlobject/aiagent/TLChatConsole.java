@@ -1486,7 +1486,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     : reportPath;
             System.out.println("  报告: " + (new java.io.File(md).exists() ? md : reportPath));
         }
-        // /eval gen 的额外交代：生成器依据什么能力点出的题、又把哪些条目丢了
+        // /eval gen 的额外交代：生成了哪个文件、依据什么能力点出的题、又把哪些条目丢了
+        Object caseFile = d.get("caseFile");
+        if (caseFile != null && !String.valueOf(caseFile).isEmpty()) {
+            System.out.println("  生成用例: " + caseFile + "（" + d.get("caseCount") + " 条）");
+        }
         Object analysis = d.get("analysis");
         if (analysis != null && !String.valueOf(analysis).isEmpty()) {
             System.out.println("  生成依据（能力点清单）:");

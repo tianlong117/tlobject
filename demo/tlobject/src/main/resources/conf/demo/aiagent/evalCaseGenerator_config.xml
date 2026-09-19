@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 生成用例用的 Provider；留空则回落到评测模块的 judgeProvider。
+             生成比当裁判更吃模型能力，将来想分开配就改这里 -->
+        <generatorProvider value=""/>
+
+        <!-- 用例落盘目录；留空则问评测模块要（推荐留空：两处各写一份，漂移了没人发现） -->
+        <evalCaseDir value=""/>
+
+        <!-- 单次生成的用例数上限 -->
+        <maxCases value="12"/>
+    </params>
+</moduleConfig>
