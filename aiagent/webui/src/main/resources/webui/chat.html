@@ -171,6 +171,18 @@
   </div>
 </div>
 
+<!-- ===== 通用确认弹框（confirmDialog() 动态填入，评测等"点了就会真的跑"的操作先问一句） ===== -->
+<div id="confirmModal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="cfTitle"></h3>
+    <div id="cfText" class="ap-desc"></div>
+    <div class="btn-row">
+      <button class="ok" id="cfOkBtn">确 定</button>
+      <button class="no" id="cfCancelBtn">取 消</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== 断点恢复提示（登录后检测到上次未正常结束的会话，仿命令行启动提示） ===== -->
 <div id="checkpointModal" class="modal hidden">
   <div class="modal-box">

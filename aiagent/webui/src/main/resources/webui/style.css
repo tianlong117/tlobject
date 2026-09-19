@@ -146,3 +146,12 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .toast.ok { background: #16a34a; }
 .toast.err { background: #dc2626; }
 .toast.info { background: #2563eb; }
+
+/* ===== 报告正文（极简 markdown 渲染，见 app.js renderMarkdown） ===== */
+.md-box { margin-top: 8px; max-height: 44vh; overflow: auto; border: 1px solid #2a2f3d;
+          border-radius: 6px; padding: 10px 12px; background: #12141a; }
+.md-box h3 { margin: 0 0 8px; font-size: 15px; color: #d8dde6; }
+.md-box h4 { margin: 12px 0 6px; font-size: 14px; color: #93c5fd; }
+.md-box h5 { margin: 10px 0 4px; font-size: 13px; color: #cbd5e1; }
+.md-box .md-p, .md-box .md-li { font-size: 13px; line-height: 1.7; color: #d8dde6; }
+.md-box .md-li { padding-left: 10px; }

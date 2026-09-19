@@ -51,6 +51,58 @@ function renderResult(r, container) {
 function renderPre(container, lines) {
   container.innerHTML = '<pre class="out">' + esc(Array.isArray(lines) ? lines.join('\n') : String(lines == null ? '' : lines)) + '</pre>';
 }
+// ======================== 报告正文（极简 markdown 渲染） ========================
+// 只覆盖报告用到的语法：标题 / 列表 / 表格 / 加粗。
+// 所有内容先 esc() 再拼——用例名与 LLM 裁判理由都是外部输入，不能当 HTML 用。
+function mdEl(tag, text, cls) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  el.innerHTML = esc(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  return el;
+}
+function renderMarkdown(container, md) {
+  container.innerHTML = '';
+  if (!md) { container.innerHTML = '<div class="empty">（报告为空）</div>'; return; }
+  const lines = String(md).split('\n');
+  const splitCells = row => row.trim().replace(/^\||\|$/g, '').split('|')
+      .map(s => s.trim().replace(/\\\|/g, '|'));
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    // 连续的 | 行 = 一张表（第二行是 |---|---| 分隔行，跳过）
+    if (line.startsWith('|')) {
+      const block = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) { block.push(lines[i]); i++; }
+      const headers = splitCells(block[0]);
+      const body = block.slice(1).filter(r => !/^\|[\s\-:|]+\|$/.test(r.trim()));
+      const rows = body.map(r => {
+        const cells = splitCells(r);
+        const o = {};
+        headers.forEach((h, k) => { o['c' + k] = cells[k] || ''; });
+        return o;
+      });
+      const tableBox = document.createElement('div');
+      renderTable(tableBox, headers.map((h, k) => ['c' + k, h]), rows);
+      container.appendChild(tableBox);
+      continue;
+    }
+    if (line.startsWith('### ')) { container.appendChild(mdEl('h5', line.slice(4))); i++; continue; }
+    if (line.startsWith('## ')) { container.appendChild(mdEl('h4', line.slice(3))); i++; continue; }
+    if (line.startsWith('# ')) { container.appendChild(mdEl('h3', line.slice(2))); i++; continue; }
+    if (line.startsWith('- ')) { container.appendChild(mdEl('div', '• ' + line.slice(2), 'md-li')); i++; continue; }
+    container.appendChild(mdEl('div', line, 'md-p'));
+    i++;
+  }
+}
+/** 把报告正文渲染到 box 末尾（有就显示；接口没带就算了） */
+function appendReport(box, d) {
+  if (!d || !d.reportMarkdown) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'md-box';
+  box.appendChild(wrap);
+  renderMarkdown(wrap, d.reportMarkdown);
+}
 function renderTable(container, headers, rows, curKey) {
   container.innerHTML = '';
   if (!rows || rows.length === 0) {
@@ -579,6 +631,12 @@ function bindEvents() {
   $('#paramModal').addEventListener('click', e => {
     if (e.target === $('#paramModal')) $('#paramModal').classList.add('hidden');
   });
+  // 通用确认弹框
+  $('#cfOkBtn').onclick = () => closeConfirm(true);
+  $('#cfCancelBtn').onclick = () => closeConfirm(false);
+  $('#confirmModal').addEventListener('click', e => {
+    if (e.target === $('#confirmModal')) closeConfirm(false);
+  });
   bindUpload();
 }
 
@@ -968,14 +1026,48 @@ async function mcpRemove(name) {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+// ======================== 通用确认弹框 ========================
+let confirmResolve = null;
+function closeConfirm(result) {
+  $('#confirmModal').classList.add('hidden');
+  const r = confirmResolve;
+  confirmResolve = null;
+  if (r) r(result);
+}
+/** 返回 Promise<boolean>：确定=true；取消或点遮罩=false */
+function confirmDialog(title, text, okText) {
+  return new Promise(resolve => {
+    confirmResolve = resolve;
+    $('#cfTitle').textContent = title;
+    $('#cfText').textContent = text;
+    $('#cfOkBtn').textContent = okText || '确 定';
+    $('#confirmModal').classList.remove('hidden');
+  });
+}
+
 // ======================== 面板：评测/测试 ========================
+// 评测会真实调 LLM（耗 token、要等），误点代价不小 —— 除 list（只读用例清单）外先确认
+const EVAL_CONFIRM = {
+  suite:   ['开始全量评测？', '将按用例目录逐条调用被测 Agent，会真实消耗 LLM token 与时间。'],
+  quick:   ['开始快速自检？', '将调用被测 Agent 跑一条内置用例，会消耗 LLM token。'],
+  run:     ['运行这条用例？', '将调用被测 Agent（agent_chat 用例消耗 LLM token；skill_execute 用例直接调 Skill）。'],
+  cascade: ['开始级联评测？', '将自动发现目标 Agent 的子 Agent/Skill 并逐个评测，会消耗较多 LLM token 与时间。'],
+};
 async function evalCmd(sub, arg) {
-  const box = $('#evalBox');
-  box.innerHTML = '<div class="empty">执行中...</div>';
   const params = { subAction: sub };
   if (sub === 'run') params.caseId = $('#evalCase').value.trim();
   if (sub === 'cascade' && $('#evalAgent').value.trim()) params.agent = $('#evalAgent').value.trim();
-  if (sub === 'run' && !params.caseId) { toast('请输入 caseId', 'err'); box.innerHTML = ''; return; }
+  // 先校验再弹确认：参数不全时不该先让用户点一次"开始评测"
+  if (sub === 'run' && !params.caseId) { toast('请输入 caseId', 'err'); return; }
+
+  const conf = EVAL_CONFIRM[sub];
+  if (conf) {
+    const ok = await confirmDialog(conf[0], conf[1], '开始评测');
+    if (!ok) return;
+  }
+
+  const box = $('#evalBox');
+  box.innerHTML = '<div class="empty">执行中...</div>';
   try {
     const r = await apiCommand('eval', params);
     box.innerHTML = '';
@@ -989,11 +1081,14 @@ async function evalCmd(sub, arg) {
           (d.passRate ? ' (' + Math.round(d.passRate * 100) + '%)' : '') + '</div>';
         if (d.reportPath) html += '<div class="empty">报告: ' + esc(d.reportPath) + '</div>';
         box.innerHTML = html;
+        appendReport(box, d);
       } else {
         box.innerHTML = '<div class="ok-msg">✓ ' + esc(r.message) + '</div>';
       }
     } else {
+      // 失败也要看图：用例挂了的时候报告（失败详情那一节）恰恰最该看
       box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+      appendReport(box, r.data);
     }
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
@@ -1010,7 +1105,11 @@ async function testCmd(mode) {
     }
     const r = await apiCommand('test', params);
     box.innerHTML = '';
-    if (!r.success) { box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>'; return; }
+    if (!r.success) {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message) + '</div>';
+      appendReport(box, r.data);
+      return;
+    }
     if (mode === 'list') {
       const rows = (r.data || []).map(c => ({ c }));
       renderTable(box, [['c', '用例']], rows);
@@ -1018,6 +1117,8 @@ async function testCmd(mode) {
       const d = r.data || {};
       box.innerHTML = '<div class="ok-msg">✓ 测试完成: ' + d.passed + '/' + d.total + ' 通过' +
         (d.failed ? '，失败 ' + d.failed : '') + '</div>';
+      if (d.reportPath) box.innerHTML += '<div class="empty">报告: ' + esc(d.reportPath) + '</div>';
+      appendReport(box, d);
     }
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
 }
