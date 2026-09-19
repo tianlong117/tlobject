@@ -52,7 +52,8 @@ public class TLEvalGate {
         if (passRate > 0) {
             if (counted == 0) {
                 // 悄悄放行会更糟：门禁看起来在工作，实际什么都没判
-                failures.add("没有 stable 用例，无法判定通过率（用例是否全被标成了 flaky？）");
+                failures.add(String.format("没有 stable 用例，无法判定通过率（共 %d 条用例全部被标为 flaky？）",
+                        report.results.size()));
             } else {
                 double rate = (double) passed / counted;
                 if (rate < passRate) {
@@ -63,20 +64,24 @@ public class TLEvalGate {
         }
 
         if (maxRegressions >= 0) {
-            List<TLEvalReport.Change> regs = new ArrayList<>();
-            if (report.summary != null && report.summary.regressions != null) {
+            boolean baselineKnown = report.summary != null && report.summary.baselineFound;
+            if (!baselineKnown) {
+                // "没得比"不是"没有回归"。判不了就是失败，并说明怎么建立基准
+                failures.add("没有可比的基准（未开启基线对比，或目录里没有历史报告），回归无法判定——建立基准后再跑一次即可");
+            } else {
+                List<TLEvalReport.Change> regs = new ArrayList<>();
                 for (TLEvalReport.Change c : report.summary.regressions) {
                     if ("stable".equals(stabilityOf(c.stability))) regs.add(c);
                 }
-            }
-            if (regs.size() > maxRegressions) {
-                StringBuilder ids = new StringBuilder();
-                for (TLEvalReport.Change c : regs) {
-                    if (ids.length() > 0) ids.append("、");
-                    ids.append(c.caseId);
+                if (regs.size() > maxRegressions) {
+                    StringBuilder ids = new StringBuilder();
+                    for (TLEvalReport.Change c : regs) {
+                        if (ids.length() > 0) ids.append("、");
+                        ids.append(c.caseId);
+                    }
+                    failures.add(String.format("出现 %d 项回归（上限 %d）: %s",
+                            regs.size(), maxRegressions, ids));
                 }
-                failures.add(String.format("出现 %d 项回归（上限 %d）: %s",
-                        regs.size(), maxRegressions, ids));
             }
         }
 
