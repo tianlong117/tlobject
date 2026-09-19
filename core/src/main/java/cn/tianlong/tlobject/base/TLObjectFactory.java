@@ -783,7 +783,9 @@ public class TLObjectFactory extends TLBaseModule {
                 isNecessary =moduleConfig.get(MODULE_ISNECESSARY);
             if(isNecessary !=null && isNecessary.equals("yes"))
             {
-                shutdown();
+                // 必要模块创建失败 = 启动失败，退出码不能是 0——
+                // 进程在报告成功，而应用根本没起来。门禁/脚本靠退出码判定，这条必须为真
+                shutdown(1);
                 return null ;
             }
         }
