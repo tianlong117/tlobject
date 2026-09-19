@@ -28,6 +28,12 @@ public class TLEvalRunResult {
     public String error;
     public List<TLEvalVerdict> verdicts = new ArrayList<>();
     public boolean passed;
+    /**
+     * 这条用例这一遍没跑（依赖的模块没配、依赖的 Skill 没注册等）。
+     * 与 passed 互斥：跳过既不算通过也不算失败，通过率里也不该有它——
+     * 折算到任一边都会让"没跑"看起来像"跑过了"或"跑挂了"。
+     */
+    public boolean skipped;
     /** 用例稳定性标记（用例 metadata.stability），随报告落盘，供两次运行之间对比时区分噪声与真回归 */
     public String stability;
 
@@ -69,6 +75,8 @@ public class TLEvalRunResult {
     public void setVerdicts(List<TLEvalVerdict> verdicts) { this.verdicts = verdicts; }
     public boolean isPassed() { return passed; }
     public void setPassed(boolean passed) { this.passed = passed; }
+    public boolean isSkipped() { return skipped; }
+    public void setSkipped(boolean skipped) { this.skipped = skipped; }
     public String getStability() { return stability; }
     public void setStability(String stability) { this.stability = stability; }
 }

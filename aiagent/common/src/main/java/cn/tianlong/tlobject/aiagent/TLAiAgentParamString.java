@@ -124,6 +124,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String LLM_GETTRACES = "getTraces";
     /** 清除指定 session 的 trace 文件 */
     String LLM_CLEARTRACES = "clearTraces";
+    /** 清空 Provider 的运行态缓存（带缓存的 Provider 自己实现；测试靠它做到可重入） */
+    String LLM_CLEARCACHE = "clearCache";
 
     // ======================== Context动作 ========================
     /** 添加一条消息到历史 */

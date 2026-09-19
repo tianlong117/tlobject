@@ -42,6 +42,8 @@ import java.util.regex.Pattern;
  * </pre>
  * 未配置 delegateProvider 时直通（无缓存行为）。流式请求一律直通，v1 不参与。
  *
+ * <p>收到 {@code clearCache} 动作会清空缓存与学习暂存（运行态复位，便于重跑）。</p>
+ *
  * 创建日期：2026/8/14
  * 作者:tianlong
  */
@@ -179,6 +181,32 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         } catch (Exception e) {
             putLog("initDelegate error: " + e.toString(), LogLevel.ERROR);
         }
+    }
+
+    // ======================== 消息分发 ========================
+
+    /**
+     * 在父类分发前拦一个 clearCache：缓存是模块实例态、随工厂单例驻留进程，
+     * 谁要"从头再来一遍"（测试的第二遍、调试重跑）就得有入口把它清掉，
+     * 否则第二遍的"学习"环节直接命中第一遍的条目，行为与第一遍不一致。
+     * 学习暂存与在途标记同属运行态，一并清——只清 cache 会留下一半状态。
+     */
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        if (LLM_CLEARCACHE.equals(msg.getAction())) return clearCache();
+        return super.checkMsgAction(fromWho, msg);
+    }
+
+    private TLMsg clearCache() {
+        int cleared;
+        synchronized (this) {
+            cleared = cache.size();
+            cache.clear();
+        }
+        pendingLearn.clear();
+        inFlight.clear();
+        putLog("TLIntentCacheProvider [" + name + "] cache cleared (" + cleared + " entries)", LogLevel.DEBUG);
+        return createMsg().setParam(RESULT, true).setParam("cleared", cleared);
     }
 
     // ======================== 核心：completion 拦截 ========================

@@ -1516,7 +1516,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** 打印 /test 结果：list 为 List<String>，运行为 {passed, failed, total} */
+    /** 打印 /test 结果：list 为 List<String>，运行为 {passed, failed, total, skipped, skippedCases} */
     @SuppressWarnings("unchecked")
     private void printTestResult(Object data) {
         if (data instanceof List) {
@@ -1528,8 +1528,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             Object passed = r.get("passed");
             Object failed = r.get("failed");
             Object total = r.get("total");
+            // 跳过的用例不在 passed/total 里，不写出来就成了"没配"静默消失
+            Object skipped = r.get("skipped");
+            String skipNote = "";
+            if (skipped instanceof Number && ((Number) skipped).intValue() > 0) {
+                Object cases = r.get("skippedCases");
+                skipNote = "，跳过 " + skipped
+                        + (cases instanceof List && !((List<?>) cases).isEmpty()
+                                ? "（" + String.join("、", (List<String>) cases) + "）" : "");
+            }
             System.out.println("✓ 测试完成: " + passed + "/" + total + " 通过"
-                    + ((failed instanceof Integer && (Integer) failed > 0) ? "，失败 " + failed : ""));
+                    + ((failed instanceof Integer && (Integer) failed > 0) ? "，失败 " + failed : "")
+                    + skipNote);
         }
     }
 

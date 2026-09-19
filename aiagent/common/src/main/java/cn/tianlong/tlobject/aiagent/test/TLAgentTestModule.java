@@ -68,11 +68,18 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     /** Mock Provider 引用（在 init() 中获取，或首次测试时懒加载） */
     private TLMockProvider mockProvider;
 
-    /** 测试统计 */
-    private int passed, failed;
+    /**
+     * 测试统计。
+     * skipped 单列：跳过既不是通过也不是失败——依赖模块没配、测试 Skill 没注册，
+     * 这些跟被测代码的质量无关；混进通过率就会让"没跑"看起来像"跑过了"。
+     */
+    private int passed, failed, skipped;
 
     /** 未通过的用例标签：上层要能报出"挂了哪个"，不然只能看到"有挂的"（每次运行前清空） */
     private final List<String> failedCases = new ArrayList<>();
+
+    /** 跳过的用例标签 + 原因（每次运行前清空，汇总时单列一行） */
+    private final List<String> skippedCases = new ArrayList<>();
 
     /** 逐用例结果，用于生成报告并与上一次运行对比（每次运行前清空） */
     private final List<TLEvalRunResult> runResults = new ArrayList<>();
@@ -87,6 +94,23 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String FN_ECHO = "test_echo";
     /** testSleepSkill 的函数名 */
     private static final String FN_SLEEP = "test_sleep";
+
+    /** 内置场景用的会话 id（agent 的上下文按会话驻留进程，跨运行留存，见 resetTestSessions） */
+    private static final String SID_BASIC        = "test_mock_basic";
+    private static final String SID_MULTITURN    = "test_mock_multiturn";
+    private static final String SID_SINGLETOOL   = "test_mock_singletool";
+    private static final String SID_PARALLEL     = "test_mock_parallel";
+    private static final String SID_TIMEOUT      = "test_mock_timeout";
+    private static final String SID_STREAM       = "test_mock_stream";
+    private static final String SID_CANCEL       = "test_mock_cancel";
+    private static final String SID_BATCHTIMEOUT = "test_mock_batch_timeout";
+    private static final String SID_CHECKPOINT   = "test_mock_checkpoint";
+    private static final String SID_STREAMERR    = "test_mock_streamerr";
+
+    /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
+    private static final List<String> TEST_SESSIONS = Arrays.asList(
+            SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
+            SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR);
 
     // ======================== 构造器 ========================
 
@@ -218,14 +242,20 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         passed = 0;
         failed = 0;
+        skipped = 0;
         failedCases.clear();
+        skippedCases.clear();
         runResults.clear();
+
+        // 上一遍跑过的会话上下文还挂在 agent 上，不清就是在旧历史上接着跑
+        resetTestSessions();
 
         // 场景 1-9: 按注册表顺序运行（依赖测试 Skill 的用例在注册失败时跳过）
         for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
             String[] def = e.getValue();
             TestFunc func = resolveTestCase(e.getKey());
-            if (!skillsOk && def[1] != null) func = skipTest(def[1]);
+            String skipReason = skipReasonFor(def, skillsOk);
+            if (skipReason != null) func = skipTest(skipReason);
             runOne(e.getKey(), def[0], func);
         }
 
@@ -245,6 +275,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         log("===== AI Agent Unit Tests End =====");
         log(String.format("[TEST] 汇总: 通过=%d, 失败=%d", passed, failed));
+        if (skipped > 0) {
+            // 单独一行而不是塞进汇总：跳过不是通过也不是失败，不能让它看起来像"跑了且过了"
+            log("[TEST] 跳过: " + skipped + " 个（不计入通过/失败）: " + String.join("；", skippedCases));
+        }
 
         // 报告落盘 + 与上一次测试对比：测试这层是 mock 驱动、完全可复现，
         // 本该是"每次改动都跑"的那一层，只报数字的话下次又是 11/12，看不出是不是新挂的
@@ -254,6 +288,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return TLEvalReportMsg.attach(
                 createMsg().setParam(RESULT, failed == 0)
                         .setParam("passed", passed).setParam("failed", failed)
+                        .setParam("skipped", skipped).setParam("skippedCases", skippedCases)
                         .setParam("failedCases", failedCases)
                         .setParam("reportPath", reportPath),
                 report, true);
@@ -329,9 +364,22 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         long start = System.currentTimeMillis();
         String error = null;
         boolean ok = false;
+        boolean isSkipped = false;
+        String skipReason = null;
+
+        // 开跑前清空 mock 响应队列：队列是各场景共用的，而场景自己只在开头清一次，
+        // 中途"命中跳过转发"这类分支会让入队的响应没人消费、留到下一个场景（或下一遍运行）
+        // 被错位消费。这里兜底清一次，不会破坏各场景自己入队的预期。
+        TLMockProvider mp = getMockProvider();
+        if (mp != null) mp.clearAllResponses();
+
         try {
             TLMsg r = func.run(null, null);
-            if (r != null && r.parseBoolean(RESULT, false)) {
+            isSkipped = r != null && r.parseBoolean("skipped", false);
+            if (isSkipped) {
+                skipReason = r.getStringParam("skipReason", "");
+                log("[TEST] 场景" + label + ": SKIP - " + skipReason);
+            } else if (r != null && r.parseBoolean(RESULT, false)) {
                 ok = true;
                 log("[TEST] 场景" + label + ": PASS");
             } else {
@@ -342,17 +390,26 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             error = "异常: " + e;
             log("[TEST] 场景" + label + ": FAIL - " + error);
         }
-        if (ok) passed++;
+        if (isSkipped) {
+            skipped++;
+            skippedCases.add(label + "（" + skipReason + "）");
+        } else if (ok) passed++;
         else { failed++; failedCases.add(label); }
-        addResult(id, label, ok, error, start);
+        addResult(id, label, ok, error, isSkipped, skipReason, start);
     }
 
     /**
      * 记一条逐用例结果（报告与基线对比的数据源）。
      * id 用注册表键（basicChat 这类，稳），name 用显示标签（1-基本Chat）——
      * 编号重排时 id 不变，对比出来的"回归"才不会被改名误伤。
+     * skipped 单列：跳过不占 passed/failed 任一格，报告与门禁都不该把它当结果。
      */
     private void addResult(String id, String name, boolean ok, String error, long startMs) {
+        addResult(id, name, ok, error, false, null, startMs);
+    }
+
+    private void addResult(String id, String name, boolean ok, String error,
+                           boolean skipped, String skipReason, long startMs) {
         TLEvalRunResult r = new TLEvalRunResult();
         r.caseId = id;
         r.caseName = name;
@@ -360,8 +417,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         // 非 agent_chat：mock 驱动没有真实 token 消耗，算进均值只会得到一堆 0
         r.callType = "test";
         r.stability = "stable";
+        r.skipped = skipped;
         r.passed = ok;
-        r.error = error;
+        r.error = skipped ? ("跳过: " + skipReason) : error;
         r.latencyMs = System.currentTimeMillis() - startMs;
         runResults.add(r);
     }
@@ -373,7 +431,11 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
     // ======================== 用例注册表 / 单用例运行 ========================
 
-    /** 测试用例注册表：用例名 → [场景标签, 依赖测试Skill失败时的跳过原因(null=不依赖)] */
+    /**
+     * 测试用例注册表：用例名 → [场景标签, 依赖测试Skill失败时的跳过原因(null=不依赖), 依赖的模块名(null=不依赖)]。
+     * 第三个元素是可选扩展——用例依赖的模块在工厂里不存在时跳过（不是失败：应用没配这个模块
+     * 不等于代码坏了，但也不能静默当通过）。
+     */
     private static final LinkedHashMap<String, String[]> TEST_CASES = new LinkedHashMap<>();
     static {
         TEST_CASES.put("basicChat",       new String[]{"1-基本Chat", null});
@@ -386,7 +448,53 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("batchTimeout",    new String[]{"8-批次超时", "test_sleep 未注册"});
         TEST_CASES.put("sessionRecovery", new String[]{"9-会话恢复", "需要 sessionManager"});
         TEST_CASES.put("streamError",      new String[]{"10-流式异常", null});
-        TEST_CASES.put("intentCache",      new String[]{"11-意图缓存", null});
+        TEST_CASES.put("intentCache",      new String[]{"11-意图缓存", null, "testCacheProvider"});
+    }
+
+    /**
+     * 该用例这一遍要不要跳过（返回 null = 照常跑）。
+     * 两类跳过：测试 Skill 注册失败（def[1]）、依赖模块没配（def[2]）。
+     * 后者按"工厂里有没有这个模块"判定——chat 那套配置没配 testCacheProvider，
+     * 之前它被算成 FAIL，测试层因此恒不通过。
+     */
+    private String skipReasonFor(String[] def, boolean skillsOk) {
+        if (!skillsOk && def[1] != null) return def[1];
+        if (def.length > 2 && def[2] != null && !moduleConfigured(def[2]))
+            return "依赖模块 " + def[2] + " 未配置";
+        return null;
+    }
+
+    /**
+     * 工厂里有没有这个模块。只查配置表与实例表：
+     * 走 getModule 探测在模块不存在时会按类名尝试加载并打一串 ERROR/NPE 日志（实测），
+     * 探测本就不该有这种副作用。
+     */
+    private boolean moduleConfigured(String moduleName) {
+        try {
+            TLObjectFactory factory = getFactory();
+            if (factory == null) return false;
+            return factory.containsModule(moduleName) || factory.getModuleConfig(moduleName) != null;
+        } catch (Exception e) {
+            putLog("[TEST_MODULE] 依赖模块探测失败: " + moduleName + " - " + e, LogLevel.WARN);
+            return false;
+        }
+    }
+
+    /**
+     * 清掉内置场景的会话上下文。
+     * agent 是工厂单例、上下文按会话驻留进程：不清的话第二遍就是在第一遍的历史上跑，
+     * "本轮新增 3 条 tool 结果"这类断言会读到 6 条（4-Tool并行执行 第二遍必挂）。
+     * 走 agent 的黑盒接口（AGENT_CLEARCONTEXT），与评测层每次用例后的清理同一手法。
+     */
+    private void resetTestSessions() {
+        for (String sessionId : TEST_SESSIONS) {
+            try {
+                putMsg(M_AIAGENT, createMsg().setAction(AGENT_CLEARCONTEXT)
+                        .setParam(AI_P_SESSIONID, sessionId));
+            } catch (Exception e) {
+                putLog("[TEST_MODULE] 清会话上下文失败: " + sessionId + " - " + e, LogLevel.WARN);
+            }
+        }
     }
 
     /** 用例名 → 测试函数（大小写不敏感），未知返回 null */
@@ -438,21 +546,27 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         boolean skillsOk = registerTestSkills();
         passed = 0;
         failed = 0;
+        skipped = 0;
         failedCases.clear();
+        skippedCases.clear();
         runResults.clear();
+        resetTestSessions();
         try {
             TestFunc func = resolveTestCase(caseName);
-            if (!skillsOk && def[1] != null) func = skipTest(def[1]);
+            String skipReason = skipReasonFor(def, skillsOk);
+            if (skipReason != null) func = skipTest(skipReason);
             runOne(caseName, def[0], func);
         } finally {
             unregisterTestSkills();
             restoreOriginalProvider();
         }
         log(String.format("[TEST] 用例[%s]: 通过=%d, 失败=%d", caseName, passed, failed));
+        if (skipped > 0) log("[TEST] 用例[" + caseName + "] 跳过: " + String.join("；", skippedCases));
         TLEvalReport report = buildAndSaveReport();
         return TLEvalReportMsg.attach(
                 createMsg().setParam(RESULT, failed == 0)
                         .setParam("passed", passed).setParam("failed", failed)
+                        .setParam("skipped", skipped).setParam("skippedCases", skippedCases)
                         .setParam("failedCases", failedCases)
                         .setParam("reportPath", reportPath),
                 report, true);
@@ -476,7 +590,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setSystemParam(AI_P_SESSIONID, "test_mock_basic")
+                .setSystemParam(AI_P_SESSIONID, SID_BASIC)
                 .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "1+1等于几？");
 
@@ -505,7 +619,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         mp.enqueueResponse(mp.textResponse("已记住：王小明，架构师。"));
         mp.enqueueResponse(mp.textResponse("你之前告诉我你叫王小明，是架构师。"));
 
-        String sessionId = "test_mock_multiturn";
+        String sessionId = SID_MULTITURN;
 
         // 回合 1
         TLMsg turn1 = createMsg()
@@ -555,7 +669,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setSystemParam(AI_P_SESSIONID, "test_mock_singletool")
+                .setSystemParam(AI_P_SESSIONID, SID_SINGLETOOL)
                 .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "请用 echo 工具输出 hello world");
 
@@ -589,6 +703,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         if (cp == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "testCacheProvider not found");
         }
+
+        // Provider 是工厂单例，缓存跨运行留存：不清掉上一遍学到的条目，
+        // 这一遍的"学习"环节会直接命中旧条目，后面的 miss 断言全部失效
+        TLMsg clearResult = putMsg(cp, createMsg().setAction(LLM_CLEARCACHE));
+        log("[TEST]   意图缓存: 清空旧缓存 cleared="
+                + (clearResult != null ? clearResult.getIntParam("cleared", -1) : "null"));
+
         mp.clearAllResponses();
 
         List<TLFunctionDefinition> defs = new ArrayList<>();
@@ -731,7 +852,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setSystemParam(AI_P_SESSIONID, "test_mock_parallel")
+                .setSystemParam(AI_P_SESSIONID, SID_PARALLEL)
                 .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_USERMESSAGE, "请同时执行三个 echo 任务");
 
@@ -745,7 +866,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         boolean allCollected = false;
         try {
             TLMsg ctxResult = putMsg(M_AIAGENT, createMsg().setAction(AGENT_GETCONTEXT)
-                    .setParam(AI_P_SESSIONID, "test_mock_parallel"));
+                    .setParam(AI_P_SESSIONID, SID_PARALLEL));
             if (ctxResult != null) {
                 List<TLConversationHistory> hist = (List<TLConversationHistory>)
                         ctxResult.getListParam(AI_P_MESSAGEHISTORY, java.util.List.of());
@@ -793,7 +914,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setSystemParam(AI_P_SESSIONID, "test_mock_timeout")
+                .setSystemParam(AI_P_SESSIONID, SID_TIMEOUT)
                 .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "请 sleep 2000 毫秒");
@@ -821,7 +942,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMockProvider mp = getMockProvider();
         mp.clearAllResponses();
 
-        String sessionId = "test_mock_stream";
+        String sessionId = SID_STREAM;
 
         // 预设流式响应: chunk → chunk → done
         mp.enqueueStreamResponses(sessionId, Arrays.asList(
@@ -873,7 +994,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMockProvider mp = getMockProvider();
         mp.clearAllResponses();
 
-        String sessionId = "test_mock_cancel";
+        String sessionId = SID_CANCEL;
 
         // tool sleep 5s（足够让 cancel 在它完成前到达）
         TLToolCall tc = TLMockProvider.createToolCall("call_sleep_cancel", FN_SLEEP,
@@ -946,7 +1067,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         TLMsg chatMsg = createMsg()
                 .setAction(AGENT_CHAT)
-                .setSystemParam(AI_P_SESSIONID, "test_mock_batch_timeout")
+                .setSystemParam(AI_P_SESSIONID, SID_BATCHTIMEOUT)
                 .setSystemParam(AI_P_USERID, TEST_USER_ID)
                 .setParam(AI_P_MAXTOOLCALLITERATIONS, 2)
                 .setParam(AI_P_USERMESSAGE, "并行 sleep 5 秒 x 3");
@@ -977,7 +1098,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMockProvider mp = getMockProvider();
         mp.clearAllResponses();
 
-        String sessionId = "test_mock_checkpoint";
+        String sessionId = SID_CHECKPOINT;
 
         // 第一轮: tool call → 触发 checkpoint 保存
         TLToolCall tc = TLMockProvider.createToolCall("call_cp_1", FN_ECHO,
@@ -1039,7 +1160,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TLMockProvider mp = getMockProvider();
         mp.clearAllResponses();
 
-        String sessionId = "test_mock_streamerr";
+        String sessionId = SID_STREAMERR;
 
         // 预设流式响应: chunk → 中途错误（模拟 Provider 连接中断）
         mp.enqueueStreamResponses(sessionId, Arrays.asList(

@@ -96,6 +96,8 @@ public class TLEvalBaseline {
             // 只在两次都存在的用例上比较：新增用例没有基准可比，
             // 删掉的用例也不该被算成"回归"
             if (was == null) continue;
+            // 跳过的一遍没有结论，不参与比较：一次"没跑"既不是回归也不是改善
+            if (was.skipped || r.skipped) continue;
             s.baselineCompared++;
             if (was.passed && !r.passed) {
                 s.regressions.add(change(r, was));

@@ -27,6 +27,8 @@ public class TLEvalReport {
         public int total;
         public int passed;
         public int failed;
+        /** 没跑的用例数（依赖缺失等）。不计入 passed/failed，通过率的分母也不含它 */
+        public int skipped;
         public double passRate;
         public double avgTokens;
         public double avgIterations;
@@ -53,6 +55,8 @@ public class TLEvalReport {
         public void setPassed(int passed) { this.passed = passed; }
         public int getFailed() { return failed; }
         public void setFailed(int failed) { this.failed = failed; }
+        public int getSkipped() { return skipped; }
+        public void setSkipped(int skipped) { this.skipped = skipped; }
         public double getPassRate() { return passRate; }
         public void setPassRate(double passRate) { this.passRate = passRate; }
         public double getAvgTokens() { return avgTokens; }
@@ -107,6 +111,7 @@ public class TLEvalReport {
         summary.total = results.size();
         summary.passed = 0;
         summary.failed = 0;
+        summary.skipped = 0;
         int totalTokens = 0;
         int totalIterations = 0;
         long totalLatency = 0;
@@ -115,7 +120,10 @@ public class TLEvalReport {
         int agentChatCount = 0;
 
         for (TLEvalRunResult r : results) {
-            if (r.passed) summary.passed++; else summary.failed++;
+            // 跳过先判：它不占通过也不占失败，更不进通过率分母——"没跑"不能折算成任何一边
+            if (r.skipped) summary.skipped++;
+            else if (r.passed) summary.passed++;
+            else summary.failed++;
             totalLatency += r.latencyMs;
             if ("agent_chat".equals(r.callType)) {
                 totalTokens += r.totalTokens;
@@ -124,7 +132,9 @@ public class TLEvalReport {
             }
         }
 
-        summary.passRate = summary.total > 0 ? (double) summary.passed / summary.total : 0.0;
+        // 通过率的分母是"实际跑了的"：跳过的用例没有结论，算进分母只会拉低一个本就无意义的比率
+        int judged = summary.total - summary.skipped;
+        summary.passRate = judged > 0 ? (double) summary.passed / judged : 0.0;
         summary.avgTokens = agentChatCount > 0 ? (double) totalTokens / agentChatCount : 0.0;
         summary.avgIterations = agentChatCount > 0 ? (double) totalIterations / agentChatCount : 0.0;
         summary.avgLatencyMs = summary.total > 0 ? (double) totalLatency / summary.total : 0.0;
@@ -144,8 +154,9 @@ public class TLEvalReport {
         sb.append("# ").append(title == null || title.isEmpty() ? "评测报告" : title)
                 .append(" ").append(timestamp).append("\n\n");
         sb.append("- 目标: `").append(nullToEmpty(targetAgent)).append("`\n");
-        sb.append(String.format("- 总计 %d | 通过 %d | 失败 %d | 通过率 %.1f%%\n",
-                s.total, s.passed, s.failed, s.passRate * 100));
+        sb.append(String.format("- 总计 %d | 通过 %d | 失败 %d | 通过率 %.1f%%%s\n",
+                s.total, s.passed, s.failed, s.passRate * 100,
+                s.skipped > 0 ? String.format(" | 跳过 %d（不计入通过率）", s.skipped) : ""));
         sb.append(String.format("- 平均 Tokens %.0f | 平均迭代 %.1f | 平均延迟 %.0fms\n",
                 s.avgTokens, s.avgIterations, s.avgLatencyMs));
         if (!compareBaselineShown) {
@@ -166,7 +177,8 @@ public class TLEvalReport {
                     ? cell(r.caseId) : cell(r.caseName) + " (" + cell(r.caseId) + ")";
             sb.append(String.format("| %s | %s | %s | %d | %d | %d | %s |\n",
                     label, cell(r.targetAgent),
-                    r.passed ? "PASS" : "FAIL", r.iterations, r.totalTokens, r.latencyMs,
+                    r.skipped ? "SKIP" : (r.passed ? "PASS" : "FAIL"),
+                    r.iterations, r.totalTokens, r.latencyMs,
                     cell(firstFailureReason(r))));
         }
 
@@ -174,7 +186,7 @@ public class TLEvalReport {
         appendChanges(sb, s.improvements, "改善");
 
         List<TLEvalRunResult> failures = new ArrayList<>();
-        for (TLEvalRunResult r : results) if (!r.passed) failures.add(r);
+        for (TLEvalRunResult r : results) if (!r.passed && !r.skipped) failures.add(r);
         if (!failures.isEmpty()) {
             sb.append("\n## 失败详情\n");
             for (TLEvalRunResult r : failures) {

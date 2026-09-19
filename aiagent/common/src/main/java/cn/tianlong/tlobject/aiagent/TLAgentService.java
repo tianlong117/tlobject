@@ -921,21 +921,28 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         int passed = result.getIntParam("passed", 0);
         int failed = result.getIntParam("failed", 0);
+        // 跳过单列：分母只算跑了的，跳过的用例既不算通过也不算失败
+        int skipped = result.getIntParam("skipped", 0);
+        List<String> skippedCases = result.getListParam("skippedCases", java.util.List.of());
         Map<String, Object> data = reportData(result);
         data.put("passed", passed);
         data.put("failed", failed);
         data.put("total", passed + failed);
+        data.put("skipped", skipped);
+        data.put("skippedCases", skippedCases);
+        String skipNote = skipped > 0
+                ? String.format("，跳过 %d 个（%s）", skipped, String.join("、", skippedCases)) : "";
 
         if (result.parseBoolean(RESULT, false)) {
-            return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过", data);
+            return ok("测试完成: " + passed + "/" + (passed + failed) + " 通过" + skipNote, data);
         }
         // runAllTests 用 RESULT=(failed==0) 表达"有没有挂"，且不设 error——
         // 只读 error 会得到毫无信息量的"未知错误"。通过/失败数与具体挂了的用例一起报出来
         if (failed > 0) {
             List<String> failedCases = result.getListParam("failedCases", java.util.List.of());
             String names = failedCases.isEmpty() ? "" : "：" + String.join("、", failedCases);
-            return fail(String.format("测试失败: %d/%d 通过（%d 个未通过%s）",
-                    passed, passed + failed, failed, names), data);
+            return fail(String.format("测试失败: %d/%d 通过（%d 个未通过%s）%s",
+                    passed, passed + failed, failed, names, skipNote), data);
         }
         return fail("测试失败: " + result.getStringParam("error", "未知错误"), data);
     }
