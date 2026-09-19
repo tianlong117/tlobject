@@ -1547,20 +1547,41 @@ Framework-level automated evaluation: JSON cases + reports, three kinds of Judge
 
 `TLAgentService.doEval` only does routing + result-summary formatting; all evaluation logic lives inside the evals module.
 
+**Reports**: every run produces two files — `eval_report_*.json` (machine-readable, used for baseline comparison) and a same-named `.md` (human-readable: verdict + result table + regressions/improvements + failure details). The console prints a summary; the web UI renders the full report inline.
+
+**Baseline comparison (regression detection)**: each run is compared case-by-case against the previous report, reporting **regressions** (passed before, fails now) and **improvements** — answering "did this break just now, or was it already broken?". When no baseline is available, or the baseline targets a different agent, the report marks `baselineFound=false` — "nothing to compare against" and "compared, no regressions" are different things, and conflating them would give you a false green.
+
+**Gate**: an optional machine verdict answering "can this ship?". Configured in `evals_config.xml`:
+
+```xml
+<gatePassRate value="0.9"/>        <!-- pass-rate threshold; 0 = disabled -->
+<gateMaxRegressions value="0"/>    <!-- allowed regressions; <0 = don't check -->
+```
+
+The gate passes when the pass rate meets the threshold **and** the regression count is within the limit. Cases with `metadata.stability != "stable"` are excluded from both sides — one flaky case would otherwise turn the gate red at random, and people would stop looking at it. The verdict is returned as `gatePassed` / `gateEnabled` / `gateFailures` and printed by the console, without changing the `RESULT` semantics.
+
+> The gate is a **verdict signal, not a runtime barrier**: it blocks no agent calls. It gives you and your scripts a clear pass/fail. Whoever uses it pulls the trigger (or checks the exit code in a script).
+
+**Headless entry point**: `EvalGateCli` in the `demo` module — runs the test layer first (mocked, free), then the evaluation layer if that passes, and reports via exit code (`0`=pass / `1`=gate failed / `2`=startup or execution error), so it can be wired into scripts or scheduled tasks.
+
+> See `aiagent/common/src/main/java/cn/tianlong/tlobject/aiagent/evals/README.md` for the case format, judge options and common pitfalls.
+
 
 ### Unit Tests /test
 
 **Package**: `cn.tianlong.tlobject.aiagent.test` — `TLAgentTestModule`, `TLMockProvider`, `TLEchoSkill`, `TLSleepSkill`
 
-Deterministic unit tests (driven by the Mock Provider, zero network, reproducible results). Covers 9 scenarios: the doChat main loop, multi-round conversation, single/parallel tool calls, timeout, streaming, cancellation, batch timeout, and session recovery.
+Deterministic unit tests (driven by the Mock Provider, zero network, reproducible results). Covers **11 scenarios**: the doChat main loop, multi-round conversation, single tool call, parallel tool calls, tool timeout, streaming chat, cancellation, batch timeout, session recovery, streaming error, and intent cache.
 
 **Console Commands** (available once the chat application has the test module configured):
 
 | Command | Description |
 |------|------|
-| `/test` | Run all tests (9 built-in scenarios + custom cases) |
+| `/test` | Run all tests (11 built-in scenarios + custom cases) |
 | `/test list` | List available test cases |
 | `/test <caseName>` | Run a single scenario (e.g. `/test basicChat`) |
+
+**Test reports**: each run writes `test_report_*.{json,md}` to `data/aitest/reports/`, sharing the same format as evaluation reports and compared against the previous one for regressions/improvements. On failure the caller reports `11/12 passed (1 failed: 11-intent cache)` rather than a bare "unknown error".
 
 **Key Points for Wiring the Chat Application** (`conf/demo/aiagent/`):
 - The test target is an **independent `aiagent` instance** (`aiagent_config.xml`), fully isolated from the master `aiagent_master`: switching tests to mockProvider does not affect real conversations, and sessions use the file-based sessionManager without polluting `/sessions`

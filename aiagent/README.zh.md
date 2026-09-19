@@ -1505,19 +1505,40 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 
 `TLAgentService.doEval` 只做路由 + 结果汇总格式化，评测逻辑全部在 evals 模块内。
 
+**报告**：每次运行产出两份——`eval_report_*.json`（机器读，供基线对比）与同名 `.md`（人读：结论 + 结果表 + 回归/改善 + 失败详情）。控制台打摘要，webui 直接渲染正文。
+
+**基线对比（回归检测）**：每次运行与上一次报告按 `caseId` 对比，直接报出**回归**（上次过、这次挂）与**改善**——回答"这条是这次改挂的，还是上次就挂着"。找不到基准、或基准的目标 Agent 不一致时显式标 `baselineFound=false`，**不当成"无回归"**（"没得比"和"比过了没回归"是两回事）。
+
+**门禁（gate）**：可选的机器判定，回答"这次能不能上"。在 `evals_config.xml` 里配：
+
+```xml
+<gatePassRate value="0.9"/>        <!-- 通过率阈值；0 = 不启用 -->
+<gateMaxRegressions value="0"/>    <!-- 允许的回归数上限；<0 = 不检查 -->
+```
+
+判定 = 通过率达标 **且** 回归数未超限；`metadata.stability != "stable"` 的用例不计入任何一边（一条时好时坏的用例会让门禁随机变红，久了就没人看它了）。结果以 `gatePassed` / `gateEnabled` / `gateFailures` 返回，控制台多打一行门禁结论，**不改 `RESULT` 语义**。
+
+> 门禁是**判定信号，不是运行时闸门**——它不拦任何 agent 调用，只给人和脚本一个明确的"通过/不通过"。真正扣扳机的是使用它的人（或在脚本里判断退出码）。
+
+**无控制台入口**：`demo` 模块的 `EvalGateCli` —— 先跑测试层（mock、免费），过了再跑评测层，用退出码表达结果（`0`=通过 / `1`=门禁不通过 / `2`=启动或执行出错），便于写进脚本或挂计划任务。
+
+> 详见 `aiagent/common/src/main/java/cn/tianlong/tlobject/aiagent/evals/README.md`（含用例格式、判据写法、常见坑）。
+
 ### 单元测试 /test
 
 **包**: `cn.tianlong.tlobject.aiagent.test` — `TLAgentTestModule`、`TLMockProvider`、`TLEchoSkill`、`TLSleepSkill`
 
-确定性单元测试（Mock Provider 驱动，零网络、结果可重复）。覆盖 doChat 主循环、多轮对话、单/并行 Tool、超时、流式、取消、批次超时、会话恢复 9 个场景。
+确定性单元测试（Mock Provider 驱动，零网络、结果可重复）。覆盖 doChat 主循环、多轮对话、单/并行 Tool、超时、流式、取消、批次超时、会话恢复、流式异常、意图缓存 **11 个场景**。
 
 **控制台命令**（chat 应用配置好测试模块后可用）:
 
 | 命令 | 说明 |
 |------|------|
-| `/test` | 运行全部测试（9 内置场景 + 自定义用例） |
+| `/test` | 运行全部测试（11 内置场景 + 自定义用例） |
 | `/test list` | 列出可用测试用例 |
 | `/test <用例名>` | 运行单个场景（如 `/test basicChat`） |
+
+**测试报告**：运行结束产出 `test_report_*.{json,md}` 到 `data/aitest/reports/`，格式与评测报告同源，并同样与上一份按用例对比出回归/改善。失败时上层报的是"`11/12 通过（1 个未通过：11-意图缓存）`"而不是一句"未知错误"。
 
 **chat 应用接入要点**（`conf/demo/aiagent/`）:
 - 测试目标为**独立 `aiagent` 实例**（`aiagent_config.xml`），与主控 `aiagent_master` 完全隔离：测试切 mockProvider 不影响真实对话，会话走文件版 sessionManager，不污染 `/sessions`
