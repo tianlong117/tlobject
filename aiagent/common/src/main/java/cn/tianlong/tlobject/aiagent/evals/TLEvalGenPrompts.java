@@ -50,13 +50,18 @@ public class TLEvalGenPrompts {
         sb.append("  \"id\": \"<可读且稳定的唯一标识，如 priceteam-single-item-001>\",\n");
         sb.append("  \"name\": \"<人类可读的名称>\",\n");
         sb.append("  \"input\": \"<发给 Agent 的消息，必须是字符串>\",\n");
+        sb.append("  \"expectedOutput\": \"<仅 exact_match 判据需要；用了 exact_match 就必须填，否则该判据永远失败>\",\n");
         sb.append("  \"metadata\": { \"stability\": \"stable\" },\n");
-        sb.append("  \"judges\": [ { \"type\": \"constraint\", \"config\": { ... } } ]\n");
+        sb.append("  \"judges\": [\n");
+        sb.append("    { \"type\": \"constraint\", \"config\": { \"maxIterations\": 3, \"minResponseLength\": 10 } },\n");
+        sb.append("    { \"type\": \"llm_judge\", \"config\": { \"prompt\": \"1) … 2) … 3) …\", \"passThreshold\": 0.7 } }\n");
+        sb.append("  ]\n");
         sb.append("}\n\n");
 
         sb.append("## 判据规则（必须遵守）\n");
         sb.append("1. **优先程序化**：能用 constraint（mustContain / mustNotContain / maxIterations / "
-                + "minResponseLength / mustCallTools / mustNotCallTools）或 exact_match 表达的，一律不要用 llm_judge。\n");
+                + "minResponseLength / mustCallTools / mustNotCallTools）或 exact_match 表达的，一律不要用 llm_judge。"
+                + "用 exact_match 时必须填 expectedOutput，否则该判据永远失败。\n");
         sb.append("2. **用 llm_judge 时，prompt 必须逐条可核对**：写成编号的评分要点（例："
                 + "\"1) 是否指出缺少商品信息 2) 是否追问具体商品 3) 若信息不足却给出具体金额则本条计 0 分\"）。"
                 + "禁止\"回答是否准确友好\"这类套话。\n");
