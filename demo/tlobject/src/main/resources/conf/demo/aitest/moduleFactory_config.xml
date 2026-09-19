@@ -51,6 +51,19 @@
                 borrowDelegate="true"
                 delegateProvider="mockProvider"/>
 
+        <!-- 评测用的 LLM 裁判 Provider。
+             框架注册表里那个裸名 openAiProvider 只有类、没有凭据（凭据是每个应用自己配的），
+             直接拿它当 judgeProvider 会在拼请求时因 url 为空抛 NPE。
+             agent 的子模块（aiagent:openAiProvider）够不着——TLLlmJudge 按名寻址、不做家族名解析。
+             所以照 chat 应用的 myopenAiProvider 写法，自己声明一个带凭据的。 -->
+        <module name="myopenAiProvider" sameClassAs="openAiProvider"
+                statup="true"
+                apiKey="sk-your-api-key"
+                apiBaseUrl="https://api.deepseek.com"
+                defaultModel="deepseek-v4-flash"
+                connTimeOut="30"
+                readTimeOut="120"/>
+
     </modules>
 
     <!-- ===== 工厂启动序列 ===== -->
@@ -65,6 +78,8 @@
 
         <!-- 获取内置模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
+        <!-- 评测裁判用的（带凭据）——启动即实例化，配错了在启动时就能看见 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="httpRequestSkill"/>
         <msg action="getModule" destination="moduleFactory" moduleName="fileOperationSkill"/>
         <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>

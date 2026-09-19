@@ -10,8 +10,10 @@
         <!-- 目标 Agent 模块名 -->
         <targetAgent value="aiagent"/>
 
-        <!-- LLM-as-Judge 使用的 Provider -->
-        <judgeProvider value="openAiProvider"/>
+        <!-- LLM-as-Judge 使用的 Provider。
+             必须是本应用自己配了凭据的那个（裸名 openAiProvider 是框架注册表里的类声明，
+             没有 key/基址，拿来当裁判会在拼请求时 NPE） -->
+        <judgeProvider value="myopenAiProvider"/>
 
         <!-- 上下文模块（用于提取 tool calls） -->
         <contextModule value="aiContext"/>
