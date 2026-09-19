@@ -298,8 +298,24 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_DEFAULTMEMORYPACKAGENAME = "defaultMemoryPackageName";
 
     // 推理/思考链 (ReAct)
-    /** 推理模式：off | prompt | native | auto */
+    /** 推理模式：off | prompt | native | auto | disabled */
     String AI_P_REASONING_MODE = "reasoningMode";
+    /**
+     * 推理模式取值：显式关闭推理。
+     * off 是"不处理/不显式开启"——对默认就推理的模型（如 DeepSeek V4）等于没关：实测不传 thinking 时
+     * reasoning_tokens 会等于 max_tokens、finish_reason=length、content 为空串。
+     * 要真的关掉，得让 Provider 显式下发 thinking:{type:disabled}，那就是这个值。
+     */
+    String AI_P_REASONING_MODE_DISABLED = "disabled";
+    /** 本次响应里推理消耗的 token 数（usage.completion_tokens_details.reasoning_tokens） */
+    String AI_P_REASONING_TOKENS = "reasoningTokens";
+    /** 服务端结束原因（stop / length / tool_calls…）；length = 被 max_tokens 截断 */
+    String AI_P_FINISH_REASON = "finishReason";
+    /**
+     * 正文其实是 reasoning_content 提升来的（content 为空时的兜底）。
+     * 调用方据此区分"拿到了答案"与"只拿到模型的内心独白"——后者不该当答案用。
+     */
+    String AI_P_CONTENT_FROM_REASONING = "contentFromReasoning";
     /** 推理内容是否暴露给调用方 */
     String AI_P_REASONING_VISIBLE = "reasoningVisible";
     /** Claude Extended Thinking token预算 */

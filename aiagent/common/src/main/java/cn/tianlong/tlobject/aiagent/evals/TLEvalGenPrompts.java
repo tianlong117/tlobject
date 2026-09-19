@@ -54,6 +54,7 @@ public class TLEvalGenPrompts {
         sb.append("  \"metadata\": { \"stability\": \"stable\" },\n");
         sb.append("  \"judges\": [\n");
         sb.append("    { \"type\": \"constraint\", \"config\": { \"maxIterations\": 3, \"minResponseLength\": 10 } },\n");
+        sb.append("    { \"type\": \"exact_match\", \"config\": { \"contains\": true } },\n");
         sb.append("    { \"type\": \"llm_judge\", \"config\": { \"prompt\": \"1) … 2) … 3) …\", \"passThreshold\": 0.7 } }\n");
         sb.append("  ]\n");
         sb.append("}\n\n");
@@ -61,7 +62,9 @@ public class TLEvalGenPrompts {
         sb.append("## 判据规则（必须遵守）\n");
         sb.append("1. **优先程序化**：能用 constraint（mustContain / mustNotContain / maxIterations / "
                 + "minResponseLength / mustCallTools / mustNotCallTools）或 exact_match 表达的，一律不要用 llm_judge。"
-                + "用 exact_match 时必须填 expectedOutput，否则该判据永远失败。\n");
+                + "用 exact_match 时必须填 expectedOutput，且 config 里写 \"contains\": true——"
+                + "不写就是全等比较，Agent 的一整段回复永远不可能和期望一字不差，这条用例会恒定失败。"
+                + "expectedOutput 写**回复里必然出现的关键片段**（如算出来的数字 \"116\"、关键词），不要写整句话。\n");
         sb.append("2. **用 llm_judge 时，prompt 必须逐条可核对**：写成编号的评分要点（例："
                 + "\"1) 是否指出缺少商品信息 2) 是否追问具体商品 3) 若信息不足却给出具体金额则本条计 0 分\"）。"
                 + "禁止\"回答是否准确友好\"这类套话。\n");

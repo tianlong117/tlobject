@@ -311,6 +311,8 @@ EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <总超时秒数，
 
 **落盘**：一次生成 = 一个文件（`<目标短名>-<yyyyMMdd-HHmmss>.json`），进 `cases/` 就是正式用例，以后 `/eval suite` 每次都会跑到；不满意整批丢掉就删一个文件。`id` 由生成器起成可读且稳定的名字（基线对比靠它，自动编号会让对比失效）。
 
+**token 与推理**：`analysisMaxTokens` / `casesMaxTokens`（默认 4096 / 8192）与 `reasoningMode`（默认 `disabled`，显式关推理）都可配。别把额度配小：推理模型（DeepSeek V4 等）的 reasoning token 与正文共用 `max_tokens`，被推理吃光时 `content` 是空串，报错会指向真因（"没有拿到有效输出：模型可能把 token 全花在推理上"）而不是笼统的"解析不了"。
+
 **判据策略**（这是它能不能用的关键）：
 
 1. **能程序化的一律不请裁判**——"算出 2 元"是硬事实，用 `mustContain`，不用 `llm_judge`

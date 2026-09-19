@@ -41,10 +41,20 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
     private String evalCaseDir = "";
     /** 单次生成的用例数上限（提示词里也写了，这里再兜一道） */
     private int maxCases = 12;
-    /** 分析阶段输出的 token 上限 */
-    private int analysisMaxTokens = 1024;
-    /** 出用例阶段的 token 上限（用例 JSON 比清单长得多） */
-    private int casesMaxTokens = 4096;
+    /**
+     * 分析阶段输出的 token 上限。
+     * 别按"清单就那么长"来配：推理模型的 reasoning token 与正文共用这个额度，配小了会
+     * 全被推理吃光（content 空串）。默认 4096 是给推理模型留的余量。
+     */
+    private int analysisMaxTokens = 4096;
+    /** 出用例阶段的 token 上限（用例 JSON 比清单长得多，同样是推理共享） */
+    private int casesMaxTokens = 8192;
+    /**
+     * 生成用的推理模式。默认显式关推理：两段提示词要的都是结构化文本（清单 / JSON 数组），
+     * 推理过程既没用又和正文抢 max_tokens。off 关不掉（那只是"不显式开启"，模型照推），
+     * 要关得用 disabled，见 TLOpenAiProvider 的 thinking 分支。
+     */
+    private String reasoningMode = AI_P_REASONING_MODE_DISABLED;
 
     public TLEvalCaseGenerator() { super(); }
     public TLEvalCaseGenerator(String name) { super(name); }
@@ -55,7 +65,10 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         putLog("TLEvalCaseGenerator 初始化完成。generatorProvider="
                 + (generatorProvider.isEmpty() ? "(回落评测模块 judgeProvider)" : generatorProvider)
                 + ", evalCaseDir=" + (evalCaseDir.isEmpty() ? "(回落评测模块 evalCaseDir)" : evalCaseDir)
-                + ", maxCases=" + maxCases, LogLevel.INFO);
+                + ", maxCases=" + maxCases
+                + ", analysisMaxTokens=" + analysisMaxTokens
+                + ", casesMaxTokens=" + casesMaxTokens
+                + ", reasoningMode=" + reasoningMode, LogLevel.INFO);
         return this;
     }
 
@@ -65,9 +78,23 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         if (params == null) return;
         if (params.get("generatorProvider") != null) generatorProvider = params.get("generatorProvider").trim();
         if (params.get("evalCaseDir") != null) evalCaseDir = params.get("evalCaseDir").trim();
+        if (params.get("reasoningMode") != null) reasoningMode = params.get("reasoningMode").trim();
         if (params.get("maxCases") != null && !params.get("maxCases").trim().isEmpty()) {
             try { maxCases = Integer.parseInt(params.get("maxCases").trim()); }
             catch (NumberFormatException e) { putLog("maxCases 不是整数，用默认 12: " + params.get("maxCases"), LogLevel.WARN); }
+        }
+        analysisMaxTokens = intParam("analysisMaxTokens", analysisMaxTokens);
+        casesMaxTokens = intParam("casesMaxTokens", casesMaxTokens);
+    }
+
+    private int intParam(String key, int fallback) {
+        String v = params.get(key);
+        if (v == null || v.trim().isEmpty()) return fallback;
+        try {
+            return Integer.parseInt(v.trim());
+        } catch (NumberFormatException e) {
+            putLog(key + " 不是整数，用默认 " + fallback + ": " + v, LogLevel.WARN);
+            return fallback;
         }
     }
 
@@ -102,21 +129,26 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
 
         // ② 收集材料 → LLM 出能力点清单
         String materials = collectMaterials(target);
-        String analysis = callLlm(provider,
-                TLEvalGenPrompts.buildAnalysisPrompt(target, materials, requirement), analysisMaxTokens);
-        if (analysis == null || analysis.trim().isEmpty()) {
-            return fail("分析阶段没有拿到 LLM 输出（检查 Provider 配置与连通性）");
-        }
+        GenCall analysisCall = callAndRequireOutput(provider,
+                TLEvalGenPrompts.buildAnalysisPrompt(target, materials, requirement),
+                analysisMaxTokens, "分析", "analysisMaxTokens");
+        if (analysisCall.text == null) return fail(analysisCall.problem);
+        String analysis = analysisCall.text;
         putLog("===== 能力点清单 =====\n" + analysis, LogLevel.INFO);
 
         // ③ 能力点清单 → 用例 JSON
-        String json = callLlm(provider,
-                TLEvalGenPrompts.buildCasesPrompt(target, analysis, requirement), casesMaxTokens);
-        if (json == null || json.trim().isEmpty()) {
-            return fail("生成阶段没有拿到 LLM 输出");
-        }
+        GenCall jsonCall = callAndRequireOutput(provider,
+                TLEvalGenPrompts.buildCasesPrompt(target, analysis, requirement),
+                casesMaxTokens, "生成", "casesMaxTokens");
+        if (jsonCall.text == null) return fail(jsonCall.problem);
+        String json = jsonCall.text;
         List<TLEvalCase> raw = TLEvalGenSupport.parseCasesJson(json);
         if (raw.isEmpty()) {
+            // 截断与"模型就是没吐 JSON"是两回事：前者调大额度就能好，后者得改提示词/换模型
+            if (isTruncated(jsonCall)) {
+                return fail("生成阶段的输出被 max_tokens 截断（casesMaxTokens=" + casesMaxTokens
+                        + "，finish_reason=length），JSON 不完整——调大 casesMaxTokens 后重试");
+            }
             // 回显原文：解析失败时最该看到的就是它到底吐了什么
             return fail("LLM 输出解析不了（不是合法 JSON 数组），原文片段：\n" + clip(json, 800));
         }
@@ -130,6 +162,8 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         List<TLEvalCase> cases = TLEvalGenSupport.validateAndFilter(raw, existingCaseIds(), dropped);
         // 评测对象由用户指定，不许 LLM 在用例里改
         TLEvalGenSupport.normalizeTarget(cases, target);
+        // exact_match 没配 matches 方式时是全等比较——对 Agent 的整段回复等于永远失败，补成包含匹配
+        TLEvalGenSupport.normalizeExactMatchConfigs(cases);
         if (cases.isEmpty()) {
             return fail("生成的用例全都不合格（" + String.join("；", dropped) + "）");
         }
@@ -256,8 +290,57 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
 
     // ======================== LLM 调用 ========================
 
+    /**
+     * 一次生成的 LLM 调用结果：正文 + 拿不到正文时的原因。
+     * 分开记是因为"没拿到正文"有好几种成因，笼统报一句"解析不了"会把人往 Provider 配置上引，
+     * 而真因通常是 max_tokens 被推理吃光或输出被截断。
+     */
+    private static class GenCall {
+        final String text;          // 可用的正文；拿不到为 null
+        final String problem;       // 拿不到正文的原因（直接给用户看）
+        final boolean truncated;    // finish_reason=length：输出被 max_tokens 截断
+        GenCall(String text, String problem, boolean truncated) {
+            this.text = text; this.problem = problem; this.truncated = truncated;
+        }
+    }
+
+    /**
+     * 调 Provider 并判定"有没有拿到能用的正文"。
+     * 关键是认出这一支：content 为空时 TLOpenAiProvider 会把 reasoning_content 提升成正文兜底，
+     * 于是我们拿到的可能是模型的内心独白（甚至是被截断的独白）而不是答案——不认这一支，
+     * 就只能报成"输出解析不了"，把"token 全花在推理上"这个真因埋掉。
+     */
+    private GenCall callAndRequireOutput(String provider, String prompt, int maxTokens,
+                                         String stage, String maxTokensParam) {
+        TLMsg r = callLlm(provider, prompt, maxTokens);
+        if (r == null) {
+            return new GenCall(null, stage + "阶段调用 Provider 失败（检查 Provider 配置与连通性，详见日志）", false);
+        }
+        boolean truncated = "length".equals(r.getStringParam(AI_P_FINISH_REASON, ""));
+        int reasoningTokens = r.getIntParam(AI_P_REASONING_TOKENS, 0);
+        String text = r.getStringParam(AI_P_RESPONSE, "");
+        if (r.parseBoolean(AI_P_CONTENT_FROM_REASONING, false)) {
+            return new GenCall(null, stage + "阶段没有拿到有效输出：只拿到推理过程，正文是空的"
+                    + "（模型可能把 token 全花在推理上了：reasoningTokens=" + reasoningTokens
+                    + "/max=" + maxTokens + "，finish_reason=" + r.getStringParam(AI_P_FINISH_REASON, "?")
+                    + "）——试着调大 " + maxTokensParam + "，或设 reasoningMode=disabled 关掉推理", truncated);
+        }
+        if (text.trim().isEmpty()) {
+            return new GenCall(null, stage + "阶段没有拿到有效输出：正文为空"
+                    + "（reasoningTokens=" + reasoningTokens + "/max=" + maxTokens
+                    + "，finish_reason=" + r.getStringParam(AI_P_FINISH_REASON, "?")
+                    + "）——若 finish_reason=length，试着调大 " + maxTokensParam
+                    + "，或设 reasoningMode=disabled 关掉推理", truncated);
+        }
+        return new GenCall(text, null, truncated);
+    }
+
+    private boolean isTruncated(GenCall call) {
+        return call != null && call.truncated;
+    }
+
     /** 调一次 Provider；失败返回 null（调用方报错，不吞） */
-    private String callLlm(String provider, String prompt, int maxTokens) {
+    private TLMsg callLlm(String provider, String prompt, int maxTokens) {
         List<TLConversationHistory> history = new ArrayList<>();
         history.add(new TLConversationHistory(TLConversationHistory.Role.user, prompt));
         TLMsg llmMsg = createMsg()
@@ -265,6 +348,11 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
                 .setParam(AI_P_MESSAGEHISTORY, history)   // Provider 只认这个，不认 AI_P_USERMESSAGE
                 .setParam(AI_P_TEMPERATURE, 0.3)
                 .setParam(AI_P_MAXTOKENS, maxTokens);
+        // 推理模式透传给 Provider：默认 disabled（显式关）。off 是关不掉的——那只是"不显式开启"，
+        // 而推理模型的默认就是推理，边推理边把 max_tokens 吃光
+        if (reasoningMode != null && !reasoningMode.isEmpty()) {
+            llmMsg.setParam(AI_P_REASONING_MODE, reasoningMode);
+        }
         // 配错 provider 时只让这次调用失败，而不是走 putMsg 默认的 shutdown(-1) 关掉应用
         llmMsg.setSystemParam(IGNOREMODULEISNULL, true);
         try {
@@ -284,8 +372,8 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
                         + r.getStringParam("error", r.getStringParam(AI_P_RESPONSE, "")), LogLevel.ERROR);
                 return null;
             }
-            String text = r.getStringParam(AI_P_RESPONSE, "");
-            return text.isEmpty() ? null : text;
+            // 正文是否为空由调用方判定（空正文可能是"推理吃光 token"，要报得具体）
+            return r;
         } catch (Exception e) {
             putLog("调 Provider 失败(" + provider + "): " + e, LogLevel.ERROR);
             return null;

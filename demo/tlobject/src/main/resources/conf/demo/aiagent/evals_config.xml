@@ -13,6 +13,11 @@
         <!-- LLM-as-Judge 使用的 Provider -->
         <judgeProvider value="myopenAiProvider"/>
 
+        <!-- 裁判调用用的推理模式：disabled(默认) 显式关推理 | off 不显式开启 | native | auto。
+             裁判只要吐一个短 JSON，推理会抢 max_tokens——被吃光时 content 是空串，
+             "判决"其实成了模型的内心独白，用例白白变红。provider 不接受 thinking 字段时设 off -->
+        <judgeReasoningMode value="disabled"/>
+
         <!-- 上下文模块（用于提取 tool calls） -->
         <contextModule value="aiContext"/>
 

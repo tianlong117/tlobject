@@ -10,5 +10,15 @@
 
         <!-- 单次生成的用例数上限 -->
         <maxCases value="12"/>
+
+        <!-- 分析/出用例两阶段各自的 max_tokens 上限。别按"输出就那么长"来配：
+             推理模型（DeepSeek V4 等）的 reasoning token 与正文共用这个额度，配小了会全被推理吃光，
+             content 变成空串（finish_reason=length）——这正是生成器一度跑不通的原因 -->
+        <analysisMaxTokens value="4096"/>
+        <casesMaxTokens value="8192"/>
+
+        <!-- 生成用的推理模式：disabled(默认) 显式关推理 | off 只是"不显式开启"（推理模型照推）| native | auto。
+             两段提示词要的都是结构化文本（清单 / JSON），推理没用还抢 token，默认关掉 -->
+        <reasoningMode value="disabled"/>
     </params>
 </moduleConfig>

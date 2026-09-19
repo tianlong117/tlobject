@@ -6,7 +6,9 @@ import com.google.gson.reflect.TypeToken;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -103,6 +105,33 @@ public class TLEvalGenSupport {
             kept.add(c);
         }
         return kept;
+    }
+
+    /**
+     * 给 exact_match 判据补上默认匹配方式。
+     *
+     * 没配 config 时 TLExactMatchJudge 走的是**全等**（contains 默认 false）——把"116 元"和
+     * Agent 的一整段报价回复全等比较，永远不可能相等，等于生成了一批恒定红灯的用例
+     * （真跑过：12 条里 7 条死在这上）。框架里手写的用例（math_test.json）都是显式配
+     * contains=true 的，这里替 LLM 把这一步补上，只补没写的键，不覆盖显式配置。
+     */
+    public static void normalizeExactMatchConfigs(List<TLEvalCase> cases) {
+        if (cases == null) return;
+        for (TLEvalCase c : cases) {
+            if (c == null || c.judges == null) continue;
+            for (JudgeConfig j : c.judges) {
+                if (j == null || !"exact_match".equals(j.type)) continue;
+                if (j.config == null) j.config = new LinkedHashMap<>();
+                putDefault(j.config, "contains", true);
+                putDefault(j.config, "ignoreCase", true);
+                putDefault(j.config, "normalizeWhitespace", true);
+                putDefault(j.config, "trim", true);
+            }
+        }
+    }
+
+    private static void putDefault(Map<String, Object> config, String key, Object value) {
+        if (!config.containsKey(key)) config.put(key, value);
     }
 
     /** 用例里有没有 exact_match 判据、却压根没给期望输出 */

@@ -35,11 +35,17 @@ public class TLLlmJudge implements TLEvalJudge, TLAiAgentParamString {
             java.util.List<TLConversationHistory> judgeHistory = new java.util.ArrayList<>();
             judgeHistory.add(new TLConversationHistory(TLConversationHistory.Role.user, evalPrompt));
 
+            // max_tokens 512 → 1024：裁判只要吐一个短 JSON，但推理模型的 reasoning token 与正文
+            // 共用这个额度，512 被推理吃光后 content 是空串（拿到的"判决"其实是内心独白，一律判成
+            // "无法解析为 JSON"）。同时默认显式关推理——判决 JSON 不需要推理过程
             TLMsg llmMsg = context.evalsModule.createMsg()
                     .setAction(LLM_COMPLETION)
                     .setParam(AI_P_MESSAGEHISTORY, judgeHistory)
                     .setParam(AI_P_TEMPERATURE, 0.1)
-                    .setParam(AI_P_MAXTOKENS, 512);
+                    .setParam(AI_P_MAXTOKENS, 1024);
+            if (context.judgeReasoningMode != null && !context.judgeReasoningMode.isEmpty()) {
+                llmMsg.setParam(AI_P_REASONING_MODE, context.judgeReasoningMode);
+            }
 
             String model = config.getString("model");
             if (model != null && !model.isEmpty()) {
@@ -64,6 +70,15 @@ public class TLLlmJudge implements TLEvalJudge, TLAiAgentParamString {
             }
 
             String judgeResponse = result.getStringParam(AI_P_RESPONSE, "");
+            // 正文是 reasoning_content 提升来的（content 为空）= 裁判压根没出判决，别把它当
+            // "模型没按格式输出"报——真因是 token 被推理吃光，调 judgeReasoningMode 就能解
+            if (result.parseBoolean(AI_P_CONTENT_FROM_REASONING, false) || judgeResponse.trim().isEmpty()) {
+                return TLEvalVerdict.fail("llm_judge", 0.0,
+                        "裁判没有产出判决（模型可能把 token 全花在推理上了：reasoningTokens="
+                        + result.getIntParam(AI_P_REASONING_TOKENS, 0)
+                        + "，finish_reason=" + result.getStringParam(AI_P_FINISH_REASON, "?")
+                        + "）——把 judgeReasoningMode 设成 disabled 关掉裁判的推理");
+            }
             JudgeOutput output = parseJudgeOutput(judgeResponse);
 
             boolean passed = output.pass && output.score >= passThreshold;

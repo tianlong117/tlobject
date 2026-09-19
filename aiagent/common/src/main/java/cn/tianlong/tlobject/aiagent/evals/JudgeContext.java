@@ -11,6 +11,8 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 public class JudgeContext {
     public TLBaseModule evalsModule;
     public String judgeProviderName;
+    /** 裁判调用用的推理模式（见 TLEvalsModule.judgeReasoningMode）；配错 provider 时可设 off 绕过 */
+    public String judgeReasoningMode = "disabled";
 
     public JudgeContext(TLBaseModule evalsModule, String judgeProviderName) {
         this.evalsModule = evalsModule;

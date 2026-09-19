@@ -34,6 +34,13 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     private String targetAgent = "aiagent";
     private String judgeProvider = "openAiProvider";
     /**
+     * 裁判调用用的推理模式（默认显式关）。
+     * 裁判只要吐一个短 JSON，推理既没用又抢 max_tokens：实测裁判调用（max_tokens 只有 512）
+     * 被推理吃光后 content 是空串，拿到的"判决"其实是模型的内心独白 → 一律判成
+     * "裁判输出无法解析为 JSON"，用例白白变红。provider 不吃 thinking 字段时可配成 off。
+     */
+    private String judgeReasoningMode = AI_P_REASONING_MODE_DISABLED;
+    /**
      * 评测会话的身份标识。
      * 评测消息不带 userId 时，框架会拿 sessionId 顶替（TLAiAgent 里 currentChatUserId 的兜底），
      * 而评测的 sessionId 是 "eval_用例id_时间戳"——每条用例、每次运行都不同，
@@ -82,6 +89,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         reportOutputDir = nonEmptyOr(reportOutputDir, params.get("reportOutputDir"));
         targetAgent = nonEmptyOr(targetAgent, params.get("targetAgent"));
         judgeProvider = nonEmptyOr(judgeProvider, params.get("judgeProvider"));
+        judgeReasoningMode = nonEmptyOr(judgeReasoningMode, params.get("judgeReasoningMode"));
         contextModule = nonEmptyOr(contextModule, params.get("contextModule"));
         baselineFile = nonEmptyOr(baselineFile, params.get("baselineFile"));
         if (params.get("compareBaseline") != null)
@@ -695,6 +703,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
     private void runAllJudges(TLEvalCase evalCase, TLEvalRunResult result) {
         JudgeContext ctx = new JudgeContext(this, judgeProvider);
+        ctx.judgeReasoningMode = judgeReasoningMode;
         result.verdicts = new ArrayList<>();
         boolean allPassed = true;
 

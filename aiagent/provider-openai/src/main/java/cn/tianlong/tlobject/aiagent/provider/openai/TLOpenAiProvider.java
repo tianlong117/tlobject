@@ -161,6 +161,13 @@ public class TLOpenAiProvider extends TLLlmProvider {
             // reasoning_effort: high 质量最高但更慢，默认 medium
             String effort = msg.getStringParam("reasoningEffort", "medium");
             body.addProperty("reasoning_effort", effort);
+        } else if (AI_P_REASONING_MODE_DISABLED.equals(reasoningMode)) {
+            // 显式关闭推理。off 是"什么都不做"，而推理模型的默认就是推理：实测 deepseek-v4-flash
+            // 不传 thinking 时，稍难一点的提示词就会 reasoning_tokens=max_tokens、finish_reason=length、
+            // content 为空串——纯粹烧 token。结构化输出（如生成 JSON）不需要推理过程，用这个值关掉。
+            JsonObject thinking = new JsonObject();
+            thinking.addProperty("type", "disabled");
+            body.add("thinking", thinking);
         }
 
         // 标记可缓存内容（DeepSeek/OpenAI 自动服务端缓存，无需客户端修改请求体）
@@ -199,7 +206,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
             // 解析finish_reason
             String finishReason = firstChoice.has("finish_reason")
                     ? firstChoice.get("finish_reason").getAsString() : null;
-            result.setParam("finishReason", finishReason);
+            result.setParam(AI_P_FINISH_REASON, finishReason);
 
             // 解析文本内容
             if (message.has("content") && !message.get("content").isJsonNull()) {
@@ -209,7 +216,12 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 if (content.isEmpty()) {
                     String reasoning = message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()
                             ? message.get("reasoning_content").getAsString() : "";
-                    if (!reasoning.isEmpty()) content = reasoning;
+                    if (!reasoning.isEmpty()) {
+                        content = reasoning;
+                        // 让调用方知道这不是答案而是兜底的独白：不标记的话，"推理吃光 token"
+                        // 在外层看起来和"模型正常回答了但内容是解释"一模一样，只能报成"解析不了"
+                        result.setParam(AI_P_CONTENT_FROM_REASONING, true);
+                    }
                 }
                 result.setParam(AI_P_RESPONSE, content);
             }
@@ -243,6 +255,13 @@ public class TLOpenAiProvider extends TLLlmProvider {
                         ? usage.get("completion_tokens").getAsInt() : 0);
                 result.setParam("totalTokens", usage.has("total_tokens")
                         ? usage.get("total_tokens").getAsInt() : 0);
+                // 推理 token：推理模型下它会和正文抢 max_tokens，是"content 为空"的第一现场证据
+                if (usage.has("completion_tokens_details")) {
+                    JsonObject details = usage.getAsJsonObject("completion_tokens_details");
+                    if (details != null && details.has("reasoning_tokens")) {
+                        result.setParam(AI_P_REASONING_TOKENS, details.get("reasoning_tokens").getAsInt());
+                    }
+                }
                 // DeepSeek 硬盘缓存字段
                 if (usage.has("prompt_cache_hit_tokens")) {
                     result.setParam(AI_P_CACHEHITTOKENS, usage.get("prompt_cache_hit_tokens").getAsLong());
@@ -508,15 +527,18 @@ public class TLOpenAiProvider extends TLLlmProvider {
                             String finalContent = contentBuilder.toString();
                             // DeepSeek 推理模型偶发：答案全部输出在 reasoning_content 而 content 为空 →
                             // 提升为正文兜底（空响应在 agent 层只会存占位符，用户看不到结果）
+                            boolean contentFromReasoning = false;
                             if (finalContent.isEmpty() && reasoningBuilder.length() > 0) {
                                 finalContent = reasoningBuilder.toString();
                                 reasoningBuilder.setLength(0); // 已提升，doneMsg 不再重复携带
+                                contentFromReasoning = true;
                             }
                             TLMsg doneMsg = createMsg()
                                     .setAction(resultAction)
                                     .setParam(AI_P_STREAMDONE, true)
                                     .setParam(AI_P_RESPONSE, finalContent)
                                     .setParam(AI_P_SESSIONID, sessionId);
+                            if (contentFromReasoning) doneMsg.setParam(AI_P_CONTENT_FROM_REASONING, true);
                             if (reasoningBuilder.length() > 0) {
                                 doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());
                             }
