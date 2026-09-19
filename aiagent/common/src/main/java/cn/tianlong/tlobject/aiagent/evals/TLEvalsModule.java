@@ -45,6 +45,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     private boolean compareBaseline = true;
     /** 指定基准报告（路径或报告目录下的文件名）；留空则自动取报告目录里最近一份 */
     private String baselineFile = "";
+    /** 门禁：通过率阈值（<=0 表示不启用）；回归数上限（<0 表示不检查） */
+    private double gatePassRate = 0;
+    /** 默认 -1 = 不检查回归。不能用 0：0 满足 ">=0" 会让回归门禁默认就是开的，
+        与"门禁默认不启用"矛盾，而且首次运行没有基准会直接判失败 */
+    private int gateMaxRegressions = -1;
     /**
      * @deprecated 已不再使用。取/清会话历史都改走目标 Agent 的黑盒接口
      * （AGENT_GETCONTEXT / AGENT_CLEARCONTEXT）—— 直接按裸名寻址拿到的是工厂里的 aiContext 单例，
@@ -81,6 +86,27 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         baselineFile = nonEmptyOr(baselineFile, params.get("baselineFile"));
         if (params.get("compareBaseline") != null)
             compareBaseline = Boolean.parseBoolean(params.get("compareBaseline"));
+        if (params.get("gatePassRate") != null) {
+            try {
+                gatePassRate = Double.parseDouble(params.get("gatePassRate"));
+                // "NaN"/"Infinity" 能解析成功但 NaN>0 为假 → 门禁会静默失效，必须挡住
+                if (Double.isNaN(gatePassRate) || Double.isInfinite(gatePassRate)) {
+                    putLog("gatePassRate 不是有效数字，门禁按不启用处理: " + params.get("gatePassRate"), LogLevel.WARN);
+                    gatePassRate = 0;
+                }
+            } catch (NumberFormatException e) {
+                putLog("gatePassRate 不是数字，门禁按不启用处理: " + params.get("gatePassRate"), LogLevel.WARN);
+                gatePassRate = 0;
+            }
+        }
+        if (params.get("gateMaxRegressions") != null) {
+            try {
+                gateMaxRegressions = Integer.parseInt(params.get("gateMaxRegressions"));
+            } catch (NumberFormatException e) {
+                putLog("gateMaxRegressions 不是整数，按不检查回归处理: " + params.get("gateMaxRegressions"), LogLevel.WARN);
+                gateMaxRegressions = -1;
+            }
+        }
 
         ensureDir(reportOutputDir);
 
@@ -142,10 +168,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             String reportPath = saveReport(report);
             printSummary(report);
 
-            return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+            return withGate(withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                     .setParam("passed", report.summary.passed)
                     .setParam("failed", report.summary.failed)
-                    .setParam("passRate", report.summary.passRate), report);
+                    .setParam("passRate", report.summary.passRate), report), report);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
@@ -176,11 +202,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             printSummary(report);
             putLog("报告已保存: " + reportPath, LogLevel.INFO);
 
-            return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+            return withGate(withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                     .setParam("total", report.summary.total)
                     .setParam("passed", report.summary.passed)
                     .setParam("failed", report.summary.failed)
-                    .setParam("passRate", report.summary.passRate), report);
+                    .setParam("passRate", report.summary.passRate), report), report);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam(EXCEPTION, e.getMessage());
         }
@@ -397,11 +423,11 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         printSummary(report);
         putLog("级联报告已保存: " + reportPath, LogLevel.INFO);
 
-        return withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
+        return withGate(withBaseline(createMsg().setParam(RESULT, true).setParam("reportPath", reportPath)
                 .setParam("total", report.summary.total)
                 .setParam("passed", report.summary.passed)
                 .setParam("failed", report.summary.failed)
-                .setParam("passRate", report.summary.passRate), report);
+                .setParam("passRate", report.summary.passRate), report), report);
     }
 
     /** 为级联目标自动生成基础评测用例（轻量冒烟测试） */
@@ -950,6 +976,18 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
     /** 把基线对比结果挂到返回消息上，供控制台/上层显示（字段名与测试层共用，见 TLEvalReportMsg） */
     private TLMsg withBaseline(TLMsg msg, TLEvalReport report) {
         return TLEvalReportMsg.attach(msg, report, compareBaseline);
+    }
+
+    /**
+     * 套件级动作收尾：挂上门禁判定结果。
+     * 单用例动作不调用——单条用例谈不上"通过率"。
+     *
+     * 结果用新参数返回，不动 RESULT 语义：RESULT 在框架里是"这个动作是否执行成功"，
+     * 改成门禁结果会让控制台把"评测跑完了但没过"报成"评测失败"。
+     */
+    TLMsg withGate(TLMsg msg, TLEvalReport report) {
+        TLEvalGate.Result r = TLEvalGate.evaluate(report, gatePassRate, gateMaxRegressions);
+        return msg.setParam("gatePassed", r.passed).setParam("gateFailures", r.failures);
     }
 
     // ======================== 工具方法 ========================
