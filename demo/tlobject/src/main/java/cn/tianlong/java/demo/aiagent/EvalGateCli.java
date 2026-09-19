@@ -12,15 +12,18 @@ import java.util.Map;
  * 评测门禁 CLI：无控制台跑"测试层 → 评测层"，用退出码表达结果。
  *
  * <pre>
- * EvalGateCli -d &lt;配置目录&gt; [-m &lt;工厂配置&gt;] [--timeout &lt;秒，默认 60&gt;]
+ * EvalGateCli -d &lt;配置目录&gt; [-m &lt;工厂配置&gt;] [--timeout &lt;总超时秒数，默认 900&gt;]
  * </pre>
  *
  * 退出码：
  *   0 = 两层都通过
  *   1 = 门禁不通过（测试层有失败，或评测门禁没过）
- *   2 = 启动或执行出错（跑不起来、门禁未配置、消息无响应）
+ *   2 = 启动或执行出错（跑不起来、门禁未配置、消息无响应、超时）
  *
  * 1 与 2 分开是刻意的：脚本需要区分"代码坏了"和"质量退化了"，处置方式不同。
+ *
+ * --timeout 是整条命令的总预算，启动即武装；进入关闭阶段会改写成一个独立的 60 秒预算
+ * （关闭本来就该很快），此时超时用已判定的退出码退出。
  *
  * 顺序刻意是"先测试层（mock、免费）再评测层（真实 LLM、花钱）"——管线断了就没必要花 token。
  *
@@ -51,9 +54,12 @@ public class EvalGateCli extends TLAppStartUp {
             argsMap.put("configPath", opts.get("d"));
             argsMap.put("factoryConfigFile", opts.getOrDefault("m", "moduleFactory_config.xml"));
             TLObjectFactory factory = app.startup(argsMap);
+            // 总超时：评测层（真实 LLM）卡住时不能让进程一直挂着
+            armWatchdog(timeoutSec);
             int code = runGate(app, factory);
-            // 关闭流程可能挂住（模块 destroy 里自旋，例如未清理的 checkpoint）——看门狗兜底
-            armWatchdog(timeoutSec, code);
+            // 进入关闭阶段：换成较短的独立预算，且用已判定的退出码
+            pendingCode.set(code);
+            deadline.set(System.currentTimeMillis() + SHUTDOWN_GRACE_SEC * 1000);
             factory.shutdown(code);   // 必须用带参的那个：无参的硬编码 System.exit(0)
         } catch (Throwable t) {
             System.err.println("✗ 启动或执行出错: " + t);
@@ -122,41 +128,59 @@ public class EvalGateCli extends TLAppStartUp {
         } else {
             System.out.println("    （没有给出原因，请查看评测报告）");
         }
+        Object reportPath = data.get("reportPath");
+        if (reportPath != null && !String.valueOf(reportPath).isEmpty()) {
+            System.out.println("  报告: " + reportPath);
+        }
         return EXIT_GATE_FAIL;
     }
 
+    /** 看门狗截止时间（毫秒时间戳）。进入关闭阶段时会被改写成"关闭截止时间" */
+    private static final java.util.concurrent.atomic.AtomicLong deadline = new java.util.concurrent.atomic.AtomicLong();
+    /** 超时时用哪个退出码 */
+    private static final java.util.concurrent.atomic.AtomicInteger pendingCode = new java.util.concurrent.atomic.AtomicInteger(EXIT_ERROR);
+    /** 关闭阶段给的独立预算：它比主流程短，因为关闭本来就该很快 */
+    private static final long SHUTDOWN_GRACE_SEC = 60;
+
     /**
-     * 看门狗：关闭流程卡住时强制退出。
+     * 武装看门狗（只武装一次，之后靠改截止时间来切换阶段）。
      * 用 halt 而不是 exit —— exit 会去跑关闭钩子，而关不掉的原因恰恰可能是在钩子/销毁里自旋。
      */
-    private static void armWatchdog(long seconds, int code) {
+    private static void armWatchdog(long seconds) {
+        deadline.set(System.currentTimeMillis() + seconds * 1000);
         Thread t = new Thread(() -> {
-            try {
-                Thread.sleep(seconds * 1000);
-            } catch (InterruptedException ignored) {
+            while (true) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ignored) {
+                    return;
+                }
+                if (System.currentTimeMillis() >= deadline.get()) {
+                    int code = pendingCode.get();
+                    System.err.println("⚠ 超时，强制退出（退出码 " + code + "）");
+                    Runtime.getRuntime().halt(code);
+                }
             }
-            System.err.println("⚠ 关闭超时 " + seconds + "s，强制退出（退出码 " + code + "）");
-            Runtime.getRuntime().halt(code);
         }, "eval-gate-watchdog");
         t.setDaemon(true);
         t.start();
     }
 
     private static long parseTimeout(String v) {
-        if (v == null || v.trim().isEmpty()) return 60;
+        if (v == null || v.trim().isEmpty()) return 900;
         try {
             long n = Long.parseLong(v.trim());
-            return n > 0 ? n : 60;
+            return n > 0 ? n : 900;
         } catch (NumberFormatException e) {
-            System.err.println("--timeout 不是数字，用默认 60 秒");
-            return 60;
+            System.err.println("--timeout 不是数字，用默认 900 秒");
+            return 900;
         }
     }
 
     private static void printUsage() {
-        System.out.println("用法: EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <秒，默认 60>]");
+        System.out.println("用法: EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <总超时秒数，默认 900>]");
         System.out.println("  顺序: 先跑测试层（mock，免费），过了再跑评测层（真实 LLM）");
-        System.out.println("  退出码: 0=通过  1=门禁不通过  2=启动或执行出错");
+        System.out.println("  退出码: 0=通过  1=门禁不通过  2=启动或执行出错（含超时、门禁未配置）");
     }
 
     /**
