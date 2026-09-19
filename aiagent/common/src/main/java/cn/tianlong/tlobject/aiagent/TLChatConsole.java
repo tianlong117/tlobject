@@ -1003,8 +1003,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 msg.setParam("subAction", "cascade");
                 if (parts.length > 2) msg.setParam("agent", parts[2]);
                 break;
+            case "gen":
+                // /eval gen <agent> [要求描述]
+                msg.setParam("subAction", "gen");
+                if (parts.length >= 3) msg.setParam("agent", parts[2]);
+                if (parts.length >= 4) msg.setParam("requirement", String.join(" ",
+                        java.util.Arrays.copyOfRange(parts, 3, parts.length)));
+                break;
             default:
-                System.out.println("用法: /eval suite|list|quick|run <id>|cascade [agent]");
+                System.out.println("用法: /eval suite|list|quick|run <id>|cascade [agent]|gen <agent> [要求]");
                 break;
         }
     }
@@ -1478,6 +1485,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     ? reportPath.substring(0, reportPath.length() - ".json".length()) + ".md"
                     : reportPath;
             System.out.println("  报告: " + (new java.io.File(md).exists() ? md : reportPath));
+        }
+        // /eval gen 的额外交代：生成器依据什么能力点出的题、又把哪些条目丢了
+        Object analysis = d.get("analysis");
+        if (analysis != null && !String.valueOf(analysis).isEmpty()) {
+            System.out.println("  生成依据（能力点清单）:");
+            for (String line : String.valueOf(analysis).split("\n")) {
+                if (!line.trim().isEmpty()) System.out.println("    " + line.trim());
+            }
+        }
+        Object dropped = d.get("dropped");
+        if (dropped instanceof List && !((List<?>) dropped).isEmpty()) {
+            System.out.println("  丢弃 " + ((List<?>) dropped).size() + " 条:");
+            for (Object x : (List<?>) dropped) System.out.println("    - " + x);
         }
         printBaseline(d);
         printGate(d);
@@ -2196,6 +2216,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /eval quick             快速自检");
         System.out.println("  /eval run <id>          运行指定用例");
         System.out.println("  /eval cascade [agent]   级联评测");
+        System.out.println("  /eval gen <agent> [要求]  — 自动生成评测用例并立即跑一遍（如 /eval gen aiagent_master:priceTeam 重点测价格计算）");
         System.out.println();
         System.out.println("测试命令:");
         System.out.println("  /test                   运行全部单元测试（Mock Provider 驱动）");

@@ -836,7 +836,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private TLMsg doEval(Object fromWho, TLMsg msg) {
         String subAction = msg.getStringParam("subAction", msg.getStringParam("action2", null));
         if (subAction == null) {
-            return fail("缺少参数: subAction (suite/list/quick/run/cascade)");
+            return fail("缺少参数: subAction (suite/list/quick/run/cascade/gen)");
         }
 
         TLMsg result;
@@ -872,8 +872,35 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 result = putMsg("evals", cascadeMsg);
                 break;
             }
+            case "gen": {
+                String agent = msg.getStringParam("agent", msg.getStringParam("targetAgent", ""));
+                if (agent.isEmpty()) return fail("gen 需要 agent 参数（要评测哪个 agent）");
+                TLMsg genMsg = createMsg().setAction("generateCases")
+                        .setParam("agent", agent)
+                        .setParam("requirement", msg.getStringParam("requirement", ""));
+                genMsg.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg genResult = putMsg("evalCaseGenerator", genMsg);
+                if (genResult == null || !genResult.parseBoolean(RESULT, false)) {
+                    String err = genResult != null ? genResult.getStringParam("error", "未知错误") : "无响应";
+                    return fail("生成用例失败: " + err);
+                }
+                int gPassed = genResult.getIntParam("passed", 0);
+                int gFailed = genResult.getIntParam("failed", 0);
+                Map<String, Object> gdata = new HashMap<>();
+                gdata.put("caseFile", genResult.getStringParam("caseFile", ""));
+                gdata.put("caseCount", genResult.getIntParam("caseCount", 0));
+                gdata.put("analysis", genResult.getStringParam("analysis", ""));
+                gdata.put("dropped", genResult.getParam("dropped"));
+                gdata.put("passed", gPassed);
+                gdata.put("failed", gFailed);
+                gdata.put("total", gPassed + gFailed);
+                gdata.put("passRate", genResult.getDoubleParam("passRate", 0.0));
+                gdata.put("reportPath", genResult.getStringParam("evalReportPath", ""));
+                return ok("已生成 " + gdata.get("caseCount") + " 条用例（" + gdata.get("caseFile")
+                        + "），跑完 " + gPassed + "/" + (gPassed + gFailed) + " 通过", gdata);
+            }
             default:
-                return fail("未知评测子操作: " + subAction + "，可用: suite, list, quick, run, cascade");
+                return fail("未知评测子操作: " + subAction + "，可用: suite, list, quick, run, cascade, gen");
         }
 
         if (result == null) return fail("评测失败: 无响应");

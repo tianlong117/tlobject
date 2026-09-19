@@ -56,6 +56,7 @@
         <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"/>
         <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"/>
         <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"/>
+        <module name="evalCaseGenerator" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalCaseGenerator" singleton="true"/>
 
         <!-- 测试模块：Mock Provider + 辅助 Skill + 测试编排 -->
         <module name="mockProvider" classfile="cn.tianlong.tlobject.aiagent.TLMockProvider"

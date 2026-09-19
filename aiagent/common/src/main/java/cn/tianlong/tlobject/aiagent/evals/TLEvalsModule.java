@@ -125,6 +125,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             case "listEvalCases":  returnMsg = listEvalCases(fromWho, msg); break;
             case "runQuickEval":   returnMsg = runQuickEval(fromWho, msg); break;
             case "runEvalCascade": returnMsg = runEvalCascade(fromWho, msg); break;
+            case "getGenDefaults": returnMsg = getGenDefaults(fromWho, msg); break;
             default: break;
         }
         return returnMsg;
@@ -272,6 +273,18 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 .setParam("cases", allCases)
                 .setParam("caseList", lines)
                 .setParam("count", allCases.size());
+    }
+
+    /**
+     * 把"生成器要用到的默认值"给它：用例目录与 judgeProvider。
+     * 生成器有自己的配置，但这两项必须与评测模块一致——各写一份的下场是漂移了没人发现
+     * （生成的用例落在一个评测根本不会扫的目录里）。
+     */
+    protected TLMsg getGenDefaults(Object fromWho, TLMsg msg) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("evalCaseDir", evalCaseDir);
+        data.put("judgeProvider", judgeProvider);
+        return createMsg().setParam(RESULT, true).setParam("data", data);
     }
 
     protected TLMsg runQuickEval(Object fromWho, TLMsg msg) {
