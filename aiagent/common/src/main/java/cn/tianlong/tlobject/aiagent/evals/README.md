@@ -337,6 +337,7 @@ EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <总超时秒数，
 | `/eval list` | 列出所有可用用例（ID + 名称 + 评判器类型 + 目标模块） | `/eval list` |
 | `/eval quick` | 运行内置快速自检（硬编码的 constraint 用例） | `/eval quick` |
 | `/eval run <id>` | 按 ID 或名称运行指定单个用例 | `/eval run math-simple-001` |
+| `/eval gen <agent> [要求]` | 自动生成评测用例并立即跑一遍（见 [4.6](#46-自动生成用例eval-gen)） | `/eval gen aiagent_master:priceTeam 重点测价格计算` |
 | `/eval cascade [agent]` | **级联评测**：自动发现子 Agent/Skill，为每个生成基础用例并运行 | `/eval cascade` 或 `/eval cascade aiagent_master` |
 
 ### 5.2 命令输出示例
