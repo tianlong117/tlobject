@@ -84,6 +84,12 @@ public class TLEvalGenSupport {
                 dropped.add(c.id + "：缺 input");
                 continue;
             }
+            // agent_chat 的 input 必须是字符串，否则评测会直接判失败；skill_execute 才允许对象
+            boolean isSkill = "skill_execute".equalsIgnoreCase(c.callType == null ? "" : c.callType.trim());
+            if (!isSkill && !(c.input instanceof String)) {
+                dropped.add(c.id + "：agent_chat 的 input 必须是字符串（对象型请改用 skill_execute）");
+                continue;
+            }
             // exact_match 判据靠 evalCase.expectedOutput 比对，而 TLExactMatchJudge 对空期望值
             // 直接判 fail——漏填就是一条恒定红灯的用例，比不生成更糟
             if (hasExactMatchWithoutExpected(c)) {
@@ -121,7 +127,7 @@ public class TLEvalGenSupport {
         }
     }
 
-    /** 一次生成 = 一个文件：<目标短名>-<yyyyMMdd-HHmm>.json */
+    /** 一次生成 = 一个文件：<目标短名>-<stamp>.json（stamp 由调用方给，生成器用 yyyyMMdd-HHmmss） */
     public static String buildFileName(String targetName, String stamp) {
         String shortName = targetName == null ? "agent" : targetName;
         int colon = shortName.lastIndexOf(':');

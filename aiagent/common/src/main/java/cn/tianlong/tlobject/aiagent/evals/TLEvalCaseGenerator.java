@@ -65,7 +65,7 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         if (params == null) return;
         if (params.get("generatorProvider") != null) generatorProvider = params.get("generatorProvider").trim();
         if (params.get("evalCaseDir") != null) evalCaseDir = params.get("evalCaseDir").trim();
-        if (params.get("maxCases") != null) {
+        if (params.get("maxCases") != null && !params.get("maxCases").trim().isEmpty()) {
             try { maxCases = Integer.parseInt(params.get("maxCases").trim()); }
             catch (NumberFormatException e) { putLog("maxCases 不是整数，用默认 12: " + params.get("maxCases"), LogLevel.WARN); }
         }
@@ -90,6 +90,13 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         Map<String, Object> defaults = genDefaults();
         String dir = nonEmpty(evalCaseDir, str(defaults.get("evalCaseDir")));
         if (dir.isEmpty()) return fail("拿不到评测用例目录（评测模块未配置？）");
+        // 本模块可以自己配 evalCaseDir，但查重是问评测模块要的——配成别的目录时，
+        // 真正的后果不是"查重查错了"，而是这批用例压根不会被评测扫到
+        String evalsDir = str(defaults.get("evalCaseDir"));
+        if (!evalsDir.isEmpty() && !evalsDir.equals(dir)) {
+            putLog("警告：本模块的 evalCaseDir(" + dir + ") 与评测模块的(" + evalsDir
+                    + ")不一致——查重按评测模块的目录来，这批用例不会被 /eval list 与后续 suite 扫到", LogLevel.WARN);
+        }
         String provider = nonEmpty(generatorProvider, str(defaults.get("judgeProvider")));
         if (provider.isEmpty()) return fail("没有可用的 Provider（配 evalCaseGenerator_config.xml 的 generatorProvider，或评测模块的 judgeProvider）");
 
@@ -120,15 +127,16 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
 
         // ④ 校验（缺 judges / 缺 id / id 冲突的都丢掉，并记下原因）
         List<String> dropped = new ArrayList<>();
-        List<TLEvalCase> cases = TLEvalGenSupport.validateAndFilter(raw, existingCaseIds(dir), dropped);
+        List<TLEvalCase> cases = TLEvalGenSupport.validateAndFilter(raw, existingCaseIds(), dropped);
         // 评测对象由用户指定，不许 LLM 在用例里改
         TLEvalGenSupport.normalizeTarget(cases, target);
         if (cases.isEmpty()) {
             return fail("生成的用例全都不合格（" + String.join("；", dropped) + "）");
         }
 
-        // ⑤ 落盘：一次生成一个文件
-        String stamp = new SimpleDateFormat("yyyyMMdd-HHmm").format(new Date());
+        // ⑤ 落盘：一次生成一个文件。时间戳到秒——到分钟的话，同一分钟内对同一目标跑两次，
+        // 第二次会先按 id 冲突把新用例丢光、再覆盖掉第一次的文件，两批一起没
+        String stamp = new SimpleDateFormat("yyyyMMdd-HHmmss").format(new Date());
         String fileName = TLEvalGenSupport.buildFileName(target, stamp);
         File outFile = new File(dir, fileName);
         try {
@@ -217,20 +225,20 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         return sb.toString();
     }
 
-    /** 用例目录里已有的 id（用于查冲突） */
-    private List<String> existingCaseIds(String dir) {
+    /** 评测模块用例目录里已有的 id（用于查冲突）。注意查的是评测模块的目录，不是本模块的配置 */
+    private List<String> existingCaseIds() {
         List<String> ids = new ArrayList<>();
         TLMsg m = createMsg().setAction("listEvalCases");
         m.setSystemParam(IGNOREMODULEISNULL, true);
         TLMsg r = putMsg("evals", m);
         if (r == null) return ids;
-        Object list = r.getParam("caseList");
-        if (!(list instanceof List)) return ids;
-        for (Object line : (List<?>) list) {
-            String s = String.valueOf(line);
-            int lb = s.indexOf('[');
-            int rb = s.indexOf(']');
-            if (lb >= 0 && rb > lb) ids.add(s.substring(lb + 1, rb));
+        // 用响应里现成的 cases（List<TLEvalCase>），不要切 caseList 那串给人看的行——
+        // 那个格式一改，这里的解析就静默失效
+        Object casesObj = r.getParam("cases");
+        if (casesObj instanceof List) {
+            for (Object o : (List<?>) casesObj) {
+                if (o instanceof TLEvalCase && ((TLEvalCase) o).id != null) ids.add(((TLEvalCase) o).id);
+            }
         }
         return ids;
     }
@@ -262,18 +270,24 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         try {
             TLMsg r = putMsg(provider, llmMsg);
             if (r == null) return null;
+            // 模块不存在时 putMsg 给的是占位消息，里面没有 error 也没有 RESPONSE——
+            // 不单独认这一支，日志里冒号后面就是空的，用户看不出是 provider 配错了
+            if (TLEvalsModule.isModuleMissing(r)) {
+                putLog("Provider 模块不存在: " + provider, LogLevel.ERROR);
+                return null;
+            }
             // Provider 用 RESULT 表示成败（同 TLLlmJudge / checkProvider），而失败时它照样会把
             // 错误文案塞进 AI_P_RESPONSE——不判 RESULT 就会把"调用失败：xxx"当成 LLM 输出，
             // 一路带到下一段提示词里，最后报成"输出解析不了"，把真正的原因埋掉
             if (!r.parseBoolean(RESULT, false)) {
-                putLog("Provider 调用失败: "
+                putLog("Provider 调用失败(" + provider + "): "
                         + r.getStringParam("error", r.getStringParam(AI_P_RESPONSE, "")), LogLevel.ERROR);
                 return null;
             }
             String text = r.getStringParam(AI_P_RESPONSE, "");
             return text.isEmpty() ? null : text;
         } catch (Exception e) {
-            putLog("调 Provider 失败: " + e, LogLevel.ERROR);
+            putLog("调 Provider 失败(" + provider + "): " + e, LogLevel.ERROR);
             return null;
         }
     }
