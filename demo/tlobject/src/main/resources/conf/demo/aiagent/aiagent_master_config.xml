@@ -209,6 +209,9 @@
                    pip install playwright pyautogui mss -i https://pypi.tuna.tsinghua.edu.cn/simple
                    python -m playwright install chromium
              启用: statup="true" -->
+        <!-- 浏览器。真实浏览器模式（③）：要接管系统 Chrome/Edge 时，在本元素上加
+             cdpEndpoint="http://127.0.0.1:9222" cdpAutoLaunch="true" 两个属性即可
+             （先在浏览器窗口里人工登录，agent 用同一浏览器干活；详见 aiagent/README.md） -->
         <skill name="browser"
                sameClassAs="browserSkill"
                statup="true"
@@ -217,6 +220,9 @@
                idleTimeoutSeconds="300"
                maxTextChars="30000"
                allowedScriptDir="skills/browser/scripts"
+               headless="true"
+               userDataDir="data/browser_profile"
+               cdpProfileDir="data/browser_agent_profile"
                skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
         <skill name="desktop"
                sameClassAs="scriptExecutionSkill"

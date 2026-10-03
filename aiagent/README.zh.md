@@ -1373,11 +1373,54 @@ http://localhost:8080/webui/chat.html
 
 | Skill | 能力 |
 |-------|------|
-| `browser` | 浏览器自动化：打开网页、点击、填表、截图（常驻模式，Playwright） |
+| `browser` | 浏览器自动化：打开网页、点击、填表、截图。三种形态：ephemeral / 持久化（默认） / 接管真实浏览器 |
 | `desktop` | 桌面 GUI 自动化：鼠标、键盘、截屏（pyautogui） |
 | `skillInstallerSkill` | **让 LLM 自己装 Skill**：一句话把脚本注册成新 Skill |
 | `liantongyun` | 联通云业务脚本（业务样例） |
 | `skillmd_test` | 演示：只靠一个 md 文件即成为可用 Skill |
+
+**浏览器三种形态（browser skill）**
+
+| 形态 | 配置 | 行为 |
+|------|------|------|
+| ephemeral | `userDataDir=""` | 每次回收/重启都是全新空白浏览器 |
+| persistent（默认） | `userDataDir="data/browser_profile"` | Playwright 自带 Chromium，cookie/登录态落盘，回收重启不丢 |
+| 接管真实浏览器 | `cdpEndpoint="http://127.0.0.1:9222"` + `cdpAutoLaunch="true"` | CDP 连系统 Chrome/Edge（专用 profile），回收只断连接、不关浏览器与标签页 |
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `headless` | `true` | `"false"` 有头（仅 ephemeral/persistent 生效） |
+| `userDataDir` | `data/browser_profile` | 持久化 profile；`""` 关闭 |
+| `cdpEndpoint` | 空 | 非空即进入接管模式，如 `http://127.0.0.1:9222` |
+| `cdpAutoLaunch` | `false` | 端点不通时自动拉起系统浏览器（只对专用 profile） |
+| `cdpProfileDir` | `data/browser_agent_profile` | 专用 profile（与 `agentbrowser.bat` 默认路径一致） |
+| `browserExe` | 空=自动探测 | 系统浏览器路径（Chrome → Edge），仅自动拉起时生效 |
+| `maxTextChars` | `30000` | 单次返回的页面正文上限（0=不限），超限截断并注明 |
+
+**人工登录工作流（推荐姿势）**
+
+1. 配置 `cdpEndpoint="http://127.0.0.1:9222"` + `cdpAutoLaunch="true"`（或先跑 `agentbrowser.bat`）
+2. 让 agent 打开目标站点——页面出现在你的浏览器窗口里，**你在窗口里完成登录**（可以先让 agent 的回合结束，登录完说"好了"再继续）
+3. 之后 agent 一直用同一个浏览器干活；浏览器关掉会被自动拉起，登录态在 profile 里
+
+`agentbrowser.bat` 用法：默认专用 profile；启动后会**自动校验调试端点**并给出明确结果（失败 exit 1）。`daily`（指向日常 profile）**不可用**——Chrome/Edge 136+ 对默认 profile 路径直接禁用 `--remote-debugging-port`（进程正常起、端口永不开），传入 daily 只会得到解释与退出码 1；要"零登录成本"请在专用 profile 里人工登录一次，登录态会持久保存。
+
+**前置条件**：①② 需要 `pip install playwright` + `playwright install chromium`；③ 仍需 playwright 包（不需要自带 Chromium）；`agentbrowser.bat` 需要 `curl`（Win10 1803+ 自带）。
+
+**两个 profile 不是一回事**：`data/browser_profile`（形态②，Playwright 自带 Chromium）与 `data/browser_agent_profile`（形态③，系统 Chrome/Edge，与 bat 共用）——在 bat 窗口里登录**不会**让形态②登录。
+
+**注意**：
+- 同一 profile 目录不能被两个进程同时使用（Chrome 单实例）。**并发跑两台 `aistart*.bat`（或 web 实例）共用同一 `data/browser_profile` 会直接启动失败**——多实例场景给每个实例配不同 `userDataDir`。`/reload` 会新建 skill 实例但不杀旧常驻进程（旧进程最多存活 `idleTimeoutSeconds`），窗口期内同样会撞 profile。
+- **形态参数只在进程（重）启动时生效**：改了 `cdpEndpoint`/`userDataDir` 后必须**重启应用**——空闲回收只杀进程，**不会重读 XML**。
+- **相对路径的锚点**：Java 侧按 **JVM 启动目录**解析 `data/...`，`agentbrowser.bat` 按 **bat 所在目录**解析——从仓库根启动（aistart.bat 的常规用法）两者才一致；从别处启动会分裂成两个 profile（标签页认领失效、自动拉起另开一个 profile）。
+- **端口与 profile 是耦合的**：bat 的 `PORT=9222` 与 `cdpProfileDir` 默认值必须与 agent 配置里的 `cdpEndpoint`/`cdpProfileDir` 对得上，否则 agent 会在"另一个 profile"上再自动拉起一个浏览器。
+- ② 有头模式下若人在登录，`idleTimeoutSeconds`（默认 300s）空闲回收会关掉窗口——人工登录请走第三种形态，或把 `idleTimeoutSeconds` 设为 `0`。
+- **空闲回收语义（两种形态不同）**：② 回收=关浏览器进程（页面状态丢，登录态在 profile 里不丢）；③ 回收=**只断开 python 连接，你的浏览器和标签页原样保留**（登录态同样不丢）。默认 300s 无调用即回收，回收后下次调用自动重启（②）或重连并认领标签页（③）。
+- **自愈**：浏览器被关/你的标签页被关，下一次调用会自动重连、重开或重新拉起（③，含你手动关掉 agent 标签页的情况——同一调用内就会重试一次）；agent **永远不会**关闭你的浏览器和其它标签页。
+- **多个 browser 调用是串行的**（单线程 serve + 单浏览器）：一轮里并发发起两个 browser 工具调用时，后一个会排队等待。
+- 想看当前生效形态：把 loglevel 调到 debug，**第一次 browser 调用时**（懒启动，非应用启动时）会打出 `Browser mode=...` 一行（含生效的绝对路径）。
+
+**安全提示**：profile 目录（`data/browser_profile` / `data/browser_agent_profile`）存着已登录的 cookie/session，属敏感数据；调试端口（9222）无鉴权，本机任意进程都能连上驱动这个已登录的浏览器——不用时请关闭 agent 浏览器，**绝不要把这个端口暴露到 localhost 之外**。profile 是**按应用实例**而非按用户隔离的：web 端多会话共用同一个已登录浏览器，多租户部署不要直接启用。
 
 内置 Skill（`http_request` / `file_operation` / `code_execution`）各子 Agent 按需挂载；
 demo 自己写的 Skill 在 `demo/tlobject/.../skills/` 下（`calculate_price`、`demo_echo` 等）。

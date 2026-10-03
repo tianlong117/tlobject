@@ -49,6 +49,23 @@ import java.util.concurrent.TimeUnit;
  * - idleTimeoutSeconds: 空闲回收秒数，默认 300（0=不回收）
  * - maxTextChars: 页面正文(text)返回最大字符数，默认 30000（整页提取可达百万字符，
  *   超限截断防上下文超限 400/历史膨胀；图片 base64 不受影响）
+ * - headless: 是否无头，默认 true（仅 ephemeral/persistent 形态生效；false=有头可见窗口）
+ * - userDataDir: 持久化 profile 目录，默认 "data/browser_profile"；设 "" = 每次全新浏览器（ephemeral）。
+ *   持久化后登录态/缓存跨进程保留。相对路径按 JVM 启动目录解析（与 ./data/traces 等运行数据惯例一致）；
+ *   同一 profile 目录不能被两个进程同时使用（Chrome 单实例锁）——两实例并行、或 /reload 后旧常驻
+ *   进程未回收时会撞 profile
+ * - cdpEndpoint: CDP 端点（非空即接管模式，优先级最高），如 "http://127.0.0.1:9222"；
+ *   接管已运行的真实浏览器（用户可见、带登录态）
+ * - cdpAutoLaunch: 端点不通时自动拉起系统浏览器，默认 false（只对专用 profile 生效）
+ * - cdpProfileDir: CDP 专用 profile 目录，默认 "data/browser_agent_profile"
+ *   （自动拉起与人工启动共用；兼标签页状态文件宿主）。相对路径同样按 JVM 启动目录解析——
+ *   agentbrowser.bat 按 bat 所在目录解析，从仓库根启动应用（aistart.bat 常规用法）两者才一致，
+ *   否则标签页认领失效、自动拉起会另开一个 profile
+ * - browserExe: 系统浏览器可执行文件路径，默认 ""（探测 Chrome → Edge）（仅 cdpAutoLaunch 自动拉起时生效）
+ *
+ * 形态参数只在进程（重）启动时生效：改配置需重启应用（或 /reload 后等旧常驻进程空闲回收
+ * （≤ idleTimeoutSeconds）再用；profile 路径未变的改法在此之前会撞单实例锁）。
+ * 空闲回收只杀进程，不会重读 XML。
  *
  * 创建日期：2026/8/29
  * 作者:tianlong
@@ -61,6 +78,37 @@ public class TLBrowserSkill extends TLBaseSkill {
     private int maxExecutionTime = 60;
     private int idleTimeoutSeconds = 300;
     private int maxTextChars = 30000;
+
+    // ======================== 浏览器形态（①有头 / ②持久化 / ③CDP接管） ========================
+    /** ①有头开关（仅 ephemeral/persistent 生效） */
+    private boolean headless = true;
+    /**
+     * ②持久化 profile 目录；"" = 每次全新浏览器。
+     * 相对路径按 **JVM 启动目录** 解析（与 ./data/traces 等运行数据惯例一致）。
+     * 同一 profile 目录不能被两个进程同时使用（Chrome 单实例锁）：两实例并行、或 /reload 后
+     * 旧常驻进程未回收时会撞 profile。
+     */
+    private String userDataDir = "data/browser_profile";
+    /** ③CDP 端点（非空即 attach 模式），如 http://127.0.0.1:9222 */
+    private String cdpEndpoint = "";
+    /** ③端点不通时自动拉起系统浏览器（只对专用 profile） */
+    private boolean cdpAutoLaunch = false;
+    /**
+     * ③专用 profile 目录（自动拉起与人工启动共用；兼标签页状态文件宿主）。
+     * 相对路径同样按 **JVM 启动目录** 解析——agentbrowser.bat 按 bat 所在目录解析，
+     * 从仓库根启动应用（aistart.bat 常规用法）两者才一致；否则标签页认领失效、
+     * 自动拉起会另开一个 profile。
+     */
+    private String cdpProfileDir = "data/browser_agent_profile";
+    /** ③系统浏览器路径（空 = 探测 Chrome → Edge）（仅 cdpAutoLaunch 自动拉起时生效） */
+    private String browserExe = "";
+
+    /** 生效形态：cdp | persistent | ephemeral（cdpEndpoint > userDataDir > 全空） */
+    private String mode = "ephemeral";
+    /** 生效的绝对路径（首次启动时打日志；配置值与生效值不一致是排障头号原因） */
+    private String resolvedUserDataDir = "";
+    private String resolvedCdpProfileDir = "";
+    private String resolvedBrowserExe = "";
 
     private OkHttpClient httpClient;
     /** 短超时 client：health 轮询与 shutdown 用（不能卡住 JVM 退出/启动等待） */
@@ -112,7 +160,31 @@ public class TLBrowserSkill extends TLBaseSkill {
                 try { maxTextChars = Integer.parseInt(params.get("maxTextChars")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("headless") != null)
+                headless = Boolean.parseBoolean(params.get("headless").trim());
+            if (params.get("userDataDir") != null)
+                userDataDir = params.get("userDataDir").trim();
+            if (params.get("cdpEndpoint") != null)
+                cdpEndpoint = params.get("cdpEndpoint").trim();
+            if (params.get("cdpAutoLaunch") != null)
+                cdpAutoLaunch = Boolean.parseBoolean(params.get("cdpAutoLaunch").trim());
+            if (params.get("cdpProfileDir") != null)
+                cdpProfileDir = params.get("cdpProfileDir").trim();
+            if (params.get("browserExe") != null)
+                browserExe = params.get("browserExe").trim();
         }
+
+        // 形态优先级：cdp > persistent > ephemeral
+        if (!cdpEndpoint.isEmpty()) {
+            mode = "cdp";
+            resolvedCdpProfileDir = toAbsolute(cdpProfileDir);
+        } else if (!userDataDir.isEmpty()) {
+            mode = "persistent";
+            resolvedUserDataDir = toAbsolute(userDataDir);
+        } else {
+            mode = "ephemeral";
+        }
+        resolvedBrowserExe = browserExe.isEmpty() ? "" : toAbsolute(browserExe);
 
         if (skillName == null || skillName.isEmpty())
             skillName = "browser";
@@ -206,6 +278,33 @@ public class TLBrowserSkill extends TLBaseSkill {
         return base + scriptsDir;
     }
 
+    /** 相对路径按启动目录绝对化（与 ./data/traces 等运行数据惯例一致）。 */
+    private static String toAbsolute(String p) {
+        return Paths.get(p).toAbsolutePath().normalize().toString();
+    }
+
+    /** 组装形态相关启动参数（headless 只对 ephemeral/persistent 生效）。包内可见：临时 smoke 用。 */
+    List<String> buildModeArgs() {
+        List<String> a = new ArrayList<>();
+        if ("cdp".equals(mode)) {
+            a.add("--cdp"); a.add(cdpEndpoint);
+            a.add("--cdp-profile-dir"); a.add(resolvedCdpProfileDir);
+            if (cdpAutoLaunch) a.add("--cdp-auto-launch");
+            if (!resolvedBrowserExe.isEmpty()) { a.add("--browser-exe"); a.add(resolvedBrowserExe); }
+        } else {
+            if ("persistent".equals(mode)) { a.add("--user-data-dir"); a.add(resolvedUserDataDir); }
+            if (!headless) a.add("--headed");
+        }
+        return a;
+    }
+
+    /** 形态描述（排障日志用）。 */
+    private String modeDesc() {
+        if ("cdp".equals(mode)) return ", endpoint=" + cdpEndpoint + ", profileDir=" + resolvedCdpProfileDir;
+        if ("persistent".equals(mode)) return ", userDataDir=" + resolvedUserDataDir;
+        return "";
+    }
+
     // ======================== 生命周期 ========================
 
     /**
@@ -238,9 +337,17 @@ public class TLBrowserSkill extends TLBaseSkill {
             cmd.add("--serve");
             cmd.add("--port");
             cmd.add(String.valueOf(actualPort));
+            cmd.add("--max-text-chars");
+            cmd.add(String.valueOf(maxTextChars));
+            cmd.addAll(buildModeArgs());
 
-            putLog("Starting persistent browser: " + String.join(" ", cmd), LogLevel.DEBUG);
+            putLog("Browser mode=" + mode + modeDesc()
+                    + ("cdp".equals(mode) ? "" : ", headless=" + headless), LogLevel.DEBUG);
+            putLog("Starting browser: " + String.join(" ", cmd), LogLevel.DEBUG);
 
+            // 清掉上一次失败残留的输出尾部，避免被误挂到本次启动失败信息上
+            synchronized (drainTail) { drainTail.clear(); }
+            long startTime = System.currentTimeMillis();
             ProcessBuilder pb = new ProcessBuilder(cmd);
             pb.redirectErrorStream(true);
             Process p = pb.start();
@@ -262,7 +369,10 @@ public class TLBrowserSkill extends TLBaseSkill {
             outputDrainer.start();
 
             // 等待 /health 就绪
-            long deadline = System.currentTimeMillis() + 30000;
+            // 60s：python 侧预热在绑定 HTTPServer 之前，/health 在就绪前不响应，等待必须覆盖整窗口：
+            // 探测2s + helper拉起10s + 端口轮询20s + connect_over_cdp 10s(显式) + 建页/adopt ≈ 45s+，
+            // 留余量对齐 maxExecutionTime(默认60s)。python 失败会提前退出，等待循环随即 break。不要往小改。
+            long deadline = System.currentTimeMillis() + Math.max(60000, maxExecutionTime * 1000L);
             boolean ready = false;
             while (System.currentTimeMillis() < deadline) {
                 if (!p.isAlive()) break;
@@ -273,8 +383,16 @@ public class TLBrowserSkill extends TLBaseSkill {
             }
 
             if (!ready) {
+                // 先取状态再杀：destroyForcibly 在 Windows 上是异步的，杀后再查 isAlive 会把
+                // "python 自己退出" 与 "还活着但未就绪" 混淆
+                long elapsed = (System.currentTimeMillis() - startTime) / 1000;
+                String tail = drainTailText();
+                String how = p.isAlive()
+                        ? "still running but not ready after " + elapsed + "s"
+                        : "exited after " + elapsed + "s";
                 p.destroyForcibly();
-                throw new IOException("Persistent browser failed to start. " + drainTailText());
+                throw new IOException("Browser failed to start (" + mode + modeDesc() + "): " + how
+                        + (tail.isEmpty() ? "" : "\n" + tail));
             }
 
             browserProcess = p;
@@ -295,11 +413,12 @@ public class TLBrowserSkill extends TLBaseSkill {
             while (true) {
                 try {
                     Thread.sleep(15000);
+                    if (browserProcess == null) continue;   // 未启动/刚被回收：不重复杀、不刷日志
                     long idle = System.currentTimeMillis() - lastUsed;
                     if (idleTimeoutSeconds > 0 && idle > idleTimeoutSeconds * 1000L) {
                         putLog("Browser idle " + idle / 1000 + "s, recycling persistent process", LogLevel.DEBUG);
                         killProcess();
-                        return;
+                        // 不 return：下次调用会重新拉起，本线程继续负责下一轮回收
                     }
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
@@ -350,7 +469,11 @@ public class TLBrowserSkill extends TLBaseSkill {
                 try { outputDrainer.join(2000); } catch (InterruptedException ignored) {}
                 outputDrainer = null;
             }
-            putLog("Persistent browser stopped", LogLevel.DEBUG);
+            try {
+                putLog("Persistent browser stopped", LogLevel.DEBUG);
+            } catch (Throwable ignored) {
+                // 关闭钩子里框架可能已销毁 logThreadPool：putLog 会触发异常处理再 putLog 递归（历史 StackOverflow）
+            }
         }
     }
 
@@ -447,7 +570,8 @@ public class TLBrowserSkill extends TLBaseSkill {
                     }
                 }
             } catch (Exception e) {
-                ok = true;
+                // 自家脚本 200 却不是 JSON = 有问题，如实报失败；原始 body 仍作为 output 返回
+                ok = false;
             }
             return createMsg().setParam(RESULT, ok)
                     .setParam(AI_P_SKILLOUTPUT, output);
