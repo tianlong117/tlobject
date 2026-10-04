@@ -51,16 +51,23 @@ LLM 把它转成结构化参数，调用新技能 `schedule_task` 注册到框�
    ↓  LLM 转成参数
 TLScheduleTaskSkill（per-agent，函数名 schedule_task）
    ├─ 校验参数（cron 合法性等）
-   ├─ 构造任务项（agent 型：destination=<agent>, action=chat）
+   ├─ 构造任务项（agent 型：destination=<agent>、systemArgs.targetInstance=本技能实例）
    ├─ putMsg("taskScheduler", registTask + startTask)     ← 懒加载，模块自启
    └─ 写持久化文件 data/<userId>/scheduled_tasks/<agent>.json
    ↓ 到点
-TLMsgTask.executeTask → putMsg 任务消息 → agent 的 chat 轮次（或固定消息）
+TLMsgTask.executeTask → putMsg 任务消息
+   → 框架通用投递（消息带实例引用时 agent 直投子模块）→ 本技能 → chat 轮次（或固定消息）
    ↓ 结果
 写回目标会话（dbSessionManager 落盘）
    ↓
 msgBus topic "taskResult" → web SSE 推送（当前窗口追加）+ 控制台订阅打印
 ```
+
+> **子模块投递（通用机制，非技能专属）**：技能是 agent 的私有子模块，外部**按名寻址够不着**。
+> 发起方（技能自身 / agentService）把**目标实例引用**放进消息 systemArgs（`targetInstance`），
+> agent 见到引用即直投该实例（`TLAiAgent.dispatchToInstance`），动作名原样保留、子模块自行分发。
+> agent 与 toolManager **不含任何技能专属逻辑**；实例不可序列化，故入库的任务消息不带引用，
+> 但恢复路径（runStartMsg→buildRegistMsg）由技能重建消息、自动补上引用。
 
 ## 4. 技能设计
 
@@ -113,32 +120,37 @@ msgBus topic "taskResult" → web SSE 推送（当前窗口追加）+ 控制台�
 
 ### 4.5 任务内容构造
 
-**agent 型**：
+**agent 型**（任务消息 = "回到技能"的回调信封，实例引用由本技能自备）：
 ```java
 TLMsg taskMsg = createMsg()
-    .setDestination(ownerAgent)          // 如 "aiagent_master"
-    .setAction("chat")
-    .setParam("userMessage", prompt)
-    .setParam("userId", userId)
-    .setParam("sessionId", <解析后目标会话>);
+    .setDestination(ownerAgent)          // 如 "aiagent_master"（框架按名路由到 agent）
+    .setAction("runScheduledTask")       // 技能动作名，agent/toolManager 原样透传
+    .setParam("taskPrompt", prompt)
+    .setParam("taskId", fullId)
+    .setParam("recordSession", creationSessionId);
+taskMsg.setSystemParam("targetInstance", this);   // 通用投递：agent 见到引用直投本技能
+taskMsg.setSystemParam("sessionId", ...);         // 身份（systemArgs 区）
+taskMsg.setSystemParam("userId", ...);
 ```
-注意：`sessionId`/`userId` 必须放 **systemArgs 区**（`setSystemParam`），与
-`TLToolExecutor` 透传、`TLAiAgent.doChat` 读取的层级一致。已核实 `TLMsg.copyFrom`
-会复制 systemArgs（`TLMsg.java:520`）：任务消息在 `TLMsgTask` 里经
-`copyFrom` 存为配置、执行时再 `copyFrom` 发出，systemArgs 全程保留。
+说明：技能是 agent 私有子模块、按名够不着，故用**实例引用**寻址（见 §3 注 与 §11.4）。
+`sessionId`/`userId` 必须放 **systemArgs 区**，与 `TLToolExecutor` 透传、
+`TLAiAgent.doChat` 读取的层级一致；`TLMsg.copyFrom` 复制 systemArgs（`TLMsg.java:520`），
+到点时引用与身份原样保留。
 
 **message 型**：
 ```java
 TLMsg taskMsg = createMsg()
     .setDestination(module)
-    .setAction(action)
-    .setParams(args);                    // 可选的固定参数
+    .setAction(action);
+taskMsg.addArgs(args);                   // 可选的固定参数
 ```
 
-两者再包一层：
+注册参数**必须挂在内层任务消息上**（引擎 `doRegistTask`/`startTask` 只读内层；
+外层仅承载 `action=registTask` + `msg`）：
 ```java
+taskMsg.setParam("taskid", fullId).setParam("status", "run")
+       .setParam("cronExp"|"delay"|"timeUnit"|"period"|"times"|"begin", ...);
 TLMsg regist = createMsg().setAction("registTask").setParam("msg", taskMsg);
-regist.setParam("status", "run").setParam("cronExp"|"delay"|..., ...);
 ```
 
 ## 5. 持久化与启动恢复
@@ -288,10 +300,91 @@ putMsg("msgBus", evt);
   或 `taskid=<id>` 单查（`nextExecuteTime`）。两者等价，择一实现
 - **list**：一次 `getTasks` 摘要即含全部任务的时间/次数信息，无需逐条单查
 
-## 11. 已知边界（不在本次范围）
+## 11. 用户隔离与安全边界
 
-- 任务执行时用户正在同一会话对话（互斥锁占用）→ 回退创建会话执行 + 推送通知，
-  不打断用户当前对话。
-- 多个 agent 各自创建一个同名任务：id 前缀不同，互不干扰。
+### 11.1 四层隔离（2026-10-04 实施后核实）
+
+```
+① 存储    data/<userId>/scheduled_tasks/<agent>.json   按用户分目录
+② 可见性  create/list/remove/update 全走 recordsOf(userId)
+          （remove/update 找不到即报"任务不存在"，与"不存在"同文案，防跨用户探测）
+③ 执行    agent 型任务的目标会话在触发时解析（webui getCurrentSession 按 userId 查），
+          结果只写该用户名下的会话
+④ 推送    taskResult 事件按 userId 取 SSE 通道（eventChannels.get(userId)），
+          只进该用户自己的连接
+⑤ 订阅端  控制台订阅方按 userId 过滤（`evt.userId != 本控制台 userId` 即丢弃）——
+          事件总线是进程级的，不过滤会把别的用户（如 web 用户）的任务结果打到控制台
+          （2026-10-04 实测修复，提交 `0fb3798`；web SSE 侧本就走 ④ 的按 userId 取通道）
+```
+
+### 11.2 边界声明（重要，实施后补充）
+
+- **这是"应用层隔离"，不是"进程级隔离"**：同一进程内换个 userId 参数即可查询另一个用户的
+  任务（批量驱动方如评测正是这样按命名空间并行使用的）。隔离的**可信边界是"谁拿得到另一个
+  用户的登录态"**——与会话本身的安全模型一致，不是定时任务引入的新边界。
+- 任务结果落在创建者**自己的会话**里；他人要可见，前提是能打开那个会话（web 端另有会话归属
+  校验 `ensureSessionOwner` 兜底）。
+- **残余缺口 1**：消息不带 userId 时框架以 sessionId 顶替（`TLAiAgent.doChat`），持久化路径
+  会按会话 id 铺目录——批量驱动方应显式下发 userId（与会话/记忆的既有约定相同）。
+- **残余缺口 2**：执行期会话归属校验（`sessionOwner`）是**内存态**，进程重启后未重新登录的
+  用户命中为空 → 该守卫暂不生效；但推送仍按事件里的 userId 路由，**不会把结果推给他人**。
+- **残余缺口 3**：非 `webchat_` 前缀的 sessionId 无归属校验（会话层的既有约定，非本功能引入）。
+
+### 11.3 实施后补记：删除竞态与状态显示（2026-10-04）
+
+实测发现并修复两处（提交 `0c7dc46`）：
+
+- **删除竞态（记录"复活"）**：任务到点执行后的计数回写（`updateRecordAfterRun`）是
+  "读全表 → 改本记录 → 整表写回"；若用户删除与该回写并发，回写的旧快照会把已删记录写回。
+  修复：回写前以持久化存储为准二次校验（记录不在当前用户存储里即放弃写回）——
+  语义："执行回写不得复活已删除的记录；任务删除优先于结果回收"。
+- **状态显示误导**：`list` 对"引擎里没有该任务"的降级文案原为"（等待引擎调度）"，
+  会被 LLM 误读成"活着等调度"；且会给已停止任务显示残留的旧"下次执行"。
+  修复：引擎无运行时 → 显示 `[已停止]`（记录 enabled=false 才显示 `[paused]`）；
+  "下次执行"仅当引擎实际在跑（status=run）时显示。
+
+### 11.4 架构修订：技能实例通用投递（2026-10-04，用户评审后）
+
+原实现把技能专属动作（`runScheduledTask`/`tasksCmd`）硬编码进 `TLAiAgent` 与 `TLToolManager`
+的 switch（"agent 因某个技能而改代码"）——架构上错误。已改为**通用机制**（提交 `884c1f3`）：
+
+- 消息 systemArgs 携带 `targetInstance`（目标子模块实例引用）；agent 见到引用即直投
+  （`dispatchToInstance` 早返回分支），动作名原样保留；toolManager 同款。
+- 技能注册任务时把**自身实例引用**写进任务消息（`buildRegistMsg`）；到点重放该消息即直落技能。
+- `/tasks` 命令经模块注册表（`REGISTRY_GET` 按家族名）取实例引用后同款投递。
+- 实例引用不可序列化：入库的任务记录不带引用，但**恢复路径重建消息时自动补上**；
+  旧数据（重构前入库的任务）重启时被恢复路径自动升级，无需迁移。
+- agent/toolManager 现仅含"带引用即投递"的框架级能力，与任何技能无关。
+
+### 11.5 架构修订：执行/投递解耦 + 离线消息箱（2026-10-04，用户定调）
+
+**问题**：原"结果写回用户当前会话"的设计使任务与用户的会话互斥锁强耦合——
+用户忙/会话被占时任务退避或失败（"会话使用中"），**把定时机制阉割了**；且高频任务
+与用户聊天、任务与任务之间互相堵塞；离线结果无人可见。
+
+**用户定调**："定时任务到时就执行，无论当前有没有会话，否则定时就没有意义了。
+结果可以推送到当前会话；如当前没有会话就存在消息箱里，用户登录后提示未读。"
+
+**实现**（提交 `db4dc15`）：
+
+| 环节 | 设计 |
+|---|---|
+| 执行 | 任务跑在**专用会话** `task_<ownerAgent>_<taskId>_<时间戳>`（每次新建、无记忆、不抢锁），**无条件执行**，不依赖用户在线 |
+| 投递 | 执行完查 `getUserStatus`：**在线** → `taskResult` 事件推当前会话（前端 `⏰` 追加）；**离线** → `inboxAdd` 入离线消息箱 |
+| 消息箱 | 新表 `ai_inbox`（user_id/source/task_id/text/is_read/created_at）；webui 本地 action `inboxAdd/inboxList/inboxRead`；SSE 事件 `inbox` 实时更新未读 badge |
+| 前端 | 顶栏右侧 **📋 定时任务** 与 **🔔 消息箱**（未读红标）→ **浮层**（右侧面板保留给调试/测试功能）；任务浮层含提示词列/暂停/恢复/删除（与控制台 `/tasks` 同语义）；消息箱支持全部已读 |
+| 会话列表 | `listSessionsMeta` 过滤 `task_` 前缀内部会话——否则任务会话 last_active 常新，会刷满用户会话列表且 `autoResumeLast` 会"接续"到任务会话上（实测踩中） |
+
+**语义变化**：任务轮次不再进用户会话历史（离线时在消息箱、在线时仅实时推送 + 专用会话留存）；
+需要跨次记忆的任务应通过外部存储（文件/DB）或另建任务合并来实现。
+
+**通用性**：消息箱是通用离线收件箱（`source` 字段区分来源），不止服务定时任务；
+将来"离线审批通知/系统公告"可复用同一通道。
+
+## 12. 已知边界（不在本次范围）
+
+- 多个 agent 各自创建一个同名任务：id 前缀不同，互不干扰（引擎为工厂共享单例，
+  技能为 per-agent 私有实例）。
 - 用户跨会话（sessionId 不同）看到的是自己全部任务（按用户隔离，非按会话隔离）。
-- 结果事件不带附件（截图等由会话内容自身承载）。
+- 结果事件不带附件（截图等由会话内容自身承载）；在线推送仅实时展示，历史在专用任务会话。
+- 任务专用会话不出现在会话列表（内部会话），其轮次仅供排查（DB 直查）。
