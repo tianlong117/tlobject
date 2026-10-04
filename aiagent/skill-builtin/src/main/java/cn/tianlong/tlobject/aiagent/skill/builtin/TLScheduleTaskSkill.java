@@ -177,7 +177,11 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String recSession = msg.getStringParam("recordSession", null);
         String taskId = msg.getStringParam("taskId", "?");
         String sessionId = msg.getStringParam("sessionId", null);
-        String userId = msg.getStringParam("userId", null);
+        // 权威身份：优先从持久化记录取（重启后 msg/sessionUsers 都不可靠；
+        // taskId 即 fullId，记录里有创建时的 userId）
+        String userId = null;
+        TaskRecord rec = loadRecords().get(taskId);
+        if (rec != null && rec.userId != null && !rec.userId.isEmpty()) userId = rec.userId;
         if (userId == null || userId.isEmpty())
             userId = recSession != null ? sessionUsers.getOrDefault(recSession, recSession) : "default";
         if (sessionId == null || sessionId.isEmpty())
@@ -188,6 +192,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         if (target == null || target.isEmpty()) target = sessionId;
 
         TLMsg chat = createMsg()
+                .setAction("chat")                       // 缺 action 会走 defaultAction 返回 null，任务永远不产生回复
                 .setParam("userMessage", prompt)
                 .setParam("taskId", taskId);
         chat.setSystemParam(AI_P_SESSIONID, target);
@@ -281,7 +286,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         if (!taskId.matches("[0-9A-Za-z_\\u4e00-\\u9fa5-]+"))
             return fail("task_id 只允许字母/数字/下划线/中划线");
         String fullId = ownerAgent + "/" + taskId;
-        if (loadRecords().containsKey(fullId))
+        if (recordsOf(userId).containsKey(fullId))
             return fail("任务已存在: " + taskId + "（换一个 task_id 或用 update）");
 
         // ---- 记录 + 注册 ----
@@ -311,9 +316,9 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             return fail("注册失败: " + err + "（检查 msgTaskModule 配置: " + msgTaskModule + "）");
         }
 
-        Map<String, TaskRecord> map = loadRecords();
+        Map<String, TaskRecord> map = recordsOf(userId);
         map.put(fullId, rec);
-        String warn = saveRecords(map);
+        String warn = saveRecords(userId, map);
         String next = nextFireText(fullId);
         StringBuilder out = new StringBuilder("已创建定时任务\n")
                 .append("- 任务ID: ").append(taskId).append("\n")
@@ -427,40 +432,27 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
 
     // ======================== 持久化 ========================
 
-    private File storageFile() {
-        String root = storageRoot;
-        if (root == null || root.isEmpty()) root = "./data/";
-        if (!new File(root).isAbsolute() && moduleFactory != null && moduleFactory.getConfigDir() != null) {
-            String base = moduleFactory.getConfigDir();
-            if (base.startsWith("CLASSPATH/")) base = base.substring("CLASSPATH/".length());
-            root = base + root;
-        }
-        File dir = new File(root, "scheduled_tasks");
-        if (!dir.exists()) dir.mkdirs();
-        return new File(dir, ownerAgent + ".json");
+    /** 用户任务文件：<storageRoot>/<userId>/scheduled_tasks/<ownerAgent>.json */
+    private File storageFile(String userId) {
+        return new File(storageDir(userId), ownerAgent + ".json");
     }
 
-    /** 读持久化：Map<fullId, TaskRecord>；文件不存在/损坏返回空表 */
+    /** 全部用户任务文件的合并表（恢复/执行期用 fullId 直查）；saveRecords(userId,...) 写单个用户 */
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private synchronized Map<String, TaskRecord> loadRecords() {
         Map<String, TaskRecord> map = new LinkedHashMap<>();
-        try {
-            File f = storageFile();
-            if (!f.exists()) return map;
-            String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
-            List<TaskRecord> list = gson.fromJson(json, new TypeToken<List<TaskRecord>>() {}.getType());
-            if (list != null) for (TaskRecord r : list) {
+        for (File f : allTaskFiles()) {
+            for (TaskRecord r : readFile(f)) {
                 if (r != null && r.owner != null && r.taskId != null) map.put(r.owner + "/" + r.taskId, r);
             }
-        } catch (Exception e) {
-            putLog("读取任务持久化失败: " + e, LogLevel.WARN);
         }
         return map;
     }
 
-    /** 写持久化（原子替换）；成功返回 null，失败返回错误文本（调用方附在回执里） */
-    private synchronized String saveRecords(Map<String, TaskRecord> map) {
+    /** 写某个用户的任务文件（原子替换）；成功返回 null，失败返回错误文本（调用方附在回执里） */
+    private synchronized String saveRecords(String userId, Map<String, TaskRecord> map) {
         try {
-            File f = storageFile();
+            File f = storageFile(userId);
             File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
             Files.write(tmp.toPath(), gson.toJson(new ArrayList<>(map.values())).getBytes(StandardCharsets.UTF_8));
             try {
@@ -475,9 +467,66 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         }
     }
 
+    /** 该用户在内存里应持有的记录（按 userId 过滤全量表） */
+    private Map<String, TaskRecord> recordsOf(String userId) {
+        Map<String, TaskRecord> out = new LinkedHashMap<>();
+        for (Map.Entry<String, TaskRecord> e : loadRecords().entrySet()) {
+            TaskRecord r = e.getValue();
+            if (r.userId != null && r.userId.equals(userId)) out.put(e.getKey(), r);
+        }
+        return out;
+    }
+
+    private File storageDir(String userId) {
+        String root = storageRoot;
+        if (root == null || root.isEmpty()) root = "./data/";
+        if (!new File(root).isAbsolute() && moduleFactory != null && moduleFactory.getConfigDir() != null) {
+            String base = moduleFactory.getConfigDir();
+            if (base.startsWith("CLASSPATH/")) base = base.substring("CLASSPATH/".length());
+            root = base + root;
+        }
+        File dir = new File(new File(root, userId), "scheduled_tasks");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    /** 扫描所有用户目录：<storageRoot>/* /scheduled_tasks/<ownerAgent>.json */
+    private List<File> allTaskFiles() {
+        List<File> files = new ArrayList<>();
+        try {
+            String root = storageRoot;
+            if (root == null || root.isEmpty()) root = "./data/";
+            if (!new File(root).isAbsolute() && moduleFactory != null && moduleFactory.getConfigDir() != null) {
+                String base = moduleFactory.getConfigDir();
+                if (base.startsWith("CLASSPATH/")) base = base.substring("CLASSPATH/".length());
+                root = base + root;
+            }
+            File rootDir = new File(root);
+            File[] users = rootDir.listFiles(File::isDirectory);
+            if (users == null) return files;
+            for (File u : users) {
+                File f = new File(new File(u, "scheduled_tasks"), ownerAgent + ".json");
+                if (f.exists()) files.add(f);
+            }
+        } catch (Exception e) {
+            putLog("扫描任务持久化目录失败: " + e, LogLevel.WARN);
+        }
+        return files;
+    }
+
+    private List<TaskRecord> readFile(File f) {
+        try {
+            String json = new String(Files.readAllBytes(f.toPath()), StandardCharsets.UTF_8);
+            List<TaskRecord> list = gson.fromJson(json, new TypeToken<List<TaskRecord>>() {}.getType());
+            return list != null ? list : new ArrayList<>();
+        } catch (Exception e) {
+            putLog("读取任务持久化失败(" + f.getName() + "): " + e, LogLevel.WARN);
+            return new ArrayList<>();
+        }
+    }
+
     private void updateRecordAfterRun(String fullId, String targetSession) {
-        Map<String, TaskRecord> map = loadRecords();
-        TaskRecord rec = map.get(fullId);
+        TaskRecord rec = loadRecords().get(fullId);
         if (rec == null) return;
         rec.executedCount++;
         rec.lastExecuteTime = System.currentTimeMillis();
@@ -485,7 +534,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                 && rec.executedCount >= Long.parseLong(String.valueOf(rec.schedule.get("times")))) {
             rec.enabled = false;   // 一次性/有限次任务执行完保留记录、置停用（可 update 重新启用）
         }
-        saveRecords(map);
+        if (rec.userId != null) saveRecords(rec.userId, recordsOf(rec.userId));
     }
 
     /** 启动恢复：agent 启动时把本 agent 名下 enabled 任务重新注册回引擎 */
