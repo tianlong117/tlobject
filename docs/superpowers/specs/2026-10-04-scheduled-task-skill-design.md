@@ -76,7 +76,7 @@ msgBus topic "taskResult" → web SSE 推送（当前窗口追加）+ 控制台�
 | op | 说明 | 必填 |
 |---|---|---|
 | `create` | 创建并注册任务 | `description` + 调度参数 + 任务内容（`prompt` 或 `module`+`action`） |
-| `list` | 列出当前用户在本 agent 下的任务（含状态、上次/下次执行、执行次数） | — |
+| `list` | 列出当前用户在本 agent 下的任务（含状态、上次/下次执行时间、执行次数） | — |
 | `remove` | 删除任务（unRegistTask + 清持久化） | `task_id` |
 | `update` | 改调度（重建）或暂停/恢复（`enabled`） | `task_id` + 要改的字段 |
 
@@ -230,6 +230,7 @@ putMsg("msgBus", evt);
 | 5 | `aiagent/skill-builtin/pom.xml` | 加 `tlobject-crontab` 依赖（拿 `TLMsgTask` 引用与 `TASK_*` 常量；quartz `CronExpression` 做 cron 本地校验） |
 | 6 | `aiagent/webui`（模块 + `app.js`） | `currentSessionByUser` + `setCurrentSession`/`getCurrentSession` action + `taskResult` 前端分支 |
 | 7 | `TLChatConsole` | 订阅 `taskResult` + 打印一行 |
+| 8 | `crontab/.../TLMsgTask.java`（引擎小补丁） | ① `startTask` 结束时在 config 上设 `nextDatetime`（两类任务都有，见第 10 节）；② `doGetTask` 摘要分支补 `nextDatetime` + `executedCount` 两字段 |
 
 > 说明：不使用框架注册表里的裸名 `msgTask`——裸名是无配置空壳（只声明了 classfile），
 > 应用自声明 `taskScheduler` 实例可显式控制池大小并符合既有约定。
@@ -241,16 +242,16 @@ putMsg("msgBus", evt);
 - **注册失败**：检查 `registTask` 返回的 `RESULT` 参数，失败时回传错误信息。
 - **msgTask 模块不可用**：返回明确的配置错误提示（提示检查 `msgTaskModule` 配置）。
 - **持久化失败**：任务照常注册（内存运行），`skillOutput` 附警告。
-- **回执**：`create` 成功后 `skillOutput` 返回任务 id + 调度描述，LLM 据复述。
-  下次执行时间由 **LLM 从 cron 表达式自行推算**（已核实 `getTasks` 摘要只含
-  `destination/action/msgId/status` 四个字段，不含 nextExecuteTime；
-  引擎内部 `TaskRuntime.nextExecuteTime` 不外露，本次不改引擎）。
+- **回执**：`create` 成功后 `skillOutput` 返回任务 id +**下次执行时间**+ 调度描述，
+  LLM 据复述。下次执行时间由引擎计算并返回（见第 10 节），不由 LLM 推算。
 
 ## 9. 验证方式
 
 1. **技能级验证（无 LLM 或 mock）**：
    - `skillExecute` 直接驱动技能：`create` 一个短 delay 任务 → `getTasks` 断言任务存在、
      文件字段正确；`remove` → 断言消失；重启恢复（新技能实例读回文件 + 引擎中出现）。
+   - 引擎补丁：`create` 后 `getTasks` 摘要含 `nextDatetime`（首次执行前也有）；
+     执行一次后 `executedCount` 递增、`nextDatetime` 前进。
    - LLM 侧：`/test`（aitest mock provider）加一个用例，mock 返回 `schedule_task` 的
      toolCall（args 为 create 参数），断言回复含任务 id；随后用 `getTasks` 断言注册成功。
 2. **真实端到端**：chat 里说"5 秒后提醒我喝水"→ 等 5 秒 → 确认：
@@ -259,7 +260,30 @@ putMsg("msgBus", evt);
    - 控制台打印一行结果摘要
 3. **恢复验证**：创建任务 → 重启进程 → 确认任务自动重新注册且到点执行。
 
-## 10. 已知边界（不在本次范围）
+## 10. 引擎小补丁：下次执行时间对外可见
+
+背景（已核实）：引擎**自己算了下次执行时间**，单任务查询路径已暴露
+（`TLMsgTask.doGetTask:315-323`：`nextExecuteTime` / `executedCount` /
+`lastExecuteTime` / `lastError`），但**摘要分支只返回四字段**（`:327-338`），
+且定时任务的 `nextDatetime` 目前只写 runtime、不写 config
+（cron 分支每次执行后才写 config，首触发前 config 里没有）。
+
+两处补丁（`crontab/src/main/java/cn/tianlong/tlobject/modules/TLMsgTask.java`）：
+
+1. **`startTask` 结束时**：在 config 上设 `nextDatetime`——
+   - cron 任务：`firstExec`（`:437` 处已算出）
+   - 固定间隔任务：`System.currentTimeMillis() + initialDelay + period`
+   （config 上的 `nextDatetime` 此后由 cron 分支每次执行时刷新，固定间隔任务保持首值）
+   —— 使"刚启动、首次执行前"也有下次时间可查
+2. **`doGetTask` 摘要分支**：每条 info 补 `nextDatetime`（从 config 取，
+   `Date` 或毫秒数字均可）与 `executedCount`（from runtime，缺省 0）
+
+技能侧取值：
+- **create 回执**：注册后 `getTasks`（无参）从摘要取该任务 id 的 `nextDatetime`；
+  或 `taskid=<id>` 单查（`nextExecuteTime`）。两者等价，择一实现
+- **list**：一次 `getTasks` 摘要即含全部任务的时间/次数信息，无需逐条单查
+
+## 11. 已知边界（不在本次范围）
 
 - 任务执行时用户正在同一会话对话（互斥锁占用）→ 回退创建会话执行 + 推送通知，
   不打断用户当前对话。
