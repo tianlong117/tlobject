@@ -46,7 +46,6 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     private volatile boolean restored = false;
 
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final SimpleDateFormat df = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
 
     public TLScheduleTaskSkill() { super(); }
     public TLScheduleTaskSkill(String name) { super(name); }
@@ -176,7 +175,9 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String prompt = msg.getStringParam("taskPrompt", "");
         String recSession = msg.getStringParam("recordSession", null);
         String taskId = msg.getStringParam("taskId", "?");
-        String sessionId = msg.getStringParam("sessionId", null);
+        // sessionId 走系统参数区（getStringParam 只读 args，读不到；agent→toolManager 全链透传系统参数）
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, ""));
+        if (sessionId.isEmpty()) sessionId = recSession != null ? recSession : "default";
         // 权威身份：优先从持久化记录取（重启后 msg/sessionUsers 都不可靠；
         // taskId 即 fullId，记录里有创建时的 userId）
         String userId = null;
@@ -184,8 +185,6 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         if (rec != null && rec.userId != null && !rec.userId.isEmpty()) userId = rec.userId;
         if (userId == null || userId.isEmpty())
             userId = recSession != null ? sessionUsers.getOrDefault(recSession, recSession) : "default";
-        if (sessionId == null || sessionId.isEmpty())
-            sessionId = recSession != null ? recSession : "default";
 
         // 执行时解析目标会话：用户当前活动会话可用则用，否则回退创建时会话（保证必达不丢）
         String target = resolveTargetSession(userId);
@@ -206,7 +205,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         TLMsg r = putMsg((IObject) agent, chat);
         String answer = r == null ? null : r.getStringParam(AI_P_RESPONSE, null);
         if (answer == null || answer.isEmpty()) answer = "(无文本回复)";
-        updateRecordAfterRun(taskId, target);
+        updateRecordAfterRun(taskId);
         publishTaskResult(userId, target, taskId, answer, recSession);
         return r;
     }
@@ -288,6 +287,11 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String fullId = ownerAgent + "/" + taskId;
         if (recordsOf(userId).containsKey(fullId))
             return fail("任务已存在: " + taskId + "（换一个 task_id 或用 update）");
+        // 引擎键是 fullId（不含用户），跨用户可能撞车——注册前查引擎，已存在则拒绝
+        TLMsg engineTasks = sendToEngine(createMsg().setAction("getTasks"));
+        if (engineTasks != null && engineTasks.getParam("tasks") instanceof Map
+                && ((Map<?, ?>) engineTasks.getParam("tasks")).containsKey(fullId))
+            return fail("任务ID已被占用: " + taskId + "（换一个 task_id）");
 
         // ---- 记录 + 注册 ----
         TaskRecord rec = new TaskRecord();
@@ -340,7 +344,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             taskMsg = createMsg()
                     .setDestination(rec.owner)
                     .setAction("runScheduledTask")
-                    .setParam(AI_P_TOOLNAME, "schedule_task")
+                    .setParam(AI_P_TOOLNAME, skillName)
                     .setParam("taskPrompt", rec.prompt)
                     .setParam("taskId", fullId)
                     .setParam("recordSession", rec.creationSessionId);
@@ -365,19 +369,34 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         Object cron = rec.schedule.get("cron");
         if (cron != null) taskMsg.setParam("cronExp", String.valueOf(cron));
         Object delay = rec.schedule.get("delay");
+        String delayText = longText(delay);
         // 注意：delay=0 必须显式下发（引擎缺省是 60 秒；one_shot 的"立即"语义依赖 0）
-        if (delay != null) taskMsg.setParam("delay", String.valueOf(delay));
+        if (delayText != null) taskMsg.setParam("delay", delayText);
         Object unit = rec.schedule.get("unit");
         if (unit != null) taskMsg.setParam("timeUnit", String.valueOf(unit));
         // 循环间隔是引擎的 period（缺省 60 秒，不是 delay）——固定间隔任务必须显式下发，
         // 否则"每 5 秒"实际变成每 60 秒（cron 任务不需要 period，留空）
-        if (cron == null && delay != null)
-            taskMsg.setParam("period", String.valueOf(delay));
+        if (cron == null && delayText != null)
+            taskMsg.setParam("period", delayText);
         Object times = rec.schedule.get("times");
-        if (times != null && !"0".equals(String.valueOf(times))) taskMsg.setParam("times", String.valueOf(times));
+        String timesText = longText(times);
+        if (timesText != null && !"0".equals(timesText)) taskMsg.setParam("times", timesText);
+        // begin：技能语义是"首触发前的额外延迟秒数"，引擎语义是绝对 epoch 毫秒
+        // （TLMsgTask: begin>now 才算 initialDelay，过去值强制 0 并覆盖 delay）——换算后下发
         Object begin = rec.schedule.get("begin");
-        if (begin != null) taskMsg.setParam("begin", String.valueOf(begin));
+        String beginText = longText(begin);
+        if (beginText != null) {
+            try {
+                long extraSec = Long.parseLong(beginText);
+                if (extraSec > 0)
+                    taskMsg.setParam("begin", String.valueOf(System.currentTimeMillis() + extraSec * 1000L));
+            } catch (NumberFormatException e) {
+                putLog("begin 参数非法（忽略）: " + beginText, LogLevel.WARN);
+            }
+        }
 
+        // 到点由引擎直接 putMsg(内层消息)：destination 解析失败时不要触发 moduleFactory.shutdown(-1)
+        taskMsg.setSystemParam(IGNOREMODULEISNULL, true);
         return createMsg().setAction("registTask").setParam("msg", taskMsg);
     }
 
@@ -409,12 +428,11 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
 
     private TLMsg sendToEngine(TLMsg m) {
         try {
-            Object engine = getModuleInFactory(msgTaskModule);
-            if (!(engine instanceof IObject)) {
-                putLog("定时任务模块不存在: " + msgTaskModule + "（检查工厂配置）", LogLevel.ERROR);
-                return null;
-            }
-            return putMsg((IObject) engine, m);
+            // putMsg(String) 内部 getModule 会创建目标模块（即"启动引擎"）并把消息发去，
+            // 恢复时机引擎未起也能拉起；若模块确实不存在，IGNOREMODULEISNULL 让它
+            // 返回空消息而不是 moduleFactory.shutdown(-1) 关掉整个进程
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            return putMsg(msgTaskModule, m);
         } catch (Exception e) {
             putLog("发送给定时任务引擎失败: " + e, LogLevel.ERROR);
             return null;
@@ -438,7 +456,6 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     }
 
     /** 全部用户任务文件的合并表（恢复/执行期用 fullId 直查）；saveRecords(userId,...) 写单个用户 */
-    @SuppressWarnings({"unchecked", "rawtypes"})
     private synchronized Map<String, TaskRecord> loadRecords() {
         Map<String, TaskRecord> map = new LinkedHashMap<>();
         for (File f : allTaskFiles()) {
@@ -451,9 +468,9 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
 
     /** 写某个用户的任务文件（原子替换）；成功返回 null，失败返回错误文本（调用方附在回执里） */
     private synchronized String saveRecords(String userId, Map<String, TaskRecord> map) {
+        File f = storageFile(userId);
+        File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
         try {
-            File f = storageFile(userId);
-            File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
             Files.write(tmp.toPath(), gson.toJson(new ArrayList<>(map.values())).getBytes(StandardCharsets.UTF_8));
             try {
                 Files.move(tmp.toPath(), f.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
@@ -462,6 +479,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             }
             return null;
         } catch (Exception e) {
+            tmp.delete();   // 失败残留 .tmp 只会污染目录，清理掉
             putLog("写入任务持久化失败: " + e, LogLevel.WARN);
             return "任务已在内存中运行，但持久化失败（重启后不恢复）: " + e.getMessage();
         }
@@ -477,7 +495,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         return out;
     }
 
-    private File storageDir(String userId) {
+    /** 解析 storageRoot 为绝对路径（相对 configDir；剥离 CLASSPATH/ 前缀） */
+    private String resolveStorageRoot() {
         String root = storageRoot;
         if (root == null || root.isEmpty()) root = "./data/";
         if (!new File(root).isAbsolute() && moduleFactory != null && moduleFactory.getConfigDir() != null) {
@@ -485,7 +504,11 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             if (base.startsWith("CLASSPATH/")) base = base.substring("CLASSPATH/".length());
             root = base + root;
         }
-        File dir = new File(new File(root, userId), "scheduled_tasks");
+        return root;
+    }
+
+    private File storageDir(String userId) {
+        File dir = new File(new File(resolveStorageRoot(), userId), "scheduled_tasks");
         if (!dir.exists()) dir.mkdirs();
         return dir;
     }
@@ -494,14 +517,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     private List<File> allTaskFiles() {
         List<File> files = new ArrayList<>();
         try {
-            String root = storageRoot;
-            if (root == null || root.isEmpty()) root = "./data/";
-            if (!new File(root).isAbsolute() && moduleFactory != null && moduleFactory.getConfigDir() != null) {
-                String base = moduleFactory.getConfigDir();
-                if (base.startsWith("CLASSPATH/")) base = base.substring("CLASSPATH/".length());
-                root = base + root;
-            }
-            File rootDir = new File(root);
+            File rootDir = new File(resolveStorageRoot());
             File[] users = rootDir.listFiles(File::isDirectory);
             if (users == null) return files;
             for (File u : users) {
@@ -525,16 +541,26 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         }
     }
 
-    private void updateRecordAfterRun(String fullId, String targetSession) {
+    private void updateRecordAfterRun(String fullId) {
         TaskRecord rec = loadRecords().get(fullId);
         if (rec == null) return;
         rec.executedCount++;
         rec.lastExecuteTime = System.currentTimeMillis();
-        if (rec.schedule.get("times") != null && !"0".equals(String.valueOf(rec.schedule.get("times")))
-                && rec.executedCount >= Long.parseLong(String.valueOf(rec.schedule.get("times")))) {
-            rec.enabled = false;   // 一次性/有限次任务执行完保留记录、置停用（可 update 重新启用）
+        String timesText = longText(rec.schedule.get("times"));
+        if (timesText != null && !"0".equals(timesText)) {
+            try {
+                // 一次性/有限次任务执行完保留记录、置停用（可 update 重新启用）
+                if (rec.executedCount >= Long.parseLong(timesText)) rec.enabled = false;
+            } catch (NumberFormatException e) {
+                putLog("times 参数非法（按无限次处理）: " + timesText, LogLevel.WARN);
+            }
         }
-        if (rec.userId != null) saveRecords(rec.userId, recordsOf(rec.userId));
+        if (rec.userId != null) {
+            // recordsOf 会重新读盘返回新对象——必须把改过的 rec 放回要保存的 map，否则更新被静默丢弃
+            Map<String, TaskRecord> m = recordsOf(rec.userId);
+            m.put(fullId, rec);
+            saveRecords(rec.userId, m);
+        }
     }
 
     /** 启动恢复：agent 启动时把本 agent 名下 enabled 任务重新注册回引擎 */
@@ -579,6 +605,22 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         }
     }
 
+    /**
+     * Gson 读回的数字统一是 Double（5 → 5.0），转成整洁的 long 文本（"5" 而非 "5.0"）。
+     * 用于下发引擎参数与恢复时的数值判断。
+     */
+    private String longText(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number) return String.valueOf(((Number) v).longValue());
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty()) return null;
+        try {
+            return String.valueOf((long) Double.parseDouble(s));
+        } catch (NumberFormatException e) {
+            return s;
+        }
+    }
+
     private String fmtTime(Object v) {
         if (v == null) return null;
         try {
@@ -586,7 +628,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             if (v instanceof Date) ms = ((Date) v).getTime();
             else if (v instanceof Number) ms = ((Number) v).longValue();
             else ms = Long.parseLong(String.valueOf(v));
-            return df.format(new Date(ms));
+            // SimpleDateFormat 非线程安全（定时任务回调在异步线程），每次新建
+            return new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date(ms));
         } catch (Exception e) {
             return String.valueOf(v);
         }
