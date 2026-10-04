@@ -721,6 +721,18 @@ git commit -m "新增 schedule_task 技能：create 注册 + 持久化 + 启动�
 
 ---
 
+> **⚠ 执行期修订（Task 2 实施/审查后）**——下列事实以最终代码为准，Task 3/4/5/8 的片段代码须按此适配：
+> 1. **持久化 API 已变（按用户分目录）**：`storageFile(userId)` / `loadRecords()`（**全用户合并表**）/
+>    `saveRecords(userId, map)` / `recordsOf(userId)`。Task 3/4 片段里的 `loadRecords()`+`saveRecords(map)`
+>    写法**不能照抄**——list/remove/update 必须用 `recordsOf(userId)` 读、`saveRecords(userId, map)` 写，
+>    否则会把别的用户的记录写进当前用户文件。
+> 2. **数字归一化**：`schedule` 里的数字经 Gson 往返是 `Double`，一律用 `longText(Object)` 取文本。
+> 3. **agent 型转发链已改为显式转发**：任务消息 destination=agent、action=`runScheduledTask`；
+>    agent 薄转发给 toolManager → 按 `AI_P_TOOLNAME`（=skillName）定位技能模块 → 技能
+>    `checkMsgAction` 分发 `runScheduledTask`。（原"agent 反射"假设错误，已废弃。）
+> 4. **技能转发 chat 必须 `setAction("chat")`**；userId 权威取值自持久化记录（重启后可靠）。
+> 5. **`begin` 注册时已转绝对 epoch 毫秒**；内层任务消息带 `IGNOREMODULEISNULL` 防关进程。
+
 ### Task 3: list / remove 操作
 
 **Files:**
