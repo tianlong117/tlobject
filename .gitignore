@@ -73,3 +73,7 @@ demo/tlobject/data
 # 本机路径启动脚本（已移出仓库，见 _kept_local 备份）
 /aistart.bat
 /aistart-web.bat
+
+# ===== 2026-10-04 追加 =====
+# 临时验证/测试产物（smoke 脚本、临时 profile、classpath 文件等）
+_tmp_*

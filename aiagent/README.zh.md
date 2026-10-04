@@ -1418,9 +1418,27 @@ http://localhost:8080/webui/chat.html
 - **空闲回收语义（两种形态不同）**：② 回收=关浏览器进程（页面状态丢，登录态在 profile 里不丢）；③ 回收=**只断开 python 连接，你的浏览器和标签页原样保留**（登录态同样不丢）。默认 300s 无调用即回收，回收后下次调用自动重启（②）或重连并认领标签页（③）。
 - **自愈**：浏览器被关/你的标签页被关，下一次调用会自动重连、重开或重新拉起（③，含你手动关掉 agent 标签页的情况——同一调用内就会重试一次）；agent **永远不会**关闭你的浏览器和其它标签页。
 - **多个 browser 调用是串行的**（单线程 serve + 单浏览器）：一轮里并发发起两个 browser 工具调用时，后一个会排队等待。
-- 想看当前生效形态：把 loglevel 调到 debug，**第一次 browser 调用时**（懒启动，非应用启动时）会打出 `Browser mode=...` 一行（含生效的绝对路径）。
+- 想看当前生效形态：把 loglevel 调到 debug，**第一次 browser 调用时**（懒启动，非应用启动时）会打出形态日志一行（含生效的绝对路径）——Python 版是 `Browser mode=...`，Java 版是 `Browser(java) mode=...`。
 
 **安全提示**：profile 目录（`data/browser_profile` / `data/browser_agent_profile`）存着已登录的 cookie/session，属敏感数据；调试端口（9222）无鉴权，本机任意进程都能连上驱动这个已登录的浏览器——不用时请关闭 agent 浏览器，**绝不要把这个端口暴露到 localhost 之外**。profile 是**按应用实例**而非按用户隔离的：web 端多会话共用同一个已登录浏览器，多租户部署不要直接启用。
+
+**实现两版（Python / Java），一行切换**
+
+| | Python（默认） | Java |
+|--|--|--|
+| 引擎 | `browser_agent.py` 子进程 + 本地 HTTP（Playwright Python） | `TLBrowserJavaSkill` 进程内（Playwright Java） |
+| 前置 | `pip install playwright` + `playwright install chromium` | Maven 依赖（构建期拉 ~194MB driver-bundle）；首次运行自动下载浏览器 |
+| 切换 | `sameClassAs="browserSkill"` ↔ `"browserJavaSkill"`，参数同名共用，改一行即可来回切 | 同左 |
+
+Java 版注意事项：
+- 首次运行 `Playwright.create()` 会安装**全部浏览器**（chromium + firefox + webkit，约 500MB），驱动内置 **10 分钟下载硬超时**；国内慢网建议先手动预装（`PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright` 配驱动 CLI `install`）——否则可能在下载中途失败。运行机器需要能写入 `%USERPROFILE%\AppData\Local\ms-playwright`。
+- 只想装 chromium、不想下满 ~500MB：设 `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`（驱动认这个环境变量），再自行 `playwright install chromium`（或经驱动 CLI 预装）。Java/Node 驱动同样生效。
+- 命令行启动（bat）需把 **Playwright 的 5 个 jar**（playwright / driver / driver-bundle / jspecify / opentest4j）**和模块自身的 `aiagent/browser-java/target/classes`** 都加进 classpath——两者缺一不可（只加 jar 缺模块目录，`TLBrowserJavaSkill` 类都找不到；只加模块目录缺 jar，引擎构造抛 `NoClassDefFoundError`，工具会回报 `ok:false` 并提示检查 classpath）。本仓库 `aistart*.bat` 两者都已加。
+- **形态与 profile 参数是首次调用时的快照**：改参数后 `/reload` 会新建 skill 实例（新引擎）；旧引擎的空闲回收与 Python 版一致——浏览器与 driver 一起释放，被 `/reload` 换掉的旧引擎最迟一个 `idleTimeoutSeconds` 后自愈回收。
+- 每个 agent 各自实例化 skill（两个引擎）；都用默认 profile 时会撞 Chrome 单实例锁（与②同款约束）。
+- Java 版忽略 Python 专属参数 `interpreter` / `scriptsDir` / `port`。
+- **已知跨版本差异**（语义等价，不改变模型行为）：
+  - 长页面截断说明文案不同：Java 引擎版为 `…[页面正文超过 N 字符已截断；如需完整内容请分段提取]`；Python 壳版为 `…[页面正文过长，已截断保留前 N 字符；如需完整内容请用 extract 指定局部范围]`。
 
 内置 Skill（`http_request` / `file_operation` / `code_execution`）各子 Agent 按需挂载；
 demo 自己写的 Skill 在 `demo/tlobject/.../skills/` 下（`calculate_price`、`demo_echo` 等）。

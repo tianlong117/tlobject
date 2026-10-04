@@ -1457,7 +1457,7 @@ demo-written Skills live under `demo/tlobject/.../skills/` (`calculate_price`, `
 
 - One profile directory cannot be used by two processes at once (Chrome single-instance). Running two `aistart*.bat` / web instances that share `data/browser_profile` fails to start — give each instance its own `userDataDir`. `/reload` creates a new skill instance without killing the old resident process (which may live up to `idleTimeoutSeconds`), so the same collision applies within that window.
 - **Form parameters take effect only when the browser process (re)starts**: after changing `cdpEndpoint`/`userDataDir` restart the app — idle recycling only kills the process, it never re-reads the XML.
-- **Path anchor**: the Java side resolves relative `data/...` against the **JVM startup directory**, while `agentbrowser.bat` resolves against the **bat's own directory** — start the app from the repository root so both agree; otherwise you end up with two different profiles (tab re-adoption fails, auto-launch opens a second profile).
+- **Path anchor**: the agent side resolves relative `data/...` against the **JVM startup directory**, while `agentbrowser.bat` resolves against the **bat's own directory** — start the app from the repository root so both agree; otherwise you end up with two different profiles (tab re-adoption fails, auto-launch opens a second profile).
 - **Port and profile are coupled**: the bat's `PORT=9222` and `cdpProfileDir` must match the agent's `cdpEndpoint`/`cdpProfileDir`, or the agent auto-launches another browser on a different profile.
 - With form ② headed, an idle recycle (`idleTimeoutSeconds`, default 300s) closes the window mid-login — use form ③ for human login, or set `idleTimeoutSeconds="0"`.
 - **Idle recycling**: form ② kills the browser process (page state is lost, login state is not); form ③ only disconnects — your browser and tabs stay exactly as they are. The next call restarts and re-adopts the tab (③) or opens a fresh page (②).
@@ -1466,6 +1466,24 @@ demo-written Skills live under `demo/tlobject/.../skills/` (`calculate_price`, `
 - Set the log level to debug to see the effective form at the first browser call: `Browser mode=…` (with resolved absolute paths).
 
 **Security**: the profile directories hold logged-in cookies and sessions — treat them as sensitive. The debug port (9222) has no authentication, so any local process can drive the logged-in browser: close the agent browser when you are done and **never expose that port beyond localhost**. Profiles are per application instance, not per user — a multi-user web deployment would share one logged-in browser, so do not enable it as-is for multi-tenant setups.
+
+**Two implementations (Python / Java) — switch with one line**
+
+| | Python (default) | Java |
+|--|--|--|
+| Engine | `browser_agent.py` subprocess + local HTTP (Playwright Python) | `TLBrowserJavaSkill` in-process (Playwright Java) |
+| Prerequisites | `pip install playwright` + `playwright install chromium` | Maven dependency (the build pulls a ~194MB driver-bundle); the first run downloads browsers automatically |
+| Switch | `sameClassAs="browserSkill"` ↔ `"browserJavaSkill"` — same parameters, one attribute, either direction | same |
+
+Java-side notes:
+
+- The first run (`Playwright.create()`) installs **all** browsers (chromium + firefox + webkit, ~500MB) and the driver has a hard **10-minute download timeout**; on slow networks pre-install manually (`PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.npmmirror.com/binaries/playwright` with the driver CLI `install`), or set `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1` to skip and use whatever is already installed. The machine needs write access to `%USERPROFILE%\AppData\Local\ms-playwright`.
+- Launchers that set the classpath by hand must include **both** the module's own classes (`aiagent/browser-java/target/classes`) and the 5 Playwright jars (playwright / driver / driver-bundle / jspecify / opentest4j). IDE/Maven runs get them automatically through `tlobject-all`.
+- **Form and profile parameters are snapshotted at the first call**: after editing them, `/reload` builds a fresh skill instance (and engine), and the replaced engine is reclaimed at most one `idleTimeoutSeconds` later — idle recycling releases the browser **and** the driver together, exactly like the Python version.
+- Each agent instantiates its own skill (two engines); both using the default profile hits Chrome's single-instance lock (same constraint as form ②).
+- The Java version ignores the Python-only parameters `interpreter` / `scriptsDir` / `port`.
+- Log line: Python prints `Browser mode=…`, Java prints `Browser(java) mode=…`.
+- Known cross-version difference remaining: the truncation notice wording on over-long pages differs slightly (semantics equivalent).
 
 ### 5. How the Configuration Is Organized
 

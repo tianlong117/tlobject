@@ -30,6 +30,10 @@
                 singleton="true"/>
         <module name="browserSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBrowserSkill"
                 singleton="true"/>
+        <!-- Java 版 browser skill（进程内 Playwright Java，无 Python 子进程）；
+             切换=把 agent 配置里的 sameClassAs="browserSkill" 改成 "browserJavaSkill" -->
+        <module name="browserJavaSkill" classfile="cn.tianlong.tlobject.aiagent.browser.TLBrowserJavaSkill"
+                singleton="true"/>
         <module name="mcpAgent" classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent" singleton="false"/>
         <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
         <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"

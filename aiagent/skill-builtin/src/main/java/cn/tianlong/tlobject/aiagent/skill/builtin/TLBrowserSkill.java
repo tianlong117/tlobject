@@ -536,11 +536,8 @@ public class TLBrowserSkill extends TLBaseSkill {
             Object v = input.get(key);
             if (v != null && !String.valueOf(v).isEmpty()) body.addProperty(key, String.valueOf(v));
         }
-        Object amount = input.get("amount");
-        if (amount != null && !String.valueOf(amount).isEmpty()) {
-            try { body.addProperty("amount", Integer.parseInt(String.valueOf(amount))); }
-            catch (NumberFormatException ignored) {}
-        }
+        Integer amount = toIntAmount(input.get("amount"));
+        if (amount != null) body.addProperty("amount", amount);
 
         Request req = new Request.Builder()
                 .url("http://127.0.0.1:" + actualPort + "/action")
@@ -584,6 +581,15 @@ public class TLBrowserSkill extends TLBaseSkill {
                     .setParam(AI_P_SKILLOUTPUT, "Browser action timeout (" + maxExecutionTime + "s) or connection lost: " + e.getMessage()
                             + (tail.isEmpty() ? "" : "\nprocess output tail:\n" + tail));
         }
+    }
+
+    /** amount 容错：LLM 参数常为 Double(300.0)；接受 Number 或数字字符串，非法/空 → 返回 null（不传该参数） */
+    private static Integer toIntAmount(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number) return (int) Math.round(((Number) v).doubleValue());
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty()) return null;
+        try { return (int) Math.round(Double.parseDouble(s)); } catch (NumberFormatException e) { return null; }
     }
 
     /** 解析旧式 arguments 字符串：支持 "--action navigate --url X" 与裸词 "navigate X" */

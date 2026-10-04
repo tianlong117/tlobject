@@ -114,6 +114,7 @@ Built-in modules extending `TLBaseModule`:
 - Tool call 的 `arguments` 必須是 JSON 字符串（`gson.toJson()`），不能用 JSON 對象（`gson.toJsonTree()`）
 - DeepSeek: tools 和 temperature 不能同時傳，model 名在 Provider 配置中指定
 - `browser` skill 三形态：ephemeral / 持久化（默认 userDataDir=data/browser_profile）/ CDP 接管真实浏览器（cdpEndpoint+cdpAutoLaunch，配合 agentbrowser.bat 人工登录；attach 回收只断连、不关用户浏览器；形态参数只在进程启动时生效）
+- `browser` skill 两版实现：Python（默认，子进程）/ Java（`sameClassAs="browserJavaSkill"`，进程内 Playwright Java，独立模块 `aiagent/browser-java`，切换=改一行；首次运行装全部浏览器约 500MB；空闲回收与 Python 版一致——浏览器与 driver 一起释放，被 `/reload` 换掉的旧引擎最迟一个 `idleTimeoutSeconds` 后自愈回收）
 
 **记忆体系（三层）:**
 - `TLAiContext` — 会话对话记录（短期连续性），`getContextHistory()` 直接加载全部 messages
