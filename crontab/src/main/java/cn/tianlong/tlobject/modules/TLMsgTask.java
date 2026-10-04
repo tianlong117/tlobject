@@ -334,8 +334,8 @@ public class TLMsgTask extends TLBaseModule {
             TaskRuntime rt = taskRuntimes.get(e.getKey());
             info.put("status", rt != null ? rt.status : STATUS_STOPPED);
             // 下次执行时间：cron 与固定间隔任务都在每次执行后刷新（见 scheduleCronTask / createTaskRunnable）
-            if (e.getValue().getParam("nextDatetime") != null)
-                info.put("nextDatetime", e.getValue().getParam("nextDatetime"));
+            Object nextDt = e.getValue().getParam("nextDatetime");
+            if (nextDt != null) info.put("nextDatetime", nextDt);
             info.put("executedCount", rt != null ? rt.executedCount.get() : 0);
             all.put(e.getKey(), info);
         }
@@ -412,8 +412,7 @@ public class TLMsgTask extends TLBaseModule {
                     createTaskRunnable(taskId, config, maxTimes),
                     initialDelay, period, timeUnit
             );
-            long periodMs = TimeUnit.MILLISECONDS.convert(period, timeUnit);
-            nextFire = System.currentTimeMillis() + initialDelay + periodMs;
+            nextFire = nextFixedFireAt(initialDelay, timeUnit, config);
         }
 
         // 保存运行时状态
@@ -425,13 +424,18 @@ public class TLMsgTask extends TLBaseModule {
                 (cronExp != null ? "，Cron: " + cronExp : "，周期: " + period + " " + timeUnit) +
                 (maxTimes > 0 ? "，最多执行 " + maxTimes + " 次" : ""), LogLevel.INFO);
 
-        config.setParam("nextDatetime", new Date(nextFire));
+        // 仅在实际调度成功、且算出的是未来时间时对外暴露（cron 解析失败/永不触发时不留误导时间）
+        if (future != null && nextFire > System.currentTimeMillis()) {
+            config.setParam("nextDatetime", new Date(nextFire));
+        } else {
+            config.removeParam("nextDatetime");
+        }
     }
 
     /**
      * 取 cron 的下次触发时间；解析失败、或表达式已无后续触发点（next 为 null）时，
-     * 沿用 config 中已有的 nextDatetime，仍无则用当前时间兜底（scheduleCronTask 已报错并置状态）。
-     * 用于把"下次执行时间"写到 config，供 getTask 对外暴露。
+     * 沿用 config 中已有的 nextDatetime，仍无则用当前时间兜底。
+     * 兜底值可能不晚于当前时间，由调用方 startTask 判断为未来时间后才对外暴露。
      */
     private long nextCronFire(String cronExp, TLMsg config) {
         long fallback = System.currentTimeMillis();
@@ -444,6 +448,18 @@ public class TLMsgTask extends TLBaseModule {
         Object nd = config.getParam("nextDatetime");
         if (nd instanceof Date) return ((Date) nd).getTime();
         return fallback;
+    }
+
+    /**
+     * 固定间隔任务的首次触发时间（= startTask 的 initialDelay 之后）。
+     * initialDelay 通常是 delay 的时间单位值；begin 路径已写入毫秒差，此时按毫秒处理。
+     */
+    private long nextFixedFireAt(long initialDelay, TimeUnit timeUnit, TLMsg config) {
+        Object begin = config.getParam(TASK_P_BEGINTIME);
+        long delayMs = (begin != null)
+                ? initialDelay                                    // begin 路径已是毫秒差
+                : TimeUnit.MILLISECONDS.convert(initialDelay, timeUnit);
+        return System.currentTimeMillis() + delayMs;
     }
 
     /**
@@ -559,13 +575,15 @@ public class TLMsgTask extends TLBaseModule {
                     rt.executedCount.incrementAndGet();
                     rt.lastExecuteTime = new Date();
                 }
-                // 刷新对外可见的下次执行时间（固定间隔 = 本次执行时刻 + 周期；
-                // 用 executeTask 刚记录的时间避免 Runnable 延迟导致漂移）
-                long period = getLongParam(config, "period", defaultPeriod);
-                if (period <= 0) period = 60;
-                TimeUnit unit = parseTimeUnit(config.getStringParam(TASK_P_TIMEUNIT, TASK_V_TIMEUNIT_S));
-                config.setParam("nextDatetime",
-                        new Date(System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert(period, unit)));
+                // 下次执行时间 = 本次执行时刻 + 周期（固定间隔任务本轮执行完才刷新）；
+                // 仅当任务还会继续执行时刷新（达到次数上限的最后一轮不刷新，避免出现幽灵下次时间）
+                if (maxTimes <= 0 || getExecutedCount(taskId) < maxTimes) {
+                    long period = getLongParam(config, "period", defaultPeriod);
+                    if (period <= 0) period = 60;
+                    TimeUnit unit = parseTimeUnit(config.getStringParam(TASK_P_TIMEUNIT, TASK_V_TIMEUNIT_S));
+                    config.setParam("nextDatetime", new Date(System.currentTimeMillis()
+                            + TimeUnit.MILLISECONDS.convert(period, unit)));
+                }
             } catch (Exception e) {
                 handleTaskError(taskId, e);
             }
@@ -632,6 +650,7 @@ public class TLMsgTask extends TLBaseModule {
                 if (config != null) {
                     config.setParam(TASK_P_STATUS, STATUS_STOPPED);
                     config.setParam("datetime", new Date());
+                    config.removeParam("nextDatetime");
                 }
             }
             taskRuntimes.remove(taskId);
@@ -659,6 +678,7 @@ public class TLMsgTask extends TLBaseModule {
             config.setParam(TASK_P_STATUS, STATUS_ERROR);
             config.setParam("error", e.getMessage());
             config.setParam("errorTime", new Date());
+            config.removeParam("nextDatetime");
         }
 
         TaskRuntime rt = taskRuntimes.get(taskId);
