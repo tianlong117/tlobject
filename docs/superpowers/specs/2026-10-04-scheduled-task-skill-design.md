@@ -270,13 +270,18 @@ putMsg("msgBus", evt);
 
 两处补丁（`crontab/src/main/java/cn/tianlong/tlobject/modules/TLMsgTask.java`）：
 
-1. **`startTask` 结束时**：在 config 上设 `nextDatetime`——
-   - cron 任务：`firstExec`（`:437` 处已算出）
-   - 固定间隔任务：`System.currentTimeMillis() + initialDelay + period`
-   （config 上的 `nextDatetime` 此后由 cron 分支每次执行时刷新，固定间隔任务保持首值）
-   —— 使"刚启动、首次执行前"也有下次时间可查
-2. **`doGetTask` 摘要分支**：每条 info 补 `nextDatetime`（从 config 取，
-   `Date` 或毫秒数字均可）与 `executedCount`（from runtime，缺省 0）
+1. **`startTask` 结束时**：在 config 上设 `nextDatetime`（仅当 `future != null` 且为未来时间）——
+   - cron 任务：cron 的首次触发时间
+   - 固定间隔任务：`now + initialDelay`（首触发在 `initialDelay` 后，**不含 period**；
+     `initialDelay` 为 delay 时间单位值、`begin` 路径已转毫秒）
+   - 之后两类任务都在**每次执行后刷新**（cron 由调度循环写、固定间隔由 Runnable 写；
+     达到次数上限的最后一轮不刷新）
+2. **`doGetTask` 摘要分支**：每条 info 补 `nextDatetime`（从 config 取）
+   与 `executedCount`（from runtime，缺省 0）
+
+> 技能侧注意：`delay` 只决定首触发与"无周期时"的兜底周期，**循环间隔是引擎的
+> `period`（缺省 60 秒）**。所以固定间隔任务注册时必须同时下发 `period=delay`
+> （技能 `buildRegistMsg` 中体现），否则"每 5 秒"会变成每 60 秒。
 
 技能侧取值：
 - **create 回执**：注册后 `getTasks`（无参）从摘要取该任务 id 的 `nextDatetime`；

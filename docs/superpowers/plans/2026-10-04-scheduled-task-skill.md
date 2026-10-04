@@ -126,7 +126,7 @@
             info.put("msgId", e.getValue().getMsgId());
             TaskRuntime rt = taskRuntimes.get(e.getKey());
             info.put("status", rt != null ? rt.status : STATUS_STOPPED);
-            // 下次执行时间：固定间隔任务由 startTask 写入、cron 任务每次执行时刷新（:474 附近）
+            // 下次执行时间：startTask 写入、两类任务每次执行后刷新（见 startTask / createTaskRunnable）
             if (e.getValue().getParam("nextDatetime") != null)
                 info.put("nextDatetime", e.getValue().getParam("nextDatetime"));
             info.put("executedCount", rt != null ? rt.executedCount.get() : 0);
@@ -523,6 +523,10 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         if (delay != null) reg.setParam("delay", String.valueOf(delay));
         Object unit = rec.schedule.get("unit");
         if (unit != null) reg.setParam("timeUnit", String.valueOf(unit));
+        // 循环间隔是引擎的 period（缺省 60 秒，不是 delay）——固定间隔任务必须显式下发，
+        // 否则"每 5 秒"实际变成每 60 秒（cron 任务不需要 period，留空）
+        if (rec.schedule.get("cron") == null && delay != null)
+            reg.setParam("period", String.valueOf(delay));
         Object times = rec.schedule.get("times");
         if (times != null && !"0".equals(String.valueOf(times))) reg.setParam("times", String.valueOf(times));
         Object begin = rec.schedule.get("begin");
