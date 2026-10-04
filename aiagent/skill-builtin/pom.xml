@@ -17,6 +17,12 @@
             <artifactId>tlobject-aiagent-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- 定时任务引擎（TLMsgTask）与 quartz CronExpression（cron 本地校验） -->
+        <dependency>
+            <groupId>cn.tianlong.tlobject</groupId>
+            <artifactId>tlobject-crontab</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- GraalVM JavaScript engine (JDK 17+ 替代已移除的Nashorn) -->
         <dependency>
             <groupId>org.graalvm.js</groupId>
