@@ -400,14 +400,15 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         return createMsg().setAction("registTask").setParam("msg", taskMsg);
     }
 
+    /** 调度描述文本；数字经 longText 归一化（Gson 读回是 Double，直接拼会渲染成 "5.0"） */
     private String scheduleText(TaskRecord rec) {
         Object cron = rec.schedule.get("cron");
         if (cron != null) return "cron: " + cron;
-        Object delay = rec.schedule.get("delay");
+        String delayText = longText(rec.schedule.get("delay"));
         Object unit = rec.schedule.get("unit");
-        Object times = rec.schedule.get("times");
-        StringBuilder s = new StringBuilder("每 ").append(delay).append(" ").append(unit);
-        if (times != null && !"0".equals(String.valueOf(times))) s.append("，共 ").append(times).append(" 次");
+        String timesText = longText(rec.schedule.get("times"));
+        StringBuilder s = new StringBuilder("每 ").append(delayText).append(" ").append(unit);
+        if (timesText != null && !"0".equals(timesText)) s.append("，共 ").append(timesText).append(" 次");
         return s.toString();
     }
 
@@ -463,16 +464,22 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         int i = 1;
         for (Map.Entry<String, TaskRecord> e : mine.entrySet()) {
             TaskRecord rec = e.getValue();
-            Map<String, Object> info = engineTasks.get(e.getKey()) instanceof Map
-                    ? (Map<String, Object>) engineTasks.get(e.getKey()) : new LinkedHashMap<>();
+            Object infoObj = engineTasks.get(e.getKey());
+            Map<String, Object> info = infoObj instanceof Map
+                    ? (Map<String, Object>) infoObj : new LinkedHashMap<>();
             // 引擎无该任务时：停用的显示 paused，启用的显示"等待引擎调度"（可能引擎未起或尚未调度）
             String status = String.valueOf(info.getOrDefault("status", rec.enabled ? "（等待引擎调度）" : "paused"));
             String next = fmtTime(info.get("nextDatetime"));
+            // 引擎对已停止/已完成的有限次任务会丢 runtime，摘要回 executedCount=0；
+            // 记录里的 executedCount 才是真值，取两者最大（longText 归一化 Gson 的 Double）
             Object cnt = info.get("executedCount");
+            String cntText = longText(cnt);
+            long cntLong = Math.max(rec.executedCount,
+                    cntText == null ? 0L : Long.parseLong(cntText));
             out.append(i++).append(". ").append(rec.taskId)
                     .append("  [").append(status).append("]")
                     .append("  ").append(scheduleText(rec))
-                    .append("  已执行 ").append(cnt == null ? String.valueOf(rec.executedCount) : longText(cnt)).append(" 次")
+                    .append("  已执行 ").append(cntLong).append(" 次")
                     .append(next == null ? "" : "  下次 " + next)
                     .append("\n   ").append("agent".equals(rec.type) ? "prompt: " + rec.prompt
                             : "message: " + rec.module + "." + rec.action);
@@ -499,7 +506,9 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         mine.remove(fullId);
         String warn = saveRecords(userId, mine);
         StringBuilder out = new StringBuilder("已删除定时任务: " + taskId);
-        if (!engineOk) out.append("\n（提示：引擎中未找到该任务，已清理持久化记录）");
+        // 引擎 unRegistTask 对任何 taskid 都回 RESULT=true（只有调用失败/无响应才 false），
+        // 所以这里只说明"引擎侧可能已无此任务"，不透传"未找到"结论
+        if (!engineOk) out.append("\n（提示：引擎未响应或任务已不在引擎中，已清理本地记录）");
         if (warn != null) out.append("\n- ⚠ ").append(warn);
         return ok(out.toString());
     }
