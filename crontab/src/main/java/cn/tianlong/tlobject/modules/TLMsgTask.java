@@ -333,7 +333,7 @@ public class TLMsgTask extends TLBaseModule {
             info.put("msgId", e.getValue().getMsgId());
             TaskRuntime rt = taskRuntimes.get(e.getKey());
             info.put("status", rt != null ? rt.status : STATUS_STOPPED);
-            // 下次执行时间：固定间隔任务由 startTask 写入、cron 任务每次执行时刷新
+            // 下次执行时间：cron 与固定间隔任务都在每次执行后刷新（见 scheduleCronTask / createTaskRunnable）
             if (e.getValue().getParam("nextDatetime") != null)
                 info.put("nextDatetime", e.getValue().getParam("nextDatetime"));
             info.put("executedCount", rt != null ? rt.executedCount.get() : 0);
@@ -429,7 +429,8 @@ public class TLMsgTask extends TLBaseModule {
     }
 
     /**
-     * 取 cron 的下次触发时间；解析失败返回首次调度时间（scheduleCronTask 已报错并置状态）。
+     * 取 cron 的下次触发时间；解析失败、或表达式已无后续触发点（next 为 null）时，
+     * 沿用 config 中已有的 nextDatetime，仍无则用当前时间兜底（scheduleCronTask 已报错并置状态）。
      * 用于把"下次执行时间"写到 config，供 getTask 对外暴露。
      */
     private long nextCronFire(String cronExp, TLMsg config) {
