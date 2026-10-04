@@ -28,6 +28,8 @@
     <span class="sess">会话 <input id="sessionId" size="26" title="当前会话ID（可改，改后按新ID开新会话）"></span>
     <label class="toggle"><input type="checkbox" id="streamToggle" checked> 流式</label>
     <span id="connState" class="conn" title="事件通道连接状态">●</span>
+    <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
+    <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
     <button id="logoutBtn" class="ghost">退出</button>
   </header>
   <main>
@@ -160,7 +162,35 @@
   </div>
 </div>
 
-<!-- ===== 参数查看弹框（列表行内"参数"按钮触发，弹框展示避免结果沉在列表底部） ===== -->
+<!-- ===== 定时任务浮层（顶栏 📋 打开）===== -->
+<div id="tasksModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>📋 定时任务</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadTasks()">刷新</button>
+    </div>
+    <div id="tasksBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeTasks()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 消息箱浮层（顶栏 🔔 打开）===== -->
+<div id="inboxModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🔔 消息箱</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadInbox()">刷新</button>
+      <button onclick="readAllInbox()">全部已读</button>
+    </div>
+    <div id="inboxBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeInbox()">关 闭</button>
+    </div>
+  </div>
+</div>
+
 <div id="paramModal" class="modal hidden">
   <div class="modal-box">
     <h3 id="pmTitle"></h3>

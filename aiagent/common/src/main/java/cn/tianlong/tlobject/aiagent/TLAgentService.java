@@ -68,6 +68,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpList", "列出已安装的 MCP Agent");
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
         ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
+        ACTION_REGISTRY.put("tasks", "定时任务管理（list|stop|resume|delete <task_id>）");
         ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
         // 注册表键即补全列表里的命令形态——带空格小写，与 /help 一致（dispatch 仍用 traceLlm/traceReplay 字面量）
         ACTION_REGISTRY.put("trace llm", "查看最新一轮完整 LLM 链路（messages → LLM 响应 → 最终输出）");
@@ -137,6 +138,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 单元测试 ──
             case "test":            return doTest(fromWho, msg);
+
+            // ── 定时任务管理 ──
+            case "tasks":           return doTasks(fromWho, msg);
 
             // ── 全链追踪 ──
             case "trace":           return doTrace(fromWho, msg);
@@ -647,6 +651,47 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             }
         }
         return ok("Agent (" + filtered.size() + ")", filtered);
+    }
+
+    /**
+     * /tasks 命令：定时任务 list / stop / resume / delete。
+     * 技能是 agent 的私有子模块（按名够不着）——由模块注册表取其实例引用，
+     * 经 agent 的通用投递（dispatchToInstance）直达技能；agent 无技能专属逻辑。
+     */
+    private TLMsg doTasks(Object fromWho, TLMsg msg) {
+        String sub = msg.getStringParam("sub", "list");
+        if (!sub.equals("list") && !sub.equals("stop") && !sub.equals("resume") && !sub.equals("delete"))
+            return fail("未知子命令: /tasks " + sub + "（可用: list、stop <task_id>、resume <task_id>、delete <task_id>）");
+
+        if (sub.equals("stop") || sub.equals("resume") || sub.equals("delete")) {
+            String tid = msg.getStringParam("task_id", "");
+            if (tid == null || tid.isEmpty())
+                return fail("/tasks " + sub + " 需要 task_id（先 /tasks 查看列表）");
+        }
+
+        // 注册表按家族名取技能实例（技能注册时以自身家族名为键）
+        TLMsg getMsg = createMsg().setAction(REGISTRY_GET)
+                .setParam(REGISTRY_P_KEY, agentModule + ":schedule_task");
+        getMsg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg got = putMsg(DEFAULTMODULEREGISTRY, getMsg);
+        Object skill = got == null ? null : got.getParam(INSTANCE);
+        if (!(skill instanceof IObject))
+            return fail("未找到定时任务技能 " + agentModule + ":schedule_task（请确认 " + agentModule + " 已配置该技能）");
+
+        TLMsg fwd = createMsg()
+                .setDestination(agentModule)   // 必须显式设 destination：putMsg(TLMsg) 无 destination 会查 toWho 再回退发给自己
+                .setAction("tasksCmd")                      // 技能动作名，原样保留到技能
+                .setParam("op", sub)
+                .setParam("task_id", msg.getStringParam("task_id", ""))
+                .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, ""))
+                .setParam(AI_P_SESSIONID, msg.getStringParam(AI_P_SESSIONID, ""));
+        fwd.setSystemParam(AI_P_TARGETINSTANCE, skill);   // 通用投递：agent 按实例引用直投
+        TLMsg r = putMsg(agentModule, fwd);
+        if (r == null) return fail("agent 模块无响应: " + agentModule);
+        String message = r.getStringParam("message", "");
+        String error = r.getStringParam("error", null);
+        Object data = r.getParam("data");
+        return error != null ? fail(error) : ok(message, data);
     }
 
     /** 列出 Skill（registry 格式，同 /agents 风格） */

@@ -127,6 +127,7 @@ function newSession() {
   $('#sendBtn').disabled = false;
   $('#chatInput').focus();
   toast('已开新会话: ' + state.sessionId, 'ok');
+  reportCurrentSession();
 }
 
 // ======================== API ========================
@@ -218,8 +219,10 @@ async function enterChat() {
   appendSysMsg('已登录：' + state.userId + '（管理命令在右侧面板）');
   showView('chat');
   openEvents();
+  refreshInboxBadge();      // 登录即拉未读数（离线期间的任务结果会在消息箱提示）
   await autoResumeLast();   // 先接续最近活跃会话并渲染历史
   promptCheckpoint();       // 再检测断点会话 → 弹窗提示（如命令行启动时的 ⚠ 提示）
+  setTimeout(reportCurrentSession, 500);   // 会话恢复是异步的，等 autoResumeLast 落定后上报
 }
 
 /** 登录后自动接续该用户最近活跃的会话（以最后消息时间 last_active 为准）。
@@ -573,7 +576,13 @@ function bindUpload() {
   $('#clearUploads').onclick = () => { state.uploads = []; renderUploadBar(); };
 }
 
-// ======================== 事件通道（审批推送）=======================
+// 上报当前打开的会话（定时任务执行期需要知道"用户现在在看哪个会话"）
+function reportCurrentSession() {
+  if (!state.sessionId) return;
+  apiCommand('setCurrentSession', { sessionId: state.sessionId }).catch(() => {});
+}
+
+// ======================== 事件通道（审批 / 定时任务结果推送）=======================
 function openEvents() {
   if (state.events) state.events.close();
   const es = new EventSource('/api/events');
@@ -581,6 +590,7 @@ function openEvents() {
     let evt;
     try { evt = JSON.parse(e.data); } catch (err) { return; }
     if (evt.hb) return;
+    if (evt.type === 'inbox') { updateInboxBadge(evt.unread || 0); return; }
     if (evt.type === 'approval') showApprovalModal(evt);
     if (evt.type === 'kicked') {
       // 事件按 userId 广播，只有 loginId 匹配自己（被踢的那一方）才响应禁用
@@ -589,6 +599,25 @@ function openEvents() {
       $('#chatInput').disabled = true;
       $('#sendBtn').disabled = true;
       appendSysMsg('⚠ ' + (evt.text || '会话已被其他设备接管') + '（可开启新会话或继续其他会话）');
+    }
+    if (evt.type === 'taskResult') {
+      const sameSession = evt.sessionId === state.sessionId;
+      const head = '[定时任务 ' + (evt.taskId || '') + '] ';
+      if (sameSession) {
+        // 结果就在当前会话：直接追加通知，不整段重绘——
+        // 整段重绘（continueSession）会清屏+强制滚底，高频任务下页面持续闪动、
+        // 且视图总被拽到最新一条，看起来"只有一条消息"。任务轮次已在会话历史里，
+        // 下次恢复/刷新时自然可见。
+        // 用户停在底部时跟随新消息，翻看历史时不打扰（保持原滚动位置）。
+        const l = $('#msgList');
+        const atBottom = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+        const keepTop = l.scrollTop;
+        appendSysMsg('⏰ ' + head + evt.text);
+        if (!atBottom) l.scrollTop = keepTop;   // 在看历史 → 还原原位置（appendSysMsg 默认会滚底）
+      } else {
+        toast('⏰ ' + head + '有新结果，在会话 ' + (evt.sessionId || '') + '（右侧会话列表可切换）', 'ok');
+        appendSysMsg('⏰ ' + head + '结果已写入会话 ' + (evt.sessionId || ''));
+      }
     }
   };
   es.onopen = () => { $('#connState').textContent = '●'; $('#connState').style.color = '#4ade80'; };
@@ -627,10 +656,16 @@ function bindEvents() {
   });
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
+  // 顶栏功能图标：定时任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
+  $('#tasksBtn').onclick = openTasks;
+  $('#inboxBtn').onclick = openInbox;
   // 参数弹框：点遮罩关闭
   $('#paramModal').addEventListener('click', e => {
     if (e.target === $('#paramModal')) $('#paramModal').classList.add('hidden');
   });
+  // 任务/消息箱浮层：点遮罩关闭
+  $('#tasksModal').addEventListener('click', e => { if (e.target === $('#tasksModal')) closeTasks(); });
+  $('#inboxModal').addEventListener('click', e => { if (e.target === $('#inboxModal')) closeInbox(); });
   // 通用确认弹框
   $('#cfOkBtn').onclick = () => closeConfirm(true);
   $('#cfCancelBtn').onclick = () => closeConfirm(false);
@@ -644,6 +679,125 @@ document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
   initSession();
 });
+
+// ======================== 顶栏图标 / 定时任务 / 消息箱 ========================
+
+/** 定时任务浮层 */
+function openTasks() { $('#tasksModal').classList.remove('hidden'); loadTasks(); }
+function closeTasks() { $('#tasksModal').classList.add('hidden'); }
+/** 消息箱浮层 */
+function openInbox() { $('#inboxModal').classList.remove('hidden'); loadInbox(); }
+function closeInbox() { $('#inboxModal').classList.add('hidden'); }
+
+/** 更新消息箱未读角标（0 隐藏） */
+function updateInboxBadge(n) {
+  const b = $('#inboxBadge');
+  if (!b) return;
+  if (n > 0) { b.textContent = n > 99 ? '99+' : String(n); b.classList.remove('hidden'); }
+  else b.classList.add('hidden');
+}
+
+/** 拉取未读数并更新角标（登录后/收到 inbox 事件时调用） */
+async function refreshInboxBadge() {
+  try {
+    const r = await apiCommand('inboxList', {});
+    if (r.success && r.data) updateInboxBadge(r.data.unread || 0);
+  } catch (e) { /* 未登录等场景静默 */ }
+}
+
+/** 消息箱面板：列表 + 标记已读 + 清角标 */
+async function loadInbox() {
+  const box = $('#inboxBox');
+  try {
+    const r = await apiCommand('inboxList', {});
+    if (!r.success) { box.innerHTML = '<div class="muted">加载失败: ' + esc(r.error || '') + '</div>'; return; }
+    const d = r.data || {};
+    const list = d.list || [];
+    updateInboxBadge(d.unread || 0);
+    if (!list.length) { box.innerHTML = '<div class="muted">消息箱为空</div>'; return; }
+    const wrap = document.createElement('div');
+    list.forEach(m => {
+      const row = document.createElement('div');
+      row.style.cssText = 'border-bottom:1px solid #2a2f3d;padding:8px 4px;' + (m.is_read ? 'opacity:.55;' : '');
+      const ts = m.created_at ? fmtTs(Number(m.created_at)) : '';
+      const src = m.source === 'task' ? '⏰ ' + (m.task_id || '定时任务') : (m.source || '');
+      row.innerHTML = '<div style="font-size:12px;color:#93c5fd">' + esc(src) + ' · ' + esc(ts) + '</div>'
+                    + '<div style="white-space:pre-wrap;word-break:break-all">' + esc(String(m.text || '')) + '</div>';
+      wrap.appendChild(row);
+    });
+    box.innerHTML = '';
+    box.appendChild(wrap);
+  } catch (e) {
+    box.innerHTML = '<div class="muted">加载异常: ' + esc(e.message) + '</div>';
+  }
+}
+
+/** 全部标记已读 */
+async function readAllInbox() {
+  try {
+    await apiCommand('inboxRead', {});
+    loadInbox();
+  } catch (e) { toast('操作失败: ' + e.message, 'err'); }
+}
+
+/** 定时任务面板：列表 + 行内 暂停/恢复/删除（与控制台 /tasks 同语义） */
+async function loadTasks() {
+  const box = $('#tasksBox');
+  try {
+    const r = await apiCommand('tasks', { sub: 'list' });
+    if (!r.success) { box.innerHTML = '<div class="muted">' + esc(r.error || r.message || '加载失败') + '</div>'; return; }
+    const list = (r.data || []);
+    if (!list.length) { box.innerHTML = '<div class="muted">' + esc(r.message || '当前没有定时任务') + '</div>'; return; }
+    // renderTable 约定：headers = [[key, 显示名], ...]，rows = {key: 值} 对象
+    const headers = [['taskId', '任务ID'], ['status', '状态'], ['schedule', '调度'],
+                     ['content', '提示词/内容'], ['executedCount', '已执行'], ['_op', '操作']];
+    const rows = list.map(t => {
+      // 提示词优先取 prompt（agent 型）；message 型显示 目标模块.动作
+      const content = t.prompt && t.prompt.length ? t.prompt
+                    : (t.module ? (t.module + '.' + (t.action || '')) : (t.content || ''));
+      return {
+        taskId: t.taskId,
+        status: t.status || '',
+        schedule: t.schedule || '',
+        content: content,
+        executedCount: t.executedCount == null ? 0 : t.executedCount,
+        _op: ''
+      };
+    });
+    const wrap = document.createElement('div');
+    renderTable(wrap, headers, rows, null);
+    // 行内操作按钮（暂停/恢复/删除）
+    const trs = wrap.querySelectorAll('table.tbl tr');
+    list.forEach((t, idx) => {
+      const tr = trs[idx + 1];
+      if (!tr) return;
+      const cell = tr.lastElementChild;
+      cell.innerHTML = '';
+      const mk = (label, sub, cls) => {
+        const b = document.createElement('button');
+        b.textContent = label; b.style.marginRight = '4px';
+        if (cls) b.className = cls;
+        b.onclick = async () => {
+          const rr = await apiCommand('tasks', { sub: sub, task_id: t.taskId });
+          toast(rr.success ? (rr.message || 'ok') : ('失败: ' + (rr.error || rr.message || '')), rr.success ? 'ok' : 'err');
+          loadTasks();
+        };
+        return b;
+      };
+      if (t.enabled) cell.appendChild(mk('暂停', 'stop'));
+      else cell.appendChild(mk('恢复', 'resume'));
+      cell.appendChild(mk('删除', 'delete'));
+    });
+    box.innerHTML = '';
+    box.appendChild(wrap);
+    const hint = document.createElement('div');
+    hint.className = 'muted';
+    hint.textContent = '任务结果：在线时推送到当前会话；离线时进消息箱';
+    box.appendChild(hint);
+  } catch (e) {
+    box.innerHTML = '<div class="muted">加载异常: ' + esc(e.message) + '</div>';
+  }
+}
 
 // ======================== 面板：会话 ========================
 async function loadSessions() {
@@ -696,6 +850,7 @@ async function continueSession(sid, silent) {
         if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（含截图）
         appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
       });
+
       // 会话占用声明（登录级互斥）：
       // silent（登录自动接续）→ 静默登记，被占用仅提示不接管；
       // 非 silent（面板"继续"按钮=明确接管意图）→ 直接 force 接管（踢对方下线），不弹窗
@@ -737,6 +892,7 @@ async function switchSession(sid) {
     $('#chatInput').disabled = false;
     $('#sendBtn').disabled = false;
     toast(r.message || sid, 'ok');
+    reportCurrentSession();   // 切会话成功 → 上报新的当前会话
   } catch (e) { toast(e.message, 'err'); }
 }
 async function clearSession(sid) {

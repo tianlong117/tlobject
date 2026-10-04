@@ -554,6 +554,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        // 通用投递：消息带子模块实例引用（systemArgs: targetInstance）→ 直接投给该实例。
+        // 私有子模块外部按名够不着，实例由发起方自备；动作名原样保留（子模块自行分发）。
+        Object dispatchTarget = msg.getSystemParam(AI_P_TARGETINSTANCE, null);
+        if (dispatchTarget != null) return dispatchToInstance(msg);
         TLMsg returnMsg = null;
         switch (msg.getAction()) {
             case AGENT_CHAT:
@@ -573,11 +577,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case AGENT_LISTSKILLS:
                 // 工具管理内脏：薄转发给私有 toolManager，外部消息协议不变
                 returnMsg = putMsg(toolManager, msg);
-                break;
-            case "runScheduledTask":
-                // 定时任务到点回调：调度引擎把消息发到 agent（destination=agent、action=runScheduledTask），
-                // 薄转发给工具管理器定位技能模块（技能是 toolManager 的私有子模块，外部名字够不着）
-                returnMsg = runScheduledTask(fromWho, msg);
                 break;
             case AGENT_GETCONTEXT:
                 returnMsg = getAgentContext(fromWho, msg);
@@ -2150,18 +2149,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 定时任务回调：从消息取 functionName 等参数，转发给工具管理器定位技能模块
-     * （技能是 toolManager 的私有子模块，外部名字够不着，必须由 owner 定位）。
+     * 通用实例投递：消息 systemArgs 里带目标实例引用时，直接投给该实例
+     * （用于 agent 私有子模块的外部事件回调——按名寻址够不着，实例由发起方自备）。
+     * 消息原样透传（含动作名与参数），子模块自行分发。
      */
-    protected TLMsg runScheduledTask(Object fromWho, TLMsg msg) {
-        TLMsg m = createMsg()
-                .setAction("runScheduledTask")
-                .setParam(AI_P_TOOLNAME, msg.getStringParam(AI_P_TOOLNAME, ""))
-                .setParam("taskPrompt", msg.getStringParam("taskPrompt", ""))
-                .setParam("taskId", msg.getStringParam("taskId", "?"))
-                .setParam("recordSession", msg.getStringParam("recordSession", null));
+    private TLMsg dispatchToInstance(TLMsg msg) {
+        Object target = msg.getSystemParam(AI_P_TARGETINSTANCE, null);
+        if (!(target instanceof IObject)) return null;
+        TLMsg m = createMsg().setAction(msg.getAction());
+        m.addArgs(msg.getArgs());
         m.addSystemArgs(msg.getSystemArgs());
-        return putMsg(toolManager, m);
+        m.removeSystemParam(AI_P_TARGETINSTANCE);   // 防止再转投
+        return putMsg((IObject) target, m);
     }
 
     // ======================== Context操作 ========================

@@ -32,8 +32,12 @@ header .tag { color: #93c5fd; background: #1e3a5f; padding: 2px 8px; border-radi
 header .sess input { background: #12141a; border: 1px solid #2a2f3d; color: #d8dde6; padding: 4px 8px; border-radius: 5px; }
 header .toggle { color: #9aa3b2; }
 header .conn { color: #4ade80; font-size: 16px; }
-header button.ghost { background: none; border: 1px solid #2a2f3d; color: #9aa3b2; padding: 4px 10px; border-radius: 5px; cursor: pointer; }
+header button.ghost { background: none; border: 1px solid #2a2f3d; color: #9aa3b2; padding: 4px 10px; border-radius: 5px; cursor: pointer; position: relative; }
 header button.ghost:hover { color: #d8dde6; border-color: #4b5563; }
+/* 消息箱未读 badge（顶栏 🔔 角标） */
+.badge { display: inline-block; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; margin-left: 4px;
+         background: #ef4444; color: #fff; border-radius: 8px; font-size: 11px; text-align: center; vertical-align: top; }
+.badge.hidden { display: none; }
 
 main { display: flex; flex: 1; min-height: 0; }
 
@@ -132,6 +136,10 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 /* ===== 审批弹框 ===== */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
 .modal-box { width: 520px; max-width: 92vw; background: #1b1e27; border: 1px solid #3b82f6; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 10px; }
+/* 宽版浮层（任务/消息箱——表格类内容需要横向空间，更大气） */
+.modal-box.wide { width: min(1060px, 94vw); }
+.modal-box.wide table.tbl { font-size: 13px; }
+.modal-box.wide table.tbl th, .modal-box.wide table.tbl td { padding: 8px 12px; vertical-align: top; }
 .modal-box h3 { color: #fbbf24; font-size: 15px; }
 .modal-box .ap-desc { color: #d8dde6; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
 .modal-box .lbl { color: #9aa3b2; font-size: 12px; }
@@ -155,3 +163,6 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .md-box h5 { margin: 10px 0 4px; font-size: 13px; color: #cbd5e1; }
 .md-box .md-p, .md-box .md-li { font-size: 13px; line-height: 1.7; color: #d8dde6; }
 .md-box .md-li { padding-left: 10px; }
+
+/* 面板内的弱提示文字（消息箱空态/任务面板提示等） */
+.muted { color: #6b7280; font-size: 13px; padding: 6px 2px; }

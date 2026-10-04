@@ -114,8 +114,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         try {
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "approvalEvent").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "taskResult").setParam("object", this));
         } catch (Exception e) {
-            putLog("msgBus 注销审批事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
+            putLog("msgBus 注销事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
         }
         return super.destroy(fromWho, msg);
     }
@@ -159,6 +161,23 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 // 发布方却以为有人渲染了 —— 返回 null 让它回退到直接打印
                 offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
                 return running ? createMsg().setParam(RESULT, true) : null;
+            case "taskResult": {
+                // 事件按 userId 过滤：事件总线是进程级的，web/其他用户的任务结果不得打到本控制台
+                // （本控制台用户以启动时的 userId 为准；事件 userId 缺失时不展示，宁缺勿串）
+                String evtUser = msg.getStringParam("userId", "");
+                if (!userId.equals(evtUser)) return null;
+                // 定时任务结果事件（经 msgBus 订阅）：走 RESULT 渲染路径（AI > 前缀 + 提示符重打），
+                // 即使用户正停在输入等待，主循环 poll 到即打印，无需回车。
+                // notifyOnly 标记：这是通知不是对话结果 —— 不重置忙态（用户可能正有对话在跑，
+                // 提前解锁输入会破坏"运行中只能 /stop"的限制），也不打耗时/token 统计行
+                // （currentStart 只在发起对话时赋值，空闲时算出的 ms 是离谱值）
+                offer(new ConsoleEvent(EventType.RESULT, null, createMsg()
+                        .setParam(AI_P_RESPONSE, "⏰ [定时任务 " + msg.getStringParam("taskId", "")
+                                + "] " + msg.getStringParam("text", ""))
+                        .setParam("success", true)
+                        .setParam("notifyOnly", true)));
+                return running ? createMsg().setParam(RESULT, true) : null;
+            }
         }
         return null;
     }
@@ -237,8 +256,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .setParam("destination", "approvalEvent").setParam("object", this));
             if (regMsg == null || !Boolean.TRUE.equals(regMsg.getParam(RESULT)))
                 putLog("msgBus 订阅审批事件被拒绝", cn.tianlong.tlobject.modules.LogLevel.WARN);
+            // 定时任务结果事件（TLScheduleTaskSkill 到点执行后发布）
+            TLMsg taskRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "taskResult").setParam("object", this));
+            if (taskRegMsg == null || !Boolean.TRUE.equals(taskRegMsg.getParam(RESULT)))
+                putLog("msgBus 订阅定时任务结果事件被拒绝", cn.tianlong.tlobject.modules.LogLevel.WARN);
         } catch (Exception e) {
-            putLog("msgBus 订阅审批事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+            putLog("msgBus 订阅事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
         }
 
         // 读取线程
@@ -874,6 +898,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (msg == null) return null;
                 break;
 
+            case "tasks":
+                // /tasks —— 列表；/tasks stop|resume|delete <task_id> —— 管理
+                if (parts.length > 1) {
+                    msg.setAction("tasks").setParam("sub", parts[1].toLowerCase())
+                            .setParam("task_id", parts.length > 2 ? parts[2] : "")
+                            .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
+                } else {
+                    msg.setAction("tasks").setParam("sub", "list")
+                            .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_USERID, userId);
+                }
+                break;
+
             default:
                 System.out.println("未知命令: /" + cmd);
                 // 前缀匹配建议
@@ -1204,6 +1240,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         System.out.println("✓ " + message);
                     }
                     break;
+                case "tasks":
+                    printTaskList(data, message);
+                    break;
                 case "sessions":
                     printSessionList(data);
                     break;
@@ -1439,6 +1478,33 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
         System.out.println();
         System.out.println("使用 /continue <id> 继续某个会话，或 /continue 恢复最近会话");
+    }
+
+    /** /tasks 列表渲染（data = 结构化任务 List；head 为服务层给的表头/提示文本） */
+    @SuppressWarnings("unchecked")
+    private void printTaskList(Object data, String head) {
+        if (head != null && !head.isEmpty()) System.out.println(head);
+        if (!(data instanceof List)) return;
+        List<?> tasks = (List<?>) data;
+        if (tasks.isEmpty()) return;
+        int i = 1;
+        for (Object obj : tasks) {
+            if (!(obj instanceof Map)) continue;
+            Map<String, Object> t = (Map<String, Object>) obj;
+            String id = t.get("taskId") != null ? t.get("taskId").toString() : "?";
+            String status = t.get("status") != null ? t.get("status").toString() : "?";
+            String schedule = t.get("schedule") != null ? t.get("schedule").toString() : "";
+            String type = t.get("type") != null ? t.get("type").toString() : "";
+            String content = t.get("content") != null ? t.get("content").toString() : "";
+            String next = t.get("nextDatetime") != null ? t.get("nextDatetime").toString() : null;
+            Object cnt = t.get("executedCount");
+            System.out.println("  " + i + ". " + id + "  [" + status + "]  " + schedule
+                    + "  已执行 " + (cnt == null ? "0" : cnt) + " 次");
+            System.out.println("     " + ("agent".equals(type) ? "prompt: " : "message: ") + content
+                    + (next == null ? "" : "  下次 " + next));
+            i++;
+        }
+        System.out.println("使用 /tasks stop|resume|delete <task_id> 管理任务");
     }
 
     @SuppressWarnings("unchecked")
@@ -1716,6 +1782,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 非流式结果事件（主线程打印） */
     private void onChatResult(TLMsg response) {
+        // 通知类事件（taskResult 等）：只借 RESULT 路径渲染文本，"当前对话的收尾"动作全部跳过
+        boolean notifyOnly = response != null && response.parseBoolean("notifyOnly", false);
         stopThinking();
         if (response != null) {
             String aiResponse = response.getStringParam(AI_P_RESPONSE, "");
@@ -1727,9 +1795,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     displayReasoning(reasoning);
                 }
                 System.out.println("AI > " + aiResponse);
-                if (cancelled) {
+                if (!notifyOnly && cancelled) {
                     System.out.println("    (" + (System.currentTimeMillis() - currentStart) + "ms)");
-                } else {
+                } else if (!notifyOnly) {
                     int pt = response.getIntParam(AI_P_PROMPTTOKENS, 0);
                     int ct = response.getIntParam(AI_P_COMPLETIONTOKENS, 0);
                     int tt = response.getIntParam(AI_P_TOTALTOKENS, 0);
@@ -1780,9 +1848,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.println("AI > [错误] " + (aiResponse.isEmpty() ? "空响应" : aiResponse));
             }
         }
-        busy = false;
-        currentTask = null;
-        paused = false;
+        if (!notifyOnly) {
+            // 通知类事件不碰忙态：正跑着的对话不能被任务结果"提前收尾"，否则输入锁被解开
+            busy = false;
+            currentTask = null;
+            paused = false;
+        }
         System.out.println();
         printPrompt();
         System.out.flush();
@@ -2233,6 +2304,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /stats                  当前会话 Token 统计 + 进程合计 + DB 历史合计");
         System.out.println("  /stats all              列出内存中所有会话的 Token 明细");
         System.out.println("  /stats agent            当前会话最后一轮各 Agent 的 token 用量");
+        System.out.println();
+        System.out.println("定时任务:");
+        System.out.println("  /tasks                  列出我的定时任务（状态/调度/已执行/下次执行）");
+        System.out.println("  /tasks stop <task_id>   暂停任务");
+        System.out.println("  /tasks resume <task_id> 恢复任务（引擎里没有会自动重注册）");
+        System.out.println("  /tasks delete <task_id> 删除任务");
+        System.out.println("  （聊天里也可自然语言建任务，如\"每天早上8点查一下上证指数\"）");
         System.out.println();
         System.out.println("MCP 市场命令:");
         System.out.println("  /mcp search [keyword]   搜索 MCP 服务器，空参数列出全部精选");

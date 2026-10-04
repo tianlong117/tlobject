@@ -72,6 +72,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private final Map<String, String> sessionOwner = new ConcurrentHashMap<>();
     /** 会话登录占用：sessionId → loginId（登录级互斥——同一会话同时只允许一个登录继续；null 兼容旧前端不校验） */
     private final Map<String, String> sessionLogin = new ConcurrentHashMap<>();
+    /** userId → 前端当前打开的会话（setCurrentSession 上报；定时任务执行期解析目标会话用） */
+    private final Map<String, String> currentSessionByUser = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 离线消息箱存储（DB 后端，表声明见 database_config.xml 的 aiInbox） */
+    private final InboxStore inboxStore = new InboxStore(this);
 
     public TLWebChatModule() { super(); }
     public TLWebChatModule(String name) { super(name); }
@@ -110,6 +114,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null，
                 // 让发布方回退到控制台直接打印，避免"以为有人渲染"而审批提示消失
                 return onApprovalEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            case "taskResult":
+                // 定时任务执行完毕的结果事件（msgBus 订阅）：按 userId 推给其全部 SSE 连接
+                return onTaskResultEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -131,6 +138,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doEvents();
             case "registerSseChannel":
                 return onRegisterSseChannel(msg);
+            // ===== 当前活动会话（前端上报 / 定时任务技能查询）=====
+            case "setCurrentSession":
+                return onSetCurrentSession(msg);
+            case "getCurrentSession":
+                return onGetCurrentSession(msg);
+            // ===== 用户在线状态 / 离线消息箱（技能投递与前端共用）=====
+            case "getUserStatus":
+                return onGetUserStatus(msg);
+            case "inboxAdd":
+                return onInboxAdd(msg);
+            case "inboxList":
+                return onInboxList(msg);
+            case "inboxRead":
+                return onInboxRead(msg);
         }
         return null;
     }
@@ -200,6 +221,35 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 put("occupied", false);
                 put("kicked", occupied);
             }});
+            return out;
+        }
+        // 当前活动会话上报（webui 自身逻辑，不转发 agentService——前端 /api/command 的消息
+        // 默认发往 serviceModule，故必须在本地处理，否则 checkMsgAction 的 case 永远收不到）
+        if ("setCurrentSession".equals(action)) {
+            if (userId == null) return failMap("未登录");
+            String sessionId = params != null && params.get("sessionId") != null
+                    ? String.valueOf(params.get("sessionId")) : "";
+            onSetCurrentSession(createMsg().setParam("userId", userId).setParam("sessionId", sessionId));
+            return okMap("ok");
+        }
+        // 离线消息箱（webui 自身逻辑，不转发 agentService）；
+        // getUserStatus 亦为技能端在线判定入口（技能直接 putMsg 本模块，不经此处）
+        if ("inboxList".equals(action) || "inboxRead".equals(action) || "getUserStatus".equals(action)) {
+            if (userId == null) return failMap("未登录");
+            TLMsg r;
+            if ("inboxList".equals(action)) {
+                r = onInboxList(createMsg().setParam("userId", userId));
+            } else if ("inboxRead".equals(action)) {
+                r = onInboxRead(createMsg().setParam("userId", userId)
+                        .setParam("id", params != null ? params.get("id") : null));
+            } else {
+                r = onGetUserStatus(createMsg().setParam("userId", userId));
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("success", true);
+            out.put("message", r.getStringParam("message", "ok"));
+            Object data = r.getParam("data");
+            if (data != null) out.put("data", toJsonable(data));
             return out;
         }
         TLMsg msg = createMsg().setAction(action);
@@ -357,6 +407,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String userId = currentUserId();
         if (userId == null) return notLogin();
         closeEventsChannel(userId);
+        // 清除在线标记：离线判定（getUserStatus）依据 currentSessionByUser，
+        // 不清则退出后任务仍判"在线"，离线消息箱永远收不到东西
+        currentSessionByUser.remove(userId);
         rejectPendingApprovals(userId);   // 退出即拒该用户未决审批（不等 5 分钟超时，安全默认）
         // 释放本登录占用的会话（loginId 为空则释放该用户全部占用，兼容旧前端）；
         // 只动属于当前用户的会话（sessionOwner 归属校验），其他登录/用户的占用保留
@@ -611,8 +664,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         try {
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "approvalEvent").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "taskResult").setParam("object", this));
         } catch (Exception e) {
-            putLog("msgBus 注销审批事件订阅失败: " + e, LogLevel.DEBUG);
+            putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
         for (TLWebChannel c : streamWriters.values()) {
             try { c.close(); } catch (Exception ignored) {}
@@ -767,6 +822,211 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return sent;
     }
 
+    /**
+     * 定时任务结果事件（msgBus 回调）：按 userId 推给其全部 SSE 连接。
+     * 前端收到后：结果会话 == 当前打开会话 → 提示并刷新历史；否则提示可切换。
+     * 事件带 userId 而非 sessionId——任务结果可能落在用户并未打开的会话里，
+     * 推给该用户的每个在线标签页，由前端按 sessionId 自行判断渲染方式。
+     *
+     * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
+     */
+    private boolean onTaskResultEvent(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", "taskResult");
+        evt.put("taskId", msg.getStringParam("taskId", ""));
+        evt.put("sessionId", msg.getStringParam("sessionId", ""));
+        evt.put("creationSessionId", msg.getStringParam("creationSessionId", ""));
+        evt.put("text", msg.getStringParam("text", ""));
+        String json = GSON.toJson(evt);
+        boolean sent = false;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list != null) for (TLWebChannel c : list) {
+            if (c.isOpen()) { c.write(json); sent = true; }
+        }
+        return sent;
+    }
+
+    /** 前端上报当前打开的会话（页面加载/切会话/开新会话时调用；只记内存，不落盘） */
+    private TLMsg onSetCurrentSession(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        String sid = msg.getStringParam("sessionId", "");
+        if (!userId.isEmpty() && !sid.isEmpty()) currentSessionByUser.put(userId, sid);
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 查询用户当前活动会话（定时任务执行期解析目标会话用）；未知返回空串 */
+    private TLMsg onGetCurrentSession(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionId", currentSessionByUser.getOrDefault(userId, ""));
+    }
+
+    // ======================== 离线消息箱 ========================
+
+    /**
+     * 用户在线状态（定时任务投递前查询）：online = 有前端上报的当前会话；
+     * currentSession 供在线时把结果写回该会话。
+     */
+    private TLMsg onGetUserStatus(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        String sid = currentSessionByUser.getOrDefault(userId, "");
+        return createMsg().setParam(RESULT, true)
+                .setParam("online", !sid.isEmpty())
+                .setParam("sessionId", sid);
+    }
+
+    /**
+     * 离线投递：写入消息箱 + 推 inbox 事件（在线端实时更新未读 badge）。
+     * 调用方：定时任务技能（用户离线时）；未来其他离线通知可复用。
+     */
+    private TLMsg onInboxAdd(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        String text = msg.getStringParam("text", "");
+        String source = msg.getStringParam("source", "task");
+        String taskId = msg.getStringParam("taskId", "");
+        if (userId.isEmpty() || text.isEmpty()) return createMsg().setParam(RESULT, false);
+        inboxStore.add(userId, source, taskId, text);
+        // 推事件：在线端（另一标签页）立即更新未读计数
+        pushInboxEvent(userId, inboxStore.unreadCount(userId));
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 消息箱列表（含未读数）；id 为空则列出全部（可取 limit） */
+    @SuppressWarnings("unchecked")
+    private TLMsg onInboxList(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("unread", inboxStore.unreadCount(userId));
+        data.put("list", inboxStore.list(userId, 50));
+        return createMsg().setParam(RESULT, true).setParam("data", data);
+    }
+
+    /** 标记已读：id 为空 = 全部标记已读；返回剩余未读数 */
+    private TLMsg onInboxRead(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        Object id = msg.getParam("id");
+        inboxStore.markRead(userId, id);
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("unread", inboxStore.unreadCount(userId));
+        return createMsg().setParam(RESULT, true).setParam("data", data);
+    }
+
+    /** 推 inbox 事件给该用户全部 SSE 连接（复用 eventChannels，与 taskResult 同路） */
+    private void pushInboxEvent(String userId, int unread) {
+        try {
+            Map<String, Object> evt = new LinkedHashMap<>();
+            evt.put("type", "inbox");
+            evt.put("unread", unread);
+            String json = GSON.toJson(evt);
+            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+            if (list != null) for (TLWebChannel c : list) {
+                if (c.isOpen()) c.write(json);
+            }
+        } catch (Exception e) {
+            putLog("推送 inbox 事件失败: " + e, LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * 消息箱存储：复用框架 DB 模块（TLDatabase.getTable），表声明见 database_config.xml 的 aiInbox。
+     * 惰性取表 + 失败降级（DB 未配置时静默空结果，不影响其它功能）。
+     */
+    private static class InboxStore {
+        private final TLWebChatModule owner;
+        private TLBaseModule table;
+
+        InboxStore(TLWebChatModule owner) { this.owner = owner; }
+
+        private TLBaseModule tbl() {
+            if (table == null) {
+                try { table = cn.tianlong.tlobject.db.TLDatabase.getTable("aiInbox", owner); }
+                catch (Exception e) { owner.putLog("inbox 取表失败: " + e, LogLevel.DEBUG); }
+            }
+            return table;
+        }
+
+        void add(String userId, String source, String taskId, String text) {
+            TLBaseModule t = tbl();
+            if (t == null) return;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("user_id", userId);
+            p.put("source", source);
+            p.put("task_id", taskId);
+            p.put("text", text);
+            p.put("is_read", 0);
+            p.put("created_at", System.currentTimeMillis());
+            owner.putMsg(t, owner.createMsg().setAction(cn.tianlong.tlobject.base.TLParamString.DB_INSERT)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "insert into [table] (user_id,source,task_id,text,is_read,created_at) values (?,?,?,?,?,?)")
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+        }
+
+        int unreadCount(String userId) {
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return 0;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            TLMsg r = owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_QUERY)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "select count(*) as cnt from [table] where user_id=? and is_read=0")
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            Object row = firstRow(r);
+            if (row instanceof Map) {
+                Object c = ((Map<?, ?>) row).get("cnt");
+                if (c instanceof Number) return ((Number) c).intValue();
+            }
+            return 0;
+        }
+
+        java.util.List<Map<String, Object>> list(String userId, int limit) {
+            java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return out;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            TLMsg r = owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_QUERY)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "select `id`, `source`, `task_id`, `text`, `is_read`, `created_at` from [table] "
+                                    + "where user_id=? order by created_at desc limit " + Math.max(1, limit))
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            if (r != null && r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT) instanceof java.util.List) {
+                for (Object o : (java.util.List<?>) r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT)) {
+                    if (o instanceof Map) out.add((Map<String, Object>) o);
+                }
+            }
+            return out;
+        }
+
+        void markRead(String userId, Object id) {
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            String sql;
+            if (id != null && !String.valueOf(id).isEmpty()) {
+                p.put("__id", id);
+                sql = "update [table] set is_read=1 where user_id=? and id=?";
+            } else {
+                sql = "update [table] set is_read=1 where user_id=?";
+            }
+            owner.putMsg(t, owner.createMsg().setAction(cn.tianlong.tlobject.base.TLParamString.DB_UPDATE)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL, sql)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+        }
+
+        @SuppressWarnings("unchecked")
+        private Object firstRow(TLMsg r) {
+            if (r == null) return null;
+            Object res = r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT);
+            if (res instanceof java.util.List && !((java.util.List<?>) res).isEmpty())
+                return ((java.util.List<?>) res).get(0);
+            return null;
+        }
+    }
+
     private void subscribeApprovalEvents() {
         try {
             TLMsg regMsg = putMsg("msgBus", createMsg().setAction("registBus")
@@ -775,8 +1035,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 订阅审批事件被拒绝", LogLevel.WARN);
             else
                 putLog("webui 已订阅审批事件（msgBus approvalEvent）", LogLevel.INFO);
+            // 定时任务结果事件（TLScheduleTaskSkill 到点执行后发布）
+            TLMsg taskRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "taskResult").setParam("object", this));
+            if (taskRegMsg == null || !Boolean.TRUE.equals(taskRegMsg.getParam(RESULT)))
+                putLog("webui 订阅定时任务结果事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅定时任务结果事件（msgBus taskResult）", LogLevel.INFO);
         } catch (Exception e) {
-            putLog("msgBus 订阅审批事件失败: " + e, LogLevel.WARN);
+            putLog("msgBus 订阅事件失败: " + e, LogLevel.WARN);
         }
     }
 

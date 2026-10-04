@@ -138,7 +138,100 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
         if ("runScheduledTask".equals(msg.getAction()))
             return runScheduledTask(fromWho, msg);
+        if ("runScheduledMessage".equals(msg.getAction()))
+            return runScheduledMessage(fromWho, msg);
+        if ("tasksCmd".equals(msg.getAction()))
+            return tasksCmd(fromWho, msg);
         return super.checkMsgAction(fromWho, msg);
+    }
+
+    /**
+     * 控制台 /tasks 命令入口（经 agent→toolManager→本技能 转发到达）。
+     * 与 execute() 的区别：不绑定 LLM 轮次，用消息上的 sessionId/userId 身份；
+     * 返回结构化数据（data=List&lt;Map&gt;）供命令层渲染。
+     * reply 约定：{result, op, message, error?, data?}
+     */
+    private TLMsg tasksCmd(Object fromWho, TLMsg msg) {
+        // 身份：命令路径 userId 走业务参数（控制台/服务层注入），回退 systemArgs 区
+        String cmdUserId = str(msg.getArgs(), "userId", null);
+        if (cmdUserId == null) {
+            Object u = msg.getSystemParam("userId", null);
+            cmdUserId = (u != null && !String.valueOf(u).isEmpty()) ? String.valueOf(u)
+                    : String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        }
+        String op = msg.getStringParam("op", "list");
+        if ("list".equals(op)) return tasksCmdList(cmdUserId);
+
+        String taskId = msg.getStringParam("task_id", null);
+        if (taskId == null || taskId.isEmpty())
+            return cmdReply(false, op, null, "需要 task_id（先 /tasks 查看列表）", null);
+        String replyOp = "delete".equals(op) ? "remove" : "update";   // 复用 execute 的 op 语义
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("op", replyOp);
+        input.put("task_id", taskId);
+        input.put("userId", cmdUserId);      // execute 优先读输入的 userId（否则回退 systemArgs/sessionId）
+        if ("stop".equals(op)) input.put("enabled", "false");
+        if ("resume".equals(op)) input.put("enabled", "true");
+        TLMsg r = execute(fromWho, msg.setParam(AI_P_SKILLINPUT, input));
+
+        boolean okr = Boolean.TRUE.equals(r.getParam(RESULT));
+        String out = r.getStringParam(AI_P_SKILLOUTPUT, "");
+        return okr ? cmdReply(true, op, out, null, null) : cmdReply(false, op, null, out, null);
+    }
+
+    /** /tasks 列表：返回结构化数据（引擎缺失/技能缺失由命令层据此提示） */
+    private TLMsg tasksCmdList(String userId) {
+
+        Map<String, TaskRecord> mine = recordsOf(userId);
+        TLMsg er = sendToEngine(createMsg().setAction("getTasks"));
+        if (er == null)
+            return cmdReply(true, "list",
+                    "定时任务未配置（应用未声明 " + msgTaskModule + " 引擎）", null, null);
+        Map<String, Object> engineTasks = new LinkedHashMap<>();
+        if (er.getParam("tasks") instanceof Map) engineTasks = (Map<String, Object>) er.getParam("tasks");
+
+        List<Map<String, Object>> data = new ArrayList<>();
+        for (Map.Entry<String, TaskRecord> e : mine.entrySet()) {
+            TaskRecord rec = e.getValue();
+            Object infoObj = engineTasks.get(e.getKey());
+            Map<String, Object> info = infoObj instanceof Map ? (Map<String, Object>) infoObj : new LinkedHashMap<>();
+            boolean engineKnown = info.get("status") != null;
+            String status = engineStatusText(info.get("status"), rec.enabled);
+            Object cnt = info.get("executedCount");
+            String cntText = longText(cnt);
+            long cntLong = Math.max(rec.executedCount, cntText == null ? 0L : Long.parseLong(cntText));
+
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("taskId", rec.taskId);
+            d.put("status", status);
+            d.put("schedule", scheduleText(rec));
+            d.put("type", rec.type);
+            d.put("content", "agent".equals(rec.type) ? rec.prompt : rec.module + "." + rec.action);
+            // 明细字段：任务面板可直接显示（prompt=执行提示词；module/action=固定消息目标）
+            d.put("prompt", rec.prompt == null ? "" : rec.prompt);
+            d.put("module", rec.module == null ? "" : rec.module);
+            d.put("action", rec.action == null ? "" : rec.action);
+            d.put("executedCount", cntLong);
+            d.put("enabled", rec.enabled);
+            if (engineKnown && "运行中".equals(status)) d.put("nextDatetime", fmtTime(info.get("nextDatetime")));
+            data.add(d);
+        }
+        return cmdReply(true, "list",
+                mine.isEmpty() ? "当前没有定时任务（用户 " + userId + "）"
+                        : "定时任务（用户 " + userId + "，共 " + mine.size() + " 个）",
+                null, data);
+    }
+
+    /** 命令回执：成功走 message（可带 data），失败走 error（服务层按 error 判定失败） */
+    private TLMsg cmdReply(boolean success, String op, String message, String error, Object data) {
+        TLMsg r = createMsg().setParam(RESULT, success).setParam("op", op);
+        if (success) {
+            if (message != null) r.setParam("message", message);
+        } else if (error != null) {
+            r.setParam("error", error);
+        }
+        if (data != null) r.setParam("data", data);
+        return r;
     }
 
     @Override
@@ -186,15 +279,16 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         if (userId == null || userId.isEmpty())
             userId = recSession != null ? sessionUsers.getOrDefault(recSession, recSession) : "default";
 
-        // 执行时解析目标会话：用户当前活动会话可用则用，否则回退创建时会话（保证必达不丢）
-        String target = resolveTargetSession(userId);
-        if (target == null || target.isEmpty()) target = sessionId;
-
+        // 执行与投递解耦（2026-10-04 重构）：
+        // 执行：任务跑在专用会话 task_<taskId>_<时间戳>——与用户会话完全隔离（不抢锁、不污染对话历史），
+        //       且不依赖用户在线，到点必定执行（"定时"的意义）；
+        // 投递：结果按用户在线状态分流（在线→当前会话推送；离线→离线消息箱）。
+        String execSession = "task_" + taskId.replace('/', '_') + "_" + System.currentTimeMillis();
         TLMsg chat = createMsg()
-                .setAction("chat")                       // 缺 action 会走 defaultAction 返回 null，任务永远不产生回复
+                .setAction("chat")
                 .setParam("userMessage", prompt)
                 .setParam("taskId", taskId);
-        chat.setSystemParam(AI_P_SESSIONID, target);
+        chat.setSystemParam(AI_P_SESSIONID, execSession);
         chat.setSystemParam("userId", userId);
 
         Object agent = getModuleInFactory(ownerAgent);
@@ -206,30 +300,97 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String answer = r == null ? null : r.getStringParam(AI_P_RESPONSE, null);
         if (answer == null || answer.isEmpty()) answer = "(无文本回复)";
         updateRecordAfterRun(taskId);
-        publishTaskResult(userId, target, taskId, answer, recSession);
+
+        // 投递分流
+        WebuiStatus st = queryUserStatus(userId);
+        if (st.online && !st.sessionId.isEmpty()) {
+            publishTaskResult(userId, st.sessionId, taskId, answer);   // 在线：推送到当前会话
+        } else {
+            deliverToInbox(userId, taskId, answer);                    // 离线：入消息箱（登录后有未读提示）
+        }
         return r;
     }
 
-    /** 解析用户当前活动会话：经 webui 查询；无 webui 模块/用户不在线返回 null（调用方回退） */
-    private String resolveTargetSession(String userId) {
+    /**
+     * message 型任务回调（经 agent 通用投递到达）：转发原始消息到目标模块/动作（不经 LLM），
+     * 然后回写计数/一次性停用（与 runScheduledTask 同款收尾）。
+     */
+    protected TLMsg runScheduledMessage(Object fromWho, TLMsg msg) {
+        String taskId = msg.getStringParam("taskId", "?");
+        String destModule = msg.getStringParam("destModule", "");
+        String destAction = msg.getStringParam("destAction", "");
+        if (destModule.isEmpty() || destAction.isEmpty()) {
+            putLog("任务 [" + taskId + "] message 型缺少 module/action", LogLevel.ERROR);
+            updateRecordAfterRun(taskId);
+            return null;
+        }
+        TLMsg m = createMsg().setAction(destAction);
+        String argsJson = msg.getStringParam("destArgsJson", "");
+        if (argsJson != null && !argsJson.isEmpty()) {
+            try {
+                Map<String, Object> extra = gson.fromJson(argsJson, new TypeToken<Map<String, Object>>() {}.getType());
+                if (extra != null) m.addArgs(extra);
+            } catch (Exception e) {
+                putLog("args JSON 解析失败: " + e.getMessage(), LogLevel.WARN);
+            }
+        }
+        m.addSystemArgs(msg.getSystemArgs());
+        Object target = getModuleFromFactory(destModule);
+        TLMsg r = null;
+        if (target instanceof IObject) {
+            r = putMsg((IObject) target, m);
+        } else {
+            putLog("任务 [" + taskId + "] 目标模块不存在: " + destModule, LogLevel.ERROR);
+        }
+        updateRecordAfterRun(taskId);
+        return r;
+    }
+
+    /** 用户在线状态（webui getUserStatus 查询）：online=有前端上报的当前会话 */
+    private static class WebuiStatus {
+        boolean online;
+        String sessionId = "";
+    }
+
+    /** 查询用户在线状态与当前会话（无 webui 模块时视为离线） */
+    private WebuiStatus queryUserStatus(String userId) {
+        WebuiStatus st = new WebuiStatus();
         try {
             Object webui = getModuleInFactory("webui");
-            if (!(webui instanceof IObject)) return null;
-            TLMsg q = createMsg().setAction("getCurrentSession").setParam("userId", userId);
+            if (!(webui instanceof IObject)) return st;
+            TLMsg q = createMsg().setAction("getUserStatus").setParam("userId", userId);
             q.setSystemParam(IGNOREMODULEISNULL, true);
             TLMsg r = putMsg((IObject) webui, q);
-            if (r == null) return null;
-            String sid = r.getStringParam("sessionId", "");
-            return sid.isEmpty() ? null : sid;
+            if (r == null) return st;
+            st.online = r.parseBoolean("online", false);
+            st.sessionId = r.getStringParam("sessionId", "");
+            return st;
         } catch (Exception e) {
-            putLog("查询当前活动会话失败（回退创建时会话）: " + e, LogLevel.DEBUG);
-            return null;
+            putLog("查询用户在线状态失败（按离线处理）: " + e, LogLevel.DEBUG);
+            return st;
+        }
+    }
+
+    /** 离线投递：写入离线消息箱（webui inboxAdd），登录后未读提示可达 */
+    private void deliverToInbox(String userId, String taskId, String answer) {
+        try {
+            Object webui = getModuleInFactory("webui");
+            if (!(webui instanceof IObject)) return;
+            TLMsg m = createMsg().setAction("inboxAdd")
+                    .setParam("userId", userId)
+                    .setParam("source", "task")
+                    .setParam("taskId", taskId)
+                    .setParam("text", answer);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg((IObject) webui, m);
+        } catch (Exception e) {
+            putLog("离线投递失败: " + e, LogLevel.WARN);
         }
     }
 
     /** 结果推送：msgBus topic taskResult → web SSE / 控制台（订阅方自行渲染） */
     private void publishTaskResult(String userId, String sessionId, String taskId,
-                                   String answer, String creationSessionId) {
+                                   String answer) {
         try {
             Object bus = getModuleInFactory("msgBus");
             if (!(bus instanceof IObject)) return;
@@ -238,8 +399,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                     .setParam("userId", userId)
                     .setParam("sessionId", sessionId)
                     .setParam("taskId", taskId)
-                    .setParam("text", text)
-                    .setParam("creationSessionId", creationSessionId == null ? "" : creationSessionId);
+                    .setParam("text", text);
             evt.setDestination("taskResult");   // 总线按 destination 路由到订阅者
             putMsg((IObject) bus, evt);
         } catch (Exception e) {
@@ -329,7 +489,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                 .append("- 类型: ").append(rec.type.equals("agent") ? "agent 轮次" : "固定消息")
                 .append("  ").append(rec.type.equals("agent") ? rec.prompt : rec.module + "." + rec.action).append("\n")
                 .append("- 调度: ").append(scheduleText(rec)).append("\n")
-                .append("- 下次执行: ").append(next == null ? "（等待引擎调度）" : next);
+                .append("- 下次执行: ").append(next == null ? "（已注册，等待引擎排期）" : next);
         if (warn != null) out.append("\n- ⚠ ").append(warn);
         return ok(out.toString());
     }
@@ -339,25 +499,28 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String fullId = rec.owner + "/" + rec.taskId;
         TLMsg taskMsg;
         if ("agent".equals(rec.type)) {
-            // destination=agent、action=runScheduledTask：
-            // agent 转发给 toolManager → 按 skillFunctionName 定位技能模块 → 技能 runScheduledTask
+            // destination=agent（引擎/框架按名路由）、systemArgs 带本技能实例引用——
+            // 技能是 agent 私有子模块，外部按名够不着，实例由本技能自备；
+            // 框架通用投递（dispatchToInstance）到 agent 后直投实例，到点落到本技能
             taskMsg = createMsg()
                     .setDestination(rec.owner)
                     .setAction("runScheduledTask")
-                    .setParam(AI_P_TOOLNAME, skillName)
                     .setParam("taskPrompt", rec.prompt)
                     .setParam("taskId", fullId)
                     .setParam("recordSession", rec.creationSessionId);
+            taskMsg.setSystemParam(AI_P_TARGETINSTANCE, this);
         } else {
-            taskMsg = createMsg().setDestination(rec.module).setAction(rec.action);
-            if (rec.argsJson != null && !rec.argsJson.isEmpty()) {
-                try {
-                    Map<String, Object> extra = gson.fromJson(rec.argsJson, new TypeToken<Map<String, Object>>() {}.getType());
-                    if (extra != null) taskMsg.addArgs(extra);
-                } catch (Exception e) {
-                    putLog("args JSON 解析失败: " + e.getMessage(), LogLevel.WARN);
-                }
-            }
+            // message 型：经技能回调（runScheduledMessage）再转发原始消息——
+            // 引擎直接投递会绕过技能，导致计数/一次性停用不回写（重启后一次性任务又跑）；
+            // 转发目标仍是记录的 module/action，语义不变（不经 LLM）
+            taskMsg = createMsg()
+                    .setDestination(rec.owner)
+                    .setAction("runScheduledMessage")
+                    .setParam("taskId", fullId)
+                    .setParam("destModule", rec.module)
+                    .setParam("destAction", rec.action)
+                    .setParam("destArgsJson", rec.argsJson == null ? "" : rec.argsJson);
+            taskMsg.setSystemParam(AI_P_TARGETINSTANCE, this);
         }
         taskMsg.setSystemParam(AI_P_SESSIONID, rec.creationSessionId == null ? "default" : rec.creationSessionId);
         taskMsg.setSystemParam("userId", rec.userId == null ? "default" : rec.userId);
@@ -446,6 +609,18 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
      * 列出当前用户在本 agent 下的任务：持久化记录 + 引擎实时状态合并
      * （状态/次数/下次执行以引擎为准；引擎不可用时降级为本地记录，不报错）。
      */
+    /**
+     * 状态文案：引擎里在跑 → 运行中；引擎里已停（或引擎里没有该任务）→ 已停止；
+     * 引擎里没有且记录本身停用 → paused（用户主动暂停/一次性执行完）。
+     * 引擎 status 常量是英文 run/stopped/error（引擎内部值，不直接露面）。
+     */
+    private String engineStatusText(Object engineStatus, boolean recEnabled) {
+        String s = engineStatus == null ? null : String.valueOf(engineStatus);
+        if ("run".equals(s)) return "运行中";
+        if (s != null && !s.isEmpty()) return "已停止";          // stopped / error
+        return recEnabled ? "已停止" : "paused";                 // 引擎无此任务：区分"记录残留"与"主动停用"
+    }
+
     @SuppressWarnings("unchecked")
     private TLMsg listTasks(String userId) {
         // recordsOf 已按 userId 过滤，这里天然只含当前用户的任务
@@ -466,9 +641,12 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             Object infoObj = engineTasks.get(e.getKey());
             Map<String, Object> info = infoObj instanceof Map
                     ? (Map<String, Object>) infoObj : new LinkedHashMap<>();
-            // 引擎无该任务时：停用的显示 paused，启用的显示"等待引擎调度"（可能引擎未起或尚未调度）
-            String status = String.valueOf(info.getOrDefault("status", rec.enabled ? "（等待引擎调度）" : "paused"));
-            String next = fmtTime(info.get("nextDatetime"));
+            // 引擎无该任务时：停用的显示 paused；启用但引擎里没有 → 已停止（记录残留，如重启未恢复），
+            // 不能让 LLM 误读成"活着等调度"
+            boolean engineKnown = info.get("status") != null;
+            String status = engineStatusText(info.get("status"), rec.enabled);
+            // 只有引擎实际在跑才显示"下次执行"（残留/停止的旧时间会误导 LLM 判断任务状态）
+            String next = engineKnown && "运行中".equals(status) ? fmtTime(info.get("nextDatetime")) : null;
             // 引擎对已停止/已完成的有限次任务会丢 runtime，摘要回 executedCount=0；
             // 记录里的 executedCount 才是真值，取两者最大（longText 归一化 Gson 的 Double）
             Object cnt = info.get("executedCount");
@@ -482,7 +660,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                     .append(next == null ? "" : "  下次 " + next)
                     .append("\n   ").append("agent".equals(rec.type) ? "prompt: " + rec.prompt
                             : "message: " + rec.module + "." + rec.action);
-            if (!rec.enabled) out.append("  (已停用)");
+            if (engineKnown && !rec.enabled) out.append("  (已停用)");
             out.append("\n");
         }
         out.append("用 op=remove 删除、op=update 暂停/恢复或改调度");
@@ -573,7 +751,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             String next = nextFireText(fullId);
             StringBuilder out = new StringBuilder("已更新任务 ").append(taskId).append(" 的调度：")
                     .append(scheduleText(rec))
-                    .append("\n- 下次执行: ").append(next == null ? "（等待引擎调度）" : next);
+                    .append("\n- 下次执行: ").append(next == null ? "（已注册，等待引擎排期）" : next);
             if (warn != null) out.append("\n- ⚠ ").append(warn);
             return ok(out.toString());
         }
@@ -611,7 +789,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                 else {
                     String next = nextFireText(fullId);
                     out.append("已恢复任务 ").append(taskId)
-                            .append("，下次执行: ").append(next == null ? "（等待引擎调度）" : next);
+                            .append("，下次执行: ").append(next == null ? "（已注册，等待引擎排期）" : next);
                 }
                 if (warn != null) out.append("\n- ⚠ ").append(warn);
                 return ok(out.toString());
@@ -721,7 +899,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
 
     private void updateRecordAfterRun(String fullId) {
         TaskRecord rec = loadRecords().get(fullId);
-        if (rec == null) return;
+        // 竞态防护：从读盘到写回之间任务可能被删除——删掉的记录不得被执行回写复活
+        if (rec == null || !recordsOf(rec.userId).containsKey(fullId)) return;
         rec.executedCount++;
         rec.lastExecuteTime = System.currentTimeMillis();
         String timesText = longText(rec.schedule.get("times"));

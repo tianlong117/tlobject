@@ -203,6 +203,19 @@
   UNIQUE(session_id, round_id)
 );"/>
 
+        <!-- 离线消息箱（通用：离线时的定时任务结果/系统消息；web 顶栏 🔔 未读提示） -->
+        <table name="aiInbox" dbtable="ai_inbox" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_inbox (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  source TEXT DEFAULT 'task',
+  task_id TEXT DEFAULT '',
+  text TEXT,
+  is_read INTEGER DEFAULT 0,
+  created_at INTEGER
+);"/>
+
         <table name="aiSessionRounds_mysql" dbtable="ai_session_rounds" dbserver="dbserver1" statup="false"
                ifCreate="create"
                createSql="CREATE TABLE `ai_session_rounds` (

@@ -195,6 +195,8 @@ public interface TLAiAgentParamString extends TLParamString {
 
     // Tool/Function
     String AI_P_TOOLNAME = "toolName";
+    /** 通用实例投递：消息 systemArgs 携带的目标子模块实例引用（见 TLAiAgent.dispatchToInstance） */
+    String AI_P_TARGETINSTANCE = "targetInstance";
     String AI_P_TOOLID = "toolId";
     String AI_P_TOOLARGUMENTS = "toolArguments";
     String AI_P_FUNCTIONDEFS = "functionDefinitions";
