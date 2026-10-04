@@ -210,12 +210,17 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             String uid = userId != null ? userId : "";
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
             p.put("user_id", uid);
+            // 排除内部会话：task 前缀 = 定时任务的执行会话（每次都新建、last_active 一直在最前，
+            // 不过滤会把用户会话列表刷满，且 autoResumeLast 会"接续"到任务会话上）。
+            // 直查后按前缀在 Java 侧过滤——LIKE 下划线转义在 SQLite/MySQL 语义有差异，不冒这个险
             TLMsg result = putMsg(sessTable, createMsg().setAction(DB_QUERY)
                     .setParam(DB_P_SQL, "select * from [table] where user_id=? order by last_active desc")
                     .setParam(DB_P_PARAMS, p));
             java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
             if (rows == null) return sessions;
             for (java.util.Map<String, Object> row : rows) {
+                Object sid = row.get("session_id");
+                if (sid != null && String.valueOf(sid).startsWith("task_")) continue;   // 内部任务执行会话
                 sessions.add(metaFromSessRow(row));
             }
         } catch (Exception ignored) {}
