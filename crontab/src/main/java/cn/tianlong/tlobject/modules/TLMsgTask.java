@@ -331,8 +331,12 @@ public class TLMsgTask extends TLBaseModule {
             info.put("destination", e.getValue().getDestination());
             info.put("action", e.getValue().getAction());
             info.put("msgId", e.getValue().getMsgId());
-            info.put("status", taskRuntimes.containsKey(e.getKey()) ?
-                    taskRuntimes.get(e.getKey()).status : STATUS_STOPPED);
+            TaskRuntime rt = taskRuntimes.get(e.getKey());
+            info.put("status", rt != null ? rt.status : STATUS_STOPPED);
+            // 下次执行时间：固定间隔任务由 startTask 写入、cron 任务每次执行时刷新
+            if (e.getValue().getParam("nextDatetime") != null)
+                info.put("nextDatetime", e.getValue().getParam("nextDatetime"));
+            info.put("executedCount", rt != null ? rt.executedCount.get() : 0);
             all.put(e.getKey(), info);
         }
         return createMsg().setParam("tasks", all);
@@ -392,11 +396,15 @@ public class TLMsgTask extends TLBaseModule {
             } catch (NumberFormatException ignored) {}
         }
 
+        // 下次执行时间（对外可见：getTask 摘要/详情都读 config 的 nextDatetime）
+        long nextFire;
+
         ScheduledFuture<?> future;
 
         if (cronExp != null && !cronExp.isEmpty()) {
             // Cron 模式：动态调度
             future = scheduleCronTask(taskId, config, cronExp, initialDelay, timeUnit, maxTimes);
+            nextFire = nextCronFire(cronExp, config);
         } else {
             // 固定延迟模式
             if (period <= 0) period = 60;
@@ -404,6 +412,8 @@ public class TLMsgTask extends TLBaseModule {
                     createTaskRunnable(taskId, config, maxTimes),
                     initialDelay, period, timeUnit
             );
+            long periodMs = TimeUnit.MILLISECONDS.convert(period, timeUnit);
+            nextFire = System.currentTimeMillis() + initialDelay + periodMs;
         }
 
         // 保存运行时状态
@@ -414,6 +424,25 @@ public class TLMsgTask extends TLBaseModule {
         putLog("任务 [" + taskId + "] 已启动" +
                 (cronExp != null ? "，Cron: " + cronExp : "，周期: " + period + " " + timeUnit) +
                 (maxTimes > 0 ? "，最多执行 " + maxTimes + " 次" : ""), LogLevel.INFO);
+
+        config.setParam("nextDatetime", new Date(nextFire));
+    }
+
+    /**
+     * 取 cron 的下次触发时间；解析失败返回首次调度时间（scheduleCronTask 已报错并置状态）。
+     * 用于把"下次执行时间"写到 config，供 getTask 对外暴露。
+     */
+    private long nextCronFire(String cronExp, TLMsg config) {
+        long fallback = System.currentTimeMillis();
+        try {
+            CronExpression cron = new CronExpression(cronExp);
+            Date next = cron.getTimeAfter(new Date());
+            if (next != null) return next.getTime();
+        } catch (ParseException ignored) {
+        }
+        Object nd = config.getParam("nextDatetime");
+        if (nd instanceof Date) return ((Date) nd).getTime();
+        return fallback;
     }
 
     /**
