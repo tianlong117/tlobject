@@ -558,6 +558,13 @@ public class TLMsgTask extends TLBaseModule {
                     rt.executedCount.incrementAndGet();
                     rt.lastExecuteTime = new Date();
                 }
+                // 刷新对外可见的下次执行时间（固定间隔 = 本次执行时刻 + 周期；
+                // 用 executeTask 刚记录的时间避免 Runnable 延迟导致漂移）
+                long period = getLongParam(config, "period", defaultPeriod);
+                if (period <= 0) period = 60;
+                TimeUnit unit = parseTimeUnit(config.getStringParam(TASK_P_TIMEUNIT, TASK_V_TIMEUNIT_S));
+                config.setParam("nextDatetime",
+                        new Date(System.currentTimeMillis() + TimeUnit.MILLISECONDS.convert(period, unit)));
             } catch (Exception e) {
                 handleTaskError(taskId, e);
             }
