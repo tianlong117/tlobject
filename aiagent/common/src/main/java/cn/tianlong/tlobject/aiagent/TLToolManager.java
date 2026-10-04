@@ -151,6 +151,10 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             case AGENT_UNREGISTERAGENT: return unregisterFunction(fromWho, msg, "agent");
             case AGENT_RELOADAGENT:     return reloadFunction(fromWho, msg, "agent");
             case AGENT_LISTAGENTS:      return listFunctions(fromWho, msg, "agent");
+            // 定时任务回调（agent 型任务到点）：agent 薄转发到此，
+            // 按 functionName 定位技能模块再原样转发（技能私有子模块，只有 owner 侧够得着）
+            case "runScheduledTask":
+                return forwardToFunction(msg);
             // 黑盒消息接口之一：agent 索取 LLM 函数定义列表（给 LLM 用）
             case AGENT_GETFUNCTIONDEFS:
                 return createMsg().setParam(RESULT, true)
@@ -882,6 +886,25 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             tasks.add(task);
         }
         return tasks;
+    }
+
+    // ======================== 定时任务回调转发 ========================
+
+    /**
+     * 定时任务回调转发：按 functionName 定位技能模块，把 runScheduledTask 原样送过去。
+     * （技能私有子模块不对外可寻址，只有 owner 侧能定位到实例。）
+     */
+    private TLMsg forwardToFunction(TLMsg msg) {
+        String fn = msg.getStringParam(AI_P_TOOLNAME, null);
+        if (fn == null || fn.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "missing functionName");
+        FunctionEntry fe = functions.get(fn);
+        if (fe == null || fe.module == null || !fe.enabled)
+            return createMsg().setParam(RESULT, false).setParam("error", "function not found: " + fn);
+        TLMsg m = createMsg().setAction("runScheduledTask");
+        m.addArgs(msg.getArgs());
+        m.addSystemArgs(msg.getSystemArgs());
+        return putMsg(fe.module, m);
     }
 
     // ======================== 内部配置解析类 ========================

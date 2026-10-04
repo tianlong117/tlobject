@@ -23,7 +23,7 @@ import java.util.*;
  *
  * 对接框架定时任务模块 TLMsgTask（配置为应用实例 taskScheduler）：
  * - agent 型任务：destination=所属 agent、action=runScheduledTask；
- *   到点由 agent 反射落到本技能 runScheduledTask()，
+ *   到点由 agent 薄转发给 toolManager，再按函数名定位本技能落到 runScheduledTask()，
  *   此时解析目标会话（webui getCurrentSession，失败回退创建时会话）再转发 chat。
  * - message 型任务：destination=目标模块、action=目标动作，到点直接发出，不经 LLM。
  *
@@ -131,6 +131,17 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
 
     // ======================== 入口 ========================
 
+    /**
+     * 动作分发：技能标准动作（execute/validate/getInfo）之外，额外接收引擎回调动作
+     * runScheduledTask（经 agent→toolManager 薄转发到达；框架不做方法名反射，必须显式分发）。
+     */
+    @Override
+    protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        if ("runScheduledTask".equals(msg.getAction()))
+            return runScheduledTask(fromWho, msg);
+        return super.checkMsgAction(fromWho, msg);
+    }
+
     @Override
     @SuppressWarnings("unchecked")
     protected TLMsg execute(Object fromWho, TLMsg msg) {
@@ -158,8 +169,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     }
 
     /**
-     * 定时任务执行入口（agent 反射调用）。
-     * 任务消息 destination=agent、action=runScheduledTask → 落到这里；
+     * 定时任务执行入口（引擎回调 action=runScheduledTask，经 agent→toolManager 薄转发到达）。
      * 此刻解析目标会话（当前活动会话，失败回退创建时会话），再转发给 agent 的 chat。
      */
     protected TLMsg runScheduledTask(Object fromWho, TLMsg msg) {
@@ -320,9 +330,12 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String fullId = rec.owner + "/" + rec.taskId;
         TLMsg taskMsg;
         if ("agent".equals(rec.type)) {
+            // destination=agent、action=runScheduledTask：
+            // agent 转发给 toolManager → 按 skillFunctionName 定位技能模块 → 技能 runScheduledTask
             taskMsg = createMsg()
                     .setDestination(rec.owner)
                     .setAction("runScheduledTask")
+                    .setParam(AI_P_TOOLNAME, "schedule_task")
                     .setParam("taskPrompt", rec.prompt)
                     .setParam("taskId", fullId)
                     .setParam("recordSession", rec.creationSessionId);
@@ -340,24 +353,27 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         taskMsg.setSystemParam(AI_P_SESSIONID, rec.creationSessionId == null ? "default" : rec.creationSessionId);
         taskMsg.setSystemParam("userId", rec.userId == null ? "default" : rec.userId);
 
-        TLMsg reg = createMsg().setAction("registTask").setParam("msg", taskMsg).setParam("status", "run");
-        reg.setParam("taskid", fullId);
+        // 注册参数必须挂在内层任务消息上（引擎 doRegistTask/startTask 只读内层；
+        // 外层仅承载 action=registTask + msg）
+        taskMsg.setParam("taskid", fullId);
+        taskMsg.setParam("status", "run");
         Object cron = rec.schedule.get("cron");
-        if (cron != null) reg.setParam("cronExp", String.valueOf(cron));
+        if (cron != null) taskMsg.setParam("cronExp", String.valueOf(cron));
         Object delay = rec.schedule.get("delay");
         // 注意：delay=0 必须显式下发（引擎缺省是 60 秒；one_shot 的"立即"语义依赖 0）
-        if (delay != null) reg.setParam("delay", String.valueOf(delay));
+        if (delay != null) taskMsg.setParam("delay", String.valueOf(delay));
         Object unit = rec.schedule.get("unit");
-        if (unit != null) reg.setParam("timeUnit", String.valueOf(unit));
+        if (unit != null) taskMsg.setParam("timeUnit", String.valueOf(unit));
         // 循环间隔是引擎的 period（缺省 60 秒，不是 delay）——固定间隔任务必须显式下发，
         // 否则"每 5 秒"实际变成每 60 秒（cron 任务不需要 period，留空）
-        if (rec.schedule.get("cron") == null && delay != null)
-            reg.setParam("period", String.valueOf(delay));
+        if (cron == null && delay != null)
+            taskMsg.setParam("period", String.valueOf(delay));
         Object times = rec.schedule.get("times");
-        if (times != null && !"0".equals(String.valueOf(times))) reg.setParam("times", String.valueOf(times));
+        if (times != null && !"0".equals(String.valueOf(times))) taskMsg.setParam("times", String.valueOf(times));
         Object begin = rec.schedule.get("begin");
-        if (begin != null) reg.setParam("begin", String.valueOf(begin));
-        return reg;
+        if (begin != null) taskMsg.setParam("begin", String.valueOf(begin));
+
+        return createMsg().setAction("registTask").setParam("msg", taskMsg);
     }
 
     private String scheduleText(TaskRecord rec) {

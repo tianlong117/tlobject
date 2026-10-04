@@ -574,6 +574,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // 工具管理内脏：薄转发给私有 toolManager，外部消息协议不变
                 returnMsg = putMsg(toolManager, msg);
                 break;
+            case "runScheduledTask":
+                // 定时任务到点回调：调度引擎把消息发到 agent（destination=agent、action=runScheduledTask），
+                // 薄转发给工具管理器定位技能模块（技能是 toolManager 的私有子模块，外部名字够不着）
+                returnMsg = runScheduledTask(fromWho, msg);
+                break;
             case AGENT_GETCONTEXT:
                 returnMsg = getAgentContext(fromWho, msg);
                 break;
@@ -2142,6 +2147,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
         putMsg(DEFAULTMODULEREGISTRY, msg);
+    }
+
+    /**
+     * 定时任务回调：从消息取 functionName 等参数，转发给工具管理器定位技能模块
+     * （技能是 toolManager 的私有子模块，外部名字够不着，必须由 owner 定位）。
+     */
+    TLMsg runScheduledTask(Object fromWho, TLMsg msg) {
+        TLMsg m = createMsg()
+                .setAction("runScheduledTask")
+                .setParam(AI_P_TOOLNAME, msg.getStringParam(AI_P_TOOLNAME, ""))
+                .setParam("taskPrompt", msg.getStringParam("taskPrompt", ""))
+                .setParam("taskId", msg.getStringParam("taskId", "?"))
+                .setParam("recordSession", msg.getStringParam("recordSession", null));
+        m.addSystemArgs(msg.getSystemArgs());
+        return putMsg(toolManager, m);
     }
 
     // ======================== Context操作 ========================
