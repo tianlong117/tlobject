@@ -515,7 +515,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     /**
      * 更新任务：
      * - enabled=false → 引擎 stopTask（保留记录，重启不恢复）
-     * - enabled=true  → 引擎 startTask（记录恢复启用）
+     * - enabled=true  → 引擎已有该任务则 startTask；不在（重启后暂停/已跑完的）则重新注册
+     *                   （registTask + status=run 即注册即启动，避免 startTask 静默失败）
      * - 改了 cron/delay/unit/times/begin → 用新调度重注册（unRegist + regist），记录同步
      */
     private TLMsg updateTask(Map<String, Object> input, String userId) {
@@ -529,23 +530,31 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         boolean scheduleChanged = input.containsKey("cron") || input.containsKey("delay")
                 || input.containsKey("unit") || input.containsKey("times") || input.containsKey("begin");
         String enabledStr = str(input, "enabled", null);
+        if (enabledStr != null && enabledStr.isEmpty()) enabledStr = null;   // 空串＝未给（不是暂停）
 
         if (scheduleChanged) {
             String cron = str(input, "cron", null);
             Long delay = longOf(input, "delay");
             if (cron != null && !CronExpression.isValidExpression(cron))
                 return fail("invalid cron expression: " + cron);
-            if (cron == null && delay == null && rec.schedule.get("cron") == null)
+            // 只改 times/begin/unit 时沿用记录里的原调度：cron 或 delay 任一存在即可。
+            // 记录里的数字 Gson 读回是 Double（也可能因不写 null 读回 null），这里只做 null 判定
+            if (cron == null && delay == null && rec.schedule.get("cron") == null
+                    && rec.schedule.get("delay") == null)
                 return fail("改调度需要给 cron 或 delay");
+            // cron 与固定间隔二选一：同给时 cron 优先
             if (cron != null) {
                 rec.schedule.put("cron", cron);
-                rec.schedule.put("delay", null);          // cron 与固定间隔二选一
-            }
-            if (delay != null) {
+                rec.schedule.put("delay", null);
+            } else if (delay != null) {
                 rec.schedule.put("delay", delay);
                 rec.schedule.put("cron", null);
             }
-            if (input.containsKey("unit")) rec.schedule.put("unit", str(input, "unit", "s"));
+            if (input.containsKey("unit")) {
+                String u = str(input, "unit", "s");
+                if (!u.equals("s") && !u.equals("m") && !u.equals("h")) return fail("unit must be s|m|h");
+                rec.schedule.put("unit", u);
+            }
             if (input.containsKey("times")) rec.schedule.put("times", longOf(input, "times"));
             if (input.containsKey("begin")) rec.schedule.put("begin", longOf(input, "begin"));
             rec.enabled = true;
@@ -574,7 +583,28 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             if (enabled) {
                 rec.enabled = true;
                 String warn = saveRecords(userId, mine);
-                TLMsg r = sendToEngine(createMsg().setAction("startTask").setParam("taskid", fullId));
+                // 重启后暂停/一次性跑完的任务不在引擎里（runStartMsg 只注册 enabled 的），
+                // 此时直接 startTask 会静默失败：doStartTask 无条件回 RESULT=true，内部
+                // startTask 却因 taskConfigs 找不到配置只打 ERROR 日志、不调度。所以先查引擎。
+                // 判据（TLMsgTask.doGetTask 带 taskid 分支）：任务存在时直接 copyFrom(config)——
+                // 返回消息【没有 RESULT 参数】，但 taskid/destination 等配置项齐全（正向证据
+                // 取 taskid==fullId）；任务不存在时回 RESULT=false + "任务不存在"；引擎模块缺失时
+                // sendToEngine 回只带 ignoreModuleIsNull 的空消息。故：
+                // inEngine = 非显式 false 且 taskid 对得上（避免把"引擎无响应"误判为在引擎里）
+                boolean inEngine = false;
+                TLMsg chk = sendToEngine(createMsg().setAction("getTasks").setParam("taskid", fullId));
+                if (chk != null && !Boolean.FALSE.equals(chk.getParam(RESULT))
+                        && fullId.equals(chk.getStringParam("taskid", null)))
+                    inEngine = true;
+
+                TLMsg r = null;
+                if (inEngine) {
+                    r = sendToEngine(createMsg().setAction("startTask").setParam("taskid", fullId));
+                } else {
+                    // 不在引擎里：重新注册（内层 status=run，registTask 会顺带启动）
+                    TLMsg reg = buildRegistMsg(rec);
+                    if (reg != null) r = sendToEngine(reg);
+                }
                 StringBuilder out = new StringBuilder();
                 if (r == null || !Boolean.TRUE.equals(r.getParam(RESULT)))
                     out.append("已启用任务 ").append(taskId).append("（引擎无响应；将在下次重启恢复时注册）");
