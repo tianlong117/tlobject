@@ -441,7 +441,6 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     }
 
     // ======================== list / remove / update ========================
-    // （Task 4 填充 update）
 
     /**
      * 列出当前用户在本 agent 下的任务：持久化记录 + 引擎实时状态合并
@@ -513,7 +512,89 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         return ok(out.toString());
     }
 
-    private TLMsg updateTask(Map<String, Object> input, String userId) { return fail("not implemented"); }
+    /**
+     * 更新任务：
+     * - enabled=false → 引擎 stopTask（保留记录，重启不恢复）
+     * - enabled=true  → 引擎 startTask（记录恢复启用）
+     * - 改了 cron/delay/unit/times/begin → 用新调度重注册（unRegist + regist），记录同步
+     */
+    private TLMsg updateTask(Map<String, Object> input, String userId) {
+        String taskId = str(input, "task_id", null);
+        if (taskId == null || taskId.isEmpty()) return fail("update 需要 task_id");
+        String fullId = ownerAgent + "/" + taskId;
+        Map<String, TaskRecord> mine = recordsOf(userId);
+        TaskRecord rec = mine.get(fullId);
+        if (rec == null) return fail("任务不存在: " + taskId + "（用 op=list 查看）");
+
+        boolean scheduleChanged = input.containsKey("cron") || input.containsKey("delay")
+                || input.containsKey("unit") || input.containsKey("times") || input.containsKey("begin");
+        String enabledStr = str(input, "enabled", null);
+
+        if (scheduleChanged) {
+            String cron = str(input, "cron", null);
+            Long delay = longOf(input, "delay");
+            if (cron != null && !CronExpression.isValidExpression(cron))
+                return fail("invalid cron expression: " + cron);
+            if (cron == null && delay == null && rec.schedule.get("cron") == null)
+                return fail("改调度需要给 cron 或 delay");
+            if (cron != null) {
+                rec.schedule.put("cron", cron);
+                rec.schedule.put("delay", null);          // cron 与固定间隔二选一
+            }
+            if (delay != null) {
+                rec.schedule.put("delay", delay);
+                rec.schedule.put("cron", null);
+            }
+            if (input.containsKey("unit")) rec.schedule.put("unit", str(input, "unit", "s"));
+            if (input.containsKey("times")) rec.schedule.put("times", longOf(input, "times"));
+            if (input.containsKey("begin")) rec.schedule.put("begin", longOf(input, "begin"));
+            rec.enabled = true;
+
+            // 先落盘新调度（重启恢复按新值），再重注册
+            String warn = saveRecords(userId, mine);
+
+            sendToEngine(createMsg().setAction("unRegistTask").setParam("taskid", fullId));
+            TLMsg reg = buildRegistMsg(rec);
+            if (reg == null) return fail("任务参数构造失败（见日志）");
+            TLMsg r = sendToEngine(reg);
+            if (r == null || !Boolean.TRUE.equals(r.getParam(RESULT)))
+                return fail("重注册失败: " + (r == null ? "引擎无响应" : r.getStringParam("error", "unknown"))
+                        + "（记录已更新，重启后按新调度恢复）");
+
+            String next = nextFireText(fullId);
+            StringBuilder out = new StringBuilder("已更新任务 ").append(taskId).append(" 的调度：")
+                    .append(scheduleText(rec))
+                    .append("\n- 下次执行: ").append(next == null ? "（等待引擎调度）" : next);
+            if (warn != null) out.append("\n- ⚠ ").append(warn);
+            return ok(out.toString());
+        }
+
+        if (enabledStr != null) {
+            boolean enabled = "true".equalsIgnoreCase(enabledStr);
+            if (enabled) {
+                rec.enabled = true;
+                String warn = saveRecords(userId, mine);
+                TLMsg r = sendToEngine(createMsg().setAction("startTask").setParam("taskid", fullId));
+                StringBuilder out = new StringBuilder();
+                if (r == null || !Boolean.TRUE.equals(r.getParam(RESULT)))
+                    out.append("已启用任务 ").append(taskId).append("（引擎无响应；将在下次重启恢复时注册）");
+                else {
+                    String next = nextFireText(fullId);
+                    out.append("已恢复任务 ").append(taskId)
+                            .append("，下次执行: ").append(next == null ? "（等待引擎调度）" : next);
+                }
+                if (warn != null) out.append("\n- ⚠ ").append(warn);
+                return ok(out.toString());
+            } else {
+                sendToEngine(createMsg().setAction("stopTask").setParam("taskid", fullId));
+                rec.enabled = false;
+                String warn = saveRecords(userId, mine);
+                String out = "已暂停任务 " + taskId + "（重启后不恢复；op=update enabled=true 恢复）";
+                return warn == null ? ok(out) : ok(out + "\n- ⚠ " + warn);
+            }
+        }
+        return fail("update 需要至少一个改动：enabled 或 cron/delay/unit/times/begin");
+    }
 
     // ======================== 持久化 ========================
 
