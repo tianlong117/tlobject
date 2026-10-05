@@ -291,6 +291,17 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         List<TLConversationHistory> history = new ArrayList<>();
         for (java.util.Map<String, Object> r : sorted) {
             Object msgs = r.get("messages");
+            // 恢复时把本轮 userMessage 补回数组头：存量轮次的 messages 数组从 assistant 开始
+            // （user 消息只在 round 的 user_message 字段单独存），不补则恢复后：
+            // ① 页面看不到自己的问话；② LLM 收到"无提问的答案"，上下文残缺。
+            // 守卫：首条已是 user 的不补（防未来 save 侧改为含 user 时重复）。
+            boolean firstIsUser = msgs instanceof List && !((List<?>) msgs).isEmpty()
+                    && ((List<?>) msgs).get(0) instanceof TLConversationHistory
+                    && ((TLConversationHistory) ((List<?>) msgs).get(0)).getRole() == TLConversationHistory.Role.user;
+            Object um = r.get("userMessage");
+            if (!firstIsUser && um != null && !String.valueOf(um).isEmpty()) {
+                history.add(new TLConversationHistory(TLConversationHistory.Role.user, String.valueOf(um)));
+            }
             if (msgs instanceof List) {
                 for (Object m : (List<?>) msgs) {
                     if (m instanceof TLConversationHistory)
