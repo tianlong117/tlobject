@@ -1374,7 +1374,7 @@ http://localhost:8080/webui/chat.html
 | Skill | 能力 |
 |-------|------|
 | `browser` | 浏览器自动化：打开网页、点击、填表、截图。三种形态：ephemeral / 持久化（默认） / 接管真实浏览器 |
-| `desktop` | 桌面 GUI 自动化：鼠标、键盘、截屏（pyautogui） |
+| `desktop` | 桌面 GUI 自动化：鼠标、键盘、截屏。两版实现：Java（默认，纯 JDK Robot，零依赖）/ Python（备选，pyautogui） |
 | `skillInstallerSkill` | **让 LLM 自己装 Skill**：一句话把脚本注册成新 Skill |
 | `liantongyun` | 联通云业务脚本（业务样例） |
 | `skillmd_test` | 演示：只靠一个 md 文件即成为可用 Skill |
@@ -1447,6 +1447,39 @@ Java 版注意事项：
 - Java 版忽略 Python 专属参数 `interpreter` / `scriptsDir` / `port`。
 - **已知跨版本差异**（语义等价，不改变模型行为）：
   - 长页面截断说明文案不同：Java 引擎版为 `…[页面正文超过 N 字符已截断；如需完整内容请分段提取]`；Python 壳版为 `…[页面正文过长，已截断保留前 N 字符；如需完整内容请用 extract 指定局部范围]`。
+
+**桌面自动化两版（desktop skill），一行切换**
+
+| | Java（默认） | Python（备选） |
+|--|--|--|
+| 引擎 | `TLDesktopJavaSkill` 进程内（纯 JDK `java.awt.Robot`，零外部依赖，无子进程） | `desktop_agent.py` 子进程（pyautogui + mss） |
+| 前置 | 无（JDK 自带；不需要 pip、JNA 或任何额外 jar） | `pip install pyautogui mss` |
+| 切换 | `sameClassAs="desktopJavaSkill"`（当前 demo 配置） | 回退 Python 版：`sameClassAs="scriptExecutionSkill"` + `interpreter="python"` + `allowedScriptDir="skills/desktop/scripts"` |
+
+**动作集**（前 6 个与 Python 版对齐，后 6 个为 Java 版补足）：
+
+| 动作 | 说明 |
+|------|------|
+| `screenshot` | 截屏（可带区域 `x`/`y`/`width`/`height`），返回 base64 PNG 与屏幕尺寸 |
+| `click` | 单击（可指定 `button`：left / right / middle） |
+| `type` | 键盘输入——**仅 ASCII** |
+| `move` | 移动鼠标 |
+| `scroll` | 滚轮（正=上滚，负=下滚） |
+| `get_screen_size` | 屏幕尺寸（截图与点按共用的坐标体系） |
+| `double_click` | 双击 |
+| `drag` | 拖拽 `x1,y1` → `x2,y2`（可选 `duration` 毫秒） |
+| `key` | 组合键：`enter` / `ctrl+c` / `alt+tab` |
+| `wait` | 等待 `ms` 毫秒 |
+| `get_mouse_position` | 当前鼠标位置 |
+| `paste` | 剪贴板粘贴（Ctrl+V）——**中文/非 ASCII 输入的正解** |
+
+**配置参数**：`maxShotHeight`（默认 1080；截图超高按比例缩小，控制 base64 体量，0=不限）。
+
+Java 版注意事项：
+- **中文输入用 `paste`**：`type` 受 Robot 键码映射所限只能打 ASCII，含中文/非 ASCII 的文本会被拒绝并提示改用 `paste`（写系统剪贴板后按 Ctrl+V），任意 Unicode 可用。
+- **DPI 处理（明确报错，不误导）**：启动时双信号检测（AWT 变换缩放 + 截图尺寸交叉验证）——系统缩放 >100% 且 JVM 非 DPI 感知时，点按/输入类动作（`move` / `click` / `double_click` / `drag` / `scroll` / `type` / `key` / `paste`）会被**拒绝**并提示修复（避免拿错位坐标误操作桌面）；`screenshot` / `get_screen_size` / `get_mouse_position` 仍可用。修复=把系统显示缩放调为 100%。
+- **零依赖**：模块 pom 只依赖 `tlobject-aiagent-common`（截图/键鼠全部走 JDK 自带 `Robot`，对比 Python 版需 `pip install pyautogui mss`）；手工 classpath 只需加 `aiagent/desktop-java/target/classes` 一个目录（无额外 jar）。
+- **用法**：先 `screenshot` 看屏，再按截图上的**像素坐标** `click` / `drag`；首次调用时懒启动，日志打出 `Desktop(java) engine started: …`。
 
 内置 Skill（`http_request` / `file_operation` / `code_execution`）各子 Agent 按需挂载；
 demo 自己写的 Skill 在 `demo/tlobject/.../skills/` 下（`calculate_price`、`demo_echo` 等）。

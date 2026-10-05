@@ -42,6 +42,8 @@
         <module name="demoWorkflow"
                  sameClassAs="agentWorkflow"
                 configfile="demoWorkflow_config.xml"/>
+        <!-- 定时任务引擎（schedule_task 技能对接；poolSize 决定并发执行的任务数） -->
+        <module name="taskScheduler" sameClassAs="msgTask" configfile="taskScheduler_config.xml" singleton="true"/>
         <module name="myopenAiProvider" sameClassAs="openAiProvider"
                 statup="true"
                 apiKey="sk-your-api-key"

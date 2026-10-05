@@ -18,6 +18,7 @@
         <module>provider-claude</module>
         <module>skill-builtin</module>
         <module>browser-java</module>
+        <module>desktop-java</module>
         <module>agent-builtin</module>
         <module>memory-store</module>
         <module>webui</module>

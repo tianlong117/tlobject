@@ -28,6 +28,12 @@
                 singleton="true"/>
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"
                 singleton="true"/>
+        <!-- Java 版 desktop skill（纯 JDK Robot，零外部依赖；无 Python 子进程）；
+             切换=把 agent 配置里的 sameClassAs="scriptExecutionSkill" 改成 "desktopJavaSkill" -->
+        <module name="desktopJavaSkill" classfile="cn.tianlong.tlobject.aiagent.desktop.TLDesktopJavaSkill"
+                singleton="true"/>
+        <module name="scheduleTaskSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScheduleTaskSkill"
+                singleton="true"/>
         <module name="browserSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBrowserSkill"
                 singleton="true"/>
         <!-- Java 版 browser skill（进程内 Playwright Java，无 Python 子进程）；

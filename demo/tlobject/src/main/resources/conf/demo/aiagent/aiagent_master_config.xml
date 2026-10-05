@@ -226,12 +226,20 @@
                cdpAutoLaunch="true"
                cdpProfileDir="data/browser_agent_profile"
                skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
-        <skill name="desktop"
-               sameClassAs="scriptExecutionSkill"
+        <skill name="schedule_task"
+               sameClassAs="scheduleTaskSkill"
                statup="true"
-               interpreter="python"
+               ownerAgent="aiagent_master"
+               msgTaskModule="taskScheduler"
+               skillDescription="Create and manage scheduled tasks (定时任务). Use when the user asks to do something at a future time or repeatedly: '5秒后提醒我喝水', '每天早上8点查一下上证指数', 'every hour check X'. op=create with a natural-language prompt runs a full agent round at each fire and reports back into the chat; module+action sends a fixed message without the LLM. op=list/remove/update manage existing tasks."/>
+        <!-- 桌面自动化：Java 版（纯 JDK Robot，零外部依赖；动作比 Python 版多 double_click/drag/key/
+             wait/get_mouse_position/paste）。回退 Python 版 = 把 sameClassAs 改回 "scriptExecutionSkill"
+             并恢复 interpreter/allowedScriptDir 两行 -->
+        <skill name="desktop"
+               sameClassAs="desktopJavaSkill"
+               statup="true"
                maxExecutionTime="30"
-               allowedScriptDir="skills/desktop/scripts"/>
+               maxShotHeight="1080"/>
     </skills>
     <!-- ===== msgTools: LLM 可调用的预定义消息 =====
 

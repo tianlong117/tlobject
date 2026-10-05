@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <params>
+        <poolSize value="4"/>
+    </params>
+    <!-- 无预定义任务：任务由 schedule_task 技能经 registTask 动态注册 -->
+</moduleConfig>

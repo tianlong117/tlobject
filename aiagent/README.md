@@ -1415,7 +1415,7 @@ Everything below is a tool to it.
 | Skill | Capability |
 |-------|------|
 | `browser` | Browser automation: open pages, click, fill forms, screenshot. Three forms: ephemeral / persistent (default) / real-browser takeover |
-| `desktop` | Desktop GUI automation: mouse, keyboard, screen capture (pyautogui) |
+| `desktop` | Desktop GUI automation: mouse, keyboard, screen capture. Two implementations: Java (default, plain JDK Robot, zero dependencies) / Python (fallback, pyautogui) |
 | `skillInstallerSkill` | **Let the LLM install Skills itself** — turn a script into a new Skill by asking |
 | `liantongyun` | A cloud-business script (business sample) |
 | `skillmd_test` | Demonstration: a Skill that is nothing but an md file |
@@ -1493,6 +1493,40 @@ Java-side notes:
 - The Java version ignores the Python-only parameters `interpreter` / `scriptsDir` / `port`.
 - Log line: Python prints `Browser mode=…`, Java prints `Browser(java) mode=…`.
 - Known cross-version difference remaining: the truncation notice wording on over-long pages differs slightly (semantics equivalent).
+
+**Desktop automation (`desktop` skill) — two implementations (Java / Python), switch with one line**
+
+| | Java (default) | Python (fallback) |
+|--|--|--|
+| Engine | `TLDesktopJavaSkill` in-process (plain JDK `java.awt.Robot`, zero external dependencies, no subprocess) | `desktop_agent.py` subprocess (pyautogui + mss) |
+| Prerequisites | none (JDK built-in; no pip, no JNA, no extra jars) | `pip install pyautogui mss` |
+| Switch | `sameClassAs="desktopJavaSkill"` (current demo config) | fallback: `sameClassAs="scriptExecutionSkill"` + `interpreter="python"` + `allowedScriptDir="skills/desktop/scripts"` |
+
+**Actions** (the first 6 match the Python version; the last 6 are Java-only additions):
+
+| Action | Description |
+|--------|-------------|
+| `screenshot` | Capture the screen (optional region `x`/`y`/`width`/`height`); returns a base64 PNG plus the screen size |
+| `click` | Single click (optional `button`: left / right / middle) |
+| `type` | Keyboard input — **ASCII only** |
+| `move` | Move the mouse |
+| `scroll` | Mouse wheel (positive = up, negative = down) |
+| `get_screen_size` | Screen size (the coordinate space shared by screenshots and clicking) |
+| `double_click` | Double click |
+| `drag` | Drag `x1,y1` → `x2,y2` (optional `duration` in ms) |
+| `key` | Key combos: `enter` / `ctrl+c` / `alt+tab` |
+| `wait` | Wait `ms` milliseconds |
+| `get_mouse_position` | Current mouse position |
+| `paste` | Clipboard paste (Ctrl+V) — **the way to enter Chinese / non-ASCII text** |
+
+**Parameter**: `maxShotHeight` (default 1080; taller screenshots are scaled down to keep the base64 payload small; 0 = unlimited).
+
+Java-side notes:
+
+- **Chinese input goes through `paste`**: Robot's key-code map limits `type` to ASCII; non-ASCII text is rejected with a hint to use `paste` (writes the system clipboard, then sends Ctrl+V), which handles any Unicode.
+- **DPI handling (fail loudly, never mislead)**: at startup two signals are checked (AWT transform scale + screenshot-size cross-check). If the system scaling is above 100% and the JVM is not DPI-aware, pointer/input actions (`move` / `click` / `double_click` / `drag` / `scroll` / `type` / `key` / `paste`) are **rejected** with a fix hint — otherwise the agent would click offset coordinates; `screenshot` / `get_screen_size` / `get_mouse_position` keep working. Fix: set the display scaling to 100%.
+- **Zero dependencies**: the module's pom depends only on `tlobject-aiagent-common`; screen capture, mouse and keyboard all go through the JDK's `Robot` (vs pyautogui + mss for the Python version). A hand-written classpath only needs the module's own classes (`aiagent/desktop-java/target/classes`) — no extra jars.
+- **Usage**: call `screenshot` first, then `click` / `drag` by the **pixel coordinates** read from the screenshot; the engine lazy-starts on the first call and logs `Desktop(java) engine started: …`.
 
 ### 5. How the Configuration Is Organized
 

@@ -115,6 +115,7 @@ Built-in modules extending `TLBaseModule`:
 - DeepSeek: tools 和 temperature 不能同時傳，model 名在 Provider 配置中指定
 - `browser` skill 三形态：ephemeral / 持久化（默认 userDataDir=data/browser_profile）/ CDP 接管真实浏览器（cdpEndpoint+cdpAutoLaunch，配合 agentbrowser.bat 人工登录；attach 回收只断连、不关用户浏览器；形态参数只在进程启动时生效）
 - `browser` skill 两版实现：Python（默认，子进程）/ Java（`sameClassAs="browserJavaSkill"`，进程内 Playwright Java，独立模块 `aiagent/browser-java`，切换=改一行；首次运行装全部浏览器约 500MB；空闲回收与 Python 版一致——浏览器与 driver 一起释放，被 `/reload` 换掉的旧引擎最迟一个 `idleTimeoutSeconds` 后自愈回收）
+- `desktop` skill 两版实现：Java（默认，`sameClassAs="desktopJavaSkill"`，进程内纯 JDK `java.awt.Robot`，独立模块 `aiagent/desktop-java`，零外部依赖）/ Python（备选，`sameClassAs="scriptExecutionSkill"` + `interpreter="python"` + `allowedScriptDir="skills/desktop/scripts"`，改配置一行回退）；`type` 仅 ASCII、中文输入走 `paste`；系统缩放 >100% 且 JVM 非 DPI 感知时点按/输入类动作明确拒绝（截图与坐标查询仍可用）
 
 **记忆体系（三层）:**
 - `TLAiContext` — 会话对话记录（短期连续性），`getContextHistory()` 直接加载全部 messages
