@@ -63,7 +63,11 @@ public class TLDesktopJavaSkill extends TLBaseSkill {
                     + "screen still shows the previous window, wait and screenshot again. NEVER declare failure "
                     + "from a single inconclusive probe — screenshot is the ground truth. "
                     + "TYPING GOES TO THE FOCUSED WINDOW ONLY: before type/paste/key, verify via screenshot which "
-                    + "window is in front (click inside the target input area first if unsure, or alt+tab to it).";
+                    + "window is in front (click inside the target input area first if unsure, or alt+tab to it). "
+                    + "IME (Chinese input methods) INTERCEPTS KEYSTROKES: on a Chinese system, key-by-key type() "
+                    + "can be captured by the IME composition buffer instead of the target field — ALWAYS PREFER "
+                    + "paste(text) for any text input (clipboard + ctrl+v is IME-immune). Use type() only for "
+                    + "single hotkey letters after confirming the IME is in English mode.";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
