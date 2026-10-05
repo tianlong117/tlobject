@@ -300,7 +300,14 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
                     && ((TLConversationHistory) ((List<?>) msgs).get(0)).getRole() == TLConversationHistory.Role.user;
             Object um = r.get("userMessage");
             if (!firstIsUser && um != null && !String.valueOf(um).isEmpty()) {
-                history.add(new TLConversationHistory(TLConversationHistory.Role.user, String.valueOf(um)));
+                // 二次去重：历史末尾已是同一句 user 时不补（防某轮增量本身带 user 时重复——
+                // 相邻重复 user 消息会触发 API 400）
+                boolean dupAtTail = !history.isEmpty()
+                        && history.get(history.size() - 1).getRole() == TLConversationHistory.Role.user
+                        && String.valueOf(um).equals(history.get(history.size() - 1).getContent());
+                if (!dupAtTail) {
+                    history.add(new TLConversationHistory(TLConversationHistory.Role.user, String.valueOf(um)));
+                }
             }
             if (msgs instanceof List) {
                 for (Object m : (List<?>) msgs) {
