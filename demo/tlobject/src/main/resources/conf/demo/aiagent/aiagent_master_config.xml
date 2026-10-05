@@ -213,7 +213,7 @@
              cdpEndpoint="http://127.0.0.1:9222" cdpAutoLaunch="true" 两个属性即可
              （先在浏览器窗口里人工登录，agent 用同一浏览器干活；详见 aiagent/README.md） -->
         <skill name="browser"
-               sameClassAs="browserSkill"
+               sameClassAs="browserJavaSkill"
                statup="true"
                interpreter="python"
                maxExecutionTime="60"
