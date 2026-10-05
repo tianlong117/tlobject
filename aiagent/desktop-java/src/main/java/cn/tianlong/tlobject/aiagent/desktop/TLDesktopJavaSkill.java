@@ -56,7 +56,14 @@ public class TLDesktopJavaSkill extends TLBaseSkill {
                     + "region x/y/width/height), get_screen_size, get_mouse_position, move(x,y), click(x,y[,button]), "
                     + "double_click(x,y), drag(x1,y1,x2,y2[,duration]), scroll(amount), type(text, ASCII only), "
                     + "key(key, e.g. 'enter', 'ctrl+c'), paste(text, for Chinese/Unicode via clipboard), wait(ms). "
-                    + "Use screenshot first to see the screen, then click by pixel coordinates from the screenshot.";
+                    + "WORKFLOW: always screenshot first to see the screen, act by pixel coordinates from the "
+                    + "screenshot, then screenshot again to VERIFY the effect before the next step. "
+                    + "LAUNCHING PROGRAMS NEEDS PATIENCE: after win+r + type + enter, the target app may take "
+                    + "several seconds to appear — call wait(ms: 2000-3000) and screenshot to confirm; if the "
+                    + "screen still shows the previous window, wait and screenshot again. NEVER declare failure "
+                    + "from a single inconclusive probe — screenshot is the ground truth. "
+                    + "TYPING GOES TO THE FOCUSED WINDOW ONLY: before type/paste/key, verify via screenshot which "
+                    + "window is in front (click inside the target input area first if unsure, or alt+tab to it).";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
