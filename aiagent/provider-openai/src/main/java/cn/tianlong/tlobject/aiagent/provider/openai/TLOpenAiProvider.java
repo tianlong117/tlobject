@@ -67,7 +67,21 @@ public class TLOpenAiProvider extends TLLlmProvider {
             JsonObject m = new JsonObject();
             m.addProperty("role", h.getRole().name());
 
-            if (h.getContent() != null && !h.getContent().isEmpty()) {
+            if (h.hasImages() && h.getRole() == TLConversationHistory.Role.user) {
+                // 图片块数组（DeepSeek/OpenAI 兼容）。图片只能出现在 user 消息中，其余角色丢弃防 400
+                JsonArray blocks = new JsonArray();
+                if (h.getContent() != null && !h.getContent().isEmpty()) {
+                    JsonObject tb = new JsonObject();
+                    tb.addProperty("type", "text");
+                    tb.addProperty("text", h.getContent());
+                    blocks.add(tb);
+                }
+                for (TLAttachmentRef ref : h.getImages()) {
+                    JsonObject ib = buildImageBlock(ref);
+                    if (ib != null) blocks.add(ib);
+                }
+                if (blocks.size() > 0) m.add("content", blocks);
+            } else if (h.getContent() != null && !h.getContent().isEmpty()) {
                 m.addProperty("content", h.getContent());
             }
 
@@ -177,6 +191,39 @@ public class TLOpenAiProvider extends TLLlmProvider {
         }
 
         return body.toString();
+    }
+
+    /** 单个附件 → image_url / file 块；文件缺失、类型非图片返回 null（调用方丢弃该图） */
+    private JsonObject buildImageBlock(TLAttachmentRef ref) {
+        if (ref == null || !ref.isImageLike()) return null;   // Kind.FILE 不该被当图 base64 发出去
+        if (ref.getKind() == TLAttachmentRef.Kind.URL) {
+            JsonObject b = new JsonObject();
+            b.addProperty("type", "image_url");
+            JsonObject u = new JsonObject();
+            u.addProperty("url", ref.getUrl());
+            if (ref.getDetail() != null) u.addProperty("detail", ref.getDetail());
+            b.add("image_url", u);
+            return b;
+        }
+        if (ref.getKind() == TLAttachmentRef.Kind.FILE_ID) {
+            JsonObject b = new JsonObject();
+            b.addProperty("type", "file");
+            b.addProperty("file_id", ref.getFileId());
+            return b;
+        }
+        byte[] bytes = TLAttachmentStore.readBytes(ref);
+        if (bytes == null) {
+            putLog("[VISION] 图片文件缺失，已丢弃: " + ref.getPath(), LogLevel.WARN);
+            return null;
+        }
+        String mime = ref.getMime() != null ? ref.getMime() : "image/png";
+        JsonObject b = new JsonObject();
+        b.addProperty("type", "image_url");
+        JsonObject u = new JsonObject();
+        u.addProperty("url", "data:" + mime + ";base64," + java.util.Base64.getEncoder().encodeToString(bytes));
+        if (ref.getDetail() != null) u.addProperty("detail", ref.getDetail());
+        b.add("image_url", u);
+        return b;
     }
 
     // ======================== 响应解析 ========================

@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.webui;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
+import cn.tianlong.tlobject.aiagent.TLAttachmentRef;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -132,6 +133,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doStopChat(msg);
             case "upload":
                 return doUpload();
+            case "image":
+                return doImage(msg);
             case "chatStream":
                 return doChatStream(msg);
             case "events":
@@ -276,15 +279,39 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     // ======================== 聊天 ========================
 
-    /** 非流式聊天（阻塞）。resume=true 时从断点恢复（消息 = 断点时的用户消息） */
+    /**
+     * 附件归一化：前端传的是相对 data/{userId}/ 的路径（如 uploads/saved.png），
+     * 这里补成绝对路径再交 agent —— agent 侧 attachmentStore.register 只接受本用户 data/{uid}/ 内的真实文件。
+     * ⚠ 不能只补成相对路径 "data/{uid}/uploads/xxx"：register 对相对路径会再拼一次 userRoot（data/{uid}），
+     * 变成 data/{uid}/data/{uid}/... 而报"文件不存在"。
+     */
+    @SuppressWarnings("unchecked")
+    private static List<Object> normalizeAttachments(List<Object> attachments, String userId) {
+        List<Object> norm = new ArrayList<>();
+        for (Object o : attachments) {
+            if (!(o instanceof Map)) continue;
+            Map<String, Object> m = new LinkedHashMap<>((Map<String, Object>) o);
+            Object p = m.get("path");
+            if (p != null && !new java.io.File(String.valueOf(p)).isAbsolute()) {
+                m.put("path", new java.io.File("data/" + userId + "/" + p).getAbsolutePath());
+            }
+            m.put("origin", "user");
+            norm.add(m);
+        }
+        return norm;
+    }
+
+    /** 非流式聊天（阻塞）。resume=true 时从断点恢复（消息 = 断点时的用户消息）。
+     *  attachments 为前端附件条目（path 为相对 data/{userId}/ 的路径，如 uploads/xxx.png），归一化后交 agent 登记 */
     public Map<String, Object> chat(String userId, String sessionId, String message,
-                                    String reasoningMode, boolean resume) {
+                                    String reasoningMode, boolean resume, List<Object> attachments) {
         TLMsg msg = createMsg().setAction("chat")
                 .setParam(AI_P_SESSIONID, sessionId)
                 .setParam("userId", userId)
                 .setParam(AI_P_USERMESSAGE, message);
         if (resume) msg.setParam("resume", true);
         if (reasoningMode != null && !reasoningMode.isEmpty()) msg.setParam(AI_P_REASONING_MODE, reasoningMode);
+        if (attachments != null && !attachments.isEmpty()) msg.setParam(AI_P_ATTACHMENTS, normalizeAttachments(attachments, userId));
         sessionOwner.put(sessionId, userId);
         TLMsg result;
         try {
@@ -310,7 +337,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     /** 流式聊天：注册 writer → 提交 chatStream。resume=true 时从断点恢复（消息 = 断点时的用户消息）。
      *  失败时关闭 writer 并返回错误 */
     public Map<String, Object> beginChatStream(String userId, String sessionId, String message,
-                                               String reasoningMode, boolean resume, TLWebChannel channel) {
+                                               String reasoningMode, boolean resume,
+                                               List<Object> attachments, TLWebChannel channel) {
         String key = streamKey(userId, sessionId);
         TLWebChannel existing = streamWriters.get(key);
         if (existing != null && existing.isOpen()) {
@@ -328,6 +356,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("streamAction", STREAM_ONCHUNK);
             if (reasoningMode != null && !reasoningMode.isEmpty()) msg.setParam(AI_P_REASONING_MODE, reasoningMode);
             if (resume) msg.setParam("resume", true);
+            if (attachments != null && !attachments.isEmpty()) msg.setParam(AI_P_ATTACHMENTS, normalizeAttachments(attachments, userId));
             TLMsg result = putMsg(serviceModule, msg);
             if (result == null || !result.parseBoolean("success", false)) {
                 streamWriters.remove(key);
@@ -456,7 +485,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         boolean resume = msg.parseBoolean("resume", false);
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
-        Map<String, Object> r = chat(userId, sessionId, message, reasoningMode, resume);
+        @SuppressWarnings("unchecked")
+        List<Object> attachments = msg.getParam("attachments") instanceof List
+                ? (List<Object>) msg.getParam("attachments") : null;
+        Map<String, Object> r = chat(userId, sessionId, message, reasoningMode, resume, attachments);
         r.put("sessionId", sessionId);
         return outJson(r, null);
     }
@@ -502,6 +534,40 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     }
 
     /**
+     * 附件出图：路径必须在当前用户的 data/{userId}/ 内；走 putStream 二进制输出（不走 outJson）。
+     * <p>path 来源：urlMap 未配 clientType/clientVars（二进制输出不能走 jsonClient），
+     * 因此 GET query 不会进 msg 参数——优先取 msg 参数（兼容 POST/程序内调用），
+     * 取不到再直接读 {@code request.getParameter("path")}（Servlet 容器按 application/x-www-form-urlencoded
+     * 解码 query：{@code +}→空格、{@code %XX}→字节，与 URLEncoder.encode 成对）。</p>
+     */
+    private TLMsg doImage(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String path = msg.getStringParam("path", "");
+        if (path.isEmpty()) {
+            HttpServletRequest req = getRequest();
+            if (req != null) {
+                String p = req.getParameter("path");
+                if (p != null) path = p;
+            }
+        }
+        if (path.isEmpty()) return null;
+        try {
+            java.io.File f = new java.io.File(path);
+            if (!f.isAbsolute()) f = new java.io.File("data/" + userId + "/" + path);
+            String root = new java.io.File("data/" + userId).getCanonicalPath() + java.io.File.separator;
+            if (!(f.getCanonicalPath().startsWith(root))) return null;   // 越权：直接断连不输出
+            if (!f.isFile()) return null;
+            try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+                putStream(f.getName(), in);        // 继承自 TLWServModule，按扩展名自动设 image/* content-type
+            }
+        } catch (Exception e) {
+            putLog("image serve failed: " + e, LogLevel.WARN);
+        }
+        return null;   // 自己写输出，不走 outJson（先例：doChatStream）
+    }
+
+    /**
      * 流式聊天（框架路由）：先经 sseOutInterface 注册 SSE 长连接通道，再提交 agent 任务。
      * 注册同步完成后提交，保证 agent 首帧回调时通道已在 map 中（无丢帧）。
      * 提交后返回 null（不写普通输出），请求线程释放、连接由通道持有。
@@ -524,6 +590,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             sessionLogin.put(sessionId, loginId);
         }
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
+        @SuppressWarnings("unchecked")
+        List<Object> attachments = msg.getParam("attachments") instanceof List
+                ? (List<Object>) msg.getParam("attachments") : null;
         String key = streamKey(userId, sessionId);
         TLMsg reg = openSseChannel(getName(), key, "stream");
         if (reg == null || !reg.parseBoolean(RESULT, false)) {
@@ -539,6 +608,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("streamTarget", getName())
                     .setParam("streamAction", STREAM_ONCHUNK);
             if (reasoningMode != null && !reasoningMode.isEmpty()) submit.setParam(AI_P_REASONING_MODE, reasoningMode);
+            if (attachments != null && !attachments.isEmpty()) submit.setParam(AI_P_ATTACHMENTS, normalizeAttachments(attachments, userId));
             TLMsg result = putMsg(serviceModule, submit);
             if (result == null || !result.parseBoolean("success", false)) {
                 closeStreamChannel(key);
@@ -1077,6 +1147,26 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("role", String.valueOf(ch.getRole()).toLowerCase());
             m.put("content", ch.getContent());
+            if (ch.hasAttachments()) m.put("attachments", toJsonable(ch.getAttachments()));
+            if (ch.hasImages()) m.put("images", toJsonable(ch.getImages()));
+            return m;
+        }
+        // ⚠ 必须在通用 Map/List 兜底之前：否则会被 String.valueOf 拍成 cn.tianlong...@1a2b
+        if (o instanceof TLAttachmentRef) {
+            TLAttachmentRef r = (TLAttachmentRef) o;
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("kind", String.valueOf(r.getKind()));
+            m.put("name", r.getName());
+            m.put("mime", r.getMime());
+            if (r.getPath() != null) {
+                String q = r.getPath();
+                try { q = java.net.URLEncoder.encode(q, "UTF-8"); } catch (Exception ignored) {}
+                m.put("url", "/api/image?path=" + q);
+            } else if (r.getUrl() != null) {
+                m.put("url", r.getUrl());
+            }
+            m.put("size", r.getSize());
+            m.put("meta", r.getMeta());
             return m;
         }
         if (o instanceof TLAgentMonitor.StageRecord) {

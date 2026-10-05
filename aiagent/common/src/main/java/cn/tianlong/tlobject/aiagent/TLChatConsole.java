@@ -49,6 +49,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
     private String pendingCheckpointSessionId = null;
     private String pendingCheckpointUserMessage = null;
+    /** 待发附件绝对路径（/img 累积，随下一条消息发出后自动清空） */
+    private final List<String> pendingAttachments = new ArrayList<>();
     private boolean streamMode = false;
     private String prompt = "你 > ";
     private volatile boolean running = false;
@@ -715,6 +717,43 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
                 msg.setAction("param").setParam("toolName", parts[1]);
                 break;
+
+            case "img":
+            case "file": {
+                String arg = parts.length > 1
+                        ? input.substring(input.indexOf(' ') + 1).trim().replace("\"", "")
+                        : "";
+                if (arg.isEmpty() || arg.equalsIgnoreCase("list")) {
+                    if (pendingAttachments.isEmpty()) {
+                        System.out.println("用法: /img <路径>（可多次累积，随下一条消息发出后自动清空）");
+                    } else {
+                        System.out.println("已登记附件 " + pendingAttachments.size() + " 个:");
+                        for (String p : pendingAttachments) System.out.println("  " + p);
+                    }
+                    return null;
+                }
+                java.io.File src = new java.io.File(arg);
+                if (!src.isFile()) {
+                    System.out.println("✗ 文件不存在: " + src.getAbsolutePath());
+                    return null;
+                }
+                try {
+                    // ⚠ 必须拷进 data/{userId}/uploads/：attachmentStore.register 只接受
+                    //    本用户目录内的路径（跨用户越权防护），控制台的本机任意路径要先导入
+                    java.io.File dir = new java.io.File("data/" + userId + "/uploads");
+                    dir.mkdirs();
+                    java.io.File dst = new java.io.File(dir,
+                            System.currentTimeMillis() + "_" + src.getName());
+                    java.nio.file.Files.copy(src.toPath(), dst.toPath(),
+                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                    pendingAttachments.add(dst.getAbsolutePath());
+                    System.out.println("✓ 已登记附件 (" + pendingAttachments.size() + "): "
+                            + src.getName());
+                } catch (Exception e) {
+                    System.out.println("✗ 附件导入失败: " + e.getMessage());
+                }
+                return null;
+            }
 
             case "resume":
                 // /resume → 恢复断点（非 busy 时）
@@ -1718,6 +1757,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             msg.setSystemParam(TASKRESULTACTION, "onChatDone");
         }
         if (reasoningMode != null) msg.setParam(AI_P_REASONING_MODE, reasoningMode);
+        if (!pendingAttachments.isEmpty()) {
+            List<Object> atts = new ArrayList<>();
+            for (String p : pendingAttachments) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("path", p);
+                m.put("name", new java.io.File(p).getName());
+                m.put("origin", "user");
+                atts.add(m);
+            }
+            msg.setParam(AI_P_ATTACHMENTS, atts);
+            msg.setSystemParam(AI_P_ATTACHMENTS, atts);   // 框架参数区也放一份：上游透传链看 systemArgs
+            pendingAttachments.clear();                    // 发完自动清空
+        }
 
         if (streamMode) {
             putMsg(serviceModule, msg);
@@ -2203,6 +2255,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/?", "显示帮助信息");
         commandCache.put("/mcp", "MCP 服务器市场 (search/info/install/list/remove)");
         commandCache.put("/sessiondel", "删除会话记录（不可恢复）");
+        commandCache.put("/img", "登记附件随下一条消息发出（/img list 查看；/file 同义）");
 
         try {
             TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
@@ -2255,6 +2308,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  意图缓存       重复任务首次由 LLM 路由并自动缓存，之后直接执行（provider 配 intentCacheProvider）");
         System.out.println("  /stream        切换流式/非流式模式");
         System.out.println("  /thinking      切换推理过程折叠/展开（/thinking off|prompt|native|auto）");
+        System.out.println("  /img <路径>    登记附件（图片/文件），随下一条消息发出后自动清空（/img list 查看；/file 同义）");
         System.out.println();
         System.out.println("会话命令:");
         System.out.println("  /sessions          列出所有历史会话");

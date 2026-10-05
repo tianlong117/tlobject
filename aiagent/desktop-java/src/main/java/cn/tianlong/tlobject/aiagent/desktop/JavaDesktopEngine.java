@@ -176,6 +176,7 @@ public class JavaDesktopEngine {
         BufferedImage img = robot.createScreenCapture(rect);
         Map<String, Object> out = ok();
         out.put("screenshot_base64", toPngBase64(img));
+        out.put("image_for_model", true);   // 技能表态：这张图给模型看（agent 侧据此注入）
         out.put("x", rect.x); out.put("y", rect.y);
         out.put("width", rect.width); out.put("height", rect.height);
         out.put("screen_width", screenW); out.put("screen_height", screenH);

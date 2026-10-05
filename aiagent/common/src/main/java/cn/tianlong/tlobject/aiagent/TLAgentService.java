@@ -310,6 +310,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (msg.containsParam(AI_P_MODEL)) chatMsg.setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, null));
         if (msg.containsParam(AI_P_TEMPERATURE)) chatMsg.setParam(AI_P_TEMPERATURE, msg.getDoubleParam(AI_P_TEMPERATURE, 0.0));
         if (msg.containsParam(AI_P_REASONING_MODE)) chatMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
+        if (msg.containsParam(AI_P_ATTACHMENTS)) chatMsg.setParam(AI_P_ATTACHMENTS, msg.getParam(AI_P_ATTACHMENTS));
 
         TLMsg result = putMsg(targetAgent(msg), chatMsg);
         if (result == null) return fail("Agent 无响应");
@@ -379,6 +380,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             }
         }
         if (msg.containsParam(AI_P_REASONING_MODE)) streamMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
+        if (msg.containsParam(AI_P_ATTACHMENTS)) streamMsg.setParam(AI_P_ATTACHMENTS, msg.getParam(AI_P_ATTACHMENTS));
 
         putMsg(agent, streamMsg);
         return ok("流式请求已提交");

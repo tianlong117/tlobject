@@ -38,7 +38,8 @@ def _screenshot(region=None):
 def screenshot(region=None, **kwargs):
     b64 = _screenshot(region)
     w, h = pyautogui.size()
-    return {"ok": True, "screenshot_base64": b64, "width": w, "height": h}
+    return {"ok": True, "screenshot_base64": b64, "width": w, "height": h,
+            "image_for_model": True}
 
 def click(x, y, button="left", **kwargs):
     pyautogui.click(int(x), int(y), button=button)

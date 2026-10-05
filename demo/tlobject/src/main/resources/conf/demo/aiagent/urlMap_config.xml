@@ -34,6 +34,12 @@
         <url  value="/upload">
             <msg action="upload" destination="webui"/>
         </url>
+        <!-- 附件出图：二进制输出，模块自行 putStream；不配 clientType（输出不走 jsonClient）。
+             GET query 不进 msg 参数（无 clientVars 时框架不读输入），path 由模块直接读
+             request.getParameter("path")（容器按 form-urlencoded 解码，与 URLEncoder.encode 成对） -->
+        <url  value="/image">
+            <msg action="image" destination="webui"/>
+        </url>
         <!-- SSE 流式聊天：clientVars="*" 显式配置（sseClient 不会自动补 clientVars），
              jsonInInterface 读 JSON body 输入；输出走 sseOutInterface 注册长连接 -->
         <url  value="/chatStream">

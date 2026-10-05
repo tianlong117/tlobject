@@ -313,6 +313,36 @@ function renderToolResult(toolName, output) {
   scrollChat();
   return d;
 }
+/** 消息附件缩略图：图片渲染 <img>（双击 lightbox），其它文件渲染下载链接。
+ *  a 为服务端 toJsonable(TLAttachmentRef) 结构：{kind,name,mime,url,size,meta} */
+function appendAttachmentThumbs(el, attachments) {
+  if (!el || !attachments || !attachments.length) return;
+  const box = document.createElement('div');
+  box.className = 'attach-thumbs';
+  attachments.forEach(a => {
+    if (!a || !a.url) return;
+    const imgLike = a.kind === 'IMAGE' || a.kind === 'URL'
+      || /^image\//.test(a.mime || '') || /\.(png|jpe?g|gif|webp|bmp|tiff?)$/i.test(a.name || '');
+    if (imgLike) {
+      const img = document.createElement('img');
+      img.className = 'browser-shot';
+      img.src = a.url;
+      img.loading = 'lazy';
+      img.alt = a.name || '附件图片';
+      img.title = (a.name || '') + '（双击查看原图）';
+      img.addEventListener('dblclick', () => showLightbox(img.src));
+      box.appendChild(img);
+    } else {
+      const link = document.createElement('a');
+      link.className = 'attach-file';
+      link.href = a.url;
+      link.textContent = '📎 ' + (a.name || '附件');
+      link.title = a.name || '';
+      box.appendChild(link);
+    }
+  });
+  if (box.childNodes.length) el.appendChild(box);
+}
 function startAssistantMsg() {
   const d = document.createElement('div');
   d.className = 'msg ai';
@@ -357,9 +387,17 @@ async function sendMessage() {
   const msg = input.value.trim();
   if (!msg || state.busy) return;
   input.value = '';
-  appendMsg('user', msg);
+  const userBubble = appendMsg('user', msg);
+  // 本地即时缩略图：url 与服务端 toJsonable 生成同构（doImage 把相对路径解析到 data/{userId}/）
+  if (state.uploads.length) {
+    appendAttachmentThumbs(userBubble, state.uploads.map(u => ({
+      name: u.name, url: '/api/image?path=' + encodeURIComponent('uploads/' + u.saved)
+    })));
+  }
   if (state.streamEnabled) await streamChat(msg);
   else await plainChat(msg);
+  // 附件已随本条消息发出（或发送失败），清空 chip 条避免下次重复携带
+  state.uploads = []; renderUploadBar();
 }
 async function plainChat(msg) {
   // 立即创建占位气泡（等待期间有可见反馈），完成后填充
@@ -371,7 +409,10 @@ async function plainChat(msg) {
   holder.el.appendChild(thinking);
   setBusy(true);
   try {
-    const r = await apiJson('/api/chat', { message: msg, sessionId: state.sessionId, loginId: state.loginId || '' });
+    const r = await apiJson('/api/chat', {
+      message: msg, sessionId: state.sessionId, loginId: state.loginId || '',
+      attachments: state.uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
+    });
     if (r.sessionId) { state.sessionId = r.sessionId; $('#sessionId').value = r.sessionId; localStorage.setItem('tlweb_session', r.sessionId); }
     if (r.success) {
       thinking.remove();
@@ -411,7 +452,8 @@ async function streamChat(msg, opts) {
         message: msg,
         sessionId: opts.sessionId || state.sessionId,
         loginId: state.loginId || '',
-        resume: !!opts.resume   // 断点恢复：以断点时的用户消息继续执行（流式）
+        resume: !!opts.resume,   // 断点恢复：以断点时的用户消息继续执行（流式）
+        attachments: state.uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
       }),
       signal: ctrl.signal
     });
@@ -555,7 +597,7 @@ async function uploadFiles(files) {
     return;
   }
   const saved = data.filenames || [];
-  okFiles.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name }); });
+  okFiles.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name, saved: saved[i] }); });
   renderUploadBar();
   toast('上传成功 ' + saved.length + ' 个文件', 'ok');
 }
@@ -846,9 +888,11 @@ async function continueSession(sid, silent) {
       $('#msgList').innerHTML = '';
       appendSysMsg('已恢复会话 ' + state.sessionId + ' (' + (r.data.count || 0) + ' 条历史)');
       (r.data.history || []).forEach(h => {
-        if (!h || h.role === 'system' || !h.content) return;
+        const hasAtts = !!(h && h.attachments && h.attachments.length);
+        if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
         if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（含截图）
-        appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
+        const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
+        if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
       });
 
       // 会话占用声明（登录级互斥）：

@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 
@@ -227,9 +228,11 @@ public class TLWebChatServlet extends HttpServlet {
         }
         boolean resume = body != null && Boolean.TRUE.equals(body.get("resume"));
         String reasoningMode = body != null && body.get("reasoningMode") != null ? String.valueOf(body.get("reasoningMode")) : null;
+        List<Object> attachments = body != null && body.get("attachments") instanceof List
+                ? (List<Object>) body.get("attachments") : null;
         TLWebChatModule mod = module();
         if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
-        Map<String, Object> r = mod.chat(userId, sessionId, message, reasoningMode, resume);
+        Map<String, Object> r = mod.chat(userId, sessionId, message, reasoningMode, resume, attachments);
         r.put("sessionId", sessionId);
         writeJson(resp, 200, r);
     }
@@ -244,6 +247,8 @@ public class TLWebChatServlet extends HttpServlet {
         }
         String reasoningMode = body != null && body.get("reasoningMode") != null ? String.valueOf(body.get("reasoningMode")) : null;
         boolean resume = body != null && Boolean.TRUE.equals(body.get("resume"));
+        List<Object> attachments = body != null && body.get("attachments") instanceof List
+                ? (List<Object>) body.get("attachments") : null;
         TLWebChatModule mod = module();
         if (mod == null) { writeJson(resp, 500, json("success", false, "error", "webui 模块未就绪")); return; }
         resp.setStatus(200);
@@ -251,7 +256,7 @@ public class TLWebChatServlet extends HttpServlet {
         resp.setCharacterEncoding("UTF-8");
         resp.setHeader("Cache-Control", "no-cache");
         ServletChannel channel = new ServletChannel(resp.getWriter());
-        Map<String, Object> r = mod.beginChatStream(userId, sessionId, message, reasoningMode, resume, channel);
+        Map<String, Object> r = mod.beginChatStream(userId, sessionId, message, reasoningMode, resume, attachments, channel);
         if (!Boolean.TRUE.equals(r.get("success"))) {
             channel.close();
             writeJson(resp, 400, r);

@@ -533,6 +533,7 @@ public class JavaBrowserEngine {
         m.put("title", page.title());
         m.put("text", getText());
         m.put("screenshot_base64", shot(false));
+        m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 
@@ -549,6 +550,7 @@ public class JavaBrowserEngine {
         m.put("title", page.title());
         m.put("text", getText());
         m.put("screenshot_base64", shot(false));
+        m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 
@@ -562,6 +564,7 @@ public class JavaBrowserEngine {
         Map<String, Object> m = ok();
         m.put("text", getText());
         m.put("screenshot_base64", shot(false));
+        m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 
@@ -570,6 +573,7 @@ public class JavaBrowserEngine {
         m.put("url", page.url());
         m.put("title", page.title());
         m.put("screenshot_base64", shot(true));
+        m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 
@@ -599,6 +603,7 @@ public class JavaBrowserEngine {
         page.waitForTimeout(SCROLL_SETTLE_MS);
         Map<String, Object> m = ok();
         m.put("screenshot_base64", shot(false));
+        m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 

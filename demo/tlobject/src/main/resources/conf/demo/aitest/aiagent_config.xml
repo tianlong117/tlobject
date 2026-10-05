@@ -123,6 +123,12 @@
                skillName="code_execution"
                skillDescription="Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine)."/>
 
+        <skill name="viewImageSkill"
+               classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLViewImageSkill"
+               statup="true"
+               skillName="view_image"
+               skillDescription="View an image attachment's actual content. Call with the path shown in the attachment manifest. Only images that were uploaded or produced in this conversation can be viewed."/>
+
     </skills>
 
     <!-- ===== Sub-Agents ===== -->

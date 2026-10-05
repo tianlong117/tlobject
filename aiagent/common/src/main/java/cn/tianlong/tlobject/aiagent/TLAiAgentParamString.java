@@ -189,6 +189,16 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_SYSTEMMESSAGE = "systemMessage";
     String AI_P_CONVERSATIONID = "conversationId";
     String AI_P_MESSAGEHISTORY = "messageHistory";
+    /** 调用方传入的附件清单：List<Map>（path/base64/url/fileId 四形态），见 TLAttachmentStore 归一化 */
+    String AI_P_ATTACHMENTS = "attachments";
+    /** 附件登记模块名（框架注册表注册） */
+    String M_ATTACHMENTSTORE = "attachmentStore";
+    /** 附件登记 action：{path,name,userId,origin} → {ref:TLAttachmentRef} */
+    String ATTACH_REGISTER = "attachRegister";
+    /** 附件落盘 action：{base64,mime,name,userId,origin} → {ref:TLAttachmentRef} */
+    String ATTACH_STOREBASE64 = "attachStoreBase64";
+    /** 附件清理 action：{userId} → {removed:n} */
+    String ATTACH_CLEANUP = "attachCleanup";
     String AI_P_RESPONSE = "aiResponse";
     String AI_P_TOOLCALLS = "toolCalls";
     String AI_P_TOOLRESULTS = "toolResults";

@@ -312,7 +312,8 @@ def navigate(url, **kwargs):
     _ensure_browser()
     _page.goto(url, wait_until="domcontentloaded")
     return {"ok": True, "url": _page.url, "title": _page.title(),
-            "text": _get_text(), "screenshot_base64": _screenshot_base64()}
+            "text": _get_text(), "screenshot_base64": _screenshot_base64(),
+            "image_for_model": True}
 
 def click(selector, **kwargs):
     _ensure_browser()
@@ -323,7 +324,8 @@ def click(selector, **kwargs):
         _page.click(f"text={selector}", timeout=5000)
     _page.wait_for_timeout(500)  # wait for any UI reaction
     return {"ok": True, "url": _page.url, "title": _page.title(),
-            "text": _get_text(), "screenshot_base64": _screenshot_base64()}
+            "text": _get_text(), "screenshot_base64": _screenshot_base64(),
+            "image_for_model": True}
 
 def type_text(selector, text, **kwargs):
     _ensure_browser()
@@ -332,12 +334,14 @@ def type_text(selector, text, **kwargs):
     except PwTimeout:
         _page.click(f"text={selector}", timeout=5000)
         _page.keyboard.type(text)
-    return {"ok": True, "text": _get_text(), "screenshot_base64": _screenshot_base64()}
+    return {"ok": True, "text": _get_text(), "screenshot_base64": _screenshot_base64(),
+            "image_for_model": True}
 
 def screenshot(**kwargs):
     _ensure_browser()
     return {"ok": True, "url": _page.url, "title": _page.title(),
-            "screenshot_base64": _screenshot_base64(full_page=True)}
+            "screenshot_base64": _screenshot_base64(full_page=True),
+            "image_for_model": True}
 
 def extract(what="all", **kwargs):
     _ensure_browser()
@@ -357,7 +361,8 @@ def scroll(direction="down", amount=500, **kwargs):
     delta = amount if direction == "down" else -amount
     _page.evaluate(f"window.scrollBy(0, {delta})")
     _page.wait_for_timeout(300)
-    return {"ok": True, "screenshot_base64": _screenshot_base64()}
+    return {"ok": True, "screenshot_base64": _screenshot_base64(),
+            "image_for_model": True}
 
 ACTIONS = {
     "navigate": navigate, "click": click, "type": type_text,

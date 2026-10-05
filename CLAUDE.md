@@ -116,6 +116,7 @@ Built-in modules extending `TLBaseModule`:
 - `browser` skill 三形态：ephemeral / 持久化（默认 userDataDir=data/browser_profile）/ CDP 接管真实浏览器（cdpEndpoint+cdpAutoLaunch，配合 agentbrowser.bat 人工登录；attach 回收只断连、不关用户浏览器；形态参数只在进程启动时生效）
 - `browser` skill 两版实现：Python（默认，子进程）/ Java（`sameClassAs="browserJavaSkill"`，进程内 Playwright Java，独立模块 `aiagent/browser-java`，切换=改一行；首次运行装全部浏览器约 500MB；空闲回收与 Python 版一致——浏览器与 driver 一起释放，被 `/reload` 换掉的旧引擎最迟一个 `idleTimeoutSeconds` 后自愈回收）
 - `desktop` skill 两版实现：Java（默认，`sameClassAs="desktopJavaSkill"`，进程内纯 JDK `java.awt.Robot`，独立模块 `aiagent/desktop-java`，零外部依赖）/ Python（备选，`sameClassAs="scriptExecutionSkill"` + `interpreter="python"` + `allowedScriptDir="skills/desktop/scripts"`，改配置一行回退）；`type` 仅 ASCII、中文输入走 `paste`；系统缩放 >100% 且 JVM 非 DPI 感知时点按/输入类动作明确拒绝（截图与坐标查询仍可用）
+- 多模态（vision）：`TLConversationHistory` 有 `attachments`（资源引用，驱动发送时"清单"）/`images`（真正发给模型的图片块）两字段（`content` 保持 String）；附件统一经 `attachmentStore` 模块登记（上传件原地引用、截图/base64 内容哈希落盘去重）；**默认全按需**——模型看到清单后调 `view_image(路径)` 才真正拿到图；工具产图由**技能自己**在输出 JSON 里 `"image_for_model": true` 表态，agent 只搬运（且必须攒到整批 tool 消息之后注入，否则并行批次会被 `sanitizeToolPairs` 判成孤儿）；`buildSendList` 对发送视图做真拷贝（此前浅拷贝会写回活上下文）（已接入口：控制台 `/img` `/file`、webui 上传进对话 + 历史缩略图 + `/api/image` 出图、桌面/浏览器技能表态 `image_for_model`）
 
 **记忆体系（三层）:**
 - `TLAiContext` — 会话对话记录（短期连续性），`getContextHistory()` 直接加载全部 messages

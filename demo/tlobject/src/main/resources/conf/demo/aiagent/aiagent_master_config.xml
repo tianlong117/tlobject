@@ -8,7 +8,7 @@
         <!-- defaultLlmProvider: 默认LLM Provider模块名 -->
         <defaultLlmProvider value="openAiProvider"/>
         <!-- maxToolCallIterations: LLM tool-call最大迭代轮次 -->
-        <maxToolCallIterations value="10"/>
+        <maxToolCallIterations value="25"/>
         <!-- defaultTemperature: LLM采样温度 -->
         <defaultTemperature value="0.7"/>
         <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
@@ -192,6 +192,9 @@
 
     </agents>
     <skills>
+        <skill name="viewImageSkill"
+               sameClassAs="viewImageSkill"
+               statup="true"/>
         <skill name="skillmd_test"
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"

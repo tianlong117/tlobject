@@ -112,6 +112,13 @@ public class TLClaudeProvider extends TLLlmProvider {
                 content.add(textBlock);
             }
 
+            if (h.hasImages() && h.getRole() == TLConversationHistory.Role.user) {
+                for (TLAttachmentRef ref : h.getImages()) {
+                    JsonObject ib = buildClaudeImageBlock(ref);
+                    if (ib != null) content.add(ib);
+                }
+            }
+
             // tool_use块（assistant消息中的tool calls）
             if (h.getToolCalls() != null && !h.getToolCalls().isEmpty()) {
                 for (TLToolCall tc : h.getToolCalls()) {
@@ -223,6 +230,30 @@ public class TLClaudeProvider extends TLLlmProvider {
         }
 
         return body.toString();
+    }
+
+    /** 附件 → Anthropic image 块；FILE_ID 在 Claude 侧无对应形态、Kind.FILE 非图片，均降级丢弃 */
+    private JsonObject buildClaudeImageBlock(TLAttachmentRef ref) {
+        if (ref == null || !ref.isImageLike()) return null;
+        if (ref.getKind() == TLAttachmentRef.Kind.FILE_ID) return null;
+        JsonObject b = new JsonObject();
+        b.addProperty("type", "image");
+        JsonObject src = new JsonObject();
+        if (ref.getKind() == TLAttachmentRef.Kind.URL) {
+            src.addProperty("type", "url");
+            src.addProperty("url", ref.getUrl());
+        } else {
+            byte[] bytes = TLAttachmentStore.readBytes(ref);
+            if (bytes == null) {
+                putLog("[VISION] 图片文件缺失，已丢弃: " + ref.getPath(), LogLevel.WARN);
+                return null;
+            }
+            src.addProperty("type", "base64");
+            src.addProperty("media_type", ref.getMime() != null ? ref.getMime() : "image/png");
+            src.addProperty("data", java.util.Base64.getEncoder().encodeToString(bytes));
+        }
+        b.add("source", src);
+        return b;
     }
 
     // ======================== 响应解析 ========================

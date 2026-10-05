@@ -30,6 +30,10 @@ public class TLConversationHistory implements Serializable {
     private Map<String, Object> metadata;
     /** 推理/思考内容（ReAct thought chain） */
     private String reasoningContent;
+    /** 资源引用：只驱动发送时的"附件清单"文本，不产生图片块 */
+    private List<TLAttachmentRef> attachments;
+    /** 要作为图片块发给模型的图（view_image 结果 / 技能表态的工具产图注入消息） */
+    private List<TLAttachmentRef> images;
 
     public TLConversationHistory() {
         this.timestamp = System.currentTimeMillis();
@@ -95,12 +99,46 @@ public class TLConversationHistory implements Serializable {
     public String getReasoningContent() { return reasoningContent; }
     public void setReasoningContent(String reasoningContent) { this.reasoningContent = reasoningContent; }
 
+    public List<TLAttachmentRef> getAttachments() { return attachments; }
+    public void setAttachments(List<TLAttachmentRef> attachments) { this.attachments = attachments; }
+
+    public List<TLAttachmentRef> getImages() { return images; }
+    public void setImages(List<TLAttachmentRef> images) { this.images = images; }
+
     public boolean isAssistantWithToolCalls() {
         return role == Role.assistant && toolCalls != null && !toolCalls.isEmpty();
     }
 
     public boolean isTextOnly() {
         return content != null && (toolCalls == null || toolCalls.isEmpty());
+    }
+
+    public boolean hasAttachments() {
+        return attachments != null && !attachments.isEmpty();
+    }
+
+    public boolean hasImages() {
+        return images != null && !images.isEmpty();
+    }
+
+    /**
+     * 发送视图专用浅拷贝：发送期的清单拼接 / 保留策略裁剪只作用副本。
+     * 列表与 metadata 共享引用——发送期只整体 setXxx(null)，绝不改列表内容。
+     */
+    public TLConversationHistory copy() {
+        TLConversationHistory h = new TLConversationHistory();
+        h.role = this.role;
+        h.content = this.content;
+        h.toolCalls = this.toolCalls;
+        h.toolCallId = this.toolCallId;
+        h.name = this.name;
+        h.timestamp = this.timestamp;
+        h.seq = this.seq;
+        h.metadata = this.metadata;
+        h.reasoningContent = this.reasoningContent;
+        h.attachments = this.attachments;
+        h.images = this.images;
+        return h;
     }
 
     @Override

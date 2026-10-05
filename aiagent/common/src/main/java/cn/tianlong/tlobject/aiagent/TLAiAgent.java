@@ -166,6 +166,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 数据存储基础路径（供 context/memory 等使用） */
     protected String dataBasePath = "./data/";
 
+    /** 清单最多列几条附件 */
+    protected int manifestMaxEntries = 20;
+    /** 发送视图保留最近 K 条带图消息 */
+    protected int maxImagesInContext = 1;
+    /** 单条消息最多接受几条附件 */
+    protected int maxAttachmentsPerMessage = 10;
+
+    /** 工具产图安全阀：false = 任何工具产图都不注入（判断权在技能，这里只是兜底全禁） */
+    protected boolean feedToolImages = true;
+    /** 技能输出 JSON 里的表态键：值为 true 才投喂 */
+    protected String imageDeclareKey = "image_for_model";
+    /** 图数据 key 白名单：以 _path 结尾的按路径引用，其余按 base64 正文 */
+    protected List<String> imageDataKeys =
+            new ArrayList<>(Arrays.asList("screenshot_base64", "image_base64", "image_path"));
+    /** 超过此 KB 数的输出不做图片解析 */
+    protected int maxParseKB = 8192;
+
     /** JSON 序列化（复用 Gson，aiagent 已依赖） */
     protected com.google.gson.Gson gson;
 
@@ -278,6 +295,30 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 dataBasePath = params.get("dataBasePath");
             else if (params.get("sessionStorePath") != null)
                 dataBasePath = params.get("sessionStorePath"); // 兼容旧配置
+            if (params.get("manifestMaxEntries") != null) {
+                try { manifestMaxEntries = Integer.parseInt(params.get("manifestMaxEntries")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("maxImagesInContext") != null) {
+                try { maxImagesInContext = Integer.parseInt(params.get("maxImagesInContext")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("maxAttachmentsPerMessage") != null) {
+                try { maxAttachmentsPerMessage = Integer.parseInt(params.get("maxAttachmentsPerMessage")); }
+                catch (NumberFormatException ignored) {}
+            }
+            if (params.get("feedToolImages") != null)
+                feedToolImages = !"false".equals(params.get("feedToolImages"));
+            if (params.get("imageDeclareKey") != null) imageDeclareKey = params.get("imageDeclareKey");
+            if (params.get("imageDataKeys") != null) {
+                imageDataKeys = new ArrayList<>();
+                for (String k : params.get("imageDataKeys").split(";"))
+                    if (!k.trim().isEmpty()) imageDataKeys.add(k.trim());
+            }
+            if (params.get("maxParseKB") != null) {
+                try { maxParseKB = Integer.parseInt(params.get("maxParseKB")); }
+                catch (NumberFormatException ignored) {}
+            }
             // 推理/思考链参数
             if (params.get("reasoningMode") != null)
                 reasoningMode = params.get("reasoningMode");
@@ -781,6 +822,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionUserIds.put(sessionId, currentChatUserId.get());
         String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
         sessionUserMessages.put(sessionId, userMessage);
+        // 注：附件归一化（AI_P_ATTACHMENTS → ref 列表）推迟到"正常分支真正构建用户条目"时再做——
+        // 提前做会让空消息/会话占用/resume/LLM 直入等提前返回的轮次白白解码 base64 并落盘
         // 固定任务前缀（配置的 task 参数）：普通 agent 配置后每次收到的消息都前置该任务指令；
         // 工作流下游节点同样经此生效（user 层指令权重最高，systemMessage 管人设，task 管本次工作）
         if (params != null && params.get("task") != null && !params.get("task").trim().isEmpty()) {
@@ -928,18 +971,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                         .setSystemParam("userId", msg.getSystemParam("userId", "default"))
                                         .setSystemParam("rootSessionId", rootSid)
                                         .setSystemParam(AI_P_ROUNDID, roundId));
-                        String singleOutput;
+                        // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
+                        //（审批后执行的工具同样可能声明投图；直接 history.add 会丢掉声明的那张图）
+                        List<TLAttachmentRef> pendingImages = new ArrayList<>();
+                        TLToolExecutor.ToolResult singleResult = null;
                         if (singleExecResult != null) {
                             @SuppressWarnings("unchecked")
                             List<TLToolExecutor.ToolResult> singleResults =
                                     (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
-                            singleOutput = (singleResults != null && !singleResults.isEmpty())
-                                    ? singleResults.get(0).output : "";
-                        } else {
-                            singleOutput = "";
+                            if (singleResults != null && !singleResults.isEmpty())
+                                singleResult = singleResults.get(0);
                         }
-                        history.add(new TLConversationHistory(savedTc.getId(),
-                                savedTc.getFunctionName(), singleOutput));
+                        appendToolResult(history,
+                                singleResult != null ? singleResult
+                                        : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
+                                sessionId, pendingImages);
+                        flushToolImages(history, pendingImages);
                         putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
                                 LogLevel.INFO);
                     } else if ("rejected".equals(decision)) {
@@ -1003,7 +1050,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 if (memoryContext != null && !memoryContext.isEmpty()) {
                     sessionMemoryContext.put(sessionId, memoryContext);
                 }
-                history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
+                // 附件归一化只在此处做：只有本分支才真正构建用户条目
+                List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId);
+                history.add(buildUserEntry(userMessage, roundAttachments));
             }
             // 对话开始即保存 checkpoint 轮（含用户消息）：进程意外死亡时轮次残留，重启可恢复；
             // 正常完成/人为停止由 chatFinished/chatAborted 同 roundId 覆盖为 completed
@@ -1314,11 +1363,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         @SuppressWarnings("unchecked")
                         List<TLToolExecutor.ToolResult> execResultsF =
                                 (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+                        List<TLAttachmentRef> pendingImages = new ArrayList<>();
                         if (execResultsF != null) {
                             for (TLToolExecutor.ToolResult r : execResultsF) {
-                                history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
+                                appendToolResult(history, r, sessionId, pendingImages);
                             }
                         }
+                        flushToolImages(history, pendingImages);
                         finalResponse = execResult.getStringParam("finalResponse", "");
                         // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
                         history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
@@ -1330,11 +1381,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     @SuppressWarnings("unchecked")
                     List<TLToolExecutor.ToolResult> execResults =
                             (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+                    List<TLAttachmentRef> pendingImages = new ArrayList<>();
                     if (execResults != null) {
                         for (TLToolExecutor.ToolResult r : execResults) {
-                            history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
+                            appendToolResult(history, r, sessionId, pendingImages);
                         }
                     }
+                    flushToolImages(history, pendingImages);
                     if (aborted || clarified || pendingApproval || rejected || execTimeout) break;
                     // L2 checkpoint: 每轮工具调用后通知 SessionManager
                     notifySessionManager(createMsg()
@@ -1571,6 +1624,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 msg.getStringParam(AI_P_USERID, "default"))));
         // 本轮用户消息入会话表（收尾 chatFinished 保存会话时用）
         sessionUserMessages.put(sessionId, userMessage);
+        // 注：附件归一化推迟到"真正构建用户条目"处（见下方 !resume 分支）——
+        // 提前做会让 Provider 缺失/resume/审批未决等提前返回的轮次白白解码落盘
         sessionRootIds.put(sessionId, rootSid);
         // 全链追踪：流式轮次开始打点（payload = 用户输入全文；回调线程打点需显式 userId）
         traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0,
@@ -1619,15 +1674,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setSystemParam("userId", msg.getSystemParam("userId", "default"))
                                     .setSystemParam("rootSessionId", rootSid)
                                     .setSystemParam(AI_P_ROUNDID, roundId));
-                    String singleOutput = "";
+                    // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
+                    //（审批后执行的工具同样可能声明投图；直接 fullHistory.add 会丢掉声明的那张图）
+                    List<TLAttachmentRef> pendingImages = new ArrayList<>();
+                    TLToolExecutor.ToolResult singleResult = null;
                     if (singleExecResult != null && singleExecResult.parseBoolean("success", false)) {
                         List<TLToolExecutor.ToolResult> singleResults = (List<TLToolExecutor.ToolResult>)
                                 singleExecResult.getListParam("results", null);
-                        singleOutput = (singleResults != null && !singleResults.isEmpty())
-                                ? singleResults.get(0).output : "";
+                        if (singleResults != null && !singleResults.isEmpty())
+                            singleResult = singleResults.get(0);
                     }
-                    fullHistory.add(new TLConversationHistory(savedTc.getId(),
-                            savedTc.getFunctionName(), singleOutput));
+                    appendToolResult(fullHistory,
+                            singleResult != null ? singleResult
+                                    : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
+                            sessionId, pendingImages);
+                    flushToolImages(fullHistory, pendingImages);
                     putLog("Approval resumed (stream): approved → tool executed: " + savedTc.getFunctionName(),
                             LogLevel.INFO);
                 } else if ("rejected".equals(decision)) {
@@ -1679,11 +1740,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         // 发送视图 = 摘要 coverSeq 衔接的原始视图 + 记忆 system；保存列表 = 全量 + user
         List<TLConversationHistory> history = buildSendList(fullHistory, coverSeq, memoryContext);
-        // 恢复场景：断点历史已含断点用户消息（loadSession 返回），不重复添加
-        if (!resume) history.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
         // 立即保存全量+用户消息的上下文（msgTool 如 getTurnCount 读当前会话；恢复/续轮不丢全量）
         List<TLConversationHistory> saved = new ArrayList<>(fullHistory);
-        if (!resume) saved.add(new TLConversationHistory(TLConversationHistory.Role.user, userMessage));
+        // 恢复场景：断点历史已含断点用户消息（loadSession 返回），不重复添加
+        if (!resume) {
+            // 附件归一化只在此处做（resume 轮不重建用户消息，不做解码落盘）
+            List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId);
+            // 发送视图单独拼清单：首请求（无 tool 轮次则唯一请求）走的是这份 history，
+            // 而 buildSendList 已在本轮用户消息入列之前执行——不显式拼，模型首请求看不到清单
+            TLConversationHistory sendEntry = buildUserEntry(userMessage, roundAttachments);
+            applyManifestToEntry(sendEntry);
+            history.add(sendEntry);
+            // 存储侧不带清单：清单是发送时视图，下一轮 buildSendList 会按附件重新生成
+            saved.add(buildUserEntry(userMessage, roundAttachments));
+        }
         saveContextHistory(sessionId, saved);
         // 对话开始即保存 checkpoint 轮（含用户消息）：进程意外死亡时轮次残留，
         // 重启后可恢复本会话历史（纯文本/首响应阶段被杀不再丢失最后一条消息）；
@@ -1996,7 +2066,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 return null;
                             }
                         }
-                        if (finalResponse == null) finalResponse = "Reached max iterations (" + maxToolCallIterations + ")";
+                        if (finalResponse == null) finalResponse =
+                                "（已达最大迭代次数 " + maxToolCallIterations + "，任务可能未完成——可以回复“继续”让我接着做）";
 
                         // 保存上下文 + 通知 SessionManager + 长期记忆
                         saveContextHistory(sessionId, history);
@@ -2633,10 +2704,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
                                                         long coverSeq, String memoryContext) {
         if (full.size() <= contextViewSize) {
-            List<TLConversationHistory> all = new ArrayList<>(full);
+            List<TLConversationHistory> all = copyList(full);
             if (memoryContext != null && !memoryContext.isEmpty()) {
                 all.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
             }
+            applyManifest(all);
+            applyImageRetention(all);
             sanitizeToolPairs(all);
             stripImagePayloads(all);
             trimToContextBudget(all);
@@ -2644,9 +2717,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         List<TLConversationHistory> systems = new ArrayList<>();
         List<TLConversationHistory> rest = new ArrayList<>();
-        for (TLConversationHistory h : full) {
-            if (h.getRole() == TLConversationHistory.Role.system) systems.add(h);
-            else rest.add(h);
+        List<Integer> restOrigIdx = new ArrayList<>();     // rest[i] 对应 full 里的下标
+        for (int i = 0; i < full.size(); i++) {
+            TLConversationHistory h = full.get(i);
+            if (h.getRole() == TLConversationHistory.Role.system) {
+                systems.add(h.copy());
+            } else {
+                rest.add(h.copy());
+                restOrigIdx.add(i);
+            }
         }
         if (memoryContext != null && !memoryContext.isEmpty()) {
             systems.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
@@ -2659,16 +2738,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 同一前缀无限插入 → 死循环（线程 100% CPU，round 卡在 roundStart 后无任何输出）。
         if (startIdx < rest.size()
                 && rest.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
-            TLConversationHistory first = rest.get(startIdx);
-            int idxInFull = full.indexOf(first);
+            int idxInFull = restOrigIdx.get(startIdx);     // ← 记下的原始下标（拷贝后 indexOf 按身份找不到了）
             if (idxInFull > 0) {
                 for (int i = idxInFull - 1; i >= 0; i--) {
                     TLConversationHistory h = full.get(i);
                     if (h.isAssistantWithToolCalls()) {
-                        List<TLConversationHistory> prefix =
-                                new ArrayList<>(full.subList(i, idxInFull));
+                        List<TLConversationHistory> prefix = copyList(full.subList(i, idxInFull));
                         rest.addAll(startIdx, prefix);
-                        startIdx += prefix.size();
+                        for (int k = 0; k < prefix.size(); k++) restOrigIdx.add(startIdx + k, i + k);
+                        // ⚠ 不推进 startIdx：补回的前缀必须留在窗口内——推进会把刚借回的 assistant
+                        //   又切出视图，孤儿 tool 被下方 sanitizeToolPairs 删掉，等于白补。
+                        //   单次 if（非循环）不存在补簇死循环，安全。
                         break;
                     }
                 }
@@ -2676,10 +2756,277 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         List<TLConversationHistory> result = new ArrayList<>(systems);
         result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
+        applyManifest(result);
+        applyImageRetention(result);
         sanitizeToolPairs(result);
         stripImagePayloads(result);
         trimToContextBudget(result);
         return result;
+    }
+
+    private static List<TLConversationHistory> copyList(List<TLConversationHistory> src) {
+        List<TLConversationHistory> out = new ArrayList<>(src.size());
+        for (TLConversationHistory h : src) out.add(h.copy());
+        return out;
+    }
+
+    /**
+     * 把 attachments 渲染成清单文本拼在消息正文前（只在发送副本上做，不写回存储）。
+     * 清单是"模型必须先知道有什么"的唯一来源；元数据全部本地抽取，不调 LLM。
+     */
+    private void applyManifest(List<TLConversationHistory> list) {
+        for (TLConversationHistory h : list) applyManifestToEntry(h);
+    }
+
+    /** 给单条消息拼接附件清单（发送视图专用；存储侧不得调用，否则会在下一轮重复叠加） */
+    private void applyManifestToEntry(TLConversationHistory h) {
+        if (h == null || !h.hasAttachments()) return;
+        String manifest = buildManifest(h.getAttachments());
+        if (manifest.isEmpty()) return;
+        String body = h.getContent() == null ? "" : h.getContent();
+        h.setContent(manifest + "\n" + body);
+    }
+
+    private String buildManifest(List<TLAttachmentRef> refs) {
+        if (refs == null || refs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("[附件]\n");
+        int shown = 0;
+        boolean anyPath = false;
+        for (TLAttachmentRef r : refs) {
+            if (shown >= manifestMaxEntries) {
+                sb.append("…还有 ").append(refs.size() - shown).append(" 个\n");
+                break;
+            }
+            shown++;
+            if (r.getPath() != null) anyPath = true;
+            sb.append(shown).append(". ").append(sanitizeFileName(r.getName()))
+              .append(" — ").append(r.getMime() == null ? "未知类型" : r.getMime())
+              .append(", ").append(humanSize(r.getSize()));
+            Map<String, Object> meta = r.getMeta();
+            if (meta != null) {
+                // ⚠ gson 往返后所有数字都变成 Double（ObjectTypeAdapter）——一律经 num() 取整，
+                //   否则恢复会话后清单会渲染成 "1043.0 行"
+                Integer w = num(meta.get("width")), hgt = num(meta.get("height"));
+                // width/height 可能只有一个（如 gson 往返丢了 height）——两个都有效才渲染，避免 "800×null"
+                if (w != null && w > 0 && hgt != null && hgt > 0) {
+                    sb.append(", ").append(w).append("×").append(hgt);
+                }
+                Integer rows = num(meta.get("rows"));
+                if (rows != null) sb.append(", ").append(rows).append(" 行");
+                if (meta.get("columns") != null) sb.append(", 列: ").append(meta.get("columns"));
+                Integer chars = num(meta.get("chars"));
+                if (chars != null) sb.append(", ").append(chars).append(" 字符");
+                Integer pages = num(meta.get("pages"));
+                if (pages != null) sb.append(", ").append(pages).append(" 页");
+            }
+            // 按 kind 渲染引用位置：URL/FILE_ID 没有本地路径，不能统一写 "路径"（会渲染出 "路径: null"，
+            // 且尾句会让模型对没有路径的附件调 view_image）
+            TLAttachmentRef.Kind kind = r.getKind();
+            if (kind == TLAttachmentRef.Kind.URL && r.getUrl() != null) {
+                sb.append(" — 地址: ").append(r.getUrl()).append("（模型可直接读取该链接）");
+            } else if (kind == TLAttachmentRef.Kind.FILE_ID && r.getFileId() != null) {
+                sb.append(" — 文件ID: ").append(r.getFileId());
+            } else if (r.getPath() != null) {
+                sb.append(" — 路径: ").append(r.getPath());
+            } else if (r.getUrl() != null) {          // kind 缺失（旧存档）时按字段兜底
+                sb.append(" — 地址: ").append(r.getUrl());
+            } else if (r.getFileId() != null) {
+                sb.append(" — 文件ID: ").append(r.getFileId());
+            }
+            sb.append("\n");
+        }
+        if (anyPath) {
+            sb.append(refs.size() == 1
+                    ? "查看图片内容请调用 view_image(路径)；其他文件可直接用路径本地处理。"
+                    : "需要查看某张图片时调用 view_image(路径)；其他文件可直接用路径本地处理。");
+        } else {
+            sb.append("以上附件没有本地路径，模型可直接读取链接/引用内容。");
+        }
+        return sb.toString();
+    }
+
+    /** 把调用方传的 AI_P_ATTACHMENTS（List<Map> 四形态）归一化成 ref 列表；解析失败逐条忽略 */
+    @SuppressWarnings("unchecked")
+    protected List<TLAttachmentRef> normalizeAttachments(TLMsg msg, String sessionId) {
+        List<TLAttachmentRef> out = new ArrayList<>();
+        Object raw = msg.getParam(AI_P_ATTACHMENTS);
+        if (!(raw instanceof List)) return out;
+        String userId = sessionUserIds.getOrDefault(sessionId, "default");
+        for (Object o : (List<Object>) raw) {
+            if (!(o instanceof Map)) continue;
+            // 配额只算"已接受"的条目（out）：被校验拒绝的畸形条目不应挤掉其后的有效附件
+            if (out.size() >= maxAttachmentsPerMessage) break;
+            Map<String, Object> m = (Map<String, Object>) o;
+            try {
+                String url = strOf(m.get("url"));
+                String fileId = strOf(m.get("fileId"));
+                String b64 = strOf(m.get("base64"));
+                String path = strOf(m.get("path"));
+                String name = strOf(m.get("name"));
+                String origin = m.get("origin") == null ? "api" : strOf(m.get("origin"));
+                if (!fileId.isEmpty()) {
+                    out.add(TLAttachmentRef.forFileId(fileId, origin));
+                } else if (!url.isEmpty()) {
+                    if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                        putLog("[VISION] 附件 URL 非 http(s)，已忽略: " + url, LogLevel.WARN);
+                        continue;
+                    }
+                    if (url.length() > 8192) {
+                        putLog("[VISION] 附件 URL 过长，已忽略", LogLevel.WARN);
+                        continue;
+                    }
+                    out.add(TLAttachmentRef.forUrl(url, origin));
+                } else if (!b64.isEmpty()) {
+                    // IGNOREMODULEISNULL：attachmentStore 未配置时降级为"该附件忽略 + WARN"，
+                    // 而不是让 putMsg 走 moduleFactory.shutdown(-1) 关停整个应用
+                    TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_STOREBASE64)
+                            .setParam("base64", b64).setParam("mime", strOf(m.get("mime")))
+                            .setParam("name", name.isEmpty() ? "image" : name)
+                            .setParam("origin", origin).setParam(AI_P_USERID, userId)
+                            .setSystemParam(IGNOREMODULEISNULL, true));
+                    if (r != null && r.getParam("ref") != null)
+                        out.add((TLAttachmentRef) r.getParam("ref"));
+                    else putLog("[VISION] 附件落盘失败（base64）", LogLevel.WARN);
+                } else if (!path.isEmpty()) {
+                    TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_REGISTER)
+                            .setParam("config", m).setParam(AI_P_USERID, userId)
+                            .setSystemParam(IGNOREMODULEISNULL, true));
+                    if (r != null && r.getParam("ref") != null)
+                        out.add((TLAttachmentRef) r.getParam("ref"));
+                    else putLog("[VISION] 附件登记失败: " + path, LogLevel.WARN);
+                }
+            } catch (Exception e) {
+                putLog("[VISION] 附件解析失败: " + e, LogLevel.WARN);
+            }
+        }
+        return out;
+    }
+
+    private static String strOf(Object o) { return o == null ? "" : String.valueOf(o); }
+
+    /**
+     * 从工具输出里提取"技能表态要给模型看"的图片。
+     * 缺省不给（保守默认）——技能必须在输出 JSON 里写 "image_for_model": true。
+     * 返回 null 表示"未声明或解析不可用"，调用方保持原文本不动。
+     */
+    @SuppressWarnings("unchecked")
+    protected List<TLAttachmentRef> extractDeclaredImages(String output, String userId,
+                                                          List<TLConversationHistory> history) {
+        if (!feedToolImages || output == null) return null;
+        if (output.length() > (long) maxParseKB * 1024) return null;         // 护栏 2
+        if (output.isEmpty() || output.charAt(0) != '{') return null;        // 护栏 1
+        if (output.indexOf(imageDeclareKey) < 0) return null;                // 护栏 1
+        try {
+            com.google.gson.JsonObject o = gson.fromJson(output, com.google.gson.JsonObject.class);
+            if (o == null || !o.has(imageDeclareKey)) return null;
+            if (!o.get(imageDeclareKey).getAsBoolean()) return null;
+            for (String key : imageDataKeys) {
+                if (!o.has(key) || o.get(key).isJsonNull()) continue;
+                String v = o.get(key).getAsString();
+                if (key.endsWith("_path")) {
+                    // 引用型：只能看"本会话已登记的附件"（白名单），防模型被诱导去读任意文件
+                    if (!isRegisteredPath(history, v)) {
+                        putLog("[VISION] 路径不在本会话附件白名单内，拒绝注入: " + v, LogLevel.WARN);
+                        return null;
+                    }
+                    TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_REGISTER)
+                            .setParam("config", new LinkedHashMap<>(Map.of(
+                                    "path", v, "name", new File(v).getName(), "origin", "tool")))
+                            .setParam(AI_P_USERID, userId)
+                            .setSystemParam(IGNOREMODULEISNULL, true));   // 缺模块 → 降级不投图，不退进程
+                    if (r != null && r.getParam("ref") != null)
+                        return new ArrayList<>(List.of((TLAttachmentRef) r.getParam("ref")));
+                    return null;
+                }
+                TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_STOREBASE64)
+                        .setParam("base64", v).setParam("name", "tool_image")
+                        .setParam("origin", "tool").setParam(AI_P_USERID, userId)
+                        .setSystemParam(IGNOREMODULEISNULL, true));   // 缺模块 → 降级不投图，不退进程
+                if (r != null && r.getParam("ref") != null)
+                    return new ArrayList<>(List.of((TLAttachmentRef) r.getParam("ref")));
+                return null;
+            }
+        } catch (Exception e) {
+            putLog("[VISION] 工具产图解析失败（忽略，原文照旧）: " + e, LogLevel.DEBUG);  // 护栏 3
+        }
+        return null;
+    }
+
+    /** 把已提取的图数据 key 从文本里换成占位符（避免同一份 base64 在上下文重复占位） */
+    protected String stripImageKeys(String output) {
+        if (output == null) return null;
+        try {
+            com.google.gson.JsonObject o = gson.fromJson(output, com.google.gson.JsonObject.class);
+            if (o == null) return output;
+            boolean changed = false;
+            for (String key : imageDataKeys) {
+                if (key.endsWith("_path")) continue;   // 路径保留：模型/其它工具还要用
+                if (o.has(key) && !o.get(key).isJsonNull()) {
+                    o.addProperty(key, "[已提取为图片]");
+                    changed = true;
+                }
+            }
+            return changed ? gson.toJson(o) : output;
+        } catch (Exception e) {
+            return output;
+        }
+    }
+
+    /** 白名单：本会话历史里出现过的附件路径（attachments ∪ images 两个字段的并集） */
+    private static boolean isRegisteredPath(List<TLConversationHistory> history, String path) {
+        if (history == null || path == null) return false;
+        String target = canonical(path);
+        for (TLConversationHistory h : history) {
+            for (List<TLAttachmentRef> list : Arrays.asList(h.getAttachments(), h.getImages())) {
+                if (list == null) continue;
+                for (TLAttachmentRef r : list) {
+                    if (r.getPath() != null && canonical(r.getPath()).equals(target)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static String canonical(String p) {
+        try { return new File(p).getCanonicalPath(); }
+        catch (Exception e) { return new File(p).getAbsolutePath(); }
+    }
+
+    /** 构造本轮用户消息条目并挂上附件（三个入口共用） */
+    private TLConversationHistory buildUserEntry(String userMessage, List<TLAttachmentRef> atts) {
+        TLConversationHistory e =
+                new TLConversationHistory(TLConversationHistory.Role.user, userMessage);
+        if (atts != null && !atts.isEmpty()) e.setAttachments(atts);
+        return e;
+    }
+
+    /** 文件名进清单前转义：防"文件名里写指令" */
+    private static String sanitizeFileName(String name) {
+        if (name == null || name.isEmpty()) return "未命名";
+        String s = name.replaceAll("[\\r\\n\\t\\u0000-\\u001f\\[\\]]", " ");
+        return s.length() > 64 ? s.substring(0, 64) + "…" : s;
+    }
+
+    private static String humanSize(long size) {
+        if (size < 1024) return size + "B";
+        if (size < 1024 * 1024) return (size / 1024) + "KB";
+        return String.format("%.1fMB", size / 1024.0 / 1024.0);
+    }
+
+    /** meta 值本轮是 Integer、gson 反序列化后是 Double，统一经 Number 取整 */
+    private static Integer num(Object o) {
+        return o instanceof Number ? ((Number) o).intValue() : null;
+    }
+
+    /** 注入图保留策略：只保留最近 K 条带图消息的图片，更早的置空（文本保留） */
+    private void applyImageRetention(List<TLConversationHistory> list) {
+        int seen = 0;
+        for (int i = list.size() - 1; i >= 0; i--) {
+            TLConversationHistory h = list.get(i);
+            if (!h.hasImages()) continue;
+            seen++;
+            if (seen > maxImagesInContext) h.setImages(null);
+        }
     }
 
     /** 发送视图兜底：截图 base64 载荷降级为占位符（同一轮内 tool 刚执行完、尚未入史裁剪的本地列表也挡） */
@@ -2740,6 +3087,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     if (c.charAt(i) > 127) cjk++;
                 }
                 toks += (long) ((c.length() - cjk) * 0.35 + cjk * 1.25) + 2;
+            }
+            if (h.hasImages()) {
+                // 手册：每张图折算封顶 1024 token，按上限保守计
+                toks += (long) h.getImages().size() * 1024L;
             }
             if (h.getName() != null) toks += h.getName().length() / 4 + 2;
             if (h.getToolCalls() != null) {
@@ -2854,6 +3205,31 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return response;
     }
 
+    /** 工具结果写 history（工具消息）+ 把技能声明要投喂的图**攒起来**（不可就地注入：
+     *  并行批次里会插进 tool 簇中间，导致 sanitizeToolPairs 把整轮工具消息当孤儿删掉）。
+     *  批次结束后由 flushToolImages 统一注入一条 user 消息。 */
+    private void appendToolResult(List<TLConversationHistory> history,
+                                  TLToolExecutor.ToolResult r, String sessionId,
+                                  List<TLAttachmentRef> pendingImages) {
+        String userId = sessionUserIds.getOrDefault(sessionId, "default");
+        List<TLAttachmentRef> imgs = extractDeclaredImages(r.output, userId, history);
+        history.add(new TLConversationHistory(r.toolCallId, r.toolCallId,
+                imgs != null ? stripImageKeys(r.output) : r.output));
+        if (imgs != null && !imgs.isEmpty()) pendingImages.addAll(imgs);
+    }
+
+    /** 整批工具结果写完后调用一次：图片只能挂 user 消息（DeepSeek 400），
+     *  且必须落在整簇 tool 之后，保持 tool 消息连续（sanitizeToolPairs 的向后扫描才不误判孤儿）。 */
+    private void flushToolImages(List<TLConversationHistory> history,
+                                 List<TLAttachmentRef> pendingImages) {
+        if (pendingImages.isEmpty()) return;
+        TLConversationHistory m = new TLConversationHistory(
+                TLConversationHistory.Role.user, "[工具结果：图片]");
+        m.setImages(new ArrayList<>(pendingImages));
+        history.add(m);
+        pendingImages.clear();
+    }
+
     /**
      * 委托 ToolExecutor 批量执行工具，结果直接写入 history（供 onStreamResult 等简单场景）。
      * @return ToolExecutor 的执行结果消息（rejected 等标志供调用方处理），无执行时为 null
@@ -2883,15 +3259,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         List<TLToolExecutor.ToolResult> results =
                 (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+        List<TLAttachmentRef> pendingImages = new ArrayList<>();
         if (results != null) {
             for (int i = 0; i < results.size(); i++) {
                 TLToolExecutor.ToolResult r = results.get(i);
-                history.add(new TLConversationHistory(r.toolCallId, r.toolCallId, r.output));
+                appendToolResult(history, r, sessionId, pendingImages);
                 // 实时工具事件：流式调用方（webui）据此渲染工具结果/截图；tasks 与 results 按序对齐
+                // ⚠ 这里必须喂原始 output（webui 渲染路径要从里面取 base64），不能喂 stripImageKeys 后的文本
                 pushStreamToolEvent(sessionId,
                         i < tasks.size() ? tasks.get(i).functionName : r.toolCallId, r.output);
             }
         }
+        flushToolImages(history, pendingImages);
         return execResult;
     }
 

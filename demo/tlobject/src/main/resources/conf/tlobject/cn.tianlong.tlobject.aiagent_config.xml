@@ -24,6 +24,8 @@
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
                 singleton="true"/>
+        <module name="viewImageSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLViewImageSkill"
+                singleton="true"/>
         <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
                 singleton="true"/>
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"
@@ -58,6 +60,9 @@
         <module name="dbMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
                 singleton="true"/>
         <module name="agentMonitor" classfile="cn.tianlong.tlobject.aiagent.TLAgentMonitor" singleton="true"/>
+        <!-- 附件登记：落盘/去重/元数据/清理。agent 与其调用方都经消息访问 -->
+        <module name="attachmentStore" classfile="cn.tianlong.tlobject.aiagent.TLAttachmentStore"
+                singleton="true"/>
         <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
         <module name="agentService" classfile="cn.tianlong.tlobject.aiagent.TLAgentService" singleton="true"/>
         <module name="sessionManager" classfile="cn.tianlong.tlobject.aiagent.TLSessionManager" singleton="true"/>
