@@ -277,7 +277,8 @@ public class JavaBrowserEngine {
         if (!probe(ep)) {
             if (!cfg.cdpAutoLaunch)
                 throw new RuntimeException("无法连接调试浏览器 " + ep
-                        + "（请先用 agentbrowser.bat 启动，或配置 cdpAutoLaunch=true）");
+                        + "（配置 cdpAutoLaunch=true 自动拉起，或手动启动：<浏览器> --remote-debugging-port=<端口> --user-data-dir="
+                        + cfg.cdpProfileDir + "）");
             if (!isLocalHost(endpointHost(ep)))
                 throw new RuntimeException("cdpAutoLaunch 只支持本机端点（127.0.0.1/localhost）: " + ep);
             String profileDirError = null;

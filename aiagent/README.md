@@ -1437,28 +1437,37 @@ demo-written Skills live under `demo/tlobject/.../skills/` (`calculate_price`, `
 | `userDataDir` | `data/browser_profile` | Persistent profile; `""` disables it |
 | `cdpEndpoint` | empty | Non-empty switches to takeover mode, e.g. `http://127.0.0.1:9222` |
 | `cdpAutoLaunch` | `false` | Launch the system browser automatically when the endpoint is down (dedicated profile only) |
-| `cdpProfileDir` | `data/browser_agent_profile` | Dedicated profile (must match `agentbrowser.bat`'s default path) |
+| `cdpProfileDir` | `data/browser_agent_profile` | Dedicated profile (shared by auto-launch and manual start) |
 | `browserExe` | empty = auto-detect | System browser path (Chrome → Edge); used by auto-launch only |
 | `maxTextChars` | `30000` | Maximum page text returned per call (0 = unlimited); truncated text carries a notice |
 
 **Human-login workflow (the recommended way)**
 
-1. Set `cdpEndpoint="http://127.0.0.1:9222"` + `cdpAutoLaunch="true"` (or run `agentbrowser.bat` first)
+1. Set `cdpEndpoint="http://127.0.0.1:9222"` + `cdpAutoLaunch="true"` and **restart the app** —
+   if no browser is running, the agent auto-launches one (dedicated profile) on first use.
+   You may also start the browser yourself first:
+   ```bat
+   "C:\Program Files\Google\Chrome\Application\chrome.exe" ^
+     --remote-debugging-port=9222 --user-data-dir=data/browser_agent_profile
+   ```
+   (adjust the Chrome path to your machine; Edge works the same way.)
 2. Ask the agent to open the target site — the page appears in your own browser window, and **you log in there yourself** (you may let the agent's turn end; say "done" once you are logged in)
 3. From then on the agent keeps working in that same browser; if the browser is closed it is relaunched automatically and the login state is still in the profile
 
-`agentbrowser.bat` starts the dedicated browser: it verifies the debug endpoint after launch and exits 1 with the reason on failure. Its `daily` mode (point at your everyday profile) is **not available**: Chrome/Edge 136+ ignore `--remote-debugging-port` on the default profile path, so log in once inside the dedicated profile instead.
+> Do **not** point at your everyday profile — Chrome/Edge 136+ ignore `--remote-debugging-port`
+> on the default profile path (the process starts, the port never opens). Log in once inside the
+> **dedicated profile** instead; the login state persists.
 
-**Prerequisites**: forms ①② need `pip install playwright` + `playwright install chromium`; form ③ needs the playwright package but not the bundled Chromium; `agentbrowser.bat` needs `curl`.
+**Prerequisites**: forms ①② need `pip install playwright` + `playwright install chromium`; form ③ needs the playwright package but not the bundled Chromium.
 
-**The two profiles are different**: `data/browser_profile` (form ②, Playwright Chromium) vs `data/browser_agent_profile` (form ③, your system Chrome/Edge, shared with the bat) — logging in inside the bat window does **not** log in form ②.
+**The two profiles are different**: `data/browser_profile` (form ②, Playwright Chromium) vs `data/browser_agent_profile` (form ③, your system Chrome/Edge) — logging in inside the form ③ window does **not** log in form ②.
 
 **Notes**:
 
 - One profile directory cannot be used by two processes at once (Chrome single-instance). Running two `aistart*.bat` / web instances that share `data/browser_profile` fails to start — give each instance its own `userDataDir`. `/reload` creates a new skill instance without killing the old resident process (which may live up to `idleTimeoutSeconds`), so the same collision applies within that window.
 - **Form parameters take effect only when the browser process (re)starts**: after changing `cdpEndpoint`/`userDataDir` restart the app — idle recycling only kills the process, it never re-reads the XML.
-- **Path anchor**: the agent side resolves relative `data/...` against the **JVM startup directory**, while `agentbrowser.bat` resolves against the **bat's own directory** — start the app from the repository root so both agree; otherwise you end up with two different profiles (tab re-adoption fails, auto-launch opens a second profile).
-- **Port and profile are coupled**: the bat's `PORT=9222` and `cdpProfileDir` must match the agent's `cdpEndpoint`/`cdpProfileDir`, or the agent auto-launches another browser on a different profile.
+- **Path anchor**: relative `data/...` paths are resolved against the **JVM startup directory** — start the app from the repository root; when starting the browser manually, its `--user-data-dir` must point at the same profile, or you end up with two different profiles (tab re-adoption fails, auto-launch opens a second profile).
+- **Port and profile are coupled**: your manually started browser's debug port and profile path must match the agent's `cdpEndpoint`/`cdpProfileDir`, or the agent auto-launches another browser on a different profile.
 - With form ② headed, an idle recycle (`idleTimeoutSeconds`, default 300s) closes the window mid-login — use form ③ for human login, or set `idleTimeoutSeconds="0"`.
 - **Idle recycling**: form ② kills the browser process (page state is lost, login state is not); form ③ only disconnects — your browser and tabs stay exactly as they are. The next call restarts and re-adopts the tab (③) or opens a fresh page (②).
 - **Self-healing**: if the browser is closed — or you close the agent's own tab — the next call reconnects, reopens or relaunches (③), retrying within the same call. The agent never closes your browser or your other tabs.
