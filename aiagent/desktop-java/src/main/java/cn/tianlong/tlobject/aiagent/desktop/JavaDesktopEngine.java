@@ -308,13 +308,14 @@ public class JavaDesktopEngine {
         if (code == KeyEvent.VK_UNDEFINED) return false;
         if (upper) robot.keyPress(KeyEvent.VK_SHIFT);
         robot.keyPress(code);
-        robot.keyRelease(code);
+        try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        robot.keyRelease(code);   // 按下→10ms→抬起：避免零间隔丢键（同 key() 的加固）
         if (upper) robot.keyRelease(KeyEvent.VK_SHIFT);
         return true;
     }
 
     /** 组合键：key 如 "enter" / "ctrl+c" / "alt+tab" / "ctrl+shift+esc"（+ 连接，按序按下逆序释放）。 */
-    private Map<String, Object> key(Map<String, Object> in) {
+    private Map<String, Object> key(Map<String, Object> in) throws InterruptedException {
         if (dpiMismatch()) return dpiReject();
         String combo = strOf(in, "key", "");
         if (combo.isEmpty()) return err("key requires key（如 enter / ctrl+c）");
@@ -325,10 +326,22 @@ public class JavaDesktopEngine {
             if (code == null) return err("unknown key name: " + parts[i]);
             codes[i] = code;
         }
-        for (int code : codes) robot.keyPress(code);
-        for (int i = codes.length - 1; i >= 0; i--) robot.keyRelease(codes[i]);   // 逆序释放
+        // 按键间隔：按下与释放之间留 30ms。零间隔（按下与抬起落在同一毫秒）会被部分控件忽略
+        // ——典型受害场景：Win+R 运行框的"回车提交"（系统对话框对合成按键更敏感）。
+        // 多键组合：修饰键先按下并保持（间隔 20ms），主键按下 → 30ms → 抬起，最后逆序释放修饰键。
+        for (int i = 0; i < codes.length - 1; i++) {
+            robot.keyPress(codes[i]);
+            Thread.sleep(20);
+        }
+        robot.keyPress(codes[codes.length - 1]);
+        Thread.sleep(30);
+        for (int i = codes.length - 1; i >= 0; i--) {
+            robot.keyRelease(codes[i]);   // 逆序释放
+            if (i > 0) Thread.sleep(20);
+        }
         Map<String, Object> out = ok();
         out.put("key", combo);
+        out.put("keycodes", codes);       // 回执带实际键码：排查"发出去了吗/发的是哪个键"
         return out;
     }
 
@@ -341,8 +354,11 @@ public class JavaDesktopEngine {
         cb.setContents(new StringSelection(text), null);
         Thread.sleep(80);   // 等剪贴板 owner 就绪（Windows 偶发竞争）
         robot.keyPress(KeyEvent.VK_CONTROL);
+        Thread.sleep(20);
         robot.keyPress(KeyEvent.VK_V);
+        Thread.sleep(30);   // 按下→30ms→抬起（与 key() 同款加固，避免零间隔丢键）
         robot.keyRelease(KeyEvent.VK_V);
+        Thread.sleep(20);
         robot.keyRelease(KeyEvent.VK_CONTROL);
         Map<String, Object> out = ok();
         out.put("pasted", text);

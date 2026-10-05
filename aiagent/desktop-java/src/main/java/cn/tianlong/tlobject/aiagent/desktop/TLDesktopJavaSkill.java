@@ -61,7 +61,9 @@ public class TLDesktopJavaSkill extends TLBaseSkill {
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
             parameterSchema.put("action", prop("string",
-                    "screenshot|get_screen_size|get_mouse_position|move|click|double_click|drag|scroll|type|key|paste|wait",
+                    "screenshot(x,y,width,height?) | get_screen_size | get_mouse_position | "
+                    + "move(x,y) | click(x,y,button?) | double_click(x,y) | drag(x1,y1,x2,y2,duration?) | "
+                    + "scroll(amount) | type(text) | key(key) | paste(text) | wait(ms)",
                     true));
             parameterSchema.put("x", prop("number", "X coordinate (pixels from screenshot); region x for screenshot"));
             parameterSchema.put("y", prop("number", "Y coordinate"));
