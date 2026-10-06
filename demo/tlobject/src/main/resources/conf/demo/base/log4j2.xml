@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- log4j2 配置文件 -->
 <!-- 日志级别 trace<debug<info<warn<error<fatal -->
-<configuration status="debug">
+<configuration status="off">
     <!-- 自定义属性 -->
     <Properties>
         <!-- 日志格式 -->
@@ -30,6 +30,13 @@
                 <ThresholdFilter level="error" onMatch="DENY" onMismatch="NEUTRAL"/>
             </Filters>
         </Console>
+        <!-- 控制台异步包装（blocking=false，队列满丢弃）：控制台被点选/滚屏卡住时，
+             原来所有打日志的线程都会堵在 System.out 的 PrintStream 锁上（web 全体冻结）；
+             异步化后控制台卡死只影响控制台输出，应用线程不受影响。
+             includeLocation=true 保住位置信息（异步默认丢 %F:%L）。 -->
+        <Async name="consoleAsync" blocking="false" includeLocation="true">
+            <AppenderRef ref="console"/>
+        </Async>
 
         <!-- debug级别日志文件输出 -->
         <RollingFile name="debug_appender" fileName="${debugFileName}"
@@ -116,7 +123,7 @@
         <!-- 日志级别设备为debug 具体日志级别由appender限制 -->
         <Root level="debug">
             <!-- 输出控制台 -->
-            <AppenderRef ref="console"/>
+            <AppenderRef ref="consoleAsync"/>
             <!-- 输出debug级别日志文件 -->
             <AppenderRef ref="debug_appender"/>
             <!-- 输出info级别日志文件 -->
