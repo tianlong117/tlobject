@@ -946,6 +946,15 @@ function bindEvents() {
   $('#tasksModal').addEventListener('click', e => { if (e.target === $('#tasksModal')) closeTasks(); });
   $('#bgTasksModal').addEventListener('click', e => { if (e.target === $('#bgTasksModal')) closeBgTasks(); });
   $('#inboxModal').addEventListener('click', e => { if (e.target === $('#inboxModal')) closeInbox(); });
+  // ESC 保命键：按一次关一个"信息类"弹框（审批框除外——需在场决策，误关会让任务悬置等超时）
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!$('#bgTasksModal').classList.contains('hidden')) { closeBgTasks(); return; }
+    if (!$('#tasksModal').classList.contains('hidden')) { closeTasks(); return; }
+    if (!$('#inboxModal').classList.contains('hidden')) { closeInbox(); return; }
+    if (!$('#checkpointModal').classList.contains('hidden')) { $('#checkpointModal').classList.add('hidden'); return; }
+    if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); }
+  });
   // 通用确认弹框
   $('#cfOkBtn').onclick = () => closeConfirm(true);
   $('#cfCancelBtn').onclick = () => closeConfirm(false);
@@ -1523,10 +1532,13 @@ async function promptCheckpoint() {
     if (!r.success || !r.data || !r.data.sessionId) return;   // 无断点
     const d = r.data;
     const timeStr = d.savedAt ? fmtTs(d.savedAt) : '未知';
+    // 只预览消息开头：断点若落在"后台任务回执"这类长消息上，全文会把弹框撑满整屏（2026-10-06 卡死事故）
+    const um = String(d.userMessage || '');
+    const umPreview = um.length > 160 ? um.slice(0, 160) + '…（完整内容见会话）' : um;
     $('#cpDesc').textContent =
       'Agent:    ' + (d.agentName || '未知') + '\n' +
       '会话ID:   ' + d.sessionId + '\n' +
-      '用户消息: ' + (d.userMessage || '') + '\n' +
+      '用户消息: ' + umPreview + '\n' +
       '中断时间: ' + timeStr + ' (第 ' + (d.iteration || '?') + ' 轮)\n\n' +
       '恢复将以断点时的用户消息继续执行（流式输出）；忽略则开始新对话。';
     $('#checkpointModal').classList.remove('hidden');
