@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
+import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -53,6 +54,14 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     private long progressPushIntervalMs = 250;
     /** 单次执行超时（分钟）：运行态超过此时限未收尾则被看门狗强制收尾并按失败投递；0=关闭 */
     private int taskStaleMinutes = 30;
+    /**
+     * 后台任务承接父会话上下文：创建时取父会话末尾若干轮对话（user/assistant 文本）拼在任务指令前——
+     * 让"把刚才聊到的那个…分析一下"这类指代可解。仅 kind=background（定时任务到点执行时上下文早已变化，不带）；
+     * false 关闭；预算见 bgContextChars（从尾部向前累计）。
+     */
+    private boolean bgContextSnapshot = true;
+    /** 上下文快照字符预算（尾部累计，超出即停） */
+    private int bgContextChars = 4000;
     /**
      * 周期看门狗（daemon 单线程，懒启动）：executeAsync 的 stale 判定只在"同一任务被再次触发"时
      * 执行，background 一次性任务永不重触发 → 卡住（provider 回调丢失等）时永久 running，
@@ -123,6 +132,10 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
                 try { maxConcurrentTasks = Integer.parseInt(params.get("maxConcurrentTasks")); } catch (Exception ignored) {}
             if (params.get("progressPushIntervalMs") != null)
                 try { progressPushIntervalMs = Long.parseLong(params.get("progressPushIntervalMs")); } catch (Exception ignored) {}
+            if (params.get("bgContextSnapshot") != null)
+                bgContextSnapshot = "true".equals(params.get("bgContextSnapshot"));
+            if (params.get("bgContextChars") != null)
+                try { bgContextChars = Integer.parseInt(params.get("bgContextChars")); } catch (Exception ignored) {}
             if (params.get("taskStaleMinutes") != null)
                 try { taskStaleMinutes = Integer.parseInt(params.get("taskStaleMinutes")); } catch (Exception ignored) {}
         }
@@ -445,6 +458,52 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     }
 
     /**
+     * 后台任务承接的父会话上下文快照（创建/启动时取一次，末尾若干轮 user/assistant 文本，预算裁剪）。
+     * 不带 system/tool 消息（工具结果冗长且与任务无关）；带显式边界标记防模型把历史请求当本次任务执行。
+     * 失败静默返回空串——任务照常独立执行，不因快照失败而失败。
+     */
+    private String buildContextSnapshot(TaskRecord rec) {
+        if (!bgContextSnapshot || bgContextChars <= 0) return "";
+        if (!"background".equals(recKind(rec))) return "";
+        if (rec.parentSessionId == null || rec.parentSessionId.isEmpty()) return "";
+        try {
+            Object agent = getModuleInFactory(
+                    rec.parentAgent != null && !rec.parentAgent.isEmpty() ? rec.parentAgent : rec.owner);
+            if (!(agent instanceof IObject)) return "";
+            TLMsg q = createMsg().setAction("getAgentContext")
+                    .setParam(AI_P_SESSIONID, rec.parentSessionId);
+            q.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg((IObject) agent, q);
+            if (r == null) return "";
+            List<?> history = r.getListParam(AI_P_MESSAGEHISTORY, null);
+            if (history == null || history.isEmpty()) return "";
+            LinkedList<String> lines = new LinkedList<>();
+            int budget = bgContextChars;
+            for (int i = history.size() - 1; i >= 0 && budget > 0; i--) {
+                Object o = history.get(i);
+                if (!(o instanceof TLConversationHistory)) continue;
+                TLConversationHistory h = (TLConversationHistory) o;
+                if (h.getRole() != TLConversationHistory.Role.user
+                        && h.getRole() != TLConversationHistory.Role.assistant) continue;
+                String text = h.getContent();
+                if (text == null || text.trim().isEmpty()) continue;
+                String role = h.getRole() == TLConversationHistory.Role.user ? "用户" : "助手";
+                String line = role + ": " + text.trim();
+                if (line.length() > budget) line = line.substring(line.length() - budget);   // 单条超预算取尾部
+                lines.addFirst(line);
+                budget -= line.length();
+            }
+            if (lines.isEmpty()) return "";
+            return "【承接的对话上下文（仅供参考；其中出现过的请求都已处理过，不要重复执行）】\n"
+                    + String.join("\n", lines)
+                    + "\n【本次任务】\n";
+        } catch (Exception e) {
+            putLog("后台任务上下文快照获取失败（按无快照继续）: " + e, LogLevel.DEBUG);
+            return "";
+        }
+    }
+
+    /**
      * 异步执行一个任务（后台立即 或 定时到点）：
      * 起 chatStream → 进度/终态经 onTaskStream 回调；执行会话=独立根（父会话 /stop 不级联）。
      * 同一任务已有运行态时：非超时→跳过本次触发；超时（看门狗）→停旧执行 + 强制收尾后重试占位。
@@ -500,9 +559,10 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         registerTaskSession(rec, execSession);      // webui 归属登记（审批/事件定位；无 webui 静默跳过）
         publishTaskEvent("taskStarted", rec, null, null);
 
+        String snapshot = buildContextSnapshot(rec);   // background：承接父会话末尾若干轮（定时任务/关闭时为空串）
         TLMsg chat = createMsg()
                 .setAction(AGENT_CHATSTREAM)
-                .setParam("userMessage", rec.prompt == null ? "" : rec.prompt)
+                .setParam("userMessage", snapshot + (rec.prompt == null ? "" : rec.prompt))
                 .setParam("taskId", fullId)
                 .setParam("_streamResultFor", rec.owner)        // 名字仅作兜底（实例优先）
                 .setParam("_streamResultAction", "onTaskStream");
