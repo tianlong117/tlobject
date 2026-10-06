@@ -402,8 +402,15 @@ public class TLMsgTask extends TLBaseModule {
         ScheduledFuture<?> future;
 
         if (cronExp != null && !cronExp.isEmpty()) {
-            // Cron 模式：动态调度
-            future = scheduleCronTask(taskId, config, cronExp, initialDelay, timeUnit, maxTimes);
+            // Cron 模式：动态调度。
+            // initialDelay 只在调用方**显式**给了 delay/begin 时才作为"首个触发提前量"——
+            // 否则 defaultDelay(60s) 会漏进 initialDelay，scheduleCronTask 取"较短者"后变成
+            // "每次注册后约 1 分钟补跑一次"：schedule_task 的 cron 任务不带 delay，
+            // 每次应用启动 runStartMsg 重新注册就多跑一次（2026-10-06 lunch_reminder 重复执行事故）
+            boolean explicitFirst = config.getStringParam(TASK_P_DELAYTIME, null) != null
+                    || config.getStringParam(TASK_P_BEGINTIME, null) != null;
+            long cronInitialDelay = explicitFirst ? initialDelay : 0;
+            future = scheduleCronTask(taskId, config, cronExp, cronInitialDelay, timeUnit, maxTimes);
             nextFire = nextCronFire(cronExp, config);
         } else {
             // 固定延迟模式
