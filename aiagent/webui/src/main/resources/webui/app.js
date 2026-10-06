@@ -167,6 +167,16 @@ function renderTable(container, headers, rows, curKey) {
   container.innerHTML = h + '</table>';
 }
 function newSession() {
+  // 幂等：当前就停在一个"从未发过消息的空白新会话"上时，不再生成新 ID——
+  // 连点"新会话"原来会刷出一串悬空 ID（顶栏/localStorage 反复被覆盖，用户以为产生了很多会话）
+  const cur = state.sessionId && state.sessions[state.sessionId];
+  const isBlankNew = cur && !cur.busy && cur.box.childNodes.length === 0
+      && !(lastSessionsData || []).some(x => x.sessionId === state.sessionId);
+  if (isBlankNew) {
+    $('#chatInput').focus();
+    toast('已在新会话中（输入内容发送后才真正创建）', 'ok');
+    return;
+  }
   const sid = 'webchat_' + state.userId + '_' + Date.now();
   switchSessionView(sid);   // 新 sid 自然是全新空视图，无需清屏
   $('#chatInput').focus();  // 恢复输入（会话被接管时禁用了）并聚焦
