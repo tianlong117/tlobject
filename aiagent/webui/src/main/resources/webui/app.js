@@ -25,7 +25,7 @@ function viewOf(sid) {
       box: box,
       uploads: [],           // 已上传文件名（本会话草稿区，切会话各带各的）
       busy: false, abort: null, unread: 0, tasks: {}, draft: '',
-      kicked: false          // 被其他设备接管 → 本会话禁输入（切回来也不解锁；点「继续」接管后清除）
+      kicked: false          // 被其他设备接管 → 本会话禁输入（切回来也不解锁；点「接管」夺回后清除）
     };
   }
   return state.sessions[sid];
@@ -51,7 +51,7 @@ function switchSessionView(sid) {
   ml.appendChild(v.box);
   ml.scrollTop = ml.scrollHeight;   // 切回会话直接停在最新消息处
   $('#chatInput').value = v.draft || '';
-  // 被接管的会话保持禁输入（旧版无条件启用 → 切回被接管会话仍可输入）；点「继续」接管后由 claimSession 清除
+  // 被接管的会话保持禁输入（旧版无条件启用 → 切回被接管会话仍可输入）；点「接管」后由 claimSession 清除
   $('#chatInput').disabled = !!v.kicked;
   $('#sendBtn').disabled = !!v.kicked;
   setBusy(v.busy);
@@ -295,7 +295,7 @@ async function autoResumeLast() {
     } else if (res.ok) {
       appendSysMsg('💡 已自动接续最近活跃会话（最后消息 ' + fmtTs(last.savedAt) + '），可在左侧会话栏切换其他历史会话');
     } else {
-      appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在左侧会话栏手动继续）');
+      appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在左侧会话栏选一个会话点「接管」）');
     }
   } catch (e) {
     appendSysMsg('💡 历史会话恢复失败（' + e.message + '），已开始新会话 ' + state.sessionId);
@@ -443,7 +443,7 @@ async function sendMessage() {
   const sid = state.sessionId;
   const view = viewOf(sid);
   if (!msg || view.busy) return;   // per-session 守卫：本会话在跑就不重发（其他会话不受影响）
-  if (view.kicked) { toast('该会话已被其他设备接管，请开新会话或点「继续」接管', 'err'); return; }
+  if (view.kicked) { toast('该会话正被其他设备使用，请开新会话，或点该会话的「接管」夺回', 'err'); return; }
   // 后台执行开关：本条消息不阻塞对话，挂到后台任务（结果稍后以事件/卡片回本会话）。
   // 在这个位置处理：输入已校验、kicked 守卫已过，尚未渲染用户气泡（后台任务不走对话流）。
   // 注意：本分支忽略本会话已上传的附件（附件与后台开关互斥，先不做混合语义）
@@ -1174,18 +1174,19 @@ function renderSessionList() {
     // 第三行：行内操作（与旧表格同 handler，加"改名"，行为不变）
     const ops = document.createElement('div');
     ops.className = 'sess-ops';
-    const mkBtn = (label, cls, fn) => {
+    const mkBtn = (label, cls, fn, tip) => {
       const b = document.createElement('button');
       b.textContent = label;
       if (cls) b.className = cls;
+      if (tip) b.title = tip;   // 悬浮说明：两个"进入会话"按钮语义差异靠它讲清楚
       b.onclick = () => fn(sid);
       ops.appendChild(b);
     };
-    mkBtn('继续', null, continueSession);
-    mkBtn('切换', null, switchSession);
-    mkBtn('改名', null, renameSessionFlow);
-    mkBtn('清除上下文', null, clearSession);
-    mkBtn('删除', 'del', deleteSessionBtn);
+    mkBtn('接管', null, continueSession, '接管该会话：载入历史并取得发言权；若正被其他设备使用，对方会被踢下线');
+    mkBtn('切换', null, switchSession, '进入该会话查看历史（和平进入，不踢其他设备；首次进入自动载入历史）');
+    mkBtn('改名', null, renameSessionFlow, '重命名这个会话');
+    mkBtn('清除上下文', null, clearSession, '清空该会话的对话上下文（模型从此不再记得前面的对话；历史记录仍保留）');
+    mkBtn('删除', 'del', deleteSessionBtn, '删除该会话（历史记录一并删除，不可恢复）');
     row.appendChild(ops);
     box.appendChild(row);
   });
@@ -1217,7 +1218,7 @@ function scheduleRenderSessionList() {
   if (renderListTimer) return;
   renderListTimer = setTimeout(() => { renderListTimer = null; renderSessionList(); }, 300);
 }
-/** 继续历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续）不弹 toast。返回 {ok, error} */
+/** 接管/恢复历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续/切换自动补载）不弹 toast、不强制接管。返回 {ok, error} */
 async function continueSession(sid, silent) {
   try {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
@@ -1243,7 +1244,7 @@ async function continueSession(sid, silent) {
 
       // 会话占用声明（登录级互斥）：
       // silent（登录自动接续）→ 静默登记，被占用仅提示不接管；
-      // 非 silent（面板"继续"按钮=明确接管意图）→ 直接 force 接管（踢对方下线），不弹窗
+      // 非 silent（面板"接管"按钮=明确接管意图）→ 直接 force 接管（踢对方下线），不弹窗
       await claimSession(target, !silent, silent);
     }
     if (!silent) toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
@@ -1255,7 +1256,7 @@ async function continueSession(sid, silent) {
 }
 /**
  * 声明会话占用：
- * - force=true（面板"继续"=明确接管意图）→ 直接接管（踢对方下线）
+ * - force=true（面板"接管"=明确接管意图）→ 直接接管（踢对方下线）
  * - force=false（登录自动接续 silent）→ 被占用时仅提示，不接管、不切新会话
  */
 async function claimSession(sid, force, silent) {
@@ -1263,7 +1264,7 @@ async function claimSession(sid, force, silent) {
   const r = await apiCommand('claimSession', { sessionId: sid, loginId: state.loginId, force: force || false });
   if (!r.success || !r.data) return;
   if (r.data.occupied) {
-    appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；在左侧会话栏点该会话『继续』可直接接管）');
+    appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；点该会话『接管』可直接夺回）');
     return;
   }
   // 接管成功（force 且本机成为 owner）→ 清除本会话的 kicked 标记并恢复输入
