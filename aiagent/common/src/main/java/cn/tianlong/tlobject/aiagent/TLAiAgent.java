@@ -2497,6 +2497,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (sid != null && sid.startsWith("task_")) {
             return createMsg().setParam(RESULT, true).setParam("skipped", true);
         }
+        // 防"摘要器思考文本"回流：这类脏内容入库后会被反复召回、模型再复读，形成闭环（2026-10-06 复读事故）
+        Object mvObj = msg.getParam(AI_P_MEMORYVALUE);
+        String mv = mvObj == null ? "" : String.valueOf(mvObj);
+        if (mv.contains("压缩为一段简洁的中文摘要") || mv.contains("我们需要回答用户")
+                || mv.contains("对话历史碎片")) {
+            putLog("Skip polluted memory fragment", LogLevel.WARN);
+            return createMsg().setParam(RESULT, true).setParam("skipped", true);
+        }
         String storeName = msg.getStringParam("storeName", defaultMemoryStore);
         TLBaseMemory memory = memoryStores.get(storeName);
         if (memory == null) {

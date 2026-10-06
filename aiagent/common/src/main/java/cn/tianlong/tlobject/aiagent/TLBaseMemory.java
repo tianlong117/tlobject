@@ -290,17 +290,46 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             input.add(new TLConversationHistory(TLConversationHistory.Role.user, body.toString()));
             TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
                     .setParam(AI_P_MESSAGEHISTORY, input)
+                    // 推理模型的 reasoning 会吃光 max_tokens → content 空 → 被"reasoning 提升为正文"兜底，
+                    // 存进记忆的"摘要"变成模型的思考过程（"我们需要回答用户…"），并被反复召回形成复读闭环
+                    //（2026-10-06 事故；与 evals/会话标题内部调用同款处理）
+                    .setParam(AI_P_REASONING_MODE, AI_P_REASONING_MODE_DISABLED)
                     .setParam(AI_P_MAXTOKENS, 1024);
             if (summaryModel != null && !summaryModel.isEmpty()) {
                 llmMsg.setParam(AI_P_MODEL, summaryModel);
             }
             TLMsg result = putMsg(provider, llmMsg);
             if (result == null) return null;
-            return result.getStringParam(AI_P_RESPONSE, null);
+            String summary = result.getStringParam(AI_P_RESPONSE, null);
+            if (looksLikeMetaOutput(summary)) {
+                putLog("summary rejected (meta/prompt echo), buffer kept", LogLevel.WARN);
+                return null;   // 按失败处理：缓冲保留、下次重试（maybeGenerateSummary 既有语义）
+            }
+            return summary;
         } catch (Exception e) {
             putLog("summary LLM call failed: " + e.toString(), LogLevel.WARN);
             return null;
         }
+    }
+
+    /**
+     * 摘要输出质量校验：拒绝"提示词回显/思考过程/无中文内容"的脏输出
+     *（这类数据一旦入库会被反复召回，是 2026-10-06 复读闭环的燃料）
+     */
+    private boolean looksLikeMetaOutput(String s) {
+        if (s == null || s.trim().isEmpty()) return true;
+        String t = s.trim();
+        if (t.contains("压缩为一段简洁的中文摘要") || t.contains("压缩为一段中文摘要")
+                || t.contains("压成一段话") || t.contains("对话历史碎片")
+                || t.contains("我们需要回答用户") || t.contains("We need respond to user")
+                || t.contains("Let me re-read") || t.contains("Let me understand")
+                || t.contains("The user asked me to compress")) return true;
+        // 摘要必须是中文（防英文思考文本入库）
+        for (int i = 0; i < t.length(); i++) {
+            char c = t.charAt(i);
+            if (c >= 0x4E00 && c <= 0x9FFF) return false;
+        }
+        return true;
     }
 
     /**
