@@ -295,6 +295,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 是否启用会话通知（发 sessionUpdated/chatFinished/chatAborted 给 SessionManager） */
     protected boolean enableCheckpoint = false;
 
+    /** 首轮完成后是否自动请 LLM 生成会话标题（配置 autoSessionTitle=false 关闭） */
+    private boolean autoSessionTitle = true;
+
 
     /** 数据存储基础路径（供 context/memory 等使用） */
     protected String dataBasePath = "./data/";
@@ -422,6 +425,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             if (params.get("enableCheckpoint") != null)
                 enableCheckpoint = "true".equals(params.get("enableCheckpoint"));
+            if (params.get("autoSessionTitle") != null)
+                autoSessionTitle = !"false".equals(params.get("autoSessionTitle"));
             if (params.get("sessionManagerName") != null)
                 sessionManagerName = params.get("sessionManagerName");
             if (params.get("dataBasePath") != null)
@@ -1644,6 +1649,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     && allReasoning.length() > 0) {
                 ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
             }
+            // 会话首轮完成后异步起名（userId 必须在调用线程内取好——起名线程是异步的，ThreadLocal 取不到）
+            maybeGenerateSessionTitle(sessionId, sessionUserIds.getOrDefault(sessionId, "default"),
+                    !resumedFromCheckpoint && msgStartIdx <= 1);
             return ret;
 
         } catch (Exception e) {
@@ -2274,6 +2282,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
                                 finalResponse != null && !finalResponse.isEmpty() ? finalResponse : streamedText,
                                 streamUserId);
+                        // 会话首轮完成后异步起名（在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
+                        Integer titleIdx = sessionMsgStartIdx.get(sessionId);
+                        maybeGenerateSessionTitle(sessionId, streamUserId, titleIdx != null && titleIdx <= 1);
                         // 再发送完成信号
                         forwardStream(resultFor, resultAction, sessionId, createMsg()
                                 .setParam(AI_P_STREAMDONE, true)
@@ -2320,6 +2331,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     // 全链追踪：流式无工具轮收尾（payload = 最终输出）
                     traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
                             streamedText, streamUserId);
+                    // 会话首轮完成后异步起名（在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
+                    Integer titleIdx = sessionMsgStartIdx.get(sessionId);
+                    maybeGenerateSessionTitle(sessionId, streamUserId, titleIdx != null && titleIdx <= 1);
                     forwardStream(resultFor, resultAction, sessionId, createMsg()
                             .setParam(AI_P_STREAMDONE, true)
                             .setParam(AI_P_SESSIONID, sessionId));
@@ -2600,9 +2614,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 获取会话上下文历史
      */
     @SuppressWarnings("unchecked")
-    /** 发送会话通知给 SessionManager。由 Agent 的 enableCheckpoint 决定是否通知。 */
-    private void notifySessionManager(TLMsg notificationMsg) {
-        if (enableCheckpoint) putMsg(sessionManagerName, notificationMsg);
+    /** 发送会话通知给 SessionManager。由 Agent 的 enableCheckpoint 决定是否通知。返回应答（未发送时为 null） */
+    private TLMsg notifySessionManager(TLMsg notificationMsg) {
+        if (enableCheckpoint) return putMsg(sessionManagerName, notificationMsg);
+        return null;
     }
 
     /**
@@ -2635,6 +2650,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         } catch (Exception e) {
             putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
         }
+        // 会话首轮完成后异步起名（本方法各调用点都在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
+        Integer idx = sessionMsgStartIdx.get(sessionId);
+        maybeGenerateSessionTitle(sessionId, streamUserId, idx != null && idx <= 1);
     }
 
     /** LLM 失败/异常路径收尾：把本轮存为 completed（含错误文案），避免已发 sessionUpdated 的 checkpoint 轮次残留 */
@@ -2651,6 +2669,94 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam("userMessage", userMessage)
                 .setParam("response", errMsg));
         traceStage(sessionId, currentRootSessionId.get(), roundId, "roundEnd", "error", 0);
+    }
+
+    // ======================== 会话标题 ========================
+
+    /** 会话标题：首轮完成后异步请 LLM 起名（失败静默、不阻塞收尾）；结果落库 + 事件推前端 */
+    private void maybeGenerateSessionTitle(String sessionId, String userId, boolean firstRound) {
+        if (!autoSessionTitle || !firstRound) return;
+        // 与落库通道同门禁：子 agent（executeAsTool 共享父 sid，会用子任务文案给父会话起名）/
+        // 工作流节点/group 成员默认 enableCheckpoint=false，天然豁免；noHistory 节点也不会每轮空转
+        if (!enableCheckpoint) return;
+        if (sessionId == null || sessionId.startsWith("task_")) return;   // 任务执行会话不参与
+        String userMessage = sessionUserMessages.get(sessionId);
+        if (userMessage == null || userMessage.trim().isEmpty()) return;
+        final String um = userMessage;
+        final String uid = userId == null ? "default" : userId;
+        Thread t = new Thread(() -> {
+            try {
+                String title = generateSessionTitle(um);
+                if (title == null || title.isEmpty()) return;
+                // 落库：仅当为空时写（不覆盖用户手动改名）；事件只在真的写库后发，
+                // 否则前端显示与下次列表拉取会不一致（评审 I3）
+                TLMsg stored = notifySessionManager(createMsg().setAction("setSessionTitle")
+                        .setParam("sessionId", sessionId)
+                        .setParam("userId", uid)
+                        .setParam("title", title)
+                        .setParam("onlyIfEmpty", true));
+                if (stored == null || !stored.parseBoolean("updated", false)) {
+                    putLog("Session title not stored (updated=false), skip event: " + sessionId, LogLevel.DEBUG);
+                    return;
+                }
+                // 事件：webui 即时刷新侧栏
+                try {
+                    Object bus = getModuleInFactory("msgBus");
+                    if (bus instanceof IObject) {
+                        TLMsg evt = createMsg().setAction("sessionTitle")
+                                .setParam("userId", uid)
+                                .setParam("sessionId", sessionId)
+                                .setParam("title", title);
+                        evt.setDestination("sessionTitle");
+                        putMsg((IObject) bus, evt);
+                    }
+                } catch (Exception ignored) { }
+                putLog("Session title generated: " + sessionId + " -> " + title, LogLevel.DEBUG);
+            } catch (Exception e) {
+                putLog("会话起名失败（忽略）: " + e, LogLevel.DEBUG);
+            }
+        }, "session-title-" + sessionId);
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 直接调 provider 生成标题（同摘要器模式：非流式 completion，不经过会话） */
+    private String generateSessionTitle(String firstUserMessage) {
+        try {
+            if (llmProvider == null) return null;
+            List<TLConversationHistory> input = new ArrayList<>();
+            input.add(new TLConversationHistory(TLConversationHistory.Role.system,
+                    "你是会话标题生成器。根据用户的第一条消息生成 6~12 个字的中文会话标题，概括主题；"
+                            + "只输出标题本身，不要引号、标点、序号或任何解释。"));
+            String um = firstUserMessage.length() > 300 ? firstUserMessage.substring(0, 300) : firstUserMessage;
+            input.add(new TLConversationHistory(TLConversationHistory.Role.user, um));
+            TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
+                    .setParam(AI_P_MESSAGEHISTORY, input)
+                    // 推理模型（deepseek-v4-flash）的 reasoning 会吃光小 max_tokens，导致 content 为空、
+                    // 被"reasoning 提升为正文"兜底成残片标题（真机 trace：21/25 finish_reason=length）。
+                    // 与 evals 内部调用同款处理：关推理 + 放宽 maxTokens（评审 I1）
+                    .setParam(AI_P_REASONING_MODE, AI_P_REASONING_MODE_DISABLED)
+                    .setParam(AI_P_MAXTOKENS, 128);
+            TLMsg r = putMsg(llmProvider, llmMsg);
+            if (r == null) return null;
+            String title = r.getStringParam(AI_P_RESPONSE, null);
+            if (title == null) return null;
+            title = title.trim().replaceAll("[\\r\\n]+", " ");
+            title = title.replaceAll("^[\"“”'‘’《》【】#\\s]+", "").replaceAll("[\"“”'‘’《》【】#\\s]+$", "");
+            if (title.length() > 20) title = title.substring(0, 20);
+            // 防模型输出英文思考文本（如 "The user wants a title..." 曾被截成 20 字存进标题）：
+            // 标题至少含 2 个汉字，否则按失败处理——上层不写库、前端回退显示首句
+            int cjk = 0;
+            for (int i = 0; i < title.length(); i++) {
+                char c = title.charAt(i);
+                if (c >= 0x4E00 && c <= 0x9FFF) cjk++;
+            }
+            if (cjk < 2) return null;
+            return title;
+        } catch (Exception e) {
+            putLog("会话起名 LLM 调用失败（忽略）: " + e, LogLevel.DEBUG);
+            return null;
+        }
     }
 
     /** 轮次环节打点：发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */

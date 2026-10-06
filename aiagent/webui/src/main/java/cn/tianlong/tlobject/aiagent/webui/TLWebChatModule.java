@@ -128,6 +128,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "taskResult":
                 // 任务生命周期事件（msgBus 订阅）：按 userId 推给其全部 SSE 连接
                 return onTaskLifecycleEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            // ===== 会话标题（agent 首轮自动起名 / 手动改名后广播）=====
+            case "sessionTitle":
+                return onSessionTitleEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -775,6 +778,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("destination", "taskProgress").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "taskResult").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "sessionTitle").setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
@@ -994,6 +999,27 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return sent;
     }
 
+    /**
+     * 会话标题事件（msgBus 回调：agent 首轮自动起名后发布）：
+     * 按 userId 推给其全部 SSE 连接，前端据此刷新侧栏标题。
+     *
+     * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
+     */
+    private boolean onSessionTitleEvent(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", "sessionTitle");
+        evt.put("sessionId", msg.getStringParam("sessionId", ""));
+        evt.put("title", msg.getStringParam("title", ""));
+        String json = GSON.toJson(evt);
+        boolean sent = false;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list != null) for (TLWebChannel c : list) {
+            if (c.isOpen()) { c.write(json); sent = true; }
+        }
+        return sent;
+    }
+
     /** 前端上报当前打开的会话（页面加载/切会话/开新会话时调用；只记内存，不落盘） */
     private TLMsg onSetCurrentSession(TLMsg msg) {
         String userId = msg.getStringParam("userId", "");
@@ -1203,6 +1229,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 订阅任务进度事件被拒绝", LogLevel.WARN);
             else
                 putLog("webui 已订阅任务进度事件（msgBus taskProgress）", LogLevel.INFO);
+            // 会话标题事件（agent 首轮自动起名 / 改名后发布）
+            TLMsg titleRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "sessionTitle").setParam("object", this));
+            if (titleRegMsg == null || !Boolean.TRUE.equals(titleRegMsg.getParam(RESULT)))
+                putLog("webui 订阅会话标题事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅会话标题事件（msgBus sessionTitle）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("msgBus 订阅事件失败: " + e, LogLevel.WARN);
         }

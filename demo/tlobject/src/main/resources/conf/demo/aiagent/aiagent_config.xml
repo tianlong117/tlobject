@@ -10,6 +10,8 @@
         <defaultMemoryStore value="longTermMemory"/>
         <!-- 会话恢复（场景9）依赖 Agent 侧断点通知 -->
         <enableCheckpoint value="true"/>
+        <!-- 测试 Agent 关闭自动起名：Mock Provider 响应队列是脚本化的，起名调用会偷吃队列响应 -->
+        <autoSessionTitle value="false"/>
         <maxToolCallIterations value="10"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>

@@ -656,9 +656,15 @@ function setBusy(b, sid) {
   const v = viewOf(sid);
   v.busy = b;
   scheduleRenderSessionList();                  // 侧栏 ● 运行中刷新（节流合并，后台会话也要更新）
+  if (!b) ensureSessionListed(sid);             // 轮次结束：会话不在侧栏缓存（新会话首轮）→ 拉一次列表
   if (sid !== state.sessionId) return;          // 后台会话只记状态，不动当前 UI
   $('#sendBtn').classList.toggle('hidden', b);
   $('#stopBtn').classList.toggle('hidden', !b);
+}
+/** 该会话不在侧栏缓存列表里时拉一次列表（否则它会一直不出现，直到手动刷新） */
+function ensureSessionListed(sid) {
+  if (!lastSessionsData || !sid) return;
+  if (!lastSessionsData.some(x => x.sessionId === sid)) refreshSessionList();
 }
 
 // ======================== 文件上传 ========================
@@ -753,6 +759,14 @@ function openEvents() {
     }
     if (evt.type === 'taskStarted' || evt.type === 'taskProgress' || evt.type === 'taskResult') {
       handleTaskEvent(evt);
+    }
+    if (evt.type === 'sessionTitle') {
+      // 首轮完成后模型自动起名推送：命中缓存行则就地更新标题并节流重渲染。
+      // 未命中（新会话首轮刚完成、侧栏缓存里还没有它）→ 拉一次列表让该行出现
+      const row = (lastSessionsData || []).find(x => x.sessionId === evt.sessionId);
+      if (row) row.title = evt.title;
+      else refreshSessionList();
+      scheduleRenderSessionList();
     }
   };
   es.onopen = () => { $('#connState').textContent = '●'; $('#connState').style.color = '#4ade80'; };
@@ -1098,6 +1112,16 @@ function sessionStatusIcon(sid, srvRunning) {
   return ' ';
 }
 
+/** 会话行首名字的显示文本：标题 → 首句（截断约 22 字）→ 会话ID（优先级）。
+ *  缺省兜底 sessionId：空标题/空首句/旧版负载（无这两个字段）均不会显示空白行。 */
+function sessionDisplayName(s) {
+  const t = (s.title || '').trim();
+  if (t) return t;
+  const m = (s.userMessage || '').trim();
+  if (m) return m.length > 22 ? m.slice(0, 22) + '…' : m;
+  return s.sessionId;
+}
+
 /** 渲染左侧会话栏（顺序即服务端次序：最近活动优先）。
  *  同步函数、只读缓存——switchSessionView/setBusy 等高频路径可安全调用。 */
 function renderSessionList() {
@@ -1119,7 +1143,7 @@ function renderSessionList() {
     const row = document.createElement('div');
     row.className = 'sess-row' + (sid === state.sessionId ? ' cur' : '');
     row.dataset.sid = sid;
-    // 第一行：状态图标 + 会话ID（窄栏省略号截断，title 看全称）
+    // 第一行：状态图标 + 会话名（标题 → 首句 → 会话ID；窄栏省略号截断，tooltip 看全称）
     const l1 = document.createElement('div');
     l1.className = 'sess-line';
     const ic = document.createElement('span');
@@ -1130,8 +1154,9 @@ function renderSessionList() {
     ic.title = icon === '●' ? '运行中' : (icon === '○' ? '有未读' : '');
     const name = document.createElement('span');
     name.className = 'sess-sid';
-    name.textContent = sid;
-    name.title = sid;
+    name.textContent = sessionDisplayName(s);
+    // tooltip 三段全量：完整标题 / 完整首句 / 完整会话ID（缺哪项略哪项）
+    name.title = [s.title, s.userMessage, sid].filter(x => x).join('\n');
     l1.appendChild(ic);
     l1.appendChild(name);
     row.appendChild(l1);
@@ -1146,7 +1171,7 @@ function renderSessionList() {
     meta.textContent = bits.join(' · ');
     meta.title = meta.textContent;
     row.appendChild(meta);
-    // 第三行：行内操作（与旧表格同四个 handler，行为不变）
+    // 第三行：行内操作（与旧表格同 handler，加"改名"，行为不变）
     const ops = document.createElement('div');
     ops.className = 'sess-ops';
     const mkBtn = (label, cls, fn) => {
@@ -1158,6 +1183,7 @@ function renderSessionList() {
     };
     mkBtn('继续', null, continueSession);
     mkBtn('切换', null, switchSession);
+    mkBtn('改名', null, renameSessionFlow);
     mkBtn('清除上下文', null, clearSession);
     mkBtn('删除', 'del', deleteSessionBtn);
     row.appendChild(ops);
@@ -1264,6 +1290,25 @@ async function clearSession(sid) {
     const r = await apiCommand('clear', { sessionId: sid });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
   } catch (e) { toast(e.message, 'err'); }
+}
+/** 手动改名（覆盖模式，不受 onlyIfEmpty 限制）：prompt 回填当前标题，成功后就地更新缓存并重渲染 */
+async function renameSessionFlow(sid) {
+  const row = (lastSessionsData || []).find(x => x.sessionId === sid);
+  const cur = row && row.title ? row.title : '';
+  const t = window.prompt('新的会话名称（留空取消）', cur);
+  if (t === null) return;
+  const v = t.trim();
+  if (!v) return;
+  try {
+    const r = await apiCommand('renameSession', { sessionId: sid, title: v });
+    if (r && r.success) {
+      if (row) row.title = v;
+      renderSessionList();
+      toast('已改名: ' + v, 'ok');
+    } else {
+      toast('[错误] ' + ((r && (r.error || r.message)) || '改名失败'), 'err');
+    }
+  } catch (e) { toast('[错误] ' + e.message, 'err'); }
 }
 /** 删除会话：确认后删除该会话全部记录（DB/文件，不可恢复） */
 async function deleteSessionBtn(sid) {

@@ -23,6 +23,9 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     private TLBaseModule roundsTable;  // ai_session_rounds
     private TLBaseModule sessTable;    // ai_sessions
 
+    /** title 列迁移是否已完成（幂等探测；失败保持 false，下次写路径重试） */
+    private volatile boolean titleColumnReady = false;
+
     public TLDatabaseSessionManager() { super(); }
     public TLDatabaseSessionManager(String name) { super(name); }
     public TLDatabaseSessionManager(String name, TLObjectFactory modulefactory) { super(name, modulefactory); }
@@ -49,7 +52,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         // 惰性重试：init() 时数据库可能未就绪（多实例并发写 SQLite 时表模块初始化可能失败），
         // 每次保存前重试获取，就绪后自然恢复（否则会话汇总会静默丢失）
         if (roundsTable == null) roundsTable = TLDatabase.getTable("aiSessionRounds", this);
-        if (sessTable == null) sessTable = TLDatabase.getTable("aiSessions", this);
+        ensureSessTable();   // 惰性获取 + title 列幂等迁移（老库不会自动加列）
         if (!enableCheckpoint || roundsTable == null) return;
         try {
             String sessionId = (String) roundData.getOrDefault("sessionId", "");
@@ -167,7 +170,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     @Override
     @SuppressWarnings("unchecked")
     protected java.util.Map<String, Object> findIncompleteMeta(String userId) {
-        if (sessTable == null) return null;
+        if (ensureSessTable() == null) return null;
         try {
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
             p.put("user_id", userId != null ? userId : "");
@@ -186,7 +189,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     @Override
     @SuppressWarnings("unchecked")
     protected java.util.Map<String, Object> findLatestMeta(String userId) {
-        if (sessTable == null) return null;
+        if (ensureSessTable() == null) return null;
         try {
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
             p.put("user_id", userId != null ? userId : "");
@@ -205,7 +208,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     @SuppressWarnings("unchecked")
     protected java.util.List<java.util.Map<String, Object>> listSessionsMeta(String userId) {
         java.util.List<java.util.Map<String, Object>> sessions = new java.util.ArrayList<>();
-        if (sessTable == null) return sessions;
+        if (ensureSessTable() == null) return sessions;
         try {
             String uid = userId != null ? userId : "";
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
@@ -243,6 +246,104 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
                     .setParam(DB_P_PARAMS, p));
     }
 
+    // ======================== setSessionTitle ========================
+
+    /**
+     * 写 ai_sessions.title。
+     *
+     * updated 用"先查再写"判定，而不是 UPDATE 的影响行数——TLTable 的 map 参数更新走
+     * insertData（commons-dbutils runner.update 的返回值被丢弃），DB_R_RESULT 恒为 1，
+     * 拿不到真实行数；反过来 UPDATE 的 WHERE 里仍保留 onlyIfEmpty/user_id 守卫做并发兜底。
+     * 返回 false 的三种情况：会话不存在（或不属于该 userId）、已有标题且 onlyIfEmpty、写 SQL 报错。
+     */
+    @Override
+    protected boolean setSessionTitle(String sessionId, String userId, String title, boolean onlyIfEmpty) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        if (ensureSessTable() == null) return false;
+        try {
+            // 用户隔离：带了 userId 才加条件（老数据 user_id 可能为空串，无谓的 scoping 会拒掉合法改名）
+            boolean scopeUser = userId != null && !userId.isEmpty();
+
+            StringBuilder q = new StringBuilder("select title from [table] where session_id=?");
+            LinkedHashMap<String, Object> qp = new LinkedHashMap<>();
+            qp.put("session_id", sessionId);
+            if (scopeUser) { q.append(" and user_id=?"); qp.put("user_id", userId); }
+            TLMsg qr = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, q.toString())
+                    .setParam(DB_P_PARAMS, qp)
+                    .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(qr);
+            if (rows == null || rows.isEmpty()) return false;   // 会话不存在/查询失败
+            if (onlyIfEmpty) {
+                Object cur = rows.get(0).get("title");
+                if (cur != null && !String.valueOf(cur).isEmpty()) return false;   // 已有标题
+            }
+
+            StringBuilder sql = new StringBuilder("update [table] set title=? where session_id=?");
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("title", title != null ? title : "");
+            p.put("session_id", sessionId);
+            if (onlyIfEmpty) sql.append(" and (title is null or title='')");
+            if (scopeUser) { sql.append(" and user_id=?"); p.put("user_id", userId); }
+            TLMsg r = putMsg(sessTable, createMsg().setAction(DB_UPDATE)
+                    .setParam(DB_P_SQL, sql.toString())
+                    .setParam(DB_P_PARAMS, p));
+            return r != null && r.parseBoolean(RESULT, false);
+        } catch (Exception e) {
+            putLog("setSessionTitle DB failed: " + e, LogLevel.WARN);
+            return false;
+        }
+    }
+
+    // ======================== 惰性初始化 + title 列迁移 ========================
+
+    /** 惰性获取 ai_sessions 表引用（失败下次重试），并保证 title 列已迁移 */
+    private synchronized TLBaseModule ensureSessTable() {
+        if (sessTable == null) sessTable = TLDatabase.getTable("aiSessions", this);
+        if (sessTable != null && !titleColumnReady) ensureTitleColumn();
+        return sessTable;
+    }
+
+    /**
+     * 幂等迁移：老库的 ai_sessions 由旧建表 SQL 创建，没有 title 列。
+     * 探测（SQLite: pragma table_info；MySQL 不支持 pragma → 回退 select 探测）→ 缺列则 ALTER。
+     * 失败打 WARN 不致命，titleColumnReady 保持 false 下次重试。
+     * 注意：查询出错时 TLTable 返回 RESULT=false 且不带 DB_R_RESULT，用后者是否存在判定"查询成功"。
+     */
+    private void ensureTitleColumn() {
+        try {
+            boolean has = false;
+            TLMsg probe = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "pragma table_info([table])")
+                    .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+            java.util.List<java.util.Map<String, Object>> cols = getResultList(probe);
+            if (cols == null) {
+                // 非 SQLite：pragma 语法错误 → 用 select 试列（能执行=列已存在，报错=缺列）
+                TLMsg p2 = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                        .setParam(DB_P_SQL, "select title from [table] limit 1")
+                        .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+                has = getResultList(p2) != null;
+            } else {
+                for (java.util.Map<String, Object> c : cols) {
+                    Object n = c.get("name");
+                    if (n != null && "title".equalsIgnoreCase(String.valueOf(n))) { has = true; break; }
+                }
+            }
+            if (!has) {
+                TLMsg r = putMsg(sessTable, createMsg().setAction(DB_UPDATE)
+                        .setParam(DB_P_SQL, "alter table [table] add column title varchar(255) default ''"));
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    putLog("ai_sessions 迁移失败：新增 title 列未成功（下次重试）", LogLevel.WARN);
+                    return;
+                }
+                putLog("ai_sessions 迁移：新增 title 列", LogLevel.INFO);
+            }
+            titleColumnReady = true;
+        } catch (Exception e) {
+            putLog("ai_sessions title 列迁移异常（下次重试）: " + e, LogLevel.WARN);
+        }
+    }
+
     // ======================== 辅助方法 ========================
 
     @SuppressWarnings("unchecked")
@@ -271,9 +372,15 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         meta.put("state", row.getOrDefault("state", ""));
         meta.put("agentName", row.getOrDefault("agent_name", ""));
         meta.put("userMessage", row.getOrDefault("user_message", ""));
+        meta.put("title", strOf(row.get("title")));   // 老库/未迁移时列缺失 → 空串（契约：无标题=空串）
         meta.put("savedAt", objToLong(row.getOrDefault("last_active", 0L)));
         meta.put("count", objToInt(row.getOrDefault("msg_count", 0)));
         return meta;
+    }
+
+    /** null → ""（row 里键存在值为 null 时 getOrDefault 也返回 null，不能直接用 getOrDefault） */
+    private String strOf(Object v) {
+        return v == null ? "" : String.valueOf(v);
     }
 
     private int objToInt(Object v) {

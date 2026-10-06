@@ -11,6 +11,9 @@
         <!-- enableCheckpoint: 会话断点通知开关。true=Agent向SessionManager发送sessionUpdated/chatFinished/chatAborted。
              主Agent设true，子Agent默认false（不配即不通知）。SessionManager另有enableCheckpoint控制是否落盘。 -->
         <enableCheckpoint value="true"/>
+        <!-- 会话标题自动起名：测试用 Mock Provider 的响应队列是脚本化的（FIFO），
+             起名调用会偷吃队列里的响应破坏用例 → 测试 Agent 一律关闭 -->
+        <autoSessionTitle value="false"/>
         <!-- sessionManagerName: 会话管理模块名，Agent向它发通知；控制台通过它查询/恢复断点 -->
         <sessionManagerName value="sessionManager"/>
         <!-- checkProviderOnStartup: 启动时验证LLM Provider连通性，失败仅警告不阻塞 -->

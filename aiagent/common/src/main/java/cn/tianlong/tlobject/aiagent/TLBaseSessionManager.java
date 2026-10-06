@@ -53,8 +53,14 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
     /** 删除指定会话的所有数据 */
     protected abstract void deleteSessionData(String sessionId, String userId);
 
-    /** 列出所有会话的元数据列表 */
+    /** 列出所有会话的元数据列表（每条含 title 字段，无标题为空串） */
     protected abstract java.util.List<java.util.Map<String, Object>> listSessionsMeta(String userId);
+
+    /**
+     * 设置会话标题。onlyIfEmpty=true 时仅在当前无标题时写入（agent 自动起名用）；
+     * false 时直接覆盖（前端改名用）。返回是否真的写了（条件不满足/会话不存在/写失败 → false）。
+     */
+    protected abstract boolean setSessionTitle(String sessionId, String userId, String title, boolean onlyIfEmpty);
 
     // ======================== 消息分发 ========================
 
@@ -70,6 +76,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "loadRound":       return doLoadRound(fromWho, msg);
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
+            case "setSessionTitle": return doSetSessionTitle(fromWho, msg);
             default: return null;
         }
     }
@@ -255,6 +262,24 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         if (!exists) return createMsg().setParam(RESULT, false).setParam("error", "会话不存在: " + sessionId);
         deleteSessionData(sessionId, userId);
         return createMsg().setParam(RESULT, true);
+    }
+
+    // ======================== 会话标题 ========================
+
+    /**
+     * 设置/更新会话标题（webui 侧栏改名、agent 自动起名共用）。
+     * 契约：RESULT=true + updated（是否真的写了）；sessionId 缺失为参数错误 → RESULT=false。
+     */
+    private TLMsg doSetSessionTitle(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        if (sessionId == null || sessionId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 必填");
+        String userId = msg.getStringParam("userId", null);
+        String title = msg.getStringParam("title", "");
+        if (title == null) title = "";
+        boolean onlyIfEmpty = msg.getBooleanParam("onlyIfEmpty", false);
+        boolean updated = setSessionTitle(sessionId, userId, title, onlyIfEmpty);
+        return createMsg().setParam(RESULT, true).setParam("updated", updated);
     }
 
     // ======================== 公共逻辑：轮次组装 ========================

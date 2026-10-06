@@ -141,10 +141,12 @@ public class TLSessionManager extends TLBaseSessionManager {
             TLMsg meta = readLastLineMeta(latest);
             if (meta == null) return null;
             java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
-            result.put("sessionId", meta.getStringParam("sessionId", ""));
+            String sid = meta.getStringParam("sessionId", "");
+            result.put("sessionId", sid);
             result.put("state", meta.getStringParam("state", ""));
             result.put("agentName", meta.getStringParam("agentName", ""));
             result.put("userMessage", meta.getStringParam("userMessage", ""));
+            result.put("title", loadTitles(userId).getOrDefault(sid, ""));
             result.put("roundSeq", meta.getIntParam("roundSeq", 0));
             result.put("savedAt", latest.lastModified());
             result.put("count", meta.getIntParam("count", 0));
@@ -178,10 +180,12 @@ public class TLSessionManager extends TLBaseSessionManager {
             if (best == null) return null;
 
             java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
-            result.put("sessionId", bestMeta.getStringParam("sessionId", ""));
+            String sid = bestMeta.getStringParam("sessionId", "");
+            result.put("sessionId", sid);
             result.put("state", bestMeta.getStringParam("state", ""));
             result.put("agentName", bestMeta.getStringParam("agentName", ""));
             result.put("userMessage", bestMeta.getStringParam("userMessage", ""));
+            result.put("title", loadTitles(userId).getOrDefault(sid, ""));
             result.put("roundSeq", bestMeta.getIntParam("roundSeq", 0));
             result.put("savedAt", best.lastModified());
             result.put("count", bestMeta.getIntParam("count", 0));
@@ -194,6 +198,11 @@ public class TLSessionManager extends TLBaseSessionManager {
         try {
             java.io.File file = findSessionFile(getSessionStorePath(userId), sessionId);
             if (file != null && file.exists()) file.delete();
+        } catch (Exception ignored) {}
+        // 顺带删标题：防 sidecar 留陈旧条目（会话 id 复用时会误显示旧标题）
+        try {
+            java.util.Map<String, String> titles = loadTitles(userId);
+            if (titles.remove(sessionId) != null) saveTitles(userId, titles);
         } catch (Exception ignored) {}
     }
 
@@ -208,21 +217,90 @@ public class TLSessionManager extends TLBaseSessionManager {
             if (files == null) return sessions;
 
             java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+            java.util.Map<String, String> titles = loadTitles(userId);   // 一次性读标题 sidecar
 
             for (java.io.File f : files) {
                 TLMsg meta = readLastLineMeta(f);
                 if (meta == null) continue;
+                String sid = meta.getStringParam("sessionId", "");
                 java.util.LinkedHashMap<String, Object> info = new java.util.LinkedHashMap<>();
-                info.put("sessionId", meta.getStringParam("sessionId", ""));
+                info.put("sessionId", sid);
                 info.put("state", meta.getStringParam("state", ""));
                 info.put("agentName", meta.getStringParam("agentName", ""));
                 info.put("userMessage", meta.getStringParam("userMessage", ""));
+                info.put("title", titles.getOrDefault(sid, ""));
                 info.put("savedAt", f.lastModified());
                 info.put("count", meta.getIntParam("count", 0));
                 sessions.add(info);
             }
         } catch (Exception e) { /* ignore */ }
         return sessions;
+    }
+
+    // ======================== 会话标题（sidecar 索引） ========================
+
+    /**
+     * 标题 sidecar：<user>/session_store/_session_titles.idx
+     * 后缀必须不是 .json——会话扫描（findLatestMeta/findIncompleteMeta/listSessionsMeta）
+     * 用 {@code n.endsWith(".json")} 过滤文件，.idx 不会被当成会话文件；
+     * 临时文件 .idx.tmp 同理落不进列表。
+     */
+    private java.io.File titlesFile(String userId) {
+        return new java.io.File(getSessionStorePath(userId), "_session_titles.idx");
+    }
+
+    /** 读该用户的 sid→title 表；文件不存在/损坏 → 空表（老会话自然无标题，无需迁移） */
+    private java.util.Map<String, String> loadTitles(String userId) {
+        java.util.Map<String, String> titles = new java.util.LinkedHashMap<>();
+        try {
+            java.io.File f = titlesFile(userId);
+            if (!f.exists()) return titles;
+            String json = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            java.util.Map<String, String> m = gson.fromJson(json,
+                    new com.google.gson.reflect.TypeToken<java.util.Map<String, String>>() {}.getType());
+            if (m != null) titles.putAll(m);
+        } catch (Exception e) {
+            putLog("loadTitles failed: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+        }
+        return titles;
+    }
+
+    /** 原子写（tmp + ATOMIC_MOVE，不支持时退化为普通替换）；成功 true */
+    private synchronized boolean saveTitles(String userId, java.util.Map<String, String> titles) {
+        java.io.File f = titlesFile(userId);
+        java.io.File dir = f.getParentFile();
+        try {
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            java.io.File tmp = new java.io.File(dir, f.getName() + ".tmp");
+            java.nio.file.Files.write(tmp.toPath(),
+                    gson.toJson(titles).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            try {
+                java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception atomicFail) {
+                java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (Exception e) {
+            putLog("saveTitles failed: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return false;
+        }
+    }
+
+    /** 读-改-写整体加锁（与 saveTitles 同锁，可重入），防并行改名丢写 */
+    @Override
+    protected synchronized boolean setSessionTitle(String sessionId, String userId, String title, boolean onlyIfEmpty) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        // 会话不存在不写（与 DB 版契约一致：不存在→updated=false；防 sidecar 留脏条目）
+        if (findSessionFile(getSessionStorePath(userId), sessionId) == null) return false;
+        java.util.Map<String, String> titles = loadTitles(userId);
+        String cur = titles.get(sessionId);
+        if (onlyIfEmpty && cur != null && !cur.isEmpty()) return false;
+        titles.put(sessionId, title != null ? title : "");
+        return saveTitles(userId, titles);
     }
 
     // ======================== 文件特有工具方法 ========================

@@ -55,6 +55,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("clear", "清除会话上下文");
         ACTION_REGISTRY.put("session", "切换当前会话ID");
         ACTION_REGISTRY.put("deleteSession", "删除会话（记录 + 上下文，不可恢复）");
+        ACTION_REGISTRY.put("renameSession", "会话改名（sessionId + 新标题）");
         ACTION_REGISTRY.put("approve", "审批操作（批准/拒绝）");
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
@@ -129,6 +130,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "clear":           return doClearContext(fromWho, msg);
             case "session":         return doSwitchSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
+            case "renameSession":   return doRenameSession(fromWho, msg);
 
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
@@ -879,6 +881,29 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             return ok("会话已删除: " + sessionId);
         }
         return fail(result != null ? result.getStringParam("error", "删除失败") : "sessionManager 无响应");
+    }
+
+    /** 会话改名（手动）：转发 SessionManager setSessionTitle（onlyIfEmpty=false，覆盖已有标题） */
+    private TLMsg doRenameSession(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sessionId == null || sessionId.isEmpty()) return fail("sessionId 参数必填");
+        String title = msg.getStringParam("title", "");
+        title = title == null ? "" : title.trim();
+        if (title.isEmpty()) return fail("title 参数必填");
+        if (title.length() > 50) title = title.substring(0, 50);
+        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+                .setAction("setSessionTitle")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", msg.getStringParam("userId", null))
+                .setParam("title", title)
+                .setParam("onlyIfEmpty", false));
+        if (result == null) return fail("sessionManager 无响应");
+        if (!result.parseBoolean(RESULT, false)) return fail(result.getStringParam("error", "改名失败"));
+        // 存储层契约：RESULT=true + updated；updated=false 表示会话不存在（title 未写入）
+        if (!result.parseBoolean("updated", false)) {
+            return fail(result.getStringParam("error", "会话不存在: " + sessionId));
+        }
+        return ok("已改名: " + title);
     }
 
     /** 清除会话上下文 */

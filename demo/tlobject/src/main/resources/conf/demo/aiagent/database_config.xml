@@ -131,6 +131,7 @@
   `agent_name` varchar(255) DEFAULT '',
   `user_message` varchar(1024) DEFAULT '',
   `msg_count` int DEFAULT 0,
+  `title` varchar(255) DEFAULT '',
   `metadata` TEXT DEFAULT NULL,
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
@@ -164,6 +165,7 @@
   agent_name TEXT DEFAULT '',
   user_message TEXT DEFAULT '',
   msg_count INTEGER DEFAULT 0,
+  title TEXT DEFAULT '',
   metadata TEXT
 );"/>
 
