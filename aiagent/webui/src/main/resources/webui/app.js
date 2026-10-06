@@ -4,13 +4,63 @@
 // ======================== 状态 ========================
 const state = {
   userId: null,
-  sessionId: localStorage.getItem('tlweb_session') || null,
+  sessionId: localStorage.getItem('tlweb_session') || null,  // 当前显示会话（含义不变）
   streamEnabled: true,
-  busy: false,           // 有活跃 chat
-  abort: null,           // AbortController（流式聊天）
   events: null,          // EventSource
-  uploads: []            // 已上传文件名 [{name}]（输入框上方显示条）
+  sessions: Object.create(null),   // sessionId -> 每会话视图（box/uploads/busy/abort/unread/tasks/draft）
+                                   // 无原型：sessionId 用户可控（"__proto__"/"constructor" 会命中原型链 → curBox() 拿到坏值）
+  currentBox: null,      // 当前会话的 DOM 盒子（挂到 #msgList 上的唯一内容盒子）
+  drawer: null           // 任务详情抽屉当前展示的任务 {tid, sid}；null=未打开
 };
+
+// ======================== 每会话视图（状态分片） ========================
+// 每会话一个独立 box：脱离 DOM 仍可写入（后台会话的流不丢），切回时挂上即可
+function viewOf(sid) {
+  if (!state.sessions[sid]) {
+    const box = document.createElement('div');
+    // 布局类不能少：box 是 #msgList（flex 列）的唯一 item，少了它 .msg 的
+    // align-self/max-width/gap 全部失效（气泡左对齐、满宽、无间距）
+    box.className = 'msg-box';
+    state.sessions[sid] = {
+      box: box,
+      uploads: [],           // 已上传文件名（本会话草稿区，切会话各带各的）
+      busy: false, abort: null, unread: 0, tasks: {}, draft: '',
+      kicked: false          // 被其他设备接管 → 本会话禁输入（切回来也不解锁；点「继续」接管后清除）
+    };
+  }
+  return state.sessions[sid];
+}
+function curBox() { return viewOf(state.sessionId).box; }
+/** 切到目标会话视图：暂存草稿 → 摘旧 box → 挂新 box → 恢复草稿/忙碌态 */
+function switchSessionView(sid) {
+  if (!sid) return;
+  const prev = state.sessionId;
+  if (prev && state.sessions[prev]) {
+    state.sessions[prev].draft = $('#chatInput').value;
+  }
+  // 摘旧 box 不依赖 prev：换用户登录等场景 sessionId 可能已清空而 box 仍挂在 #msgList 上
+  if (state.currentBox && state.currentBox.parentNode)
+    state.currentBox.parentNode.removeChild(state.currentBox);
+  state.sessionId = sid;
+  localStorage.setItem('tlweb_session', sid);
+  $('#sessionId').value = sid;
+  const v = viewOf(sid);
+  v.unread = 0;
+  state.currentBox = v.box;
+  const ml = $('#msgList');
+  ml.appendChild(v.box);
+  ml.scrollTop = ml.scrollHeight;   // 切回会话直接停在最新消息处
+  $('#chatInput').value = v.draft || '';
+  // 被接管的会话保持禁输入（旧版无条件启用 → 切回被接管会话仍可输入）；点「继续」接管后由 claimSession 清除
+  $('#chatInput').disabled = !!v.kicked;
+  $('#sendBtn').disabled = !!v.kicked;
+  setBusy(v.busy);
+  renderUploadBar();                // 附件条随会话切换（各会话草稿区附件独立）
+  renderSessionList();   // P11 已实现该函数（函数声明，hoisting 保证可用），原 typeof 守卫恒真故直接调用
+  reportCurrentSession();
+}
+/** 清空某会话内容（新会话/清除上下文用） */
+function clearSessionBox(sid) { viewOf(sid).box.innerHTML = ''; }
 
 // ======================== 基础工具 ========================
 const $ = sel => document.querySelector(sel);
@@ -117,17 +167,10 @@ function renderTable(container, headers, rows, curKey) {
   container.innerHTML = h + '</table>';
 }
 function newSession() {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
-  state.sessionId = 'webchat_' + state.userId + '_' + Date.now();
-  localStorage.setItem('tlweb_session', state.sessionId);
-  $('#sessionId').value = state.sessionId;
-  $('#msgList').innerHTML = '';
-  // 恢复输入（会话被接管时禁用了）并聚焦
-  $('#chatInput').disabled = false;
-  $('#sendBtn').disabled = false;
-  $('#chatInput').focus();
-  toast('已开新会话: ' + state.sessionId, 'ok');
-  reportCurrentSession();
+  const sid = 'webchat_' + state.userId + '_' + Date.now();
+  switchSessionView(sid);   // 新 sid 自然是全新空视图，无需清屏
+  $('#chatInput').focus();  // 恢复输入（会话被接管时禁用了）并聚焦
+  toast('已开新会话: ' + sid, 'ok');
 }
 
 // ======================== API ========================
@@ -151,6 +194,8 @@ async function apiJson(path, body) {
 function showLogin() {
   showView('login');
   if (state.events) { state.events.close(); state.events = null; }
+  state.drawer = null;                                 // 登出收起任务详情抽屉（否则残留并挡住登录页）
+  $('#taskDrawer').classList.add('hidden');
 }
 async function initSession() {
   try {
@@ -182,8 +227,12 @@ async function doLogin() {
     if (prevUser && prevUser !== userId) {
       state.sessionId = null;
       localStorage.removeItem('tlweb_session');
-      state.uploads = [];
-      renderUploadBar();
+      renderUploadBar();     // sessionId 已清 → 附件条隐藏（各会话 uploads 随下方视图表重置）
+      // 每会话视图随用户重置：清掉视图表（旧 box 由 switchSessionView 从 #msgList 摘除），
+      // 避免上一用户的自定义会话ID/内容残留在本页面内存里
+      state.sessions = Object.create(null);   // 同初始化：无原型，见 state 定义处说明
+      lastSessionsData = null;   // 侧栏列表缓存同理重置（否则短暂显示上一用户的会话）
+      lastSessionsError = null;  // 失败文案一并重置（换用户后显示新用户的加载态/结果）
     } else {
       state.sessionId = prevSid;
     }
@@ -214,8 +263,7 @@ async function doLogout() {
 async function enterChat() {
   if (!state.sessionId) newSession();
   $('#userTag').textContent = '👤 ' + state.userId;
-  $('#sessionId').value = state.sessionId;
-  $('#msgList').innerHTML = '';
+  switchSessionView(state.sessionId);   // 挂载初始会话视图（登录/刷新）
   appendSysMsg('已登录：' + state.userId + '（管理命令在右侧面板）');
   showView('chat');
   openEvents();
@@ -242,10 +290,12 @@ async function autoResumeLast() {
       return;
     }
     const res = await continueSession(last.sessionId, true);   // 内部会清空并渲染历史
-    if (res.ok) {
-      appendSysMsg('💡 已自动接续最近活跃会话（最后消息 ' + fmtTs(last.savedAt) + '），可在右侧『会话』面板切换其他历史会话');
+    if (res.ok && res.busy) {
+      appendSysMsg('💡 已切到正在运行的会话（流式输出进行中，历史可在完成后刷新查看）');
+    } else if (res.ok) {
+      appendSysMsg('💡 已自动接续最近活跃会话（最后消息 ' + fmtTs(last.savedAt) + '），可在左侧会话栏切换其他历史会话');
     } else {
-      appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在右侧『会话』面板手动继续）');
+      appendSysMsg('💡 自动接续失败：' + (res.error || '未知原因') + '。已开始新会话 ' + state.sessionId + '（可在左侧会话栏手动继续）');
     }
   } catch (e) {
     appendSysMsg('💡 历史会话恢复失败（' + e.message + '），已开始新会话 ' + state.sessionId);
@@ -257,15 +307,16 @@ function appendSysMsg(text) {
   const d = document.createElement('div');
   d.className = 'msg system';
   d.textContent = text;
-  $('#msgList').appendChild(d);
+  curBox().appendChild(d);
   scrollChat();
 }
-function appendMsg(role, content) {
+/** box 可选：指定目标会话的盒子（后台会话的流式收尾用），缺省 = 当前视图 */
+function appendMsg(role, content, box) {
   const d = document.createElement('div');
   d.className = 'msg ' + role;
   d.textContent = content == null ? '' : content;
-  $('#msgList').appendChild(d);
-  scrollChat();
+  (box || curBox()).appendChild(d);
+  scrollChat(box);
   return d;
 }
 /** 从工具输出 JSON 中提取 screenshot_base64（browser 截图），无则 null */
@@ -287,8 +338,9 @@ function showLightbox(src) {
   lb.querySelector('img').src = src;
   lb.classList.remove('hidden');
 }
-/** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏） */
-function renderToolResult(toolName, output) {
+/** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏）。
+ *  box 可选：后台会话的流式工具卡片要落回它自己的盒子，缺省 = 当前视图 */
+function renderToolResult(toolName, output, box) {
   const d = document.createElement('div');
   d.className = 'msg tool-result';
   const title = document.createElement('div');
@@ -309,8 +361,8 @@ function renderToolResult(toolName, output) {
   det.className = 'tool-detail';
   det.innerHTML = '<summary>' + (shot ? '原始输出 (' + Math.round(output.length / 1024) + 'KB)' : '输出') + '</summary>' + esc(output);
   d.appendChild(det);
-  $('#msgList').appendChild(d);
-  scrollChat();
+  (box || curBox()).appendChild(d);
+  scrollChat(box);
   return d;
 }
 /** 消息附件缩略图：图片渲染 <img>（双击 lightbox），其它文件渲染下载链接。
@@ -349,9 +401,10 @@ function startAssistantMsg() {
   const cursor = document.createElement('span');
   cursor.className = 'cursor';
   d.appendChild(cursor);
-  $('#msgList').appendChild(d);
+  curBox().appendChild(d);
   scrollChat();
-  return { el: d, cursor };
+  // holder.box：本次流所属会话的盒子——后台会话流式期间切走了，收尾也知道该写回哪个 box
+  return { el: d, cursor, box: state.currentBox };
 }
 function appendReasoning(el, reasoning) {
   if (!reasoning) return;
@@ -374,9 +427,11 @@ function finishAssistantMsg(holder, evt) {
   info += (info ? ')' : '');
   meta.textContent = info;
   holder.el.appendChild(meta);
-  scrollChat();
+  scrollChat(holder.box);
 }
-function scrollChat() {
+function scrollChat(box) {
+  box = box || state.currentBox;
+  if (box !== state.currentBox) return;         // 后台会话不打扰当前视图
   const l = $('#msgList');
   l.scrollTop = l.scrollHeight;
 }
@@ -385,21 +440,41 @@ function scrollChat() {
 async function sendMessage() {
   const input = $('#chatInput');
   const msg = input.value.trim();
-  if (!msg || state.busy) return;
-  input.value = '';
+  const sid = state.sessionId;
+  const view = viewOf(sid);
+  if (!msg || view.busy) return;   // per-session 守卫：本会话在跑就不重发（其他会话不受影响）
+  if (view.kicked) { toast('该会话已被其他设备接管，请开新会话或点「继续」接管', 'err'); return; }
+  // 后台执行开关：本条消息不阻塞对话，挂到后台任务（结果稍后以事件/卡片回本会话）。
+  // 在这个位置处理：输入已校验、kicked 守卫已过，尚未渲染用户气泡（后台任务不走对话流）。
+  // 注意：本分支忽略本会话已上传的附件（附件与后台开关互斥，先不做混合语义）
+  if ($('#bgToggle') && $('#bgToggle').checked) {
+    input.value = '';
+    $('#bgToggle').checked = false;
+    const r = await apiCommand('createBackgroundTask', {
+      prompt: msg, name: msg.slice(0, 20), sessionId: state.sessionId
+    });
+    if (r.success) appendSysMsg('🚀 已挂后台：' + (r.message || msg.slice(0, 20)));
+    else appendSysMsg('[错误] ' + (r.error || r.message || '创建后台任务失败'));
+    refreshSessionList();   // 任务创建会改变会话内容（结果稍后注入），刷新侧栏
+    return;
+  }
+  input.value = '';   // 发送即清空输入框（放在守卫之后：被 busy/kicked 拒绝时不丢草稿）
   const userBubble = appendMsg('user', msg);
   // 本地即时缩略图：url 与服务端 toJsonable 生成同构（doImage 把相对路径解析到 data/{userId}/）
-  if (state.uploads.length) {
-    appendAttachmentThumbs(userBubble, state.uploads.map(u => ({
+  if (view.uploads.length) {
+    appendAttachmentThumbs(userBubble, view.uploads.map(u => ({
       name: u.name, url: '/api/image?path=' + encodeURIComponent('uploads/' + u.saved)
     })));
   }
   if (state.streamEnabled) await streamChat(msg);
   else await plainChat(msg);
-  // 附件已随本条消息发出（或发送失败），清空 chip 条避免下次重复携带
-  state.uploads = []; renderUploadBar();
+  // 附件已随本条消息发出（或发送失败），清空 chip 条避免下次重复携带。
+  // 按发送时会话清（等待期间可能已切走）；renderUploadBar 只渲染当前视图，不受影响
+  viewOf(sid).uploads = [];
+  renderUploadBar();
 }
 async function plainChat(msg) {
+  let sid = state.sessionId;   // 发送时总是当前会话（服务端纠正归属时会更新）
   // 立即创建占位气泡（等待期间有可见反馈），完成后填充
   const holder = startAssistantMsg();
   holder.cursor.remove();
@@ -407,13 +482,23 @@ async function plainChat(msg) {
   thinking.className = 'thinking';
   thinking.textContent = '🤔 思考中';
   holder.el.appendChild(thinking);
-  setBusy(true);
+  setBusy(true, sid);
   try {
     const r = await apiJson('/api/chat', {
-      message: msg, sessionId: state.sessionId, loginId: state.loginId || '',
-      attachments: state.uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
+      message: msg, sessionId: sid, loginId: state.loginId || '',
+      attachments: viewOf(sid).uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
     });
-    if (r.sessionId) { state.sessionId = r.sessionId; $('#sessionId').value = r.sessionId; localStorage.setItem('tlweb_session', r.sessionId); }
+    // 服务端纠正了会话ID（如换用户残留会话）：把已渲染内容整体挪到新会话 box 再切视图。
+    // 不能只切视图——旧 box（含本轮用户气泡与正在填充的助手气泡）会被摘掉成孤儿，用户只看到空白
+    if (r.sessionId && r.sessionId !== sid) {
+      const oldBox = viewOf(sid).box;
+      setBusy(false, sid);                 // 旧视图交还忙碌态（否则以后切回会误显示"停止"）
+      switchSessionView(r.sessionId);
+      while (oldBox.firstChild) state.currentBox.appendChild(oldBox.firstChild);
+      holder.box = state.currentBox;       // 后续填充/滚动都落回新 box
+      setBusy(true, r.sessionId);          // 忙碌态转移到新视图，由 finally 统一收尾
+      sid = r.sessionId;
+    }
     if (r.success) {
       thinking.remove();
       if (r.reasoning) appendReasoning(holder.el, r.reasoning);
@@ -426,34 +511,35 @@ async function plainChat(msg) {
         meta.textContent = 'tokens 输入 ' + r.tokens.prompt + ' / 输出 ' + r.tokens.completion + ' / 合计 ' + r.tokens.total;
         holder.el.appendChild(meta);
       }
-      scrollChat();
+      scrollChat(holder.box);
     } else {
       holder.el.remove();
-      appendMsg('system', '[错误] ' + (r.error || r.response || '无响应'));
+      appendMsg('system', '[错误] ' + (r.error || r.response || '无响应'), holder.box);
     }
   } catch (e) {
     holder.el.remove();
-    appendMsg('system', '[错误] ' + e.message);
+    appendMsg('system', '[错误] ' + e.message, holder.box);
   } finally {
-    setBusy(false);
+    setBusy(false, sid);
   }
 }
 async function streamChat(msg, opts) {
   opts = opts || {};
+  const sid = state.sessionId;   // 发送时总是当前会话（opts.sessionId 是 resume 目标，调用前已切过来）
   const holder = startAssistantMsg();
-  setBusy(true);
+  setBusy(true, sid);
   const ctrl = new AbortController();
-  state.abort = ctrl;
+  viewOf(sid).abort = ctrl;
   try {
     const resp = await fetch('/api/chatStream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: msg,
-        sessionId: opts.sessionId || state.sessionId,
+        sessionId: opts.sessionId || sid,
         loginId: state.loginId || '',
         resume: !!opts.resume,   // 断点恢复：以断点时的用户消息继续执行（流式）
-        attachments: state.uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
+        attachments: viewOf(sid).uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
       }),
       signal: ctrl.signal
     });
@@ -462,7 +548,7 @@ async function streamChat(msg, opts) {
       let err = 'HTTP ' + resp.status;
       try { const j = await resp.json(); err = j.error || err; } catch (e) { /* ignore */ }
       holder.el.remove();
-      appendMsg('system', '[错误] ' + err);
+      appendMsg('system', '[错误] ' + err, holder.box);
       return;
     }
     // 非 SSE 响应（JSON 错误，如"会话被占用"拒绝）→ 读 JSON 显示错误，不走流解析
@@ -471,7 +557,7 @@ async function streamChat(msg, opts) {
       let err = '';
       try { const j = await resp.json(); err = j.error || j.message || ''; } catch (e) { /* ignore */ }
       holder.el.remove();
-      appendMsg('system', '[错误] ' + (err || '请求被拒绝'));
+      appendMsg('system', '[错误] ' + (err || '请求被拒绝'), holder.box);
       return;
     }
     const reader = resp.body.getReader();
@@ -483,12 +569,13 @@ async function streamChat(msg, opts) {
     let idleTimer = null;
     let idleSpan = null;
     const showIdle = () => {
-      if (!idleSpan && holder.el.isConnected) {
+      // 判 parentNode 而非 isConnected：box 脱离 DOM 的后台会话也要能挂"思考中"（切回来能看到）
+      if (!idleSpan && holder.el.parentNode) {
         idleSpan = document.createElement('span');
         idleSpan.className = 'thinking';
         idleSpan.textContent = ' ⏳ 思考中';
         holder.el.appendChild(idleSpan);
-        scrollChat();
+        scrollChat(holder.box);
       }
     };
     const clearIdle = () => {
@@ -519,12 +606,12 @@ async function streamChat(msg, opts) {
             clearIdle();
             if (holder.cursor.parentNode) holder.cursor.remove();
             holder.el.textContent = (holder.el.textContent || '') + evt.chunk;
-            scrollChat();
+            scrollChat(holder.box);
             armIdle();
           }
           if (evt.toolEvent) {
             clearIdle();
-            renderToolResult(evt.toolName, evt.toolOutput);
+            renderToolResult(evt.toolName, evt.toolOutput, holder.box);
             armIdle();
           }
           if (evt.reasoning) reasoningBuf = evt.reasoning;
@@ -533,7 +620,7 @@ async function streamChat(msg, opts) {
             evt.ms = Date.now() - t0;
             if (!evt.reasoning && reasoningBuf) evt.reasoning = reasoningBuf;
             finishAssistantMsg(holder, evt);
-            if (evt.error) appendMsg('system', '[流式错误] ' + evt.error);
+            if (evt.error) appendMsg('system', '[流式错误] ' + evt.error, holder.box);
             return;
           }
         }
@@ -547,23 +634,29 @@ async function streamChat(msg, opts) {
     if (e.name === 'AbortError') {
       holder.cursor.remove();
       holder.el.appendChild(document.createTextNode('（已停止）'));
-      scrollChat();
+      scrollChat(holder.box);
     } else {
       holder.el.remove();
-      appendMsg('system', '[错误] ' + e.message);
+      appendMsg('system', '[错误] ' + e.message, holder.box);
     }
   } finally {
-    setBusy(false);
-    state.abort = null;
+    setBusy(false, sid);
+    viewOf(sid).abort = null;
   }
 }
 async function stopChat() {
-  try { await apiJson('/api/stopChat', { sessionId: state.sessionId }); } catch (e) { /* ignore */ }
-  if (state.abort) state.abort.abort();
-  setBusy(false);
+  const sid = state.sessionId;
+  try { await apiJson('/api/stopChat', { sessionId: sid }); } catch (e) { /* ignore */ }
+  const v = viewOf(sid);
+  if (v.abort) v.abort.abort();
+  setBusy(false, sid);
 }
-function setBusy(b) {
-  state.busy = b;
+function setBusy(b, sid) {
+  sid = sid || state.sessionId;
+  const v = viewOf(sid);
+  v.busy = b;
+  scheduleRenderSessionList();                  // 侧栏 ● 运行中刷新（节流合并，后台会话也要更新）
+  if (sid !== state.sessionId) return;          // 后台会话只记状态，不动当前 UI
   $('#sendBtn').classList.toggle('hidden', b);
   $('#stopBtn').classList.toggle('hidden', !b);
 }
@@ -571,6 +664,7 @@ function setBusy(b) {
 // ======================== 文件上传 ========================
 const UPLOAD_MAX_MB = 50;   // 与后端 uploadSizeMaxMB 保持一致
 async function uploadFiles(files) {
+  const sid = state.sessionId;   // 附件归上传发起时的会话（上传期间切走也不会串到别的会话）
   // 本地立即校验大小：超限文件不发请求，直接提示（大文件不上传，省流量）
   const over = files.filter(f => f.size > UPLOAD_MAX_MB * 1024 * 1024);
   const okFiles = files.filter(f => f.size <= UPLOAD_MAX_MB * 1024 * 1024);
@@ -597,15 +691,17 @@ async function uploadFiles(files) {
     return;
   }
   const saved = data.filenames || [];
-  okFiles.forEach((f, i) => { if (saved[i] != null) state.uploads.push({ name: f.name, saved: saved[i] }); });
+  okFiles.forEach((f, i) => { if (saved[i] != null) viewOf(sid).uploads.push({ name: f.name, saved: saved[i] }); });
   renderUploadBar();
   toast('上传成功 ' + saved.length + ' 个文件', 'ok');
 }
 function renderUploadBar() {
   const bar = $('#uploadBar');
-  if (!state.uploads.length) { bar.classList.add('hidden'); return; }
+  if (!state.sessionId) { bar.classList.add('hidden'); return; }
+  const ups = viewOf(state.sessionId).uploads;
+  if (!ups.length) { bar.classList.add('hidden'); return; }
   bar.classList.remove('hidden');
-  $('#uploadChips').innerHTML = state.uploads
+  $('#uploadChips').innerHTML = ups
     .map(u => '<span class="ub-chip" title="' + esc(u.name) + '">' + esc(u.name) + '</span>').join('');
 }
 function bindUpload() {
@@ -615,7 +711,7 @@ function bindUpload() {
     $('#fileInput').value = '';          // 允许连续选择同一文件
     if (files.length) uploadFiles(files);
   });
-  $('#clearUploads').onclick = () => { state.uploads = []; renderUploadBar(); };
+  $('#clearUploads').onclick = () => { viewOf(state.sessionId).uploads = []; renderUploadBar(); };
 }
 
 // 上报当前打开的会话（定时任务执行期需要知道"用户现在在看哪个会话"）
@@ -637,34 +733,161 @@ function openEvents() {
     if (evt.type === 'kicked') {
       // 事件按 userId 广播，只有 loginId 匹配自己（被踢的那一方）才响应禁用
       if (evt.loginId && evt.loginId !== state.loginId) return;
-      toast(evt.text || '该会话已被其他设备接管', 'err');
-      $('#chatInput').disabled = true;
-      $('#sendBtn').disabled = true;
-      appendSysMsg('⚠ ' + (evt.text || '会话已被其他设备接管') + '（可开启新会话或继续其他会话）');
-    }
-    if (evt.type === 'taskResult') {
-      const sameSession = evt.sessionId === state.sessionId;
-      const head = '[定时任务 ' + (evt.taskId || '') + '] ';
-      if (sameSession) {
-        // 结果就在当前会话：直接追加通知，不整段重绘——
-        // 整段重绘（continueSession）会清屏+强制滚底，高频任务下页面持续闪动、
-        // 且视图总被拽到最新一条，看起来"只有一条消息"。任务轮次已在会话历史里，
-        // 下次恢复/刷新时自然可见。
-        // 用户停在底部时跟随新消息，翻看历史时不打扰（保持原滚动位置）。
-        const l = $('#msgList');
-        const atBottom = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
-        const keepTop = l.scrollTop;
-        appendSysMsg('⏰ ' + head + evt.text);
-        if (!atBottom) l.scrollTop = keepTop;   // 在看历史 → 还原原位置（appendSysMsg 默认会滚底）
+      const sid = evt.sessionId;
+      if (!sid) {
+        // 无 sessionId：退回旧全局行为（一律禁输入）
+        toast(evt.text || '该会话已被其他设备接管', 'err');
+        $('#chatInput').disabled = true;
+        $('#sendBtn').disabled = true;
+        appendSysMsg('⚠ ' + (evt.text || '会话已被其他设备接管') + '（可开启新会话或继续其他会话）');
       } else {
-        toast('⏰ ' + head + '有新结果，在会话 ' + (evt.sessionId || '') + '（右侧会话列表可切换）', 'ok');
-        appendSysMsg('⏰ ' + head + '结果已写入会话 ' + (evt.sessionId || ''));
+        // 接管标记落到会话视图：只有当前正在看的会话才提示到聊天窗，其他会话仅 toast
+        viewOf(sid).kicked = true;
+        toast(evt.text || '该会话已被其他设备接管', 'err');
+        if (sid === state.sessionId) {
+          $('#chatInput').disabled = true;
+          $('#sendBtn').disabled = true;
+          appendSysMsg('⚠ ' + (evt.text || '会话已被其他设备接管') + '（可开启新会话或继续其他会话）');
+        }
       }
+    }
+    if (evt.type === 'taskStarted' || evt.type === 'taskProgress' || evt.type === 'taskResult') {
+      handleTaskEvent(evt);
     }
   };
   es.onopen = () => { $('#connState').textContent = '●'; $('#connState').style.color = '#4ade80'; };
   es.onerror = () => { $('#connState').textContent = '○'; $('#connState').style.color = '#f87171'; };
   state.events = es;
+}
+
+// ======================== 后台任务 UI ========================
+/** 任务状态英文枚举 → 中文文案（枚举与后端 TaskRecord.status 同源） */
+function taskStatusText(s) {
+  return ({running:'运行中…', done:'已完成', failed:'失败', stopped:'已停止', interrupted:'已中断', pending:'排队中'})[s] || s || '';
+}
+/** 任务卡片元素（停靠在该任务所属会话的 box 末尾） */
+function taskCardEl(tid, t) {
+  const d = document.createElement('div');
+  d.className = 'task-card';
+  d.id = 'tc_' + tid;
+  d.innerHTML =
+    '<span class="tc-name">🚀 ' + esc(t.name || tid) + '</span>' +
+    '<span class="tc-status">' + esc(taskStatusText(t.status)) + '</span>' +
+    '<button class="tc-open" data-tid="' + esc(tid) + '">查看</button>' +
+    (t.status === 'running' ? '<button class="tc-stop" data-tid="' + esc(tid) + '">停止</button>' : '');
+  return d;
+}
+/** 渲染/更新任务卡片：同 id 原位替换（不整段重绘，保住其它卡片与滚动位置） */
+function renderTaskCard(sid, tid, t) {
+  const box = viewOf(sid).box;
+  const old = box.querySelector('#tc_' + CSS.escape(tid));
+  const el = taskCardEl(tid, t);
+  if (old) old.replaceWith(el); else box.appendChild(el);
+  scrollChat(box);
+}
+/**
+ * 打开任务详情抽屉（body 级元素，独立于会话 box 与侧栏重建）。
+ * 先本地渲染（流式累积/事件状态），再拉 tasks get 补全量：
+ * running 用 liveSnapshot；终态用 resultText（回退 progressSnapshot）。
+ */
+function openTaskDrawer(tid, sid) {
+  state.drawer = { tid: tid, sid: sid };
+  const t = viewOf(sid).tasks[tid] || {};
+  $('#taskDrawer').classList.remove('hidden');
+  $('#taskDrawerTitle').textContent = '任务：' + (t.name || tid) + '（' + taskStatusText(t.status) + '）';
+  $('#taskDrawerBody').textContent = (t.output || '');
+  const base = (t.output || '').length;   // 发起 get 时本地已累积长度：full 已含这部分，只能补它之后的增量（否则重复）
+  apiCommand('tasks', { sub: 'get', task_id: tid }).then(r => {
+    if (!r.success || !r.data) return;
+    if (!state.drawer || state.drawer.tid !== tid) return;   // 抽屉已关闭/切到别的任务 → 丢弃迟到的响应
+    const v = viewOf(sid);
+    const tt = v.tasks[tid] || (v.tasks[tid] = {});
+    if (!tt.name && r.data.name) tt.name = r.data.name;
+    // 注意：get 返回的 status 是用户可见文案（"运行中/已完成"），不能拿来覆盖本地英文枚举；
+    // localStatus 才是同源英文枚举 —— 本地已有枚举（事件最新）时以本地为准，仅有本地缺失时才补
+    if (!tt.status && r.data.localStatus) tt.status = r.data.localStatus;
+    $('#taskDrawerTitle').textContent = '任务：' + (tt.name || tid) + '（' + taskStatusText(tt.status) + '）';
+    const full = r.data.running ? (r.data.liveSnapshot || '')
+      : (r.data.resultText || r.data.progressSnapshot || '');
+    // get 期间本地可能继续增长（事件仍在推）：slice(base) 只取新增部分（本地被 64KB 截断时结果为空串，安全）
+    const tail = tt.output ? tt.output.slice(base) : '';
+    $('#taskDrawerBody').textContent = full + tail;
+  }).catch(() => {});
+}
+/**
+ * 任务生命周期事件（SSE taskStarted/taskProgress/taskResult）：
+ * 按 sessionId 落到发起会话的视图分片；当前会话渲染卡片/系统消息，其他会话只标未读（侧栏 ○）。
+ */
+function handleTaskEvent(evt) {
+  const sid = evt.sessionId || evt.parentSessionId || '';
+  if (!sid) return;
+  const v = viewOf(sid);
+  const t = v.tasks[evt.taskId] || (v.tasks[evt.taskId] = {});
+  if (evt.name) t.name = evt.name;
+  if (evt.type === 'taskStarted') { t.status = 'running'; }
+  if (evt.type === 'taskProgress') {
+    t.output = (t.output || '') + (evt.text || '');
+    if (t.output.length > 65536) t.output = t.output.slice(-65536);   // 有界：只留最后 64KB
+    if (evt.progressKind === 'tool') t.output += '\n🔧 ' + (evt.toolName || 'tool') + '\n';
+  }
+  if (evt.type === 'taskResult') { t.status = evt.status || 'done'; t.result = evt.text || ''; }
+  if (sid === state.sessionId) {
+    // 所有事件类型都会 renderTaskCard→scrollChat 滚底（不止 taskResult）：取样必须在渲染前、
+    // 恢复在其后，否则任务运行期间 4 次/秒的进度事件会把翻看历史的用户不断拽到底
+    const l = $('#msgList');
+    const atBottom = l.scrollHeight - l.scrollTop - l.clientHeight < 40;
+    const keepTop = l.scrollTop;
+    // 卡片只属于后台任务（restoreTaskCards 也只恢复 background）：定时任务建卡会在刷新后凭空消失。
+    // 无 kind 的事件（旧版负载）按后台兜底建卡，避免卡片功能整体失灵。
+    if (evt.kind === 'background' || !evt.kind) renderTaskCard(sid, evt.taskId, t);
+    if (evt.type === 'taskResult') {
+      // 不整段重绘（continueSession 会清屏+强制滚底，高频任务下页面持续闪动）；
+      // 用户停在底部时跟随新消息，翻看历史时不打扰（保持原滚动位置）
+      // 终态消息不分 kind：定时任务不建卡，结果仍要可见
+      appendSysMsg((t.status === 'done' ? '⏰ ' : '⚠ ') + (evt.kind === 'background' ? '后台任务' : '定时任务')
+        + '【' + (t.name || evt.taskId) + '】'
+        + taskStatusText(t.status) + (evt.text ? '：' + evt.text : ''));
+    }
+    if (!atBottom) l.scrollTop = keepTop;    // 进度/终态都不打扰翻历史的用户
+    // 抽屉开着时的刷新策略：进度事件直接追写正文（原先每次都 openTaskDrawer→tasks get，
+    // 服务端要读全部任务文件+引擎往返，正文 4 次/秒即 4 次请求）；终态才重拉一次对账收尾
+    if (state.drawer && state.drawer.tid === evt.taskId) {
+      if (evt.type === 'taskProgress') {
+        const body = $('#taskDrawerBody');
+        if (body) {
+          body.textContent += (evt.progressKind === 'tool' ? ('\n🔧 ' + (evt.toolName || 'tool') + '\n') : (evt.text || ''));
+          body.scrollTop = body.scrollHeight;
+        }
+      } else {           // 非进度事件：taskResult 终态重拉收尾；taskStarted 每任务仅一次，顺带对账
+        openTaskDrawer(evt.taskId, sid);
+      }
+    }
+  } else {
+    v.unread++;                              // 非当前会话唯一未读写入方（侧栏状态图标据此出 ○）
+    scheduleRenderSessionList();
+    if (evt.type === 'taskResult') toast('🚀 ' + (evt.kind === 'background' ? '后台任务' : '定时任务')
+      + '【' + (t.name || evt.taskId) + '】' + taskStatusText(t.status) + '（左侧会话栏可切换）', 'ok');
+  }
+}
+/**
+ * 进入会话时恢复该会话的后台任务卡片（页面刷新/切会话后 box 重建，卡片不随历史回来）。
+ * 只认 background 类型 + parentSessionId 匹配 + 非 pending 的任务。
+ */
+async function restoreTaskCards(sid) {
+  try {
+    const r = await apiCommand('tasks', { sub: 'list' });
+    if (!r.success || !Array.isArray(r.data)) return;
+    const v = viewOf(sid);
+    for (const row of r.data) {
+      if (row.kind !== 'background' || row.parentSessionId !== sid) continue;
+      if (row.localStatus === 'pending') continue;
+      const t = v.tasks[row.taskId] || (v.tasks[row.taskId] = {});
+      // 事件已写过（更新）则不覆盖；只补缺失/未知的字段（localStatus 是英文枚举，status 是文案不能用）
+      if (!t.name && row.name) t.name = row.name;
+      if (!t.status) t.status = row.localStatus || row.status || '';
+      renderTaskCard(sid, row.taskId, t);
+    }
+  } catch (e) { /* 恢复失败静默：不打扰会话进入流程 */ }
 }
 
 // ======================== 事件绑定 ========================
@@ -680,9 +903,8 @@ function bindEvents() {
   });
   $('#streamToggle').onchange = e => { state.streamEnabled = e.target.checked; };
   $('#sessionId').onchange = e => {
-    if (state.busy) { toast('有进行中的对话，请先停止', 'err'); e.target.value = state.sessionId; return; }
     const v = e.target.value.trim();
-    if (v && v !== state.sessionId) { state.sessionId = v; localStorage.setItem('tlweb_session', v); toast('已切换会话ID: ' + v, 'ok'); }
+    if (v && v !== state.sessionId) { switchSessionView(v); toast('已切换会话ID: ' + v, 'ok'); }
   };
   // 断点提示弹窗：恢复执行（流式）/ 忽略
   $('#cpResumeBtn').onclick = () => {
@@ -714,6 +936,26 @@ function bindEvents() {
   $('#confirmModal').addEventListener('click', e => {
     if (e.target === $('#confirmModal')) closeConfirm(false);
   });
+  // 任务卡片按钮：body 级委托一次（卡片随任务事件动态增删，且各会话 box 会重建）
+  document.addEventListener('click', async e => {
+    const open = e.target.closest('.tc-open');
+    if (open) { openTaskDrawer(open.dataset.tid, state.sessionId); return; }
+    const stop = e.target.closest('.tc-stop');
+    if (stop) {
+      const r = await apiCommand('tasks', { sub: 'stop', task_id: stop.dataset.tid });
+      if (r && r.success) { toast('已请求停止任务', 'ok'); refreshSessionList(); }
+      else toast('[错误] ' + ((r && (r.error || r.message)) || '停止失败'), 'err');
+      return;
+    }
+  });
+  // 任务详情抽屉（body 级容器，见 chat.html #taskDrawer）
+  $('#tdClose').onclick = () => { state.drawer = null; $('#taskDrawer').classList.add('hidden'); };
+  $('#tdStop').onclick = async () => {
+    if (!state.drawer) return;
+    const r = await apiCommand('tasks', { sub: 'stop', task_id: state.drawer.tid });
+    if (r && r.success) { toast('已请求停止任务', 'ok'); refreshSessionList(); }
+    else toast('[错误] ' + ((r && (r.error || r.message)) || '停止失败'), 'err');
+  };
   bindUpload();
 }
 
@@ -841,52 +1083,129 @@ async function loadTasks() {
   }
 }
 
-// ======================== 面板：会话 ========================
+// ======================== 侧栏：会话列表 ========================
+// 数据源固定为服务端 loadSessions()（不能遍历 state.sessions——里面有孤儿条目）。
+// 拉取与渲染分离：refreshSessionList() 先拉再渲染（首次/手动刷新）；
+// renderSessionList() 用最近一次拉取的数据同步渲染（切会话/忙碌状态变化时调用，不产生请求）。
+let lastSessionsData = null;   // 最近一次 loadSessions 拉到的会话数据（null=尚未拉过）
+let lastSessionsError = null;  // 最近一次 loadSessions 的失败文案（非空时重渲染保留失败提示，不被顶成"加载中"）
+
+/** 行首状态图标：● 运行中（本地忙或服务端 running 计数）/ ○ 有未读 / 空格 */
+function sessionStatusIcon(sid, srvRunning) {
+  const v = state.sessions[sid];
+  if ((v && v.busy) || srvRunning) return '●';
+  if (v && v.unread > 0) return '○';
+  return ' ';
+}
+
+/** 渲染左侧会话栏（顺序即服务端次序：最近活动优先）。
+ *  同步函数、只读缓存——switchSessionView/setBusy 等高频路径可安全调用。 */
+function renderSessionList() {
+  const box = $('#sessionsBox');
+  if (!box) return;
+  const keep = box.scrollTop;   // 整块重建前存滚动位置，重建后恢复（否则重绘后跳回顶部）
+  if (lastSessionsData === null) {
+    // 拉取失败时保留失败文案，不被后续重渲染（switchSessionView/setBusy 等）顶成"加载中"
+    box.innerHTML = lastSessionsError
+      ? '<div class="fail-msg">' + esc(lastSessionsError) + '</div>'
+      : '<div class="empty">加载中...</div>';
+    return;
+  }
+  box.innerHTML = '';
+  if (!lastSessionsData.length) { box.innerHTML = '<div class="empty">（暂无历史会话）</div>'; return; }
+  lastSessionsData.forEach(s => {
+    const sid = s.sessionId;
+    const icon = sessionStatusIcon(sid, !!s.running);
+    const row = document.createElement('div');
+    row.className = 'sess-row' + (sid === state.sessionId ? ' cur' : '');
+    row.dataset.sid = sid;
+    // 第一行：状态图标 + 会话ID（窄栏省略号截断，title 看全称）
+    const l1 = document.createElement('div');
+    l1.className = 'sess-line';
+    const ic = document.createElement('span');
+    ic.className = 'sess-icon';
+    ic.textContent = icon;
+    if (icon === '●') ic.style.color = '#4ade80';
+    else if (icon === '○') ic.style.color = '#93c5fd';
+    ic.title = icon === '●' ? '运行中' : (icon === '○' ? '有未读' : '');
+    const name = document.createElement('span');
+    name.className = 'sess-sid';
+    name.textContent = sid;
+    name.title = sid;
+    l1.appendChild(ic);
+    l1.appendChild(name);
+    row.appendChild(l1);
+    // 第二行：Agent · 最后活动 · 轮次 · 状态
+    const bits = [];
+    if (s.agentName) bits.push(s.agentName);
+    if (s.savedAt) bits.push(fmtTs(s.savedAt));
+    bits.push((s.count == null ? 0 : s.count) + '条');
+    if (s.state) bits.push(s.state);
+    const meta = document.createElement('div');
+    meta.className = 'sess-meta';
+    meta.textContent = bits.join(' · ');
+    meta.title = meta.textContent;
+    row.appendChild(meta);
+    // 第三行：行内操作（与旧表格同四个 handler，行为不变）
+    const ops = document.createElement('div');
+    ops.className = 'sess-ops';
+    const mkBtn = (label, cls, fn) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      if (cls) b.className = cls;
+      b.onclick = () => fn(sid);
+      ops.appendChild(b);
+    };
+    mkBtn('继续', null, continueSession);
+    mkBtn('切换', null, switchSession);
+    mkBtn('清除上下文', null, clearSession);
+    mkBtn('删除', 'del', deleteSessionBtn);
+    row.appendChild(ops);
+    box.appendChild(row);
+  });
+  box.scrollTop = keep;
+}
+
+/** 拉取 + 渲染会话列表（首次/手动刷新/登录自动接续用）。返回原始会话数据 */
 async function loadSessions() {
   const box = $('#sessionsBox');
-  box.innerHTML = '<div class="empty">加载中...</div>';
+  if (box) box.innerHTML = '<div class="empty">加载中...</div>';
   try {
     const r = await apiCommand('sessions', { userId: state.userId });
-    const rows = (r.data || []).map(s => ({
-      sessionId: s.sessionId, agent: s.agentName || '', time: fmtTs(s.savedAt),
-      count: (s.count == null ? '' : s.count) + '条', state: s.state || ''
-    }));
-    renderTable(box, [['sessionId', '会话ID'], ['agent', 'Agent'], ['time', '最后消息'], ['count', '轮次'], ['state', '状态']], rows, 'sessionId');
-    // 每行加操作按钮
-    [...box.querySelectorAll('table.tbl tr')].slice(1).forEach((tr, i) => {
-      const sid = rows[i] && rows[i].sessionId;
-      if (!sid) return;
-      const td = document.createElement('td');
-      const b1 = document.createElement('button'); b1.textContent = '继续'; b1.onclick = () => continueSession(sid);
-      const b2 = document.createElement('button'); b2.textContent = '切换'; b2.onclick = () => switchSession(sid);
-      const b3 = document.createElement('button'); b3.textContent = '清除上下文'; b3.onclick = () => clearSession(sid);
-      const b4 = document.createElement('button'); b4.textContent = '删除'; b4.className = 'del'; b4.onclick = () => deleteSessionBtn(sid);
-      td.appendChild(b1); td.appendChild(b2); td.appendChild(b3); td.appendChild(b4);
-      tr.appendChild(td);
-    });
-    return r.data || [];
+    lastSessionsError = null;
+    lastSessionsData = (r.data || []).filter(s => s && s.sessionId);
+    renderSessionList();
+    return lastSessionsData;
   } catch (e) {
-    box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>';
+    lastSessionsError = e.message;   // 记住失败：后续 renderSessionList 重渲染时保住失败提示
+    if (box) box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>';
     return [];
   }
 }
+/** 手动刷新（先拉再渲染） */
+function refreshSessionList() { return loadSessions(); }
+
+let renderListTimer = null;
+/** 节流合并的列表重渲染：300ms 内多次调用只渲染一次（setBusy 等高频路径用） */
+function scheduleRenderSessionList() {
+  if (renderListTimer) return;
+  renderListTimer = setTimeout(() => { renderListTimer = null; renderSessionList(); }, 300);
+}
 /** 继续历史会话：恢复 sessionId + 加载历史到聊天窗。silent=true 时（登录自动接续）不弹 toast。返回 {ok, error} */
 async function continueSession(sid, silent) {
-  if (state.busy) {
-    if (!silent) toast('有进行中的对话，请先停止', 'err');
-    return { ok: false, error: '有进行中的对话，请先停止' };
-  }
   try {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
     if (r.success && r.data) {
-      state.sessionId = r.data.sessionId || sid;
-      localStorage.setItem('tlweb_session', state.sessionId);
-      $('#sessionId').value = state.sessionId;
-      // 恢复输入（会话被接管时禁用了）
-      $('#chatInput').disabled = false;
-      $('#sendBtn').disabled = false;
-      $('#msgList').innerHTML = '';
-      appendSysMsg('已恢复会话 ' + state.sessionId + ' (' + (r.data.count || 0) + ' 条历史)');
+      const target = r.data.sessionId || sid;
+      switchSessionView(target);         // 切到目标会话视图（恢复输入/忙碌态由它统一处理）
+      if (viewOf(target).busy) {
+        // 该会话正在流式：清屏重放会让进行中的回复变成孤儿节点（用户永远看不到），保留现场
+        if (!silent) toast('该会话正在运行中，保留现场（完成后可刷新恢复完整历史）', 'err');
+        restoreTaskCards(target);          // 现场保留但 box 可能是新页面的空盒：卡片仍需恢复
+        return { ok: true, error: null, busy: true };
+      }
+      clearSessionBox(target);           // 重建该会话视图：避免与上次浏览时渲染的旧内容重复
+      appendSysMsg('已恢复会话 ' + target + ' (' + (r.data.count || 0) + ' 条历史)');
       (r.data.history || []).forEach(h => {
         const hasAtts = !!(h && h.attachments && h.attachments.length);
         if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
@@ -894,11 +1213,12 @@ async function continueSession(sid, silent) {
         const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
         if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
       });
+      restoreTaskCards(target);          // 历史渲染完再补该会话的后台任务卡片（清屏时被一并清掉）
 
       // 会话占用声明（登录级互斥）：
       // silent（登录自动接续）→ 静默登记，被占用仅提示不接管；
       // 非 silent（面板"继续"按钮=明确接管意图）→ 直接 force 接管（踢对方下线），不弹窗
-      await claimSession(state.sessionId, !silent, silent);
+      await claimSession(target, !silent, silent);
     }
     if (!silent) toast(r.message || (r.error || ''), r.success ? 'ok' : 'err');
     return { ok: !!r.success, error: r.success ? null : (r.error || r.message || '未知错误') };
@@ -917,30 +1237,29 @@ async function claimSession(sid, force, silent) {
   const r = await apiCommand('claimSession', { sessionId: sid, loginId: state.loginId, force: force || false });
   if (!r.success || !r.data) return;
   if (r.data.occupied) {
-    appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；在会话面板点该会话『继续』可直接接管）');
+    appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；在左侧会话栏点该会话『继续』可直接接管）');
     return;
+  }
+  // 接管成功（force 且本机成为 owner）→ 清除本会话的 kicked 标记并恢复输入
+  const v = viewOf(sid);
+  if (v.kicked) {
+    v.kicked = false;
+    if (sid === state.sessionId) { $('#chatInput').disabled = false; $('#sendBtn').disabled = false; }
   }
   if (r.data.kicked) {
     appendSysMsg('💡 已接管会话，对方已下线');
   }
 }
 async function switchSession(sid) {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('session', { sessionId: sid });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
-    state.sessionId = sid;
-    localStorage.setItem('tlweb_session', sid);
-    $('#sessionId').value = sid;
-    // 恢复输入（会话被接管时禁用了）
-    $('#chatInput').disabled = false;
-    $('#sendBtn').disabled = false;
+    switchSessionView(sid);   // 切视图（localStorage/#sessionId/占用上报统一在 switchSessionView 里做）
+    restoreTaskCards(sid);    // 「进会话」的另一条路径（不重放历史）：补该会话的后台任务卡片
     toast(r.message || sid, 'ok');
-    reportCurrentSession();   // 切会话成功 → 上报新的当前会话
   } catch (e) { toast(e.message, 'err'); }
 }
 async function clearSession(sid) {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('clear', { sessionId: sid });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
@@ -948,32 +1267,25 @@ async function clearSession(sid) {
 }
 /** 删除会话：确认后删除该会话全部记录（DB/文件，不可恢复） */
 async function deleteSessionBtn(sid) {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   if (!confirm('确认删除会话 ' + sid + ' ？\n将删除该会话的全部历史记录，不可恢复。')) return;
   try {
     const r = await apiCommand('deleteSession', { sessionId: sid });
     toast(r.message || r.error, r.success ? 'ok' : 'err');
     if (r.success && state.sessionId === sid) {
-      // 当前会话被删：切换到新会话
-      state.sessionId = null;
-      localStorage.removeItem('tlweb_session');
-      $('#sessionId').value = '';
-      $('#msgList').innerHTML = '';
+      // 当前会话被删：开新会话（switchSessionView 顺带把被删会话的 box 从 #msgList 摘掉）
       newSession();
     }
     if (r.success) loadSessions();
   } catch (e) { toast(e.message, 'err'); }
 }
 async function resumeCheckpoint() {
-  if (state.busy) { toast('有进行中的对话，请先停止', 'err'); return; }
   try {
     const r = await apiCommand('resume', { userId: state.userId });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
     const d = r.data || {};
     // 切到断点会话（恢复以断点时的用户消息重新发起，走流式管道）
-    state.sessionId = d.sessionId || state.sessionId;
-    localStorage.setItem('tlweb_session', state.sessionId);
-    $('#sessionId').value = state.sessionId;
+    switchSessionView(d.sessionId || state.sessionId);
+    restoreTaskCards(d.sessionId || state.sessionId);   // 与 continueSession/switchSession 一致：补该会话的后台任务卡片
     appendMsg('user', d.userMessage || '（断点消息）');
     toast('找到断点会话 ' + d.sessionId + '，正在恢复执行...', 'info');
     // 流式恢复：streamChat 内部管理 busy/光标/SSE 渲染
@@ -1454,6 +1766,18 @@ async function doStatsAgent() {
 let currentApproval = null;
 function showApprovalModal(evt) {
   currentApproval = evt;
+  const stale = $('#approvalModal .ap-source');
+  if (stale) stale.remove();                        // 上一次审批可能带来源行 → 先清，防叠加
+  if (evt.fromTask) {
+    // 来自后台任务执行会话的审批：标注来源（本会话卡片里能查到名字就优先用）
+    const local = (evt.parentSessionId && evt.taskId
+      && viewOf(evt.parentSessionId).tasks[evt.taskId]) || null;
+    const el = document.createElement('div');
+    el.className = 'ap-source';
+    el.textContent = '来自后台任务：' + (evt.name || (local && local.name) || evt.taskId || '');
+    const desc = $('#apDesc');                      // 弹框结构：h3#apTitle → div#apDesc → 参数区
+    if (desc && desc.parentNode) desc.parentNode.insertBefore(el, desc);
+  }
   $('#apTitle').textContent = '⚠ 审批请求：' + (evt.toolName || '未知工具');
   $('#apDesc').textContent = evt.description || '需要您的确认';
   $('#apArgs').value = evt.args || '{}';

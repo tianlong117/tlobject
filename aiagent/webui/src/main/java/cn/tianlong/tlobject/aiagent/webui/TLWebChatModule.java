@@ -71,6 +71,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private final Map<String, java.util.concurrent.CopyOnWriteArrayList<TLWebChannel>> eventChannels = new ConcurrentHashMap<>();
     /** sessionId → userId（审批事件定位属主） */
     private final Map<String, String> sessionOwner = new ConcurrentHashMap<>();
+    /** 任务执行会话 → 发起信息（审批/事件路由到发起会话）；unregisterTaskSession 清理 */
+    private static class TaskSessionInfo { String parentSessionId; String taskId; String userId; }
+    private final Map<String, TaskSessionInfo> taskSessions = new ConcurrentHashMap<>();
     /** 会话登录占用：sessionId → loginId（登录级互斥——同一会话同时只允许一个登录继续；null 兼容旧前端不校验） */
     private final Map<String, String> sessionLogin = new ConcurrentHashMap<>();
     /** userId → 前端当前打开的会话（setCurrentSession 上报；定时任务执行期解析目标会话用） */
@@ -115,9 +118,16 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null，
                 // 让发布方回退到控制台直接打印，避免"以为有人渲染"而审批提示消失
                 return onApprovalEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            // ===== 后台任务（TLScheduleTaskSkill：会话归属登记 + msgBus 生命周期事件）=====
+            case "registerTaskSession":
+                return onRegisterTaskSession(msg);
+            case "unregisterTaskSession":
+                return onUnregisterTaskSession(msg);
+            case "taskStarted":
+            case "taskProgress":
             case "taskResult":
-                // 定时任务执行完毕的结果事件（msgBus 订阅）：按 userId 推给其全部 SSE 连接
-                return onTaskResultEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+                // 任务生命周期事件（msgBus 订阅）：按 userId 推给其全部 SSE 连接
+                return onTaskLifecycleEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -259,7 +269,11 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (params != null) {
             for (Map.Entry<String, Object> e : params.entrySet()) msg.setParam(e.getKey(), e.getValue());
         }
-        if (!msg.containsParam("userId") && userId != null) msg.setParam("userId", userId);
+        // 身份以登录态为准：无条件覆盖客户端 params 里的 userId（webui 是单登录界面，
+        // 任何 action 都不允许代他人发起）。此前"缺省才补"——客户端只要在 params 里带上
+        // userId（如 createBackgroundTask），就能以他人身份建任务/读他人会话（越权）。
+        // userId 来自 doLogin 写入 HttpSession（servlet sessionUserId / 本模块 currentUserId）。
+        if (userId != null) msg.setParam("userId", userId);
         TLMsg result;
         try {
             result = putMsg(serviceModule, msg);
@@ -639,7 +653,21 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return null;
     }
 
-    /** 查询 approvalGate 未决审批并按会话归属过滤（webchat_{userId}_ 前缀），返回结构化列表 */
+    /**
+     * 会话是否属于该用户：webchat_ 前缀按命名规则；task_* 等执行会话查归属表
+     * （taskSessions 由技能启动任务时登记，sessionOwner 由 chat/任务登记写入）。
+     * 两者都是 ConcurrentHashMap，直接查。
+     */
+    private boolean sessionBelongsTo(String sid, String userId) {
+        if (sid == null || sid.isEmpty() || userId == null || userId.isEmpty()) return false;
+        TaskSessionInfo tsi = taskSessions.get(sid);
+        if (tsi != null) return userId.equals(tsi.userId);
+        String owner = sessionOwner.get(sid);
+        if (owner != null) return userId.equals(owner);
+        return sid.startsWith("webchat_" + userId + "_");
+    }
+
+    /** 查询 approvalGate 未决审批并按会话归属过滤，返回结构化列表 */
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> pendingApprovalsOf(String userId) {
         List<Map<String, Object>> result = new ArrayList<>();
@@ -651,9 +679,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 if (!(o instanceof Map)) continue;
                 Map<String, Object> m = (Map<String, Object>) o;
                 String sid = String.valueOf(m.get("sessionId"));
-                // 归属过滤：仅处理 webchat_ 前缀会话（webchat_{userId}_）；自定义会话无法归属，不动
-                if (!sid.startsWith("webchat_")) continue;
-                if (!sid.startsWith("webchat_" + userId + "_")) continue;
+                // 归属过滤：webchat_{userId}_ 前缀 + task_* 执行会话（taskSessions/sessionOwner）；未知会话不动
+                if (!sessionBelongsTo(sid, userId)) continue;
                 result.add(m);
             }
         } catch (Exception e) {
@@ -685,7 +712,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             evt.put("approvalId", String.valueOf(m.get("approvalId")));
             evt.put("toolName", String.valueOf(m.get("toolName")));
             evt.put("description", String.valueOf(m.get("description")));
-            evt.put("sessionId", String.valueOf(m.get("sessionId")));
+            String sid = String.valueOf(m.get("sessionId"));
+            evt.put("sessionId", sid);
+            // 来自后台任务执行会话的审批：与 onApprovalEvent 对齐（前端提示"来自后台任务"并支持跳转）
+            TaskSessionInfo tsi = taskSessions.get(sid);
+            if (tsi != null) {
+                evt.put("parentSessionId", tsi.parentSessionId);
+                evt.put("taskId", tsi.taskId);
+                evt.put("fromTask", true);
+            }
             evt.put("args", String.valueOf(m.get("args")));
             channel.write(GSON.toJson(evt));
         }
@@ -734,6 +769,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         try {
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "approvalEvent").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "taskStarted").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "taskProgress").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "taskResult").setParam("object", this));
         } catch (Exception e) {
@@ -874,6 +913,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         evt.put("toolName", msg.getStringParam("toolName", ""));
         evt.put("description", msg.getStringParam("description", ""));
         evt.put("sessionId", sid);
+        // 来自后台任务执行会话的审批：带上发起会话与任务标识（前端提示"来自后台任务"并支持跳转）
+        TaskSessionInfo tsi = sid.isEmpty() ? null : taskSessions.get(sid);
+        if (tsi != null) {
+            evt.put("parentSessionId", tsi.parentSessionId);
+            evt.put("taskId", tsi.taskId);
+            evt.put("fromTask", true);
+        }
         evt.put("args", msg.getStringParam("args", "{}"));
         String json = GSON.toJson(evt);
         boolean sent = false;
@@ -893,21 +939,52 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     }
 
     /**
-     * 定时任务结果事件（msgBus 回调）：按 userId 推给其全部 SSE 连接。
-     * 前端收到后：结果会话 == 当前打开会话 → 提示并刷新历史；否则提示可切换。
-     * 事件带 userId 而非 sessionId——任务结果可能落在用户并未打开的会话里，
-     * 推给该用户的每个在线标签页，由前端按 sessionId 自行判断渲染方式。
+     * 任务会话归属登记（技能在任务启动时调用）：审批/事件定位到发起会话与属主。
+     * execSession/userId 缺一则拒绝——缺 userId 的事件无法按用户路由。
+     */
+    private TLMsg onRegisterTaskSession(TLMsg msg) {
+        String execSession = msg.getStringParam("execSession", "");
+        String userId = msg.getStringParam("userId", "");
+        if (execSession.isEmpty() || userId.isEmpty())
+            return createMsg().setParam(RESULT, false);
+        TaskSessionInfo info = new TaskSessionInfo();
+        info.parentSessionId = msg.getStringParam("parentSessionId", "");
+        info.taskId = msg.getStringParam("taskId", "");
+        info.userId = userId;
+        taskSessions.put(execSession, info);
+        sessionOwner.put(execSession, userId);       // 审批/流事件按 sessionId 找属主用
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private TLMsg onUnregisterTaskSession(TLMsg msg) {
+        String execSession = msg.getStringParam("execSession", "");
+        if (!execSession.isEmpty()) {
+            taskSessions.remove(execSession);
+            sessionOwner.remove(execSession);
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 任务生命周期事件（msgBus 回调：taskStarted/taskProgress/taskResult）：
+     * 按 userId 推给其全部 SSE 连接（多标签/多端共享）；前端按 sessionId 决定渲染到哪个会话。
      *
      * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
      */
-    private boolean onTaskResultEvent(TLMsg msg) {
+    private boolean onTaskLifecycleEvent(TLMsg msg) {
         String userId = msg.getStringParam("userId", "");
         Map<String, Object> evt = new LinkedHashMap<>();
-        evt.put("type", "taskResult");
+        evt.put("type", msg.getAction());            // taskStarted | taskProgress | taskResult
         evt.put("taskId", msg.getStringParam("taskId", ""));
-        evt.put("sessionId", msg.getStringParam("sessionId", ""));
+        evt.put("name", msg.getStringParam("name", ""));
+        evt.put("kind", msg.getStringParam("kind", ""));
+        evt.put("status", msg.getStringParam("status", ""));
+        evt.put("sessionId", msg.getStringParam("sessionId", ""));           // 渲染目标（发起会话）
+        evt.put("parentSessionId", msg.getStringParam("parentSessionId", ""));
         evt.put("creationSessionId", msg.getStringParam("creationSessionId", ""));
-        evt.put("text", msg.getStringParam("text", ""));
+        if (msg.containsParam("progressKind")) evt.put("progressKind", msg.getStringParam("progressKind", ""));
+        if (msg.containsParam("toolName")) evt.put("toolName", msg.getStringParam("toolName", ""));
+        if (msg.containsParam("text")) evt.put("text", msg.getStringParam("text", ""));
         String json = GSON.toJson(evt);
         boolean sent = false;
         java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
@@ -1112,6 +1189,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 订阅定时任务结果事件被拒绝", LogLevel.WARN);
             else
                 putLog("webui 已订阅定时任务结果事件（msgBus taskResult）", LogLevel.INFO);
+            // 任务生命周期事件·启动（TLScheduleTaskSkill 任务开跑时发布）
+            TLMsg taskStartRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "taskStarted").setParam("object", this));
+            if (taskStartRegMsg == null || !Boolean.TRUE.equals(taskStartRegMsg.getParam(RESULT)))
+                putLog("webui 订阅任务启动事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅任务启动事件（msgBus taskStarted）", LogLevel.INFO);
+            // 任务生命周期事件·进度（流式 chunk / 工具事件）
+            TLMsg taskProgRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "taskProgress").setParam("object", this));
+            if (taskProgRegMsg == null || !Boolean.TRUE.equals(taskProgRegMsg.getParam(RESULT)))
+                putLog("webui 订阅任务进度事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅任务进度事件（msgBus taskProgress）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("msgBus 订阅事件失败: " + e, LogLevel.WARN);
         }

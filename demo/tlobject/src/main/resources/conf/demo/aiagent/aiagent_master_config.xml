@@ -234,7 +234,10 @@
                statup="true"
                ownerAgent="aiagent_master"
                msgTaskModule="taskScheduler"
-               skillDescription="Create and manage scheduled tasks (定时任务). Use when the user asks to do something at a future time or repeatedly: '5秒后提醒我喝水', '每天早上8点查一下上证指数', 'every hour check X'. op=create with a natural-language prompt runs a full agent round at each fire and reports back into the chat; module+action sends a fixed message without the LLM. op=list/remove/update manage existing tasks."/>
+               maxConcurrentTasks="3"
+               progressPushIntervalMs="250"
+               taskStaleMinutes="30"
+               skillDescription="Create and manage tasks (定时任务/后台任务). Two kinds: (1) kind=background — run a LONG task immediately without blocking the conversation (e.g. 股票分析/长报告/批量处理), results come back into this session when done; (2) default schedule — fire at a future time or repeatedly (cron/delay/one_shot), results are reported back at each fire. op=create/list/remove/update/stop. Use kind=background when a request needs long-running analysis or a long report and should not block the chat."/>
         <!-- 桌面自动化：Java 版（纯 JDK Robot，零外部依赖；动作比 Python 版多 double_click/drag/key/
              wait/get_mouse_position/paste）。回退 Python 版 = 把 sameClassAs 改回 "scriptExecutionSkill"
              并恢复 interpreter/allowedScriptDir 两行 -->

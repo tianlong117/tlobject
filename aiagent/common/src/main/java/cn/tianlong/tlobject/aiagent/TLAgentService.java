@@ -68,7 +68,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("mcpList", "列出已安装的 MCP Agent");
         ACTION_REGISTRY.put("mcpRemove", "卸载 MCP Agent");
         ACTION_REGISTRY.put("mcpInfo", "查看 MCP 包的详细信息");
-        ACTION_REGISTRY.put("tasks", "定时任务管理（list|stop|resume|delete <task_id>）");
+        ACTION_REGISTRY.put("tasks", "定时任务管理（list|get|stop|resume|delete <task_id>）");
         ACTION_REGISTRY.put("trace", "查看当前会话最新一轮的环节记录（全链追踪）");
         // 注册表键即补全列表里的命令形态——带空格小写，与 /help 一致（dispatch 仍用 traceLlm/traceReplay 字面量）
         ACTION_REGISTRY.put("trace llm", "查看最新一轮完整 LLM 链路（messages → LLM 响应 → 最终输出）");
@@ -141,6 +141,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 定时任务管理 ──
             case "tasks":           return doTasks(fromWho, msg);
+            case "createBackgroundTask": return doCreateBackgroundTask(fromWho, msg);   // webui"后台执行"开关
 
             // ── 全链追踪 ──
             case "trace":           return doTrace(fromWho, msg);
@@ -662,10 +663,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
      */
     private TLMsg doTasks(Object fromWho, TLMsg msg) {
         String sub = msg.getStringParam("sub", "list");
-        if (!sub.equals("list") && !sub.equals("stop") && !sub.equals("resume") && !sub.equals("delete"))
-            return fail("未知子命令: /tasks " + sub + "（可用: list、stop <task_id>、resume <task_id>、delete <task_id>）");
+        if (!sub.equals("list") && !sub.equals("get") && !sub.equals("stop") && !sub.equals("resume") && !sub.equals("delete"))
+            return fail("未知子命令: /tasks " + sub + "（可用: list、get <task_id>、stop <task_id>、resume <task_id>、delete <task_id>）");
 
-        if (sub.equals("stop") || sub.equals("resume") || sub.equals("delete")) {
+        if (sub.equals("get") || sub.equals("stop") || sub.equals("resume") || sub.equals("delete")) {
             String tid = msg.getStringParam("task_id", "");
             if (tid == null || tid.isEmpty())
                 return fail("/tasks " + sub + " 需要 task_id（先 /tasks 查看列表）");
@@ -696,6 +697,60 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return error != null ? fail(error) : ok(message, data);
     }
 
+    /**
+     * 用户显式创建后台任务（webui"后台执行"开关）：转发 tasksCmd op=createBackground。
+     * 与 doTasks 同款：注册表取技能实例 + destination=agent + targetInstance 直投。
+     * 参数通道：prompt/name/sessionId/userId 走 args（技能侧 args 优先）；
+     * rootSessionId 走 systemArgs（技能侧只从 systemArgs 读）。
+     */
+    private TLMsg doCreateBackgroundTask(Object fromWho, TLMsg msg) {
+        // 注册表按家族名取技能实例（技能注册时以自身家族名为键）
+        TLMsg getMsg = createMsg().setAction(REGISTRY_GET)
+                .setParam(REGISTRY_P_KEY, agentModule + ":schedule_task");
+        getMsg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg got = putMsg(DEFAULTMODULEREGISTRY, getMsg);
+        Object skill = got == null ? null : got.getParam(INSTANCE);
+        if (!(skill instanceof IObject))
+            return fail("未找到任务技能 " + agentModule + ":schedule_task");
+
+        // webui handleCommand 把 params 全塞 args；但 UID/SID 也可能只落在 systemArgs 区（如控制台/框架内部调用）
+        String sid = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sid == null || sid.isEmpty()) {
+            Object sp = msg.getSystemParam(AI_P_SESSIONID, null);
+            sid = sp == null ? "" : String.valueOf(sp);
+        }
+        String uid = msg.getStringParam(AI_P_USERID, null);
+        if (uid == null || uid.isEmpty()) {
+            Object up = msg.getSystemParam(AI_P_USERID, null);
+            uid = up == null ? "" : String.valueOf(up);
+        }
+        // 归属校验（第二道防线，webui 入口已无条件用登录身份覆盖 userId）：
+        // webchat_ 前缀会话必须属于最终采用的用户，防止客户端指定他人会话 ID，把任务结果
+        // 注入他人会话；task_*/chat_* 等执行会话/控制台会话不在命名规则内，放行。
+        if (sid != null && sid.startsWith("webchat_") && !uid.isEmpty()
+                && !sid.startsWith("webchat_" + uid + "_")) {
+            return fail("会话不属于当前用户");
+        }
+
+        TLMsg fwd = createMsg()
+                .setDestination(agentModule)   // 必须显式设 destination：putMsg(TLMsg) 无 destination 会查 toWho 再回退发给自己
+                .setAction("tasksCmd")
+                .setParam("op", "createBackground")
+                .setParam("prompt", msg.getStringParam("prompt", ""))
+                .setParam("name", msg.getStringParam("name", ""))
+                .setParam(AI_P_USERID, uid)
+                .setParam(AI_P_SESSIONID, sid);
+        fwd.setSystemParam(AI_P_TARGETINSTANCE, skill);   // 通用投递：agent 按实例引用直投
+        // 根会话链：优先取消息显式值，缺省回落到发起会话（技能侧读不到时才自兜底——空串会挡住它的回落）
+        String rootSid = msg.getStringParam("rootSessionId", null);
+        if (rootSid == null || rootSid.isEmpty()) rootSid = sid;
+        if (!rootSid.isEmpty()) fwd.setSystemParam("rootSessionId", rootSid);
+        TLMsg r = putMsg(agentModule, fwd);
+        if (r == null) return fail("agent 模块无响应: " + agentModule);
+        String error = r.getStringParam("error", null);
+        return error != null ? fail(error) : ok(r.getStringParam("message", ""));
+    }
+
     /** 列出 Skill（registry 格式，同 /agents 风格） */
     @SuppressWarnings("unchecked")
     private TLMsg doListSkills(Object fromWho, TLMsg msg) {
@@ -720,14 +775,28 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return ok("Skill (" + filtered.size() + ")", filtered);
     }
 
-    /** 列出历史会话 → SessionManager */
+    /** 列出历史会话 → SessionManager；过滤 task_* 任务会话；附 running（agent 运行计数） */
+    @SuppressWarnings("unchecked")
     private TLMsg doListSessions(Object fromWho, TLMsg msg) {
         TLMsg result = putMsg(targetSessionManager(msg), createMsg()
                 .setAction("listSessions")
                 .setParam("userId", msg.getStringParam("userId", null)));
         if (result == null || !result.parseBoolean(RESULT, false)) return fail("无法获取会话列表");
         java.util.List<?> sessions = result.getListParam("sessions", java.util.List.of());
-        return ok("会话 (" + sessions.size() + ")", sessions);
+        java.util.List<Object> out = new java.util.ArrayList<>();
+        for (Object s : sessions) {
+            if (!(s instanceof Map)) { out.add(s); continue; }
+            Map<String, Object> m = new LinkedHashMap<>((Map<String, Object>) s);
+            Object sidObj = m.get("sessionId");
+            String sid = sidObj == null ? "" : String.valueOf(sidObj);
+            if (sid.startsWith("task_")) continue;               // 任务执行会话不进用户会话列表
+            TLMsg runMsg = createMsg().setAction("getSessionRunState").setParam(AI_P_SESSIONID, sid);
+            runMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg rq = putMsg(targetAgent(msg), runMsg);
+            if (rq != null) m.put("running", rq.getIntParam("running", 0) > 0);
+            out.add(m);
+        }
+        return ok("会话 (" + out.size() + ")", out);
     }
 
     /** 列出所有可用 action */

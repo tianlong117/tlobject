@@ -207,6 +207,9 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_TOOLNAME = "toolName";
     /** 通用实例投递：消息 systemArgs 携带的目标子模块实例引用（见 TLAiAgent.dispatchToInstance） */
     String AI_P_TARGETINSTANCE = "targetInstance";
+    /** 流式转发目标实例（私有子模块实例；必须用 setSystemParam 传——读取侧只查 systemArgs）。
+     *  勿用 AI_P_TARGETINSTANCE：checkMsgAction 会在 action 分发前拦截带该键的消息并弹回子模块。 */
+    String AI_P_STREAMFORWARDINSTANCE = "_streamForwardInstance";
     String AI_P_TOOLID = "toolId";
     String AI_P_TOOLARGUMENTS = "toolArguments";
     String AI_P_FUNCTIONDEFS = "functionDefinitions";

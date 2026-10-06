@@ -72,6 +72,7 @@
     - [HITL 人工审批](#hitl-人工审批)
     - [会话管理与断点恢复](#会话管理与断点恢复)
     - [Web 交互窗口（aiagent/webui）](#web-交互窗口aiagentwebui)
+    - [后台任务与多会话并行](#后台任务与多会话并行)
     - [工作流编排与字段级合并（TLAgentWorkflow）](#工作流编排与字段级合并tlagentworkflow)
 
 ---
@@ -1703,6 +1704,26 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 - 审批：审批请求经 SSE 推送到浏览器弹框，可编辑参数后批准或拒绝
 - 用户隔离：登录身份透传 agentService，data/{uid}/ 会话与记忆按用户隔离
 - 实现：TLWebChatModule（业务）+ TLWebChatServlet（IO 适配，TLJettyServer extraServlets 挂载），静态页内嵌 jar classpath
+
+### 后台任务与多会话并行
+
+**后台任务**（`kind=background`）让长任务不阻塞对话：创建即异步执行，主会话可继续聊天，
+完成后结果自动回到发起会话。与定时任务共用同一套记录与执行引擎（`schedule_task` 技能，
+持久化 `data/<userId>/scheduled_tasks/<ownerAgent>.json`）。
+（应用重启时，上次退出仍在跑的 background 任务会被标记为"已中断"并通知，不会残留显示"运行中"。）
+
+- **LLM 用法**：直接说"后台分析一下XX"（"这个太久了，放后台跑"），LLM 会调用
+  `schedule_task` 并带 `kind=background` 参数；任务在独立执行会话 `task_*` 中运行，
+  不占用当前对话轮次。
+- **UI 用法**：
+  - 输入框旁"后台执行"开关：打开后发送的消息直接作为后台任务执行，输入框立即释放
+  - 任务卡片：点开可看实时过程（流式输出/工具调用），可随时停止
+  - 左侧会话栏：● = 运行中（本地忙或有服务端 running 计数），○ = 有未读；切换会话不打断后台流
+- **结果去向**：发起会话空闲 → 直接注入对话流；发起会话忙（有轮次在跑）→ 轮末自动补一条
+  结果消息；浏览器已关闭 / 用户离线 → 进消息箱（下次登录提示）。运行中可用控制台 `/tasks`
+  查看与停止（web 端也有任务浮层）。
+- **上限配置**：每用户同时运行的后台任务数由技能参数 `maxConcurrentTasks` 控制（默认 3），
+  超限创建返回结构化拒绝；`taskStaleMinutes`（默认 30）为运行超时看门狗，超时强制收尾。
 
 ### 工作流编排与字段级合并（TLAgentWorkflow）
 

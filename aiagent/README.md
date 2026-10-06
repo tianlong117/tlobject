@@ -72,6 +72,7 @@ An AI Agent sub-framework built on the **TLObject Unified Object Message Program
     - [HITL Human Approval](#hitl-human-approval)
     - [Session Management and Checkpoint Resume](#session-management-and-checkpoint-resume)
     - [Web Interaction Window (aiagent/webui)](#web-interaction-window-aiagentwebui)
+    - [Background Tasks and Parallel Sessions](#background-tasks-and-parallel-sessions)
     - [Workflow Orchestration and Field-level Merge (TLAgentWorkflow)](#workflow-orchestration-and-field-level-merge-tlagentworkflow)
 
 ---
@@ -1753,6 +1754,31 @@ Open `http://localhost:8080/webui/chat.html` in a browser (change the port in th
 - User isolation: the login identity is passed through to agentService, and sessions and memory under data/{uid}/ are isolated per user
 - Implementation: TLWebChatModule (business logic) + TLWebChatServlet (IO adapter, mounted via TLJettyServer extraServlets), with static pages embedded in the jar classpath
 
+
+### Background Tasks and Parallel Sessions
+
+**Background tasks** (`kind=background`) keep long-running work from blocking a conversation: the task
+starts asynchronously, the main session stays free, and the result is delivered back into the
+originating session when it finishes. They share one record store and engine with scheduled tasks
+(the `schedule_task` skill, persisted to `data/<userId>/scheduled_tasks/<ownerAgent>.json`).
+(On application restart, background tasks that were still running are marked "interrupted" and the
+user is notified — they never linger as "running".)
+
+- **LLM usage**: just say "analyze X in the background" (or "this is slow, run it in the background");
+  the LLM calls `schedule_task` with `kind=background`. The task runs in a dedicated execution
+  session (`task_*`) and does not occupy the current conversation turn.
+- **UI usage**:
+  - The "run in background" toggle next to the input box executes the message as a background task
+    and releases the input immediately
+  - Task card: click to watch the live process (streamed output / tool calls) and stop it at any time
+  - Left session bar: ● = running (locally busy or server-side running count), ○ = unread results;
+    switching sessions does not interrupt background streams
+- **Delivery**: idle originating session → injected directly into the transcript; busy session →
+  appended at the end of the current round; browser closed / user offline → inbox (shown at next
+  login). Console `/tasks` lists and stops tasks (the web UI has a task overlay too).
+- **Limits**: `maxConcurrentTasks` (default 3) caps concurrently running background tasks per user —
+  over-limit creations get a structured rejection; `taskStaleMinutes` (default 30) is a stale-run
+  watchdog that force-finishes runaway tasks.
 
 ### Workflow Orchestration and Field-level Merge (TLAgentWorkflow)
 
