@@ -328,6 +328,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             d.put("module", rec.module == null ? "" : rec.module);
             d.put("action", rec.action == null ? "" : rec.action);
             d.put("executedCount", cntLong);
+            // background 运行标记（前端「后台任务」面板据此出停止按钮/绿点；与 get 分支同款）
+            if (background) d.put("running", runningTasks.containsKey(e.getKey()));
             // background 无调度：即使引擎里残留同名任务也不显示 nextDatetime
             if (!background && engineKnown && "运行中".equals(status))
                 d.put("nextDatetime", fmtTime(info.get("nextDatetime")));
@@ -354,6 +356,9 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         d.put("prompt", rec.prompt == null ? "" : rec.prompt);
         d.put("parentSessionId", rec.parentSessionId == null ? "" : rec.parentSessionId);
         d.put("execSession", rec.execSession == null ? "" : rec.execSession);
+        // 启动/结束时刻（epoch 毫秒；未跑过为 0）——前端后台任务面板算运行时长
+        d.put("startedAt", rec.startedAt);
+        d.put("finishedAt", rec.finishedAt);
         d.put("executedCount", rec.executedCount);
         d.put("enabled", rec.enabled);
         d.put("progressSnapshot", rec.progressSnapshot == null ? "" : rec.progressSnapshot);

@@ -29,6 +29,7 @@
     <label class="toggle"><input type="checkbox" id="streamToggle" checked> 流式</label>
     <span id="connState" class="conn" title="事件通道连接状态">●</span>
     <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
+    <button id="bgTasksBtn" class="ghost" title="后台任务（跨会话查看/停止/删除）">🚀 后台任务</button>
     <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
     <button id="logoutBtn" class="ghost">退出</button>
   </header>
@@ -175,6 +176,20 @@
     <div id="tasksBox" style="max-height:60vh;overflow:auto;"></div>
     <div class="btn-row">
       <button class="ok" onclick="closeTasks()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 后台任务浮层（顶栏 🚀 打开；跨会话查看全部后台任务）===== -->
+<div id="bgTasksModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🚀 后台任务</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadBgTasks()">刷新</button>
+    </div>
+    <div id="bgTasksBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeBgTasks()">关 闭</button>
     </div>
   </div>
 </div>

@@ -934,15 +934,17 @@ function bindEvents() {
   });
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
-  // 顶栏功能图标：定时任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
+  // 顶栏功能图标：定时任务 / 后台任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
   $('#tasksBtn').onclick = openTasks;
+  $('#bgTasksBtn').onclick = openBgTasks;
   $('#inboxBtn').onclick = openInbox;
   // 参数弹框：点遮罩关闭
   $('#paramModal').addEventListener('click', e => {
     if (e.target === $('#paramModal')) $('#paramModal').classList.add('hidden');
   });
-  // 任务/消息箱浮层：点遮罩关闭
+  // 任务/后台任务/消息箱浮层：点遮罩关闭
   $('#tasksModal').addEventListener('click', e => { if (e.target === $('#tasksModal')) closeTasks(); });
+  $('#bgTasksModal').addEventListener('click', e => { if (e.target === $('#bgTasksModal')) closeBgTasks(); });
   $('#inboxModal').addEventListener('click', e => { if (e.target === $('#inboxModal')) closeInbox(); });
   // 通用确认弹框
   $('#cfOkBtn').onclick = () => closeConfirm(true);
@@ -1038,14 +1040,21 @@ async function readAllInbox() {
   } catch (e) { toast('操作失败: ' + e.message, 'err'); }
 }
 
-/** 定时任务面板：列表 + 行内 暂停/恢复/删除（与控制台 /tasks 同语义） */
+/** 定时任务面板：列表 + 行内 暂停/恢复/删除（与控制台 /tasks 同语义）。
+ *  只显示定时任务：后台任务有专属面板（🚀 后台任务），不在此重复；LLM 的 op=list 仍是全量。 */
 async function loadTasks() {
   const box = $('#tasksBox');
   try {
     const r = await apiCommand('tasks', { sub: 'list' });
     if (!r.success) { box.innerHTML = '<div class="muted">' + esc(r.error || r.message || '加载失败') + '</div>'; return; }
-    const list = (r.data || []);
-    if (!list.length) { box.innerHTML = '<div class="muted">' + esc(r.message || '当前没有定时任务') + '</div>'; return; }
+    const all = (r.data || []);
+    const list = all.filter(t => t.kind !== 'background');
+    if (!list.length) {
+      box.innerHTML = '<div class="muted">' + esc(all.length
+        ? '当前没有定时任务（后台任务请在「🚀 后台任务」面板查看）'
+        : (r.message || '当前没有定时任务')) + '</div>';
+      return;
+    }
     // renderTable 约定：headers = [[key, 显示名], ...]，rows = {key: 值} 对象
     const headers = [['taskId', '任务ID'], ['status', '状态'], ['schedule', '调度'],
                      ['content', '提示词/内容'], ['executedCount', '已执行'], ['_op', '操作']];
@@ -1095,6 +1104,96 @@ async function loadTasks() {
   } catch (e) {
     box.innerHTML = '<div class="muted">加载异常: ' + esc(e.message) + '</div>';
   }
+}
+
+// ======================== 后台任务面板（跨会话查看全部后台任务） ========================
+// 与定时任务面板同数据源（tasks list 全量），只保留 kind=background；数据含
+// startedAt/finishedAt（epoch 毫秒，未跑过为 0）与 running（运行态标记，后端任务表）。
+let bgTasksTimer = null;
+function openBgTasks() { $('#bgTasksModal').classList.remove('hidden'); loadBgTasks(); }
+function closeBgTasks() {
+  $('#bgTasksModal').classList.add('hidden');
+  if (bgTasksTimer) { clearInterval(bgTasksTimer); bgTasksTimer = null; }
+}
+async function loadBgTasks() {
+  const box = $('#bgTasksBox');
+  if (!box) return;
+  try {
+    const r = await apiCommand('tasks', { sub: 'list' });
+    if (!r.success) {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message || '加载失败') + '</div>';
+      return;
+    }
+    const rows = (r.data || []).filter(x => x.kind === 'background');
+    renderBgTasks(rows);
+    // 打开期间每 5s 自刷新（运行时长/状态走动）；关闭即停
+    if (bgTasksTimer) clearInterval(bgTasksTimer);
+    bgTasksTimer = setInterval(() => {
+      if ($('#bgTasksModal').classList.contains('hidden')) { closeBgTasks(); return; }
+      loadBgTasks();
+    }, 5000);
+  } catch (e) {
+    box.innerHTML = '<div class="fail-msg">✗ ' + esc(e.message) + '</div>';
+  }
+}
+/** 毫秒时长 → 人话（秒/分秒/时分） */
+function fmtDur(ms) {
+  if (ms == null || ms < 0) return '';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + ' 秒';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + ' 分 ' + (s % 60) + ' 秒';
+  return Math.floor(m / 60) + ' 小时 ' + (m % 60) + ' 分';
+}
+function renderBgTasks(rows) {
+  const box = $('#bgTasksBox');
+  if (!rows.length) { box.innerHTML = '<div class="empty">暂无后台任务</div>'; return; }
+  const now = Date.now();
+  rows.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));   // 新的在前
+  let h = '<table class="tbl"><tr><th>任务</th><th>状态</th><th>启动时间</th><th>运行时长</th><th>操作</th></tr>';
+  rows.forEach(t => {
+    const running = t.running === true || t.localStatus === 'running';
+    const start = t.startedAt ? fmtTs(t.startedAt) : '—';
+    const dur = t.startedAt ? fmtDur((running ? now : (t.finishedAt || now)) - t.startedAt) : '—';
+    const name = esc(t.name || t.taskId);
+    const p = t.prompt || '';
+    const content = esc(p.length > 60 ? p.slice(0, 60) + '…' : p);
+    h += '<tr>'
+      + '<td title="' + esc(p) + '"><b>' + name + '</b><div class="sess-meta">' + content + '</div></td>'
+      + '<td>' + esc(t.status || '') + '</td>'
+      + '<td>' + esc(start) + '</td>'
+      + '<td>' + esc(dur) + (running ? ' <span style="color:#4ade80">●</span>' : '') + '</td>'
+      + '<td>'
+      + (running ? '<button onclick="bgTaskStop(\'' + esc(t.taskId) + '\')">停止</button> ' : '')
+      + '<button class="del" onclick="bgTaskDelete(\'' + esc(t.taskId) + '\')">删除</button>'
+      + '</td></tr>';
+  });
+  box.innerHTML = h + '</table>';
+}
+async function bgTaskStop(tid) {
+  const r = await apiCommand('tasks', { sub: 'stop', task_id: tid });
+  if (r && r.success) { toast('已请求停止任务', 'ok'); refreshSessionList(); }
+  else toast('[错误] ' + ((r && (r.error || r.message)) || '停止失败'), 'err');
+  loadBgTasks();
+}
+async function bgTaskDelete(tid) {
+  // 自绘确认弹框（全局单例 #confirmModal；window.confirm 会卡住 Playwright/自动化，项目已有统一弹框）
+  const ok = await confirmDialog('删除后台任务？',
+    '删除后台任务 ' + tid + '？任务记录删除；各会话里对应的任务卡片一并移除，已产生的结果消息保留。', '删 除');
+  if (!ok) return;
+  const r = await apiCommand('tasks', { sub: 'delete', task_id: tid });
+  if (!r || !r.success) { toast('[错误] ' + ((r && (r.error || r.message)) || '删除失败'), 'err'); return; }
+  // 同步移除各会话里的本地卡片（含脱离 DOM 的后台会话视图）
+  Object.keys(state.sessions).forEach(sid => {
+    const v = state.sessions[sid];
+    if (v && v.tasks && v.tasks[tid]) {
+      delete v.tasks[tid];
+      const el = v.box.querySelector('#tc_' + CSS.escape(tid));
+      if (el) el.remove();
+    }
+  });
+  toast('已删除任务', 'ok');
+  loadBgTasks(); refreshSessionList();
 }
 
 // ======================== 侧栏：会话列表 ========================
