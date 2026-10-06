@@ -1278,6 +1278,15 @@ async function claimSession(sid, force, silent) {
 }
 async function switchSession(sid) {
   try {
+    const v = viewOf(sid);
+    // 该会话从未载入过历史（空白盒）：走"继续"链路把历史补上——
+    // 此前「切换」只换视图不载历史，切过去是空白页（登录后仅第一条会话被自动继续，其余全空）
+    if (v.box.childNodes.length === 0 && !v.busy) {
+      const res = await continueSession(sid, true);   // silent：不弹成功提示；被占用只提示、不强夺
+      if (!res.ok) toast(res.error || '载入会话历史失败', 'err');
+      restoreTaskCards(sid);
+      return;
+    }
     const r = await apiCommand('session', { sessionId: sid });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
     switchSessionView(sid);   // 切视图（localStorage/#sessionId/占用上报统一在 switchSessionView 里做）
