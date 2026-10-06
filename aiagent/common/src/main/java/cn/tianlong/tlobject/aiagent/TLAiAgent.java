@@ -2476,6 +2476,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     // ======================== Memory操作 ========================
 
     protected TLMsg saveAgentMemory(Object fromWho, TLMsg msg) {
+        // 任务执行会话（task_*，定时/后台任务的机器触发轮次）不写长期记忆：
+        // 其"提问 → 回答"碎片对用户记忆无价值，且会被下一轮召回，形成"坏输出回流"闭环
+        //（2026-10-06 事故：一次复读记忆的输出被存为碎片，后续每轮召回再喂回，越滚越坏）
+        String sid = msg.getStringParam(AI_P_SESSIONID, "");
+        if (sid != null && sid.startsWith("task_")) {
+            return createMsg().setParam(RESULT, true).setParam("skipped", true);
+        }
         String storeName = msg.getStringParam("storeName", defaultMemoryStore);
         TLBaseMemory memory = memoryStores.get(storeName);
         if (memory == null) {
@@ -2868,7 +2875,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (full.size() <= contextViewSize) {
             List<TLConversationHistory> all = copyList(full);
             if (memoryContext != null && !memoryContext.isEmpty()) {
-                all.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+                insertMemorySystem(all, memoryContext);
             }
             applyManifest(all);
             applyImageRetention(all);
@@ -2924,6 +2931,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         stripImagePayloads(result);
         trimToContextBudget(result);
         return result;
+    }
+
+    /**
+     * 记忆 system 的注入位置：若最后一条是 user（非流式 doChat 先入列了用户消息），插到它之前——
+     * 记忆 dump 落在提问之后会被小模型当作续写目标：记忆碎片是"提示 → 回答"格式，
+     * 模型直接复读其中旧答案（2026-10-06 定时任务把记忆摘要当提醒内容输出的事故根因）。
+     * 否则追加到末尾：流式路径 buildSendList 先于本轮用户消息入列，末尾即"用户消息之前"，语义一致。
+     */
+    private void insertMemorySystem(List<TLConversationHistory> list, String memoryContext) {
+        TLConversationHistory mem =
+                new TLConversationHistory(TLConversationHistory.Role.system, memoryContext);
+        int idx = list.size();
+        if (!list.isEmpty() && list.get(list.size() - 1).getRole() == TLConversationHistory.Role.user) {
+            idx = list.size() - 1;
+        }
+        list.add(idx, mem);
     }
 
     private static List<TLConversationHistory> copyList(List<TLConversationHistory> src) {
