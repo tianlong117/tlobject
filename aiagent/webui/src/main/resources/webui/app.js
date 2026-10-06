@@ -1110,6 +1110,8 @@ async function loadTasks() {
 // 与定时任务面板同数据源（tasks list 全量），只保留 kind=background；数据含
 // startedAt/finishedAt（epoch 毫秒，未跑过为 0）与 running（运行态标记，后端任务表）。
 let bgTasksTimer = null;
+let bgDetailOpen = null;   // 当前展开明细行的 taskId（null=全部收起）；5s 自刷新重绘时按它恢复明细
+let bgLastRows = [];       // 最近一次渲染的行数据（「查看」就地插入明细时本地取数，不额外发请求）
 function openBgTasks() { $('#bgTasksModal').classList.remove('hidden'); loadBgTasks(); }
 function closeBgTasks() {
   $('#bgTasksModal').classList.add('hidden');
@@ -1147,28 +1149,95 @@ function fmtDur(ms) {
 }
 function renderBgTasks(rows) {
   const box = $('#bgTasksBox');
+  bgLastRows = rows;
+  if (bgDetailOpen && !rows.some(x => x.taskId === bgDetailOpen)) bgDetailOpen = null;   // 任务被删→收起明细
   if (!rows.length) { box.innerHTML = '<div class="empty">暂无后台任务</div>'; return; }
   const now = Date.now();
   rows.sort((a, b) => (b.startedAt || 0) - (a.startedAt || 0));   // 新的在前
   let h = '<table class="tbl"><tr><th>任务</th><th>状态</th><th>启动时间</th><th>运行时长</th><th>操作</th></tr>';
+  const liveOpen = [];   // 展开明细的运行中任务：innerHTML 落 DOM 后再补拉实时快照
   rows.forEach(t => {
-    const running = t.running === true || t.localStatus === 'running';
+    const running = bgRunning(t);
     const start = t.startedAt ? fmtTs(t.startedAt) : '—';
     const dur = t.startedAt ? fmtDur((running ? now : (t.finishedAt || now)) - t.startedAt) : '—';
     const name = esc(t.name || t.taskId);
     const p = t.prompt || '';
     const content = esc(p.length > 60 ? p.slice(0, 60) + '…' : p);
-    h += '<tr>'
+    h += '<tr data-tid="' + esc(t.taskId) + '">'
       + '<td title="' + esc(p) + '"><b>' + name + '</b><div class="sess-meta">' + content + '</div></td>'
       + '<td>' + esc(t.status || '') + '</td>'
       + '<td>' + esc(start) + '</td>'
       + '<td>' + esc(dur) + (running ? ' <span style="color:#4ade80">●</span>' : '') + '</td>'
       + '<td>'
+      + '<button onclick="bgTaskView(\'' + esc(t.taskId) + '\')">查看</button> '
       + (running ? '<button onclick="bgTaskStop(\'' + esc(t.taskId) + '\')">停止</button> ' : '')
       + '<button class="del" onclick="bgTaskDelete(\'' + esc(t.taskId) + '\')">删除</button>'
       + '</td></tr>';
+    // 展开中的明细行紧跟任务行之后（刷新重绘时按 bgDetailOpen 恢复）
+    if (t.taskId === bgDetailOpen) {
+      h += bgDetailRowHtml(t, now);
+      if (running) liveOpen.push(t);
+    }
   });
   box.innerHTML = h + '</table>';
+  liveOpen.forEach(bgFillLive);   // 明细就位后再拉快照（只在展开时发 get）
+}
+/** 后台任务是否运行中（list/get 的 running 标记 或 本地状态枚举） */
+function bgRunning(t) { return t.running === true || t.localStatus === 'running'; }
+/** 明细正文：头部元信息 + 按状态分支的结果/错误/快照（全部 esc 转义） */
+function bgDetailInner(t, now) {
+  const running = bgRunning(t);
+  const dur = t.startedAt ? fmtDur((running ? now : (t.finishedAt || now)) - t.startedAt) : '';
+  let h = '<div class="sess-meta">状态：' + esc(t.status || '') + ' ｜ 耗时：' + esc(dur || '—')
+        + ' ｜ 执行会话：' + esc(t.execSession || '—') + '</div>';
+  if (running) {
+    // 实时快照：先占位，bgFillLive 异步拉 tasks get 填充（完整过程在发起会话的任务卡片抽屉里）
+    h += '<div class="sess-meta">【实时快照】</div>'
+       + '<pre class="out" id="bgd_live_' + esc(t.taskId) + '">加载中…</pre>'
+       + '<div class="sess-meta">完整过程可在发起会话的任务卡片里查看</div>';
+  } else if (t.localStatus === 'done') {
+    h += '<pre class="out">' + esc(t.resultText ? t.resultText : '（无输出）') + '</pre>';
+  } else {   // 失败/已停止/已中断（及未知终态）：错误原因 + 部分输出
+    if (t.errorText) h += '<pre class="out">' + esc(t.errorText) + '</pre>';
+    if (t.progressSnapshot) h += '<div class="sess-meta">【部分输出】</div><pre class="out">' + esc(t.progressSnapshot) + '</pre>';
+    if (!t.errorText && !t.progressSnapshot) h += '<pre class="out">（无输出）</pre>';
+  }
+  return h;
+}
+/** 明细整行（id=bgd_<tid>：点击收起 / 刷新恢复都按它定位） */
+function bgDetailRowHtml(t, now) {
+  return '<tr class="bg-detail" id="bgd_' + esc(t.taskId) + '"><td colspan="5">' + bgDetailInner(t, now) + '</td></tr>';
+}
+/** 「查看」：展开/收起明细行。展开就地插入（用最近一次数据，不重拉列表）；运行中再异步补实时快照 */
+function bgTaskView(tid) {
+  const openEl = document.getElementById('bgd_' + tid);
+  if (bgDetailOpen === tid || openEl) {           // 再点一次→收起
+    bgDetailOpen = null;
+    if (openEl) openEl.remove();
+    return;
+  }
+  bgDetailOpen = tid;
+  const t = bgLastRows.find(x => x.taskId === tid);
+  const rowEl = Array.from(document.querySelectorAll('#bgTasksBox tr[data-tid]')).find(r => r.dataset.tid === tid);
+  if (!t || !rowEl) { loadBgTasks(); return; }    // 数据缺失兜底：整表重拉（渲染时按 bgDetailOpen 展开）
+  rowEl.insertAdjacentHTML('afterend', bgDetailRowHtml(t, Date.now()));
+  bgFillLive(t);
+}
+/** 运行中任务：tasks get 拉 liveSnapshot 填进已展开的明细行（仅明细打开时调用，5s 刷新重绘会重新触发） */
+async function bgFillLive(t) {
+  if (!bgRunning(t)) return;
+  const pre = document.getElementById('bgd_live_' + t.taskId);
+  if (!pre) return;                               // 明细没展开：不发请求
+  try {
+    const r = await apiCommand('tasks', { sub: 'get', task_id: t.taskId });
+    const cur = document.getElementById('bgd_live_' + t.taskId);   // 期间可能被收起/重绘
+    if (!cur) return;
+    if (!r || !r.success || !r.data) { cur.textContent = '（快照获取失败：' + ((r && (r.error || r.message)) || '未知错误') + '）'; return; }
+    cur.textContent = r.data.liveSnapshot || '（暂无输出）';
+  } catch (e) {
+    const cur = document.getElementById('bgd_live_' + t.taskId);
+    if (cur) cur.textContent = '（快照获取失败：' + e.message + '）';
+  }
 }
 async function bgTaskStop(tid) {
   const r = await apiCommand('tasks', { sub: 'stop', task_id: tid });

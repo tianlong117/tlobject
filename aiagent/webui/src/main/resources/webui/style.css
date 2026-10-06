@@ -164,6 +164,10 @@ table.tbl td button:hover { background: #2d3345; }
 table.tbl td button.del { color: #f87171; }
 table.tbl td button.del:hover { background: #3f1d1d; }
 table.tbl tr.cur td { background: #1a2138; }
+/* 后台任务明细行（每行「查看」展开）：结果/错误/快照全文，限高滚动 */
+.bg-detail td { background: #171a21; }
+.bg-detail .sess-meta { white-space: normal; }   /* 头部元信息/【部分输出】标注允许折行（sess-meta 默认单行省略） */
+.bg-detail pre.out { max-height: 300px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
 hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .ok-msg { color: #4ade80; font-size: 13px; }
 .fail-msg { color: #f87171; font-size: 13px; }
