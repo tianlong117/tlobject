@@ -1495,9 +1495,18 @@ async function continueSession(sid, silent) {
  * - force=false（登录自动接续 silent）→ 被占用时仅提示，不接管、不切新会话
  */
 async function claimSession(sid, force, silent) {
-  if (!state.loginId) return;
+  // 登录标识缺失时补生成并持久化：localStorage 被清/旧页面恢复路径（initSession 只读不生成）
+  // 会带着空 loginId 走到这里，此前直接 return——接管与占用提示全程静默失效（表现为"接管没反应"）
+  if (!state.loginId) {
+    state.loginId = 'login_' + state.userId + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+    localStorage.setItem('tlweb_loginid', state.loginId);
+  }
   const r = await apiCommand('claimSession', { sessionId: sid, loginId: state.loginId, force: force || false });
-  if (!r.success || !r.data) return;
+  if (!r.success || !r.data) {
+    // 响应异常不再静默：静默会让被踢的会话永久锁死（用户看不到任何反馈，也无法解锁）
+    toast('接管失败：' + (r.error || r.message || '响应异常'), 'err');
+    return;
+  }
   if (r.data.occupied) {
     appendSysMsg('⚠ 该会话正被另一登录使用（历史可查看，发消息将被拒绝；点该会话『接管』可直接夺回）');
     return;

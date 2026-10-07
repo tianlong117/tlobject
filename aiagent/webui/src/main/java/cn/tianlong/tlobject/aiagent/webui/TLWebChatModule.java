@@ -222,21 +222,24 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             boolean occupied = owner != null && !owner.equals(loginId);
             putLog("claimSession: session=" + sessionId + " login=" + loginId
                     + " owner=" + owner + " force=" + force + " occupied=" + occupied, LogLevel.INFO);
+            // 注意：data 必须用普通 LinkedHashMap——双花括号匿名子类（new LinkedHashMap(){{...}}）
+            // 会被 Gson 序列化成 null（jsonDataOutInterface），前端 `!r.data` 静默返回，
+            // 接管/被占用两个分支全失效（被踢的浏览器永远解不了锁，历史事故）
             if (occupied && !force) {
                 out.put("success", true);
-                out.put("data", new java.util.LinkedHashMap<String, Object>() {{
-                    put("occupied", true);
-                    put("owner", owner);
-                }});
+                Map<String, Object> d = new LinkedHashMap<>();
+                d.put("occupied", true);
+                d.put("owner", owner);
+                out.put("data", d);
                 return out;
             }
             if (occupied) pushKicked(userId, sessionId, owner);   // 接管：旧登录下线（定向踢）
             sessionLogin.put(sessionId, loginId);
             out.put("success", true);
-            out.put("data", new java.util.LinkedHashMap<String, Object>() {{
-                put("occupied", false);
-                put("kicked", occupied);
-            }});
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("occupied", false);
+            d.put("kicked", occupied);
+            out.put("data", d);
             return out;
         }
         // 当前活动会话上报（webui 自身逻辑，不转发 agentService——前端 /api/command 的消息
@@ -496,7 +499,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (!loginId.isEmpty()) {
             String owner = sessionLogin.get(sessionId);
             if (owner != null && !owner.equals(loginId)) {
-                return outJson(failMap("会话正被另一登录使用。请在右侧『会话』面板点击该会话的『继续』按钮接管，或开启新会话"), null);
+                return outJson(failMap("会话正被另一登录使用。请在左侧『会话』栏该会话行点击『接管』夺回，或开启新会话"), null);
             }
             sessionLogin.put(sessionId, loginId);
         }
@@ -602,7 +605,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (!loginId.isEmpty()) {
             String owner = sessionLogin.get(sessionId);
             if (owner != null && !owner.equals(loginId)) {
-                return outJson(failMap("会话正被另一登录使用。请在右侧『会话』面板点击该会话的『继续』按钮接管，或开启新会话"), null);
+                return outJson(failMap("会话正被另一登录使用。请在左侧『会话』栏该会话行点击『接管』夺回，或开启新会话"), null);
             }
             sessionLogin.put(sessionId, loginId);
         }
