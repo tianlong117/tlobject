@@ -1474,6 +1474,88 @@ git commit -m "WordTextEditor：文档级 replace（含段落限定/rewrite 逃�
 - Modify: `aiagent/word-java/src/main/java/cn/tianlong/tlobject/aiagent/word/WordTextEditor.java`
 - Modify: `aiagent/word-java/src/main/java/cn/tianlong/tlobject/aiagent/word/WordEngineSelfTest.java`
 
+### Step 0: 先修 `rewrite` 逃生舱的换行重复（Task 10 遗留）
+
+Task 10 实测：`rewriteParagraph` 吃的是 `p.getText()`，而 `XWPFRun.text()` 会把 `<w:br/>`
+**合成一个 `
+`**。原样写回就变成「`<w:t>` 里一个字面换行 + `<w:br/>` 元素仍在」——
+实测 `金额：${amount}
+尾注` → `金额：100
+尾注
+`（多一个换行，落盘重载后依然）。
+
+逃生舱是 `preserve` 跳过时的唯一退路，它自己坏了是不能接受的。
+
+修法两步：
+
+1. **调用方拉平时先去掉 `
+`/`	`**（`rewrite` 的语义本来就是"丢段内格式但必成"，
+   段内换行属于段内格式）：
+
+```java
+            if (rewrite) {
+                String t = p.getText();
+                if (t != null && t.contains(find)) {
+                    // getText() 把 br/tab 合成了 
+/	，直接写回会造成换行重复；
+                    // rewrite 语义=丢段内格式，故先拉平
+                    String flat = t.replace("
+", " ").replace("	", " ");
+                    int before = countOccurrences(flat, find);
+                    rewriteParagraph(p, flat.replace(find, replace));
+                    rep.replaced += before;
+                }
+            }
+```
+
+2. **`rewriteParagraph` 顺手清掉残留的 br/tab 元素**，否则新旧叠加还是会多出换行：
+
+```java
+    /** 整段重写：清空所有 run，用第一个 run 的格式写回（丢段内混合格式） */
+    static void rewriteParagraph(XWPFParagraph p, String newText) {
+        List<XWPFRun> runs = p.getRuns();
+        if (runs.isEmpty()) {
+            p.createRun().setText(newText);
+            return;
+        }
+        runs.get(0).setText(newText, 0);
+        for (int k = 1; k < runs.size(); k++) runs.get(k).setText("", 0);
+        // 清掉残留的 br/tab：否则它们会与新写入的文本重复（Task 10 实测）
+        for (XWPFRun r : runs) {
+            try {
+                org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
+                while (ctr.sizeOfBrArray() > 0) ctr.removeBr(0);
+                while (ctr.sizeOfTabArray() > 0) ctr.removeTab(0);
+            } catch (Throwable ignored) { }
+        }
+    }
+```
+
+3. 顺带修 `replaceInDocument` 里表格那段的**注释与代码不符**：注释写着"不做 skip 计数"，
+   但代码里有 `rep.skipped++`。**代码是对的**（表格单元格里的不安全 run 也该计数），
+   把注释改成"表格单元格里的不安全 run 同样计数"。
+
+加断言：
+
+```java
+        // rewrite 逃生舱不得重复换行
+        org.apache.poi.xwpf.usermodel.XWPFDocument dRw = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pRw = dRw.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rRw = pRw.createRun();
+        rRw.setText("金额：${amount}");
+        rRw.addBreak();
+        org.apache.poi.xwpf.usermodel.XWPFRun rRw2 = pRw.createRun();
+        rRw2.setText("尾注");
+        WordTextEditor.replaceInDocument(dRw, "${amount}", "100", -1, "rewrite");
+        check("rewrite: 不重复换行（只有一个 \n）",
+                dRw.getParagraphs().get(0).getText().equals("金额：100
+尾注"));
+        check("rewrite: 残留 br 已清掉",
+                dRw.getParagraphs().get(0).getRuns().stream()
+                        .noneMatch(r -> r.getCTR().sizeOfBrArray() > 0));
+```
+
+
 - [ ] **Step 1: 先写失败的自测**
 
 ```java
