@@ -75,7 +75,11 @@ main { display: flex; flex: 1; min-height: 0; }
 .sess-ops button.del:hover { background: #3f1d1d; }
 
 /* ===== 聊天窗口 ===== */
-#chatPane { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #2a2f3d; }
+/* 会话列：独立面板（底色 #171a21 略淡于页面 #12141a，不悬空）+ 右侧空栏（与左侧会话栏同宽）
+   面板打开时留白让位（右栏由面板占据）；滚动条随聊天框右缘（不再贴页面边） */
+#chatPane { flex: 1; display: flex; flex-direction: column; min-width: 0; border-right: 1px solid #2a2f3d;
+            background: #171a21; margin-right: 240px; }
+#chatView.panel-open #chatPane { margin-right: 0; }
 #msgList { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
 /* 每会话内容盒子（#msgList 的唯一 flex item，也是消息的气泡列）：
    .msg 的 align-self 左右对齐 / max-width 82% / gap 间距都相对它生效，
@@ -128,14 +132,6 @@ main { display: flex; flex: 1; min-height: 0; }
   cursor: pointer; white-space: nowrap; user-select: none; }
 #bgToggleWrap:hover { color: #d8dde6; }
 #bgToggleWrap input { accent-color: #3b82f6; cursor: pointer; margin: 0; }
-
-/* ===== 会话列右侧空栏：与左侧会话栏同宽 =====
-   面板关闭时右侧补 240px 留白 → 左右对称，用户消息不再贴窗口右缘；
-   面板打开时右栏由面板占据，留白让位（#chatView.panel-open 由 togglePanel 切换）。
-   消息区/上传条/输入区一起内缩，保证输入框与上方气泡列对齐 */
-#chatView:not(.panel-open) #msgList { padding-right: 240px; }
-#chatView:not(.panel-open) #uploadBar { padding-right: 240px; }
-#chatView:not(.panel-open) .chat-input { padding-right: 240px; }
 
 /* ===== 上传文件名条 ===== */
 #uploadBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 14px;
