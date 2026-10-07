@@ -180,9 +180,15 @@ git commit -m "POI 4.1.2→5.5.1：根 pom 统一版本 + execl 迁移 HSSFDateU
 ### Task 4: 5 个 aistart*.bat classpath 升级
 
 **Files:**
-- Modify: `aistart.bat`、`aistart-web.bat`、`aistart_dq.bat`、`aistart_tl.bat`、`aistart_xm.bat`
+- Modify: `aistart.bat`、`aistart-web.bat`（**入库**）
+- Modify 但**不入库**：`aistart_dq.bat`、`aistart_tl.bat`、`aistart_xm.bat`
 
 5 个文件的 POI 段**完全相同**，改动也完全一致。
+
+⚠️ **后 3 个被 `.gitignore:59-62` 忽略**（注释写着"个人变体启动脚本（机器相关路径）"，
+`git check-ignore` 已确认）。它们**必须在本机改**（否则那 3 个入口启动即 `NoClassDefFoundError`），
+但**不要 `git add -f` 强行入库**——那会把本机路径塞进公共仓库，违背 ignore 规则的意图。
+提交时只 `git add aistart.bat aistart-web.bat`。
 
 - [ ] **Step 1: 逐个替换 POI 段**
 
@@ -231,7 +237,7 @@ Run (python 比 grep 可靠，反斜杠不会骗人)：
 python -c "
 for f in ['aistart.bat','aistart-web.bat','aistart_dq.bat','aistart_tl.bat','aistart_xm.bat']:
     s=open(f,encoding='utf-8',errors='replace').read()
-    old=[x for x in ['4.1.2','3.1.0','poi-ooxml-schemas','SparseBitSet\\\\1.2','curvesapi\\\\1.06','commons-compress\\\\1.19','commons-io\\\\2.4','commons-collections4\\\\4.4','commons-codec\\\\1.15'] if x in s]
+    old=[x for x in ['poi-4.1.2.jar','SparseBitSet-1.2.jar','poi-ooxml-4.1.2.jar','poi-ooxml-schemas-4.1.2.jar','xmlbeans-3.1.0.jar','commons-compress-1.19.jar','curvesapi-1.06.jar','commons-io-2.4.jar','commons-collections4-4.4.jar','commons-codec-1.15.jar'] if x in s]
     new=[x for x in ['poi-5.5.1','xmlbeans-5.3.0','poi-ooxml-lite-5.5.1','SparseBitSet-1.3','curvesapi-1.08','commons-compress-1.28.0','commons-io-2.21.0','commons-collections4-4.5.0','commons-codec-1.20.0'] if x in s]
     print(f, '残留=', old or 'none', '| 新=', len(new), '/9')
 "
@@ -239,8 +245,12 @@ for f in ['aistart.bat','aistart-web.bat','aistart_dq.bat','aistart_tl.bat','ais
 
 Expected: 5 行，每行 `残留= none | 新= 9/9`。
 
-⚠️ 注意 bat 里同时还有别的 jar 版本号（如 `jetty 12.0.16`），**不要**全局替换 `4.1.2` 这类
-字符串——只动上面列出这 10 条路径。
+⚠️ **残留项必须用带版本号的完整 jar 文件名，不能用裸版本号**。裸 `4.1.2` 会**假阳性**
+——它是 `netty-all-4.1.25.Final.jar` 的子串。这个坑在 Task 4 首次执行时实测踩到过。
+用文件名（而非完整路径）也顺带避开了反斜杠转义问题。
+
+⚠️ 同理，编辑时**只替换完整路径子串**，绝不做全局版本号替换——classpath 里还有
+jetty `12.0.16`、jna `5.14.0`、jline `3.26.3` 等大量其他 jar。
 
 - [ ] **Step 3: Commit**
 
