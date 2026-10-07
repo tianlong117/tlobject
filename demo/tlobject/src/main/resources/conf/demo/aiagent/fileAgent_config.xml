@@ -41,6 +41,13 @@
                statup="true"
                skillName="file_operation"
                skillDescription="Read and write files on the local filesystem. Operations: read, write, list, exists, delete."/>
+        <skill name="word"
+               sameClassAs="wordJavaSkill"
+               statup="true"
+               skillName="word"
+               allowedRootPath="."
+               workDir="data/documents"
+               skillDescription="Read, create and modify Microsoft Word .docx documents. Actions: read (structured text with paragraph numbers and styles), outline (headings only - use this FIRST on a long document), tables, info, create/append (content is Markdown: # headings, - bullets, |a|b| tables, **bold**, --- page break), replace (find/replace, preserves formatting by default; mode=rewrite if a paragraph is skipped), set_paragraph, insert_paragraph, delete_paragraph, set_table_cell, add_table_row, fill_template (replaces ${key}/{{key}} placeholders in body and tables). ONLY .docx is supported - .doc must be re-saved as .docx first. WORKFLOW: call outline or read first to get PARAGRAPH NUMBERS, then use those numbers with the modify actions - never guess. Paragraph numbers SHIFT after insert_paragraph/delete_paragraph, so re-read before the next edit. replace reports a skipped count when a paragraph contains hyperlinks or field codes (those cannot be edited in place without damage) - if skipped>0, retry that edit with mode=rewrite."/>
     </skills>
 
     <memoryStores>

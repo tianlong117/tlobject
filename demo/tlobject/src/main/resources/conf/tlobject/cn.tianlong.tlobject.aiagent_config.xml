@@ -34,6 +34,9 @@
              切换=把 agent 配置里的 sameClassAs="scriptExecutionSkill" 改成 "desktopJavaSkill" -->
         <module name="desktopJavaSkill" classfile="cn.tianlong.tlobject.aiagent.desktop.TLDesktopJavaSkill"
                 singleton="true"/>
+        <!-- Word 文档处理技能（进程内 POI，无子进程）；仅 .docx，.doc 需先另存 -->
+        <module name="wordJavaSkill" classfile="cn.tianlong.tlobject.aiagent.word.TLWordJavaSkill"
+                singleton="true"/>
         <module name="scheduleTaskSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScheduleTaskSkill"
                 singleton="true"/>
         <module name="browserSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBrowserSkill"
