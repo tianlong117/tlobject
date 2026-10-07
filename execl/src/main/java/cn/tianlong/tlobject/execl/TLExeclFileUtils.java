@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.utils.TLDateUtils;
 import org.apache.poi.hssf.usermodel.*;
 import org.apache.poi.poifs.filesystem.POIFSFileSystem;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DateUtil;
 import org.apache.poi.ss.usermodel.HorizontalAlignment;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -153,7 +154,7 @@ public class TLExeclFileUtils {
             //以下是判断数据的类型
             switch (cell.getCellType()) {
                 case NUMERIC://数字
-                    if(HSSFDateUtil.isCellDateFormatted(cell)) {
+                    if(DateUtil.isCellDateFormatted(cell)) {     // POI 5.0 起 HSSFDateUtil 已删除
                         Date date = cell.getDateCellValue();
                         if(date != null) {
                             value = TLDateUtils.dateToStr(date,null);
