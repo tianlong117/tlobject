@@ -1231,6 +1231,86 @@ git commit -m "WordTextEditor：跨 run 匹配 + 最小重建保格式替换核�
 - Modify: `aiagent/word-java/src/main/java/cn/tianlong/tlobject/aiagent/word/WordTextEditor.java`
 - Modify: `aiagent/word-java/src/main/java/cn/tianlong/tlobject/aiagent/word/WordEngineSelfTest.java`
 
+### Step 0: 先修 `replaceInParagraph` 的原子性（Task 9 遗留）
+
+Task 9 实测发现：`replaceInParagraph` 的**不安全 run 检查在替换循环内部**。若一段里有两处
+匹配、第二处才碰到不安全 run，第一处**已经被改写了**才返回 `-2`。后果：
+
+- `replaceInDocument` 会把它记成 `skipped++` 而不是 `replaced++` —— **计数误报**
+- 用户拿到的是**半改**的段落，既不是"改好"也不是"没改"
+
+修法：**预扫描**。先把本段所有匹配的 run 区间算一遍，只要有一处会碰到不安全 run，
+整段直接返回 `-2`、一个字不动。保证"要么整段改完、要么整段不动"。
+
+在 `WordTextEditor` 里加：
+
+```java
+    /**
+     * 预扫描：本段所有 find 匹配的 run 区间里，是否有一处会碰到不安全 run。
+     * 用于保证整段替换的原子性——不能改了一半才发现后面有一处碰不得。
+     */
+    private static boolean anyHitUnsafe(XWPFParagraph p, String find) {
+        List<XWPFRun> runs = p.getRuns();
+        List<Span> spans = new ArrayList<>();
+        StringBuilder full = new StringBuilder();
+        for (XWPFRun r : runs) {
+            String t = r.text();
+            if (t == null) t = "";
+            spans.add(new Span(full.length(), full.length() + t.length(), r));
+            full.append(t);
+        }
+        String hay = full.toString();
+        int scan = 0;
+        while (true) {
+            int ms = hay.indexOf(find, scan);
+            if (ms < 0) return false;
+            int me = ms + find.length();
+            int ri = -1, rj = -1;
+            for (int k = 0; k < spans.size(); k++) {
+                Span s = spans.get(k);
+                if (ri < 0 && s.start <= ms && ms < s.end) ri = k;
+                if (s.start < me && me <= s.end) { rj = k; break; }
+            }
+            if (ri < 0 || rj < 0 || ri > rj) { scan = ms + 1; continue; }
+            for (int k = ri; k <= rj; k++) if (isUnsafeRun(spans.get(k).run)) return true;
+            scan = me;
+        }
+    }
+```
+
+再把 `replaceInParagraph` 改成：**开头预扫描，循环里那三行不安全检查删掉**：
+
+```java
+    public static int replaceInParagraph(XWPFParagraph p, String find, String replace) {
+        if (find == null || find.isEmpty()) return 0;
+        List<XWPFRun> runs = p.getRuns();
+        if (runs.isEmpty()) return 0;
+        if (anyHitUnsafe(p, find)) return SKIPPED_UNSAFE;    // 原子性：先判后改，不做半改
+        ...
+```
+
+并加断言（**放在 Step 1 的断言里一起跑**）：
+
+```java
+        // 原子性：一处可改、一处不可改时，整段不动
+        org.apache.poi.xwpf.usermodel.XWPFDocument dAtom =
+                new org.apache.poi.xwpf.usermodel.XWPFDocument();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pAtom = dAtom.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rA = pAtom.createRun();
+        rA.setText("目标");
+        org.apache.poi.xwpf.usermodel.XWPFRun rB = pAtom.createRun();
+        rB.setText("目标");
+        rB.addBreak();                    // 第二个 run 不安全
+        String before = pAtom.getText();
+        check("原子性: 段内后一处不可改 → 整段放弃（-2）",
+                WordTextEditor.replaceInParagraph(pAtom, "目标", "改后") == -2);
+        check("原子性: 前一处也没被改（不是半改状态）", before.equals(pAtom.getText()));
+```
+
+⚠️ 注意 `addBreak()` 会让 `run.text()` 多一个 `
+`，`before` 要**在替换前**取，用它的实际值比对。
+
+
 - [ ] **Step 1: 先写失败的自测**
 
 ```java
