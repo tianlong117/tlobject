@@ -81,6 +81,8 @@ Built-in modules extending `TLBaseModule`:
 | `demo/` | Runnable example applications |
 | `aiagent/` | AI Agent framework: LLM chat, tools/skills, memory, streaming |
 
+- POI 统一 5.5.1（根 pom `<dependencyManagement>` 钉死）：`execl`（Excel）与 `aiagent/word-java`（Word）共用同一版本——同 classpath 上两个 POI 版本会同名类"先到先得"，行为不可预测。升级注意：`HSSFDateUtil` 在 POI 5.0 已删除（改 `org.apache.poi.ss.usermodel.DateUtil`）；`poi-ooxml-schemas` 改名为 `poi-ooxml-lite`；5 个 `aistart*.bat` 的 classpath 是**真正生效的运行时 classpath**（项目不 shade jar），改 pom 不改 bat 会导致启动时 `NoClassDefFoundError`。
+
 ### AI Agent Framework (`aiagent/`) — `cn.tianlong.tlobject.aiagent`
 
 消息对象编程模型下的 AI 大模型智能体子框架。Agent 接收用户输入 → LLM 分析意图 → 调用 Skill 执行 → 返回结果。支持流式/非流式、多轮对话、记忆管理。
@@ -98,6 +100,7 @@ Built-in modules extending `TLBaseModule`:
 | `httpRequestSkill` | `TLHttpRequestSkill` | HTTP 请求 Skill (tool: http_request) |
 | `fileOperationSkill` | `TLFileOperationSkill` | 文件读写 Skill (tool: file_operation) |
 | `codeExecutionSkill` | `TLCodeExecutionSkill` | 代码执行 Skill (tool: code_execution) |
+| `wordJavaSkill` | `TLWordJavaSkill` | Word 文档读/写/改 Skill (tool: word)；独立模块 `aiagent/word-java` |
 | `shortTermMemory` | `TLShortTermMemoryModule` | 短期记忆（内存+TTL） |
 | `longTermMemory` | `TLLongTermMemoryModule` | 长期记忆（文件持久化） |
 | `streamCallback` | `TLStreamCallback` | 流式回调通用模块 |
