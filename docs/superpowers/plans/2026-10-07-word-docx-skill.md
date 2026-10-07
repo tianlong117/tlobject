@@ -1571,6 +1571,15 @@ git commit -m "WordTextEditor：段落增删改 + 表格单元格/加行（越�
         check("writer: 标题段落已建", d11.getParagraphs().get(0).getText().equals("报告"));
         check("writer: 标题用了 Heading1",
                 "Heading1".equals(d11.getParagraphs().get(0).getStyle()));
+        // 标题必须是"真标题"：直接格式（粗体）与 outlineLvl 都要落盘，
+        // 否则 Word 打开可能退化成正文、导航窗格不认（Task 8 实测发现 new XWPFDocument()
+        // 没有 styles part，只写 pStyle 是悬空引用）
+        check("writer: 标题 run 是粗体（直接格式兜底）",
+                d11.getParagraphs().get(0).getRuns().get(0).isBold());
+        check("writer: 标题设了 outlineLvl=0",
+                d11.getParagraphs().get(0).getCTP().getPPr() != null
+                        && d11.getParagraphs().get(0).getCTP().getPPr().getOutlineLvl() != null
+                        && d11.getParagraphs().get(0).getCTP().getPPr().getOutlineLvl().getVal().intValue() == 0);
         check("writer: 正文段落", d11.getParagraphs().get(1).getText().equals("正文一段"));
         check("writer: 列表项", d11.getParagraphs().get(2).getText().equals("甲"));
         check("writer: 表格已建 2行2列",
@@ -1615,8 +1624,9 @@ public final class WordMarkdownWriter {
             switch (b.type) {
                 case HEADING: {
                     XWPFParagraph p = doc.createParagraph();
-                    p.setStyle("Heading" + Math.max(1, Math.min(6, b.level)));
-                    writeSpans(p, b.spans);
+                    int lv = Math.max(1, Math.min(6, b.level));
+                    applyHeading(p, lv);
+                    writeSpans(p, b.spans, lv);
                     break;
                 }
                 case PARAGRAPH: {
@@ -1667,10 +1677,47 @@ public final class WordMarkdownWriter {
         }
     }
 
+    /**
+     * 把段落标成标题。**三重设定，缺一不可**（Task 8 实测发现）：
+     *
+     *  1. `pStyle="HeadingN"` —— 常规做法，Word 会去 styles.xml 找定义
+     *  2. `outlineLvl=N-1` —— 直接写在段落属性上。**关键**：`new XWPFDocument()` 根本没有
+     *     styles part（getStyles() 返回 null），createStyles() 建出来也是空的、不含 HeadingN
+     *     定义。只写 pStyle 就是个悬空引用——Word 可能退回正文、导航窗格不认。
+     *     写了 outlineLvl 则导航/大纲级别无条件成立。
+     *  3. 直接格式（粗体 + 字号）—— 即使前两者都不被识别，看上去也仍是标题
+     *
+     * 三重叠加后，无论 Word / WPS / POI 哪家、无论 styles part 在不在，标题都成立。
+     */
+    static void applyHeading(XWPFParagraph p, int lv) {
+        p.setStyle("Heading" + lv);
+        try {
+            org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr pPr = p.getCTP().isSetPPr()
+                    ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
+            pPr.addNewOutlineLvl().setVal(java.math.BigInteger.valueOf(lv - 1));
+        } catch (Throwable ignored) { }
+    }
+
+    /** 标题的字号表（磅） */
+    static int headingFontSize(int lv) {
+        switch (lv) {
+            case 1: return 20;
+            case 2: return 16;
+            case 3: return 14;
+            default: return 12;
+        }
+    }
+
     private static void writeSpans(XWPFParagraph p, List<WordMarkdown.Span> spans) {
+        writeSpans(p, spans, 0);
+    }
+
+    /** lv>0 时按标题级别加粗并设字号（直接格式兜底） */
+    private static void writeSpans(XWPFParagraph p, List<WordMarkdown.Span> spans, int lv) {
         for (WordMarkdown.Span s : spans) {
             XWPFRun r = p.createRun();
-            r.setBold(s.bold);
+            r.setBold(s.bold || lv > 0);
+            if (lv > 0) r.setFontSize(headingFontSize(lv));
             r.setText(s.text);
         }
     }
