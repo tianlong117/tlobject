@@ -914,6 +914,33 @@ async function restoreTaskCards(sid) {
   } catch (e) { /* 恢复失败静默：不打扰会话进入流程 */ }
 }
 
+// ======================== 右侧设置/调试面板（默认隐藏 + 可拖宽） ========================
+const PANEL_W_DEFAULT = 420;                                            // 默认宽度（双击把手复位到此值）
+const PANEL_W_MIN = 280;                                                // 最小宽度（四个 Tab 标签排得下）
+const PANEL_W_KEY = 'tlweb_panelw';                                     // localStorage 键
+function panelWMax() { return Math.round(window.innerWidth * 0.7); }    // 上限动态算：保证聊天区不被压没
+
+/** 宽度统一夹取：非法值（NaN/0/负）回退默认，越界夹到 [MIN, 70vw] */
+function clampPanelWidth(w) {
+  w = Number(w);
+  if (!Number.isFinite(w) || w <= 0) w = PANEL_W_DEFAULT;
+  return Math.max(PANEL_W_MIN, Math.min(w, panelWMax()));
+}
+/** 应用面板宽度：写 flex-basis + 记忆到 localStorage */
+function setPanelWidth(w) {
+  w = clampPanelWidth(w);
+  $('#panelPane').style.flexBasis = w + 'px';
+  localStorage.setItem(PANEL_W_KEY, String(w));
+}
+/** 顶栏 ⚙ 开关：切换 hidden + 按钮高亮；打开时应用记忆宽度（此刻夹取，兜住"窗口变小了"） */
+function togglePanel() {
+  const pane = $('#panelPane');
+  const willOpen = pane.classList.contains('hidden');
+  pane.classList.toggle('hidden', !willOpen);
+  $('#panelBtn').classList.toggle('on', willOpen);
+  if (willOpen) setPanelWidth(localStorage.getItem(PANEL_W_KEY));
+}
+
 // ======================== 事件绑定 ========================
 function bindEvents() {
   $('#loginBtn').onclick = doLogin;
@@ -942,6 +969,8 @@ function bindEvents() {
     document.querySelectorAll('#tabBar button').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === btn.dataset.tab));
   });
+  // 右侧设置/调试面板：顶栏开关（拖拽调宽在 Task 4 接入）
+  $('#panelBtn').onclick = togglePanel;
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
   // 顶栏功能图标：定时任务 / 后台任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
@@ -963,7 +992,8 @@ function bindEvents() {
     if (!$('#tasksModal').classList.contains('hidden')) { closeTasks(); return; }
     if (!$('#inboxModal').classList.contains('hidden')) { closeInbox(); return; }
     if (!$('#checkpointModal').classList.contains('hidden')) { $('#checkpointModal').classList.add('hidden'); return; }
-    if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); }
+    if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); return; }
+    if (!$('#panelPane').classList.contains('hidden')) { togglePanel(); }
   });
   // 通用确认弹框
   $('#cfOkBtn').onclick = () => closeConfirm(true);
