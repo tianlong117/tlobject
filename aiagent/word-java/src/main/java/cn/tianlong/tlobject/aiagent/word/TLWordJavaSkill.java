@@ -133,11 +133,18 @@ public class TLWordJavaSkill extends TLBaseSkill {
         }
     }
 
-    /** 每用户独立工作目录；userId 缺省 default（与 attachmentStore 的 data/{uid}/ 约定一致） */
+    /** 每用户独立工作目录。userId 三通道取：args → systemArgs → sessionId 兜底
+     *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏） */
     private JavaWordEngine ensureEngine(TLMsg msg) {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
         cfg.allowedRoot = Paths.get(allowedRootPath);
-        String userId = msg.getStringParam(AI_P_USERID, "default");
+        String userId = msg.getStringParam(AI_P_USERID, null);
+        if (userId == null || userId.isEmpty()) {
+            Object u = msg.getSystemParam(AI_P_USERID, null);
+            userId = (u == null || String.valueOf(u).isEmpty())
+                    ? String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"))
+                    : String.valueOf(u);
+        }
         cfg.workDir = Paths.get(workDir).resolve(userId);
         return new JavaWordEngine(cfg);
     }
