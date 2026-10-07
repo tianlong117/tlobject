@@ -129,6 +129,14 @@ main { display: flex; flex: 1; min-height: 0; }
 #bgToggleWrap:hover { color: #d8dde6; }
 #bgToggleWrap input { accent-color: #3b82f6; cursor: pointer; margin: 0; }
 
+/* ===== 会话列右侧空栏：与左侧会话栏同宽 =====
+   面板关闭时右侧补 240px 留白 → 左右对称，用户消息不再贴窗口右缘；
+   面板打开时右栏由面板占据，留白让位（#chatView.panel-open 由 togglePanel 切换）。
+   消息区/上传条/输入区一起内缩，保证输入框与上方气泡列对齐 */
+#chatView:not(.panel-open) #msgList { padding-right: 240px; }
+#chatView:not(.panel-open) #uploadBar { padding-right: 240px; }
+#chatView:not(.panel-open) .chat-input { padding-right: 240px; }
+
 /* ===== 上传文件名条 ===== */
 #uploadBar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 14px;
   border-top: 1px solid #2a2f3d; background: #1b1e27; font-size: 12px; color: #9aa3b2; }

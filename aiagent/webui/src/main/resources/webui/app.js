@@ -938,6 +938,7 @@ function togglePanel() {
   const willOpen = pane.classList.contains('hidden');
   pane.classList.toggle('hidden', !willOpen);
   $('#panelBtn').classList.toggle('on', willOpen);
+  $('#chatView').classList.toggle('panel-open', willOpen);   // 会话列右侧空栏让位（见 style.css）
   if (willOpen) setPanelWidth(localStorage.getItem(PANEL_W_KEY));
 }
 
