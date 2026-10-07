@@ -129,7 +129,15 @@ main { display: flex; flex: 1; min-height: 0; }
 #uploadBar button.ub-clear:hover { border-color: #f87171; }
 
 /* ===== 命令面板 ===== */
-#panelPane { width: 420px; display: flex; flex-direction: column; min-height: 0; }
+/* 命令面板：默认隐藏（顶栏 ⚙ 开关）；宽度走 flex-basis（JS 拖动改写），flex 不涨不缩防被压 */
+#panelPane { flex: 0 0 420px; position: relative; display: flex; flex-direction: column; min-height: 0; }
+/* 拖拽把手：贴左边缘（±居中在边界上），col-resize；悬停/拖动中高亮 */
+#panelResizer { position: absolute; left: -2px; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 5; touch-action: none; }
+#panelResizer:hover, body.dragging #panelResizer { background: #3b82f6; }
+/* 拖动中：禁选中文本 + 全局 col-resize 光标 */
+body.dragging { user-select: none; cursor: col-resize; }
+/* 顶栏「设置/调试」按钮：面板打开时高亮 */
+#panelBtn.on { color: #93c5fd; border-color: #3b82f6; }
 #tabBar { display: flex; border-bottom: 1px solid #2a2f3d; background: #1b1e27; }
 #tabBar button {
   flex: 1; padding: 10px 4px; background: none; border: none; color: #9aa3b2;

@@ -31,6 +31,7 @@
     <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
     <button id="bgTasksBtn" class="ghost" title="后台任务（跨会话查看/停止/删除）">🚀 后台任务</button>
     <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
+    <button id="panelBtn" class="ghost" title="设置/调试面板（Agent/Skill、MCP、评测、追踪）">⚙ 设置/调试</button>
     <button id="logoutBtn" class="ghost">退出</button>
   </header>
   <main>
@@ -66,8 +67,9 @@
       </div>
     </section>
 
-    <!-- 命令面板（调试/测试用；会话列表已移到左侧常驻栏） -->
-    <aside id="panelPane">
+    <!-- 命令面板（调试/测试用，默认隐藏：顶栏「⚙ 设置/调试」开关；左边缘拖宽，双击复位 420） -->
+    <aside id="panelPane" class="hidden">
+      <div id="panelResizer" title="拖动调整宽度（双击复位）"></div>
       <nav id="tabBar">
         <button data-tab="tab-agents" class="active">Agent/Skill</button>
         <button data-tab="tab-mcp">MCP</button>
