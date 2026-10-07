@@ -214,6 +214,137 @@ public class WordEngineSelfTest {
                         && d8.getParagraphs().get(0).getText().equals("目标 目标")
                         && d8.getParagraphs().get(1).getText().equals("改后"));
 
+        // ================= 段落增删改 =================
+        org.apache.poi.xwpf.usermodel.XWPFDocument d9 = newDoc();
+        addPara(d9, "甲", null);
+        addPara(d9, "乙", null);
+        addPara(d9, "丙", null);
+
+        WordTextEditor.setParagraphText(d9, 1, "乙改");
+        check("set_paragraph: 内容被改", d9.getParagraphs().get(1).getText().equals("乙改"));
+        check("set_paragraph: 段落总数不变", d9.getParagraphs().size() == 3);
+        check("set_paragraph: 相邻段落未受影响",
+                d9.getParagraphs().get(0).getText().equals("甲")
+                        && d9.getParagraphs().get(2).getText().equals("丙"));
+
+        WordTextEditor.insertParagraph(d9, 1, "插入", null, true);
+        check("insert_paragraph: 前插后位置正确",
+                d9.getParagraphs().get(1).getText().equals("插入")
+                        && d9.getParagraphs().get(2).getText().equals("乙改"));
+        check("insert_paragraph: 总数 +1", d9.getParagraphs().size() == 4);
+
+        WordTextEditor.deleteParagraph(d9, 0);
+        check("delete_paragraph: 删除后首段是插入的那条",
+                d9.getParagraphs().get(0).getText().equals("插入"));
+        check("delete_paragraph: 总数 -1", d9.getParagraphs().size() == 3);
+
+        // 越界必须报错而不是静默乱改
+        boolean threw = false;
+        try { WordTextEditor.setParagraphText(d9, 99, "x"); }
+        catch (IndexOutOfBoundsException e) { threw = true; }
+        check("set_paragraph: 越界抛 IndexOutOfBounds（不静默）", threw);
+
+        // 后插（before=false）：普通位置走游标，锚点是 body 最后一个元素时没有下一兄弟，
+        // 走 createParagraph 兜底——实测不兜底会把新段落插到文档开头（Probe4/见报告）
+        org.apache.poi.xwpf.usermodel.XWPFDocument d9b = newDoc();
+        addPara(d9b, "A", null);
+        addPara(d9b, "B", null);
+        addPara(d9b, "C", null);
+        WordTextEditor.insertParagraph(d9b, 1, "MID", null, false);
+        check("insert_paragraph: 中间段后插位置正确",
+                d9b.getParagraphs().get(2).getText().equals("MID")
+                        && d9b.getParagraphs().get(3).getText().equals("C"));
+        WordTextEditor.insertParagraph(d9b, d9b.getParagraphs().size() - 1, "TAIL", null, false);
+        check("insert_paragraph: 末段后插落在末尾（而非文档开头）",
+                d9b.getParagraphs().size() == 5
+                        && d9b.getParagraphs().get(4).getText().equals("TAIL"));
+        java.nio.file.Path p9b = saveTmp(d9b, "insertafter.docx");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(p9b);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            check("insert_paragraph: 落盘重载后顺序不变（XML 里位置也对）",
+                    re.getParagraphs().size() == 5
+                            && re.getParagraphs().get(2).getText().equals("MID")
+                            && re.getParagraphs().get(4).getText().equals("TAIL"));
+        }
+
+        // ================= 表格增删改 =================
+        org.apache.poi.xwpf.usermodel.XWPFDocument d10 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFTable t10 = d10.createTable(2, 2);
+        t10.getRow(0).getCell(0).setText("A");
+        t10.getRow(1).getCell(0).setText("B");
+
+        WordTextEditor.setTableCell(d10, 0, 1, 0, "B改");
+        check("set_table_cell: 内容被改",
+                d10.getTables().get(0).getRow(1).getCell(0).getText().equals("B改"));
+        check("set_table_cell: 同列上行不受影响",
+                d10.getTables().get(0).getRow(0).getCell(0).getText().equals("A"));
+
+        WordTextEditor.addTableRow(d10, 0, new String[]{"C", "D"});
+        check("add_table_row: 行数 +1", d10.getTables().get(0).getRows().size() == 3);
+        check("add_table_row: 新行内容正确",
+                d10.getTables().get(0).getRow(2).getCell(1).getText().equals("D"));
+
+        boolean threw2 = false;
+        try { WordTextEditor.setTableCell(d10, 9, 0, 0, "x"); }
+        catch (IndexOutOfBoundsException e) { threw2 = true; }
+        check("set_table_cell: 表格越界抛异常", threw2);
+
+        // 行/列越界同样必须抛——两级边界各自判定，漏一个就是静默改错格
+        boolean threw3 = false;
+        try { WordTextEditor.setTableCell(d10, 0, 9, 0, "x"); }
+        catch (IndexOutOfBoundsException e) { threw3 = true; }
+        check("set_table_cell: 行越界抛异常", threw3);
+        boolean threw4 = false;
+        try { WordTextEditor.setTableCell(d10, 0, 0, 9, "x"); }
+        catch (IndexOutOfBoundsException e) { threw4 = true; }
+        check("set_table_cell: 列越界抛异常", threw4);
+        boolean threw5 = false;
+        try { WordTextEditor.deleteParagraph(d10, 99); }
+        catch (IndexOutOfBoundsException e) { threw5 = true; }
+        check("delete_paragraph: 越界抛异常", threw5);
+
+        // 跨模块契约：编辑动作的段落号与 WordTextExtractor 的 [N] 必须同一套。
+        // 逐行核对（用编辑器自己的下标去查 extractor 输出），避免把序号写死写错
+        String[] rl = WordTextExtractor.read(d9b, 0, -1).split("\n");
+        boolean sameNumbering = rl.length == d9b.getParagraphs().size();
+        for (int i = 0; sameNumbering && i < rl.length; i++) {
+            if (!rl[i].equals("[" + i + "] [Normal] "
+                    + d9b.getParagraphs().get(i).getText())) sameNumbering = false;
+        }
+        check("编号一致: 增删后 extractor 的 [N] 与编辑动作同号（逐行核对）", sameNumbering);
+
+        // ================= rewrite 逃生舱：不得重复换行（Task 10 遗留）=================
+        // 缺陷实测（HEAD 版）：getText 把 br 合成 \n 写回 <w:t>（字面 \n）而 br 仍在
+        //   → "金额：${amount}\n尾注" 替换后变成 "金额：100\n尾注\n"（多一个换行，落盘重载仍在）
+        // 计划 Fix1 明说 rewrite 语义=丢段内格式「先拉平」，Fix2 清残留 br，
+        // 两者合力后实测=「金额：100 尾注」——空格，一个 \n 都没有（Fix1+Fix2 的必然结果）。
+        // 故此处期望串按计划给定的修复代码实测值写，而非计划里那句按「仅 Fix2」推出的
+        // "金额：100\n尾注"（那个字面量与 Fix1 互斥，二者同时应用时不可能出现）。
+        org.apache.poi.xwpf.usermodel.XWPFDocument dRw = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pRw = dRw.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rRw = pRw.createRun();
+        rRw.setText("金额：${amount}");
+        rRw.addBreak();
+        org.apache.poi.xwpf.usermodel.XWPFRun rRw2 = pRw.createRun();
+        rRw2.setText("尾注");
+        WordTextEditor.replaceInDocument(dRw, "${amount}", "100", -1, "rewrite");
+        check("rewrite: 整段文本被拉平（无重复换行）",
+                dRw.getParagraphs().get(0).getText().equals("金额：100 尾注"));
+        check("rewrite: 文本里没有残留 \\n（不重复也不尾随）",
+                !dRw.getParagraphs().get(0).getText().contains("\n"));
+        check("rewrite: 残留 br 已清掉",
+                dRw.getParagraphs().get(0).getRuns().stream()
+                        .noneMatch(r -> r.getCTR().sizeOfBrArray() > 0));
+        // 原文缺陷「survives save→reload」——重载后必须还是干净的
+        java.nio.file.Path pRwf = saveTmp(dRw, "rewrite.docx");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(pRwf);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            check("rewrite: 落盘重载后仍无重复换行",
+                    re.getParagraphs().get(0).getText().equals("金额：100 尾注"));
+        }
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

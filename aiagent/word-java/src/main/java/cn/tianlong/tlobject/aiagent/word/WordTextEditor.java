@@ -168,8 +168,11 @@ public final class WordTextEditor {
             if (rewrite) {
                 String t = p.getText();
                 if (t != null && t.contains(find)) {
-                    int before = countOccurrences(t, find);
-                    rewriteParagraph(p, t.replace(find, replace));
+                    // getText() 把 br/tab 合成了 \n/\t，直接写回会造成换行重复；
+                    // rewrite 语义=丢段内格式，故先拉平
+                    String flat = t.replace("\n", " ").replace("\t", " ");
+                    int before = countOccurrences(flat, find);
+                    rewriteParagraph(p, flat.replace(find, replace));
                     rep.replaced += before;
                 }
             } else {
@@ -183,7 +186,7 @@ public final class WordTextEditor {
                 }
             }
         }
-        // 表格：单元格内也有段落，按表格定位，不做 skip 计数（单元格里少见超链接/域）
+        // 表格：单元格内也有段落，按表格定位；表格单元格里的不安全 run 同样计数
         for (XWPFTable t : doc.getTables()) {
             for (XWPFTableRow r : t.getRows()) {
                 for (XWPFTableCell c : r.getTableCells()) {
@@ -207,6 +210,14 @@ public final class WordTextEditor {
         }
         runs.get(0).setText(newText, 0);
         for (int k = 1; k < runs.size(); k++) runs.get(k).setText("", 0);
+        // 清掉残留的 br/tab：否则它们会与新写入的文本重复（Task 10 实测）
+        for (XWPFRun r : runs) {
+            try {
+                org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
+                while (ctr.sizeOfBrArray() > 0) ctr.removeBr(0);
+                while (ctr.sizeOfTabArray() > 0) ctr.removeTab(0);
+            } catch (Throwable ignored) { }
+        }
     }
 
     static int countOccurrences(String hay, String needle) {
@@ -214,6 +225,95 @@ public final class WordTextEditor {
         int c = 0, i = 0;
         while ((i = hay.indexOf(needle, i)) >= 0) { c++; i += needle.length(); }
         return c;
+    }
+
+    // ================= 段落操作 =================
+    // 段落号一律 = doc.getParagraphs() 下标，与 WordTextExtractor 的 [N] 同一套编号。
+    // 越界一律抛 IndexOutOfBoundsException：上层引擎翻成 JSON 错误交给模型自己改，
+    // 静默 no-op 会让模型误以为改成功了。
+
+    public static void setParagraphText(XWPFDocument doc, int index, String text) {
+        List<XWPFParagraph> ps = doc.getParagraphs();
+        if (index < 0 || index >= ps.size())
+            throw new IndexOutOfBoundsException("paragraph index " + index
+                    + " out of range (document has " + ps.size() + " paragraphs)");
+        rewriteParagraph(ps.get(index), text);
+    }
+
+    public static void insertParagraph(XWPFDocument doc, int index, String text,
+                                       String style, boolean before) {
+        List<XWPFParagraph> ps = doc.getParagraphs();
+        if (index < 0 || index >= ps.size())
+            throw new IndexOutOfBoundsException("paragraph index " + index
+                    + " out of range (document has " + ps.size() + " paragraphs)");
+        XWPFParagraph anchor = ps.get(index);
+        XWPFParagraph np;
+        if (before) {
+            np = doc.insertNewParagraph(anchor.getCTP().newCursor());
+        } else {
+            org.apache.xmlbeans.XmlCursor c = nextCursor(anchor);
+            // 锚点是 body 最后一个元素时没有下一兄弟：toNextSibling 失败后游标仍停在锚点之前，
+            // 再 insertNewParagraph 会把新段落到锚点**前面**（实测：末段后插跑到了文档开头，
+            // 落盘 XML 也是错的）。此时改用末尾追加——句面等价，且 XML 位置正确（sectPr 之前）。
+            np = (c == null) ? doc.createParagraph() : doc.insertNewParagraph(c);
+        }
+        if (np == null) throw new IllegalStateException("insertNewParagraph returned null");
+        if (style != null && !style.isEmpty()) np.setStyle(style);
+        np.createRun().setText(text);
+    }
+
+    /** 锚点之后的游标；锚点是 body 最后一个元素（没有下一兄弟）时返回 null，由调用方兜底 */
+    private static org.apache.xmlbeans.XmlCursor nextCursor(XWPFParagraph anchor) {
+        org.apache.xmlbeans.XmlCursor c = anchor.getCTP().newCursor();
+        return c.toNextSibling() ? c : null;
+    }
+
+    public static void deleteParagraph(XWPFDocument doc, int index) {
+        List<XWPFParagraph> ps = doc.getParagraphs();
+        if (index < 0 || index >= ps.size())
+            throw new IndexOutOfBoundsException("paragraph index " + index
+                    + " out of range (document has " + ps.size() + " paragraphs)");
+        doc.removeBodyElement(doc.getPosOfParagraph(ps.get(index)));
+    }
+
+    // ================= 表格操作 =================
+
+    public static void setTableCell(XWPFDocument doc, int table, int row, int col, String text) {
+        XWPFTable t = tableAt(doc, table);
+        if (row < 0 || row >= t.getRows().size())
+            throw new IndexOutOfBoundsException("row " + row + " out of range (table has "
+                    + t.getRows().size() + " rows)");
+        XWPFTableRow r = t.getRow(row);
+        if (col < 0 || col >= r.getTableCells().size())
+            throw new IndexOutOfBoundsException("col " + col + " out of range (row has "
+                    + r.getTableCells().size() + " cells)");
+        XWPFTableCell c = r.getCell(col);
+        List<XWPFParagraph> cps = c.getParagraphs();
+        if (cps.isEmpty()) { c.addParagraph().createRun().setText(text); return; }
+        rewriteParagraph(cps.get(0), text);
+        for (int k = cps.size() - 1; k >= 1; k--) c.removeParagraph(k);
+    }
+
+    public static void addTableRow(XWPFDocument doc, int table, String[] values) {
+        XWPFTable t = tableAt(doc, table);
+        XWPFTableRow r = t.createRow();
+        int cols = r.getTableCells().size();
+        if (values != null) {
+            for (int i = 0; i < values.length && i < cols; i++) {
+                XWPFTableCell c = r.getCell(i);
+                if (c.getParagraphs().isEmpty()) c.addParagraph();
+                rewriteParagraph(c.getParagraphs().get(0),
+                        values[i] == null ? "" : values[i]);
+            }
+        }
+    }
+
+    static XWPFTable tableAt(XWPFDocument doc, int table) {
+        List<XWPFTable> ts = doc.getTables();
+        if (table < 0 || table >= ts.size())
+            throw new IndexOutOfBoundsException("table index " + table
+                    + " out of range (document has " + ts.size() + " tables)");
+        return ts.get(table);
     }
 
     /**
