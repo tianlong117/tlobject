@@ -77,3 +77,6 @@ demo/tlobject/data
 # ===== 2026-10-04 追加 =====
 # 临时验证/测试产物（smoke 脚本、临时 profile、classpath 文件等）
 _tmp_*
+
+# ===== 2026-10-07 追加：word-java 模块 classpath 转储 =====
+aiagent/word-java/cp.txt

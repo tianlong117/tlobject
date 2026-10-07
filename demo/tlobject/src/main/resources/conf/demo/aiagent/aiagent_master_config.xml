@@ -177,7 +177,7 @@
         <agent name="fileAgent"
                sameClassAs="aiagent"
                statup="true"
-               description="文件操作专家，读写、列表、删除文件。仅用于本地文件操作任务。网页下载请用 browser，代码执行请用 codeAgent。"/>
+               description="文件操作专家，读写、列表、删除文件，并支持 Word 文档（.docx）的读取、生成与修改（含表格、模板占位符填充）。仅用于本地文件操作任务。网页下载请用 browser，代码执行请用 codeAgent。"/>
 
         <agent name="codeAgent"
                sameClassAs="aiagent"

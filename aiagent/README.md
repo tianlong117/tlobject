@@ -1403,7 +1403,7 @@ Everything below is a tool to it.
 
 | Sub-agent | Capability | Tools it uses |
 |-----------|------|-----------|
-| `fileAgent` | Read/write files, directory operations | MCP filesystem + `fileOperationSkill` |
+| `fileAgent` | Read/write files, directory operations, Word .docx documents | MCP filesystem + `fileOperationSkill` + `word` (`aiagent/word-java`; .docx read/write/edit, formatting preserved on cross-run edits) |
 | `codeAgent` | Write code, run scripts, do math | `codeExecutionSkill` + `scriptExecutionSkill` (Python/JS) |
 | `priceTeam` | A pricing team: hamburger agent + pizza agent in **parallel**, a supervisor agent reviews and summarizes | the `calculate_price` custom Skill |
 | `poemWorkflow` | Poetry workflow: two poets in different styles write **in parallel** → a critic reviews (DAG workflow) | workflow nodes reusing agents |
