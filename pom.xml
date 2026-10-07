@@ -57,4 +57,21 @@
         </plugins>
     </pluginManagement>
     </build>
+
+    <!-- POI 版本统一：execl（Excel）与 aiagent/word-java（Word）必须同版本，
+         同 classpath 上两个 POI 版本会同名类"先到先得"，行为不可预测 -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi</artifactId>
+                <version>5.5.1</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>5.5.1</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 </project>
