@@ -70,6 +70,33 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
         check("流式 正常收尾：保留原兜底（提升）",
                 "the answer is 42".equals(s3.lastDone().getStringParam(AI_P_RESPONSE, "")));
 
+        // ================= trace 文件大小上限轮转 =================
+        // 背景：某 provider 的文件名落到 "default" 后，所有会话/所有日子的调用全追加进同一个
+        // .trace（实测 176MB 且无轮转）。上限轮转保证任何单文件有界（当前 + .1 两份）。
+        try {
+            java.nio.file.Path tmp = java.nio.file.Files.createTempDirectory("tlTraceRotation");
+            TestProvider tr = new TestProvider();
+            String body = "{\"payload\":\"" + "x".repeat(1500) + "\"}";
+            tr.writeTracesForRotation(tmp.toString(), 4000, 8, body);
+            try (java.util.stream.Stream<java.nio.file.Path> st = java.nio.file.Files.list(tmp)) {
+                java.util.List<java.nio.file.Path> files = st.collect(java.util.stream.Collectors.toList());
+                long maxLen = files.stream().mapToLong(fp -> {
+                    try { return java.nio.file.Files.size(fp); } catch (Exception ex) { return 0; }
+                }).max().orElse(0);
+                check("trace 轮转：文件数≤2（当前 + .1）", files.size() <= 2);
+                check("trace 轮转：确有转储（8 次写入触发）", files.size() == 2);
+                check("trace 轮转：单文件有界（≤上限×1.6）", maxLen <= 6400);
+            }
+            try (java.util.stream.Stream<java.nio.file.Path> st = java.nio.file.Files.list(tmp)) {
+                for (java.nio.file.Path fp : st.collect(java.util.stream.Collectors.toList())) {
+                    java.nio.file.Files.deleteIfExists(fp);
+                }
+            }
+            java.nio.file.Files.deleteIfExists(tmp);
+        } catch (Exception e) {
+            check("trace 轮转：执行异常 " + e, false);
+        }
+
         System.out.println("========================================");
         System.out.println("PromotionGuardSelfTest: passed=" + passed + ", failed=" + failed);
         if (failed > 0) {
@@ -147,6 +174,20 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
                 if (sent.get(i).parseBoolean(AI_P_STREAMDONE, false)) return sent.get(i);
             }
             return new TLMsg();
+        }
+
+        /**
+         * trace 轮转自测：设 traceDir/上限后连写 n 次。
+         * 放类内是因为 traceDir/traceFileMaxBytes/traceLlmCall 是 TLLlmProvider 的 protected 成员，
+         * 跨包只能经由子类自身访问。
+         */
+        void writeTracesForRotation(String dir, long capBytes, int n, String body) {
+            debugMode = true;
+            traceDir = dir;
+            traceFileMaxBytes = capBytes;
+            for (int i = 0; i < n; i++) {
+                traceLlmCall("sess_rot", "selfTest", body, body, 200, "m", 1L, "r1");
+            }
         }
     }
 

@@ -29,6 +29,8 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     private CountDownLatch streamLatch;
     private volatile boolean streamDone = false;
     private volatile String streamError = null;
+    /** done 事件携带的 finish_reason（stop/tool_calls/length）——供同步流式入口判断"被截断" */
+    private volatile String finishReason = null;
 
     public TLStreamCallback() {
         super();
@@ -85,6 +87,10 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     protected TLMsg onStreamDone(Object fromWho, TLMsg msg) {
         synchronized (bufferLock) {
             streamDone = true;
+            // 保存 finish_reason：同步流式入口（chatStreamSync）靠它判断"被截断"
+            if (msg.containsParam(AI_P_FINISH_REASON)) {
+                finishReason = msg.getStringParam(AI_P_FINISH_REASON, "");
+            }
             if (msg.containsParam(AI_P_RESPONSE) && streamBuffer.length() == 0) {
                 streamBuffer.append(msg.getStringParam(AI_P_RESPONSE, ""));
             }
@@ -113,6 +119,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
                     .setParam("length", streamBuffer.length())
                     .setParam("streamDone", streamDone)
                     .setParam(AI_P_STREAMERROR, streamError)
+                    .setParam(AI_P_FINISH_REASON, finishReason == null ? "" : finishReason)
                     .setParam(AI_P_REASONING, reasoningBuffer.toString());
         }
     }
@@ -138,6 +145,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
                         .setParam("content", streamBuffer.toString())
                         .setParam("streamDone", streamDone)
                         .setParam(AI_P_STREAMERROR, streamError)
+                        .setParam(AI_P_FINISH_REASON, finishReason == null ? "" : finishReason)
                         .setParam(AI_P_REASONING, reasoningBuffer.toString())
                         .setParam("timedOut", !completed);
             }
@@ -156,6 +164,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
             reasoningBuffer = new StringBuilder();
             streamDone = false;
             streamError = null;
+            finishReason = null;
         }
         streamLatch = new CountDownLatch(1);
     }

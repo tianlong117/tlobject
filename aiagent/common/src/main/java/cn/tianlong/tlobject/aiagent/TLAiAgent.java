@@ -1280,10 +1280,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage, streamErr);
                     return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, streamErr);
                 } else {
+                    String syncFinish = streamResult.getStringParam(AI_P_FINISH_REASON, "");
                     finalResponse = streamResult.getStringParam(AI_P_RESPONSE, "");
-                    // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
+                    // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）；
+                    // 截断轮（length）占位/终答都如实说明——同步流式入口此前收不到该信息
                     history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                            finalResponse.isEmpty() ? "（无输出）" : finalResponse));
+                            finalResponse.isEmpty() ? emptyHistoryPlaceholder(syncFinish) : finalResponse));
+                    finalResponse = withTruncationNotice(finalResponse, syncFinish);
                 }
                 // 收集流式推理内容
                 TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
@@ -1751,7 +1754,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         wr.containsParam(AI_P_REASONING) ? wr.getStringParam(AI_P_REASONING, "") : null),
                 null);
         return createMsg().setParam(RESULT, true)
-                .setParam(AI_P_RESPONSE, wr.getStringParam("content", ""));
+                .setParam(AI_P_RESPONSE, wr.getStringParam("content", ""))
+                // finish_reason 透传（stop/tool_calls/length）：调用方据此如实告知"被截断"
+                .setParam(AI_P_FINISH_REASON, wr.getStringParam(AI_P_FINISH_REASON, ""));
     }
 
     /**
@@ -2175,7 +2180,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                             sessionMemoryContext.get(sessionId)))
                                     .setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
                                     .setParam(AI_P_TEMPERATURE, defaultTemperature)
-                                    .setParam(AI_P_MAXTOKENS, defaultMaxTokens);
+                                    .setParam(AI_P_MAXTOKENS, defaultMaxTokens)
+                                    // 会话参数必带：provider 的 debug trace 用它命名文件，缺了会落
+                                    // "default"——所有会话的续跑调用全追加进同一个 .trace（176MB 事故）
+                                    .setParam(AI_P_SESSIONID, sessionId)
+                                    .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""));
                             // 推理模式与流式首包同源透传：否则首包按配置关了思考、续跑又"照常思考"
                             String contMode = sessionReasoningModes.get(sessionId);
                             if (contMode != null && !"off".equals(contMode)) {

@@ -48,6 +48,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     protected boolean debugMode = false;
     /** trace 文件输出目录，默认 ./data/traces */
     protected String traceDir = "./data/traces";
+    /** 单个 trace 文件大小上限（字节，默认 20MB）：超出即轮转为 <名字>.1 后重开，防单文件无界增长 */
+    protected long traceFileMaxBytes = 20L * 1024 * 1024;
     /** 每个 session 的调用计数器，用于给 trace 编号 */
     private final Map<String, AtomicInteger> callCounters = new ConcurrentHashMap<>();
 
@@ -114,6 +116,13 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             }
             if (params.get("traceDir") != null) {
                 traceDir = params.get("traceDir");
+            }
+            if (params.get("traceFileMaxMB") != null) {
+                try {
+                    traceFileMaxBytes = Long.parseLong(params.get("traceFileMaxMB").trim()) * 1024L * 1024L;
+                } catch (NumberFormatException e) {
+                    putLog("traceFileMaxMB 非法，用默认 20MB: " + params.get("traceFileMaxMB"), LogLevel.WARN);
+                }
             }
             if (params.get("enablePromptCaching") != null) {
                 enablePromptCaching = Boolean.parseBoolean(params.get("enablePromptCaching"));
@@ -548,9 +557,18 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
 
             // 追加写入文件
             File file = new File(dir, getName() + "_" + safeSession + ".trace");
+            String content = trace.toFormattedString();
+            // 大小上限轮转：本次写入会超限 → 把当前文件转为 .1（覆盖旧转储）再重开。
+            // 防单文件无界增长（历史事故：续跑调用丢会话参数全落 default 文件，长到 176MB 无轮转）
+            if (traceFileMaxBytes > 0 && file.exists()
+                    && file.length() + content.length() > traceFileMaxBytes) {
+                File rotated = new File(dir, file.getName() + ".1");
+                java.nio.file.Files.move(file.toPath(), rotated.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             try (FileWriter fw = new FileWriter(file, true);
                  BufferedWriter bw = new BufferedWriter(fw)) {
-                bw.write(trace.toFormattedString());
+                bw.write(content);
                 bw.flush();
             }
         } catch (Exception e) {
@@ -607,6 +625,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             if (sessionId != null && !sessionId.isEmpty()) {
                 String safeSession = sessionId.replaceAll("[/\\\\:\"*?<>|]", "_");
                 File file = new File(traceDir, getName() + "_" + safeSession + ".trace");
+                // 连带删除大小上限轮转出的 .1 转储
+                new File(traceDir, file.getName() + ".1").delete();
                 if (file.exists()) {
                     file.delete();
                     callCounters.remove(sessionId);
@@ -616,12 +636,13 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 return createMsg().setParam(RESULT, true)
                         .setParam("msg", "No trace file for session: " + sessionId);
             } else {
-                // 清空所有
+                // 清空所有（含 .trace.1 轮转文件）
                 File dir = new File(traceDir);
                 int count = 0;
                 if (dir.exists() && dir.isDirectory()) {
                     File[] files = dir.listFiles((d, name) ->
-                            name.startsWith(getName() + "_") && name.endsWith(".trace"));
+                            name.startsWith(getName() + "_")
+                                    && (name.endsWith(".trace") || name.endsWith(".trace.1")));
                     if (files != null) {
                         for (File f : files) { if (f.delete()) count++; }
                     }

@@ -109,12 +109,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_STREAMDIRECT = "test_mock_streamdirect";
     private static final String SID_TRUNC        = "test_mock_truncation";
     private static final String SID_PLUMP        = "test_mock_streamparams";
+    private static final String SID_SYNCTRUNC    = "test_mock_streamsynctrunc";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_SYNCTRUNC);
 
     // ======================== 构造器 ========================
 
@@ -456,6 +457,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("streamDirect",     new String[]{"12-流式直出短路落历史", "test_echo 未注册"});
         TEST_CASES.put("truncNotice",      new String[]{"13-截断如实告知", null});
         TEST_CASES.put("streamParams",     new String[]{"14-流式推理传参", "test_echo 未注册"});
+        TEST_CASES.put("streamSyncTrunc",  new String[]{"15-同步流式截断告知", null});
     }
 
     /**
@@ -522,6 +524,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "streamdirect":    return this::testStreamDirect;
             case "truncnotice":     return this::testTruncNotice;
             case "streamparams":    return this::testStreamParams;
+            case "streamsynctrunc": return this::testStreamSyncTrunc;
             default:                return null;
         }
     }
@@ -1417,10 +1420,50 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                         "续跑调用未带 reasoningMode=disabled: "
                                 + (cr != null ? cr.getStringParam(AI_P_REASONING_MODE, "无") : "null(未发生续跑?)"));
             }
-            log("[TEST]   流式传参: 首包与续跑均带 reasoningMode/maxTokens");
+            // 续跑调用必须带会话参数：否则 provider trace 文件名落 default，所有会话的调用
+            // 全追加进同一个 .trace（实测 176MB 无轮转）
+            if (!sessionId.equals(cr.getStringParam(AI_P_SESSIONID, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "续跑调用未带 AI_P_SESSIONID（trace 命名会落 default）: "
+                                + cr.getStringParam(AI_P_SESSIONID, "无"));
+            }
+            log("[TEST]   流式传参: 首包与续跑均带 reasoningMode/maxTokens/会话参数");
             return createMsg().setParam(RESULT, true);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam("error", "stream params exception: " + e);
+        }
+    }
+
+    // ======================== 场景 15: 同步流式截断告知 ========================
+
+    /**
+     * chatStreamSync（同步流式入口，外部集成用）的流式文本经 streamCallback 缓冲，
+     * 此前回调不存 finish_reason → 这条路径收不到"被截断"提示。断言：length 截断时终答带提示。
+     */
+    protected TLMsg testStreamSyncTrunc(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        String sessionId = SID_SYNCTRUNC;
+        mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                mp.streamChunk("同步流前半段"),
+                mp.streamDone("同步流前半段").setParam(AI_P_FINISH_REASON, "length")));
+
+        try {
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            TLMsg r = putMsg(M_AIAGENT, createMsg().setAction("chatStreamSync")
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "同步流式截断测试"));
+            String resp = r != null ? r.getStringParam(AI_P_RESPONSE, "") : "";
+            if (!resp.contains("被截断")) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "chatStreamSync 截断未告知: " + resp);
+            }
+            log("[TEST]   同步流式截断: 终答已带截断提示");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "streamsync trunc exception: " + e);
         }
     }
 
