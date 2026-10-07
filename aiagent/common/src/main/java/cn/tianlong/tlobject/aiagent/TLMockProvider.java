@@ -93,13 +93,19 @@ public class TLMockProvider extends TLLlmProvider {
 
     // ======================== 核心重写 ========================
 
+    /** 最近一次同步/流式请求的入参快照（测试断言"参数是否真传给了 provider"，如 reasoningMode/maxTokens） */
+    public volatile TLMsg lastCompletionRequest;
+    public volatile TLMsg lastStreamRequest;
+
     @Override
     protected TLMsg completion(Object fromWho, TLMsg msg) {
+        lastCompletionRequest = msg;
         return consumeResponse(msg);
     }
 
     @Override
     protected TLMsg completionStream(Object fromWho, TLMsg msg) {
+        lastStreamRequest = msg;
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "mock_default");
         String resultFor = msg.getStringParam(RESULTFOR, null);
         if (resultFor == null) {

@@ -12,6 +12,8 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
  * <h3>输入参数</h3>
  * <ul>
  *   <li>skillInput / message — 要回显的文本（默认 "echo"）</li>
+ *   <li>finalAnswer=true — 模拟直出工具（子 agent directOutput / 工作流直出同样置此标志），
+ *       供"流式直出短路"用例驱动 final 分支</li>
  * </ul>
  *
  * 创建日期：2026/8/12
@@ -44,7 +46,12 @@ public class TLEchoSkill extends TLBaseModule implements TLAiAgentParamString {
         if (input == null || input.isEmpty()) {
             input = msg.getStringParam("message", "echo");
         }
-        return createMsg().setParam(RESULT, true)
+        TLMsg ret = createMsg().setParam(RESULT, true)
                 .setParam(AI_P_SKILLOUTPUT, "ECHO: " + input);
+        // 模拟直出工具：ToolExecutor 见 finalAnswer 标 final，上游 agent 短路不再 LLM 加工
+        if (msg.getBooleanParam("finalAnswer", false)) {
+            ret.setParam(AI_P_FINALANSWER, true);
+        }
+        return ret;
     }
 }

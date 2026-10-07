@@ -106,11 +106,15 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_BATCHTIMEOUT = "test_mock_batch_timeout";
     private static final String SID_CHECKPOINT   = "test_mock_checkpoint";
     private static final String SID_STREAMERR    = "test_mock_streamerr";
+    private static final String SID_STREAMDIRECT = "test_mock_streamdirect";
+    private static final String SID_TRUNC        = "test_mock_truncation";
+    private static final String SID_PLUMP        = "test_mock_streamparams";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
-            SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR);
+            SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP);
 
     // ======================== 构造器 ========================
 
@@ -449,6 +453,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("sessionRecovery", new String[]{"9-会话恢复", "需要 sessionManager"});
         TEST_CASES.put("streamError",      new String[]{"10-流式异常", null});
         TEST_CASES.put("intentCache",      new String[]{"11-意图缓存", null, "testCacheProvider"});
+        TEST_CASES.put("streamDirect",     new String[]{"12-流式直出短路落历史", "test_echo 未注册"});
+        TEST_CASES.put("truncNotice",      new String[]{"13-截断如实告知", null});
+        TEST_CASES.put("streamParams",     new String[]{"14-流式推理传参", "test_echo 未注册"});
     }
 
     /**
@@ -512,6 +519,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "sessionrecovery": return this::testSessionRecovery;
             case "streamerror":     return this::testStreamError;
             case "intentcache":     return this::testIntentCache;
+            case "streamdirect":    return this::testStreamDirect;
+            case "truncnotice":     return this::testTruncNotice;
+            case "streamparams":    return this::testStreamParams;
             default:                return null;
         }
     }
@@ -1199,6 +1209,218 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                             streamDone, timedOut, err));
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam("error", "stream error exception: " + e);
+        }
+    }
+
+    // ======================== 场景 12: 流式直出短路落历史 ========================
+
+    /**
+     * 直出短路轮（单工具 + finalAnswer，如 directOutput 子 agent / 工作流）：
+     * 终答全文此前只经 forwardStreamFinal 推给前端、不入 history——恢复/重登后会话里
+     * 只剩开场白 + 工具卡片，用户看到"诗没有了"。
+     * 断言两件事：① 流式内容含直出全文（live 可见性）；② 落库轮次末条是 assistant 直出全文（重登可见性）。
+     * 驱动方式与 webui 生产路径一致：RESULTFOR=agent + RESULTACTION=onStreamResult，
+     * 显示目标走 _streamResultFor（testStreamBasic 直接以 streamCallback 为 resultFor，不经过 agent 回调）。
+     */
+    protected TLMsg testStreamDirect(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        String sessionId = SID_STREAMDIRECT;
+        String directText = "ECHO: 《直出诗》\n第一行\n第二行";
+
+        // 流式响应：先过渡文本，随后 done 带 tool_call（echo 标 finalAnswer=true → ToolExecutor 标 final）
+        TLToolCall tc = TLMockProvider.createToolCall("call_direct_1", FN_ECHO,
+                new HashMap<String, Object>() {{
+                    put("message", "《直出诗》\n第一行\n第二行");
+                    put("finalAnswer", true);
+                }});
+        mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                mp.streamChunk("稍等，这就安排。"),
+                mp.streamDoneWithToolCalls(Collections.singletonList(tc))));
+
+        try {
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+
+            TLMsg streamMsg = createMsg()
+                    .setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "来两首直出诗")
+                    .setParam(RESULTFOR, M_AIAGENT)            // provider 事件回 agent.onStreamResult（生产同款）
+                    .setParam(RESULTACTION, "onStreamResult")
+                    .setParam("_streamResultFor", "streamCallback")
+                    .setParam("_streamResultAction", "onStreamChunk");
+            putMsg(M_AIAGENT, streamMsg);
+
+            TLMsg waitResult = putMsg("streamCallback", createMsg()
+                    .setAction("waitForStream").setParam("timeout", 30));
+            String content = waitResult.getStringParam("content", "");
+            if (!content.contains(directText)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "流式内容缺直出全文: " + content);
+            }
+
+            // 关键断言：落库轮次必须以 assistant 直出全文收尾（恢复会话可见性）
+            TLMsg cont = putMsg("sessionManager", createMsg().setAction("continueSession")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", TEST_USER_ID));
+            List<?> history = cont != null
+                    ? (List<?>) cont.getListParam("history", Collections.emptyList()) : null;
+            if (history == null || history.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "落库历史为空");
+            }
+            Object lastObj = history.get(history.size() - 1);
+            if (!(lastObj instanceof TLConversationHistory)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "末条不是会话消息: " + lastObj);
+            }
+            TLConversationHistory last = (TLConversationHistory) lastObj;
+            if (last.getRole() != TLConversationHistory.Role.assistant
+                    || !directText.equals(last.getContent())) {
+                String c = last.getContent() == null ? "null" : last.getContent();
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "直出终答未落库：末条 role=" + last.getRole()
+                                + " content=" + c.substring(0, Math.min(80, c.length())));
+            }
+            log("[TEST]   流式直出: 终答已落库（末条 assistant, " + directText.length() + " 字）");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "stream direct exception: " + e);
+        }
+    }
+
+    // ======================== 场景 13: 截断如实告知 ========================
+
+    /**
+     * finish_reason=length 的终答此前是静默腰斩（用户只看到半句话，如"…三、"）。
+     * 断言：① 非流式 length 终答补提示；② 非流式 stop 终答不补（防过度应用）；
+     * ③ 流式无工具轮：提示既推前端也落库（重登可见）。
+     */
+    protected TLMsg testTruncNotice(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        // ① 非流式 + length → 必须补
+        mp.enqueueResponse(mp.textResponse("答案前半段，后面还有").setParam(AI_P_FINISH_REASON, "length"));
+        TLMsg r1 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, SID_TRUNC)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "写个长回答"));
+        String resp1 = r1.getStringParam(AI_P_RESPONSE, "");
+        if (!resp1.contains("被截断")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "length 终答未补截断提示: " + resp1);
+        }
+
+        // ② 非流式 + stop → 不该补（防过度应用）
+        mp.enqueueResponse(mp.textResponse("完整答案"));
+        TLMsg r2 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, SID_TRUNC)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "再写个短的"));
+        String resp2 = r2.getStringParam(AI_P_RESPONSE, "");
+        if (resp2.contains("被截断")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "stop 终答被误补截断提示: " + resp2);
+        }
+
+        // ③ 流式无工具轮 + length → 提示推前端 + 落库
+        try {
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            mp.enqueueStreamResponses(SID_TRUNC, Arrays.asList(
+                    mp.streamChunk("流式前半段"),
+                    mp.streamDone("流式前半段").setParam(AI_P_FINISH_REASON, "length")));
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, SID_TRUNC)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "流式写个长回答")
+                    .setParam(RESULTFOR, M_AIAGENT)
+                    .setParam(RESULTACTION, "onStreamResult")
+                    .setParam("_streamResultFor", "streamCallback")
+                    .setParam("_streamResultAction", "onStreamChunk"));
+            TLMsg waitResult = putMsg("streamCallback", createMsg().setAction("waitForStream")
+                    .setParam("timeout", 30));
+            String content = waitResult.getStringParam("content", "");
+            if (!content.contains("被截断")) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "流式截断提示未推前端: " + content);
+            }
+            TLMsg cont = putMsg("sessionManager", createMsg().setAction("continueSession")
+                    .setParam("sessionId", SID_TRUNC).setParam("userId", TEST_USER_ID));
+            List<?> history = cont != null
+                    ? (List<?>) cont.getListParam("history", Collections.emptyList()) : null;
+            if (history == null || history.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "截断轮落库历史为空");
+            }
+            Object lastObj = history.get(history.size() - 1);
+            String lastContent = lastObj instanceof TLConversationHistory
+                    ? ((TLConversationHistory) lastObj).getContent() : "";
+            if (lastContent == null || !lastContent.contains("被截断")) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "流式截断提示未落库: " + lastContent);
+            }
+            log("[TEST]   截断告知: 非流式/流式/落库 三处均已如实告知");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "trunc notice exception: " + e);
+        }
+    }
+
+    // ======================== 场景 14: 流式推理传参 ========================
+
+    /**
+     * 流式链路此前不传 reasoningMode/maxTokens（配 disabled 关不掉思考、配 maxTokens 不生效）。
+     * 断言：首包与续跑调用都带上请求级 reasoningMode 与 maxTokens（经 mock 入参快照验证）。
+     */
+    protected TLMsg testStreamParams(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+        mp.lastStreamRequest = null;
+        mp.lastCompletionRequest = null;
+
+        String sessionId = SID_PLUMP;
+        // 首包带一个普通工具调用（非直出）→ 触发续跑的非流式调用
+        TLToolCall tc = TLMockProvider.createToolCall("call_plumb_1", FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "plumb"); }});
+        mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                mp.streamChunk("查一下。"),
+                mp.streamDoneWithToolCalls(Collections.singletonList(tc))));
+        mp.enqueueResponse(mp.textResponse("完成"));
+
+        try {
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "参数透传测试")
+                    .setParam(AI_P_REASONING_MODE, AI_P_REASONING_MODE_DISABLED)
+                    .setParam(RESULTFOR, M_AIAGENT)
+                    .setParam(RESULTACTION, "onStreamResult")
+                    .setParam("_streamResultFor", "streamCallback")
+                    .setParam("_streamResultAction", "onStreamChunk"));
+            putMsg("streamCallback", createMsg().setAction("waitForStream").setParam("timeout", 30));
+
+            TLMsg sr = mp.lastStreamRequest;
+            TLMsg cr = mp.lastCompletionRequest;
+            if (sr == null || !AI_P_REASONING_MODE_DISABLED.equals(sr.getStringParam(AI_P_REASONING_MODE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "首包未带 reasoningMode=disabled: "
+                                + (sr != null ? sr.getStringParam(AI_P_REASONING_MODE, "无") : "null"));
+            }
+            if (sr.getIntParam(AI_P_MAXTOKENS, 0) <= 0) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "首包未带 maxTokens");
+            }
+            if (cr == null || !AI_P_REASONING_MODE_DISABLED.equals(cr.getStringParam(AI_P_REASONING_MODE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "续跑调用未带 reasoningMode=disabled: "
+                                + (cr != null ? cr.getStringParam(AI_P_REASONING_MODE, "无") : "null(未发生续跑?)"));
+            }
+            log("[TEST]   流式传参: 首包与续跑均带 reasoningMode/maxTokens");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "stream params exception: " + e);
         }
     }
 

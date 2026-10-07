@@ -256,29 +256,28 @@ public class TLOpenAiProvider extends TLLlmProvider {
             result.setParam(AI_P_FINISH_REASON, finishReason);
 
             // 解析文本内容
+            String reasoningContent = message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()
+                    ? message.get("reasoning_content").getAsString() : "";
+            boolean hasToolCallsInMsg = message.has("tool_calls") && !message.get("tool_calls").isJsonNull()
+                    && message.getAsJsonArray("tool_calls").size() > 0;
             if (message.has("content") && !message.get("content").isJsonNull()) {
                 String content = message.get("content").getAsString();
-                // DeepSeek 推理模型偶发：答案全部输出在 reasoning_content 而 content 为空串 →
-                // 提升 reasoning 为正文兜底（空 assistant 消息会被 API 400 拒绝，且用户看不到结果）
-                if (content.isEmpty()) {
-                    String reasoning = message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()
-                            ? message.get("reasoning_content").getAsString() : "";
-                    if (!reasoning.isEmpty()) {
-                        content = reasoning;
-                        // 让调用方知道这不是答案而是兜底的独白：不标记的话，"推理吃光 token"
-                        // 在外层看起来和"模型正常回答了但内容是解释"一模一样，只能报成"解析不了"
-                        result.setParam(AI_P_CONTENT_FROM_REASONING, true);
-                    }
+                // 兜底：空正文时把 reasoning 提升为正文——仅"答案全在推理里"才成立，
+                // 工具回合/截断回合不提升（判定见 shouldPromoteReasoning）
+                if (shouldPromoteReasoning(content, reasoningContent, hasToolCallsInMsg, finishReason)) {
+                    content = reasoningContent;
+                    // 让调用方知道这不是答案而是兜底的独白：不标记的话，"推理吃光 token"
+                    // 在外层看起来和"模型正常回答了但内容是解释"一模一样，只能报成"解析不了"
+                    result.setParam(AI_P_CONTENT_FROM_REASONING, true);
                 }
                 result.setParam(AI_P_RESPONSE, content);
             }
 
             // 解析 reasoning_content (DeepSeek R1/V3.1/V4 原生推理)
-            if (message.has("reasoning_content") && !message.get("reasoning_content").isJsonNull()) {
-                String reasoning = message.get("reasoning_content").getAsString();
+            if (!reasoningContent.isEmpty()) {
                 // 已被提升为正文（content 为空场景）时不再单独暴露，避免重复渲染/重复入史
-                if (!reasoning.equals(result.getStringParam(AI_P_RESPONSE, ""))) {
-                    result.setParam(AI_P_REASONING, reasoning);
+                if (!reasoningContent.equals(result.getStringParam(AI_P_RESPONSE, ""))) {
+                    result.setParam(AI_P_REASONING, reasoningContent);
                 }
             }
 
@@ -508,6 +507,25 @@ public class TLOpenAiProvider extends TLLlmProvider {
         }
     }
 
+    /**
+     * 空正文时是否应把 reasoning 提升为正文。该兜底只对"答案全在 reasoning 里"成立：
+     * 模型正常收尾（非 length）+ 未调工具 + 正文空 + 确有推理，四条缺一不可。
+     * <ul>
+     *   <li>工具回合：载荷是 tool_calls，正文可空（API 接受，本库流量有先例）；推理只是调度独白，
+     *       提升会把英文思考当"回复"存进历史（重登可见、还被每轮回传）；</li>
+     *   <li>截断回合（finish_reason=length）：推理吃光 max_tokens，正文根本没写出来——
+     *       独白不是答案，提升会把思考当成品传播（写诗/汉堡披萨实测）。</li>
+     * </ul>
+     * 非流式与流式两处共用本判定，防两处漂移。
+     */
+    static boolean shouldPromoteReasoning(String content, String reasoning,
+                                          boolean hasToolCalls, String finishReason) {
+        if (content != null && !content.isEmpty()) return false;
+        if (reasoning == null || reasoning.isEmpty()) return false;
+        if (hasToolCalls) return false;
+        return !"length".equals(finishReason);
+    }
+
     // ======================== SSE流式回调内部类 ========================
 
     protected class StreamCallback implements Callback {
@@ -518,6 +536,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
         private final StringBuilder contentBuilder = new StringBuilder();
         private final StringBuilder reasoningBuilder = new StringBuilder();
         private final List<TLToolCall> accumulatedToolCalls = new ArrayList<>();
+        /** 末块携带的 finish_reason（stop/tool_calls/length）——判定截断与是否可提升的依据 */
+        private String finishReason = null;
 
         public StreamCallback(String resultFor, String resultAction, String sessionId, TLMsg originalMsg) {
             this.resultFor = resultFor;
@@ -572,10 +592,11 @@ public class TLOpenAiProvider extends TLLlmProvider {
                             }
                             // 发送完成信号
                             String finalContent = contentBuilder.toString();
-                            // DeepSeek 推理模型偶发：答案全部输出在 reasoning_content 而 content 为空 →
-                            // 提升为正文兜底（空响应在 agent 层只会存占位符，用户看不到结果）
+                            // 兜底：空正文时把 reasoning 提升为正文——与非流式同一判定
+                            //（工具回合/截断回合不提升，防思考冒充成果；见 shouldPromoteReasoning）
                             boolean contentFromReasoning = false;
-                            if (finalContent.isEmpty() && reasoningBuilder.length() > 0) {
+                            if (shouldPromoteReasoning(finalContent, reasoningBuilder.toString(),
+                                    !accumulatedToolCalls.isEmpty(), finishReason)) {
                                 finalContent = reasoningBuilder.toString();
                                 reasoningBuilder.setLength(0); // 已提升，doneMsg 不再重复携带
                                 contentFromReasoning = true;
@@ -585,6 +606,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                     .setParam(AI_P_STREAMDONE, true)
                                     .setParam(AI_P_RESPONSE, finalContent)
                                     .setParam(AI_P_SESSIONID, sessionId);
+                            if (finishReason != null) doneMsg.setParam(AI_P_FINISH_REASON, finishReason);
                             if (contentFromReasoning) doneMsg.setParam(AI_P_CONTENT_FROM_REASONING, true);
                             if (reasoningBuilder.length() > 0) {
                                 doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());
@@ -601,6 +623,10 @@ public class TLOpenAiProvider extends TLLlmProvider {
                             JsonArray choices = chunk.getAsJsonArray("choices");
                             if (choices != null && choices.size() > 0) {
                                 JsonObject choice = choices.get(0).getAsJsonObject();
+                                // finish_reason 由末块携带（stop/tool_calls/length）——截断判定与提升守卫的依据
+                                if (choice.has("finish_reason") && !choice.get("finish_reason").isJsonNull()) {
+                                    finishReason = choice.get("finish_reason").getAsString();
+                                }
                                 JsonObject delta = choice.getAsJsonObject("delta");
 
                                 // 文本块

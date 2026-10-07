@@ -151,6 +151,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     private final Map<String, String> sessionUserIds = new ConcurrentHashMap<>();
     /** 会话级 userMessage: sessionId → 本轮用户消息（供 onStreamResult 收尾 chatFinished 使用，与 sessionUserIds 对称） */
     private final Map<String, String> sessionUserMessages = new ConcurrentHashMap<>();
+    /** 会话级 reasoningMode: sessionId → 本轮生效的推理模式（供流式续跑轮透传；流式链路此前两处都不传该参数） */
+    private final Map<String, String> sessionReasoningModes = new ConcurrentHashMap<>();
     /** 会话级 rootSessionId: sessionId → 根会话 ID（供 onStreamResult 回调线程查表；chatStream 入口写入，cleanupStreamState 清除） */
     private final Map<String, String> sessionRootIds = new ConcurrentHashMap<>();
     /** 会话级 coverSeq: sessionId → 本会话最新摘要段的 coverSeq（组装视图衔接；0=无摘要） */
@@ -1264,12 +1266,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             if (stream) {
                 // 流式: 单次请求，无tool-call循环
-                // 推理参数透传
-                if (!"off".equals(effectiveReasoningMode)) {
-                    // 流式参数将在 doStreamCall 构建消息时注入
-                }
+                // 推理参数透传（此前是空壳 if——参数只写在注释里没真注入，函数体并不接收）
                 TLMsg streamResult = doStreamCall(buildSendList(history, coverSeq, memoryContext),
-                        toolDefs, sessionId, model);
+                        toolDefs, sessionId, model, effectiveReasoningMode, maxTokens);
                 if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
                     aborted = true;
                 } else if (streamResult == null || !streamResult.parseBoolean(RESULT, false)) {
@@ -1411,11 +1410,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     List<TLToolCall> toolCalls = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
 
                     if (!hasToolCalls || toolCalls == null || toolCalls.isEmpty()) {
+                        String turnFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
                         finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
                         // 空响应：历史里放占位符（空 assistant 消息会被 DeepSeek 拒绝，
-                        // 且会随上下文存续污染后续回合），返回给调用方的 finalResponse 仍保持原值
+                        // 且会随上下文存续污染后续回合）；截断轮（length）占位/终答都如实说明
                         history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                finalResponse.isEmpty() ? "（无输出）" : finalResponse));
+                                finalResponse.isEmpty() ? emptyHistoryPlaceholder(turnFinish) : finalResponse));
+                        finalResponse = withTruncationNotice(finalResponse, turnFinish);
                         break;
                     }
 
@@ -1693,7 +1694,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 流式LLM调用——使用配置文件中注册的streamCallback模块。返回 RESULT=false + 错误文案表示失败 */
     private TLMsg doStreamCall(List<TLConversationHistory> history,
                                List<TLFunctionDefinition> toolDefs,
-                               String sessionId, String model) {
+                               String sessionId, String model,
+                               String reasoningMode, int maxTokens) {
         TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
                 ? (TLBaseModule) getModule("streamCallback") : null;
         if (cb == null) {
@@ -1706,7 +1708,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_FUNCTIONDEFS, toolDefs)
                 .setParam(AI_P_MODEL, model).setParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
+                .setParam(AI_P_MAXTOKENS, maxTokens)
                 .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, STREAM_ONCHUNK);
+        // 与 doChat 同语义：off = 什么都不传（模型默认）；disabled/native 显式透传
+        if (reasoningMode != null && !"off".equals(reasoningMode)) {
+            sm.setParam(AI_P_REASONING_MODE, reasoningMode);
+        }
         // 全链追踪：流式 LLM 请求打点（本方法跑在 doChat 线程，ThreadLocal 有效；payload = 实际发送的 messages）
         traceStage(sessionId, currentRootSessionId.get() != null ? currentRootSessionId.get() : sessionId,
                 sessionRoundIds.getOrDefault(sessionId, ""), "llmRequest",
@@ -1943,6 +1950,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
                     frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
 
+            // 推理模式/长度预算：请求级覆盖 > agent 配置默认。
+            // 此前流式链路两处都不传：配 reasoningMode=disabled 关不掉思考（模型照常推理，
+            // 推理吃光预算），defaultMaxTokens 也不生效——会话级留存供续跑轮透传
+            String streamMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
+            if ("auto".equals(streamMode)) {
+                streamMode = resolveAutoMode(msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()));
+            }
+            sessionReasoningModes.put(sessionId, streamMode);
+
             // 回调目标设为本 agent（走 onStreamResult），最终调用方通过 _streamResultFor 指定
             TLMsg streamMsg = createMsg()
                     .setAction(LLM_COMPLETIONSTREAM)
@@ -1957,6 +1973,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 streamMsg.setParam(AI_P_MODEL, msg.getParam(AI_P_MODEL));
             if (msg.containsParam(AI_P_TEMPERATURE))
                 streamMsg.setParam(AI_P_TEMPERATURE, msg.getParam(AI_P_TEMPERATURE));
+            // 与 doChat 同语义：off = 什么都不传（模型默认行为）；其余值显式透传
+            if (!"off".equals(streamMode)) streamMsg.setParam(AI_P_REASONING_MODE, streamMode);
+            streamMsg.setParam(AI_P_MAXTOKENS, msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens));
             // 断点恢复参数（agentService loadSession 透传）：resumeModel/resumeTemperature 优先于默认值
             if (resume && msg.containsParam("resumeModel"))
                 streamMsg.setParam(AI_P_MODEL, msg.getStringParam("resumeModel", ""));
@@ -2000,6 +2019,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         sessionMsgStartIdx.remove(sessionId);
         sessionUserIds.remove(sessionId);
         sessionUserMessages.remove(sessionId);
+        sessionReasoningModes.remove(sessionId);
         sessionRootIds.remove(sessionId);
         sessionCoverSeq.remove(sessionId);
         sessionMemoryContext.remove(sessionId);
@@ -2104,18 +2124,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         // 直出短路（流式路径）：单工具轮且带 finalAnswer → 全文直达，不再续跑 LLM
                         if (execResult != null && execResult.parseBoolean(AI_P_FINALANSWER, false)
                                 && (toolCalls == null || toolCalls.size() == 1)) {
+                            String directText = execResult.getStringParam("finalResponse", "");
+                            // 直出文本作为本轮 assistant 最终消息入 history（与非流式直出对称）——
+                            // 此前只 forwardStreamFinal 推前端不落 history：恢复会话时终答消失，
+                            // 用户只见开场白 + 工具卡片（"诗没有了"）；空响应放占位符（空 assistant 会被 API 400）
+                            history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                                    directText.isEmpty() ? "（无输出）" : directText));
                             // 直出前保存上下文（此前缺失：直出直接 return 跳过保存，
                             // 导致下一轮 getContextHistory 拿不到本轮完整 history——LLM 只能靠记忆，
                             // 把上轮任务（如写诗）误当新指令）
                             saveContextHistory(sessionId, history);
                             // 全链追踪：直出轮收尾（payload = 直出全文）
                             traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                                    execResult.getStringParam("finalResponse", ""), streamUserId);
+                                    directText, streamUserId);
                             // 收尾通知 SessionManager + 记忆（直出路径此前缺 chatFinished → 恢复会话时该轮缺失）
-                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
-                                    execResult.getStringParam("finalResponse", ""));
-                            forwardStreamFinal(resultFor, resultAction, sessionId,
-                                    execResult.getStringParam("finalResponse", ""));
+                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId, directText);
+                            forwardStreamFinal(resultFor, resultAction, sessionId, directText);
                             return null;
                         }
 
@@ -2152,6 +2176,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
                                     .setParam(AI_P_TEMPERATURE, defaultTemperature)
                                     .setParam(AI_P_MAXTOKENS, defaultMaxTokens);
+                            // 推理模式与流式首包同源透传：否则首包按配置关了思考、续跑又"照常思考"
+                            String contMode = sessionReasoningModes.get(sessionId);
+                            if (contMode != null && !"off".equals(contMode)) {
+                                llmMsg.setParam(AI_P_REASONING_MODE, contMode);
+                            }
                             if (toolDefs != null && !toolDefs.isEmpty()) {
                                 llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
                             }
@@ -2188,11 +2217,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     streamUserId);
 
                             if (!moreToolCalls || moreTCs == null || moreTCs.isEmpty()) {
+                                String contFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
                                 finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
                                 // 空响应：历史里放占位符（与 doChat 流式/非流式分支一致——空 assistant
-                                // 消息会被 DeepSeek 400 拒绝，且随上下文存续污染后续回合）
+                                // 消息会被 DeepSeek 400 拒绝，且随上下文存续污染后续回合）；
+                                // 截断轮（length）占位/终答都如实说明（终答随后会作为 chunk 推给前端）
                                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                        finalResponse.isEmpty() ? "（无输出）" : finalResponse));
+                                        finalResponse.isEmpty() ? emptyHistoryPlaceholder(contFinish) : finalResponse));
+                                finalResponse = withTruncationNotice(finalResponse, contFinish);
                                 break;
                             }
 
@@ -2233,14 +2265,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             // 直出短路（流式续跑循环）：单工具轮且带 finalAnswer → 全文直达
                             if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
                                     && (moreTCs == null || moreTCs.size() == 1)) {
+                                String directText2 = moreExecResult.getStringParam("finalResponse", "");
+                                // 与非流式直出对称：终答作为 assistant 消息入 history 再落库（恢复会话可见性）
+                                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                                        directText2.isEmpty() ? "（无输出）" : directText2));
                                 saveContextHistory(sessionId, history);
                                 // 全链追踪：续跑循环直出收尾
                                 traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                                        moreExecResult.getStringParam("finalResponse", ""), streamUserId);
-                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
-                                        moreExecResult.getStringParam("finalResponse", ""));
-                                forwardStreamFinal(resultFor, resultAction, sessionId,
-                                        moreExecResult.getStringParam("finalResponse", ""));
+                                        directText2, streamUserId);
+                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId, directText2);
+                                forwardStreamFinal(resultFor, resultAction, sessionId, directText2);
                                 return null;
                             }
                         }
@@ -2299,10 +2333,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 } else {
                     // 无tool calls: 保存assistant回复到上下文，再转发完成信号
                     List<TLConversationHistory> currentHistory = getContextHistory(sessionId);
-                    if (streamedText != null && !streamedText.isEmpty()) {
+                    // 截断如实告知：finish_reason=length 的终答补提示（入史+补推前端；正文 chunks 已随流推过，只补差值）
+                    String noToolFinish = msg.getStringParam(AI_P_FINISH_REASON, "");
+                    String answerText = withTruncationNotice(streamedText, noToolFinish);
+                    if (answerText != null && !answerText.isEmpty()) {
                         currentHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.assistant, streamedText));
+                                TLConversationHistory.Role.assistant, answerText));
                         saveContextHistory(sessionId, currentHistory);
+                        String streamed = streamedText == null ? "" : streamedText;
+                        if (answerText.length() > streamed.length()) {
+                            forwardStream(resultFor, resultAction, sessionId, createMsg()
+                                    .setParam(AI_P_CHUNK, answerText.substring(streamed.length()))
+                                    .setParam(AI_P_SESSIONID, sessionId));
+                        }
                     }
                     // 收尾：通知 SessionManager 保存会话（与 tool call 路径对称）+ 保存长期记忆
                     notifySessionManager(createMsg()
@@ -2314,14 +2357,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             .setParam("messages", deltaMessages(currentHistory,
                                     sessionMsgStartIdx.getOrDefault(sessionId, 0)))
                             .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
-                            .setParam("response", streamedText));
+                            .setParam("response", answerText));
                     try {
                         TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
                                 .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
                                 .setParam("userId", streamUserId)
                                 .setParam("agentName", name)
                                 .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                                .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + streamedText)
+                                .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + answerText)
                                 .setParam(AI_P_MEMORYTAG, "chat_history")
                                 .setParam("maxSeq", getMaxSeq(sessionId));
                         saveAgentMemory(fromWho, saveMsg);
@@ -2330,7 +2373,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     }
                     // 全链追踪：流式无工具轮收尾（payload = 最终输出）
                     traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                            streamedText, streamUserId);
+                            answerText, streamUserId);
                     // 会话首轮完成后异步起名（在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
                     Integer titleIdx = sessionMsgStartIdx.get(sessionId);
                     maybeGenerateSessionTitle(sessionId, streamUserId, titleIdx != null && titleIdx <= 1);
@@ -3479,6 +3522,30 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         } catch (Exception e) {
             return 0L;
         }
+    }
+
+    // ======================== 截断如实告知 ========================
+
+    /** 终答被 max_tokens 截断（finish_reason=length）时的告知后缀。此前截断是静默的：用户只能看到半句话 */
+    private static final String TRUNCATED_NOTICE =
+            "\n\n（⚠ 本条回复因长度上限被截断，未写完——可回复「继续」让我接着写；"
+                    + "长任务可调大该 agent 的 maxTokens 或关闭其推理）";
+
+    /** finish_reason=length 时给终答/入史文本补截断提示；其余原样返回（幂等：已含提示不重复追加） */
+    private String withTruncationNotice(String text, String finishReason) {
+        if (!"length".equals(finishReason)) return text == null ? "" : text;
+        String t = text == null ? "" : text;
+        return t.contains(TRUNCATED_NOTICE) ? t : t + TRUNCATED_NOTICE;
+    }
+
+    /**
+     * 空响应入史占位符。finish_reason=length 与普通空响应要分开：
+     * 前者是"推理吃光预算、正文一个字没写出来"（配了推理的 agent 常见），如实说明比"（无输出）"可操作
+     */
+    private String emptyHistoryPlaceholder(String finishReason) {
+        return "length".equals(finishReason)
+                ? "（⚠ 推理占满长度上限，正文未写出——可回复「继续」重试，或调大该 agent 的 maxTokens / 关闭其推理）"
+                : "（无输出）";
     }
 
     /**

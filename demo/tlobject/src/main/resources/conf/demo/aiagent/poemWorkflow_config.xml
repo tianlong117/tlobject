@@ -134,16 +134,21 @@
     <!-- 工作流自有的私有模块——每个节点一个独立实例。
          noHistory="true"：不往 context 存/取会话消息（每次白纸，提示词不膨胀、速度稳定）；
          sessionId 照常继承父会话（级联停止/会话链不受影响）。
-         需要"接着上次"连续性的节点去掉该参数即可 -->
+         需要"接着上次"连续性的节点去掉该参数即可。
+         reasoningMode="disabled"：关思考（预算 4096 是推理与正文共用的）。实测三个节点的推理
+         4K~14K 字：poetB 的诗被截在句中间、poetc 的 4097 token 100% 烧在推理上正文 0 字
+         （随后被"空正文提升"兜底把英文思考当点评返回）。写诗/评判是生成任务，关掉后预算全给正文 -->
     <modules>
         <module name="poetA" sameClassAs="aiagent"
                 defaultLlmProvider="aiagent_master:openAiProvider"
                 noHistory="true"
+                reasoningMode="disabled"
                 systemMessage="你是一个浪漫主义诗人，请用简洁优美的语言回应用户。"
                 temperature="0.9"/>
         <module name="poetB" sameClassAs="aiagent"
                 defaultLlmProvider="aiagent_master:openAiProvider"
                 noHistory="true"
+                reasoningMode="disabled"
                 systemMessage="你是一个现实主义诗人，请用朴实深刻的语言回应用户。"
                 temperature="0.7"/>
         <!-- poetc 的工具（filesystemMcp MCP）声明在其自己的配置文件 poetc_config.xml 的
@@ -153,6 +158,7 @@
                 configfile="poetc_config.xml"
                 defaultLlmProvider="aiagent_master:openAiProvider"
                 noHistory="true"
+                reasoningMode="disabled"
                 systemMessage="你是诗歌评判专家，只输出分析和评判，禁止创作新诗。"
                 task="请对以上两首诗进行对比分析和评判"
                 />

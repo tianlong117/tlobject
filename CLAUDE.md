@@ -110,6 +110,8 @@ Built-in modules extending `TLBaseModule`:
 
 **关键实现要点:**
 - `doChat(msg, stream)` — 流/非流统一入口，预处理(记忆召回+上下文)和後処理(保存上下文+長期記憶)完全共享
+- 直出（`directOutput`/finalAnswer）：终答必须作为 assistant 消息写入 history 再收尾才算完整——非流式（doChat）与流式（chatStream 两个短路点）三处必须对称；只 `forwardStreamFinal` 推前端不落 history 的后果是恢复/重登会话终答消失（只剩开场白+工具卡片，"诗没有了"），`/test streamDirect` 场景守此契约
+- 推理（reasoning）三条铁律（都是实测踩过的坑）：① `TLOpenAiProvider` "空正文把推理提升为正文"兜底只在**正常收尾 stop + 未调工具**时成立——工具回合载荷在 tool_calls（正文可空，API 接受有先例）、截断回合（length）的推理是烧完预算的独白而非答案，提升会把英文思考当正文入库（重登可见、每轮回传）甚至当点评返回；② 终答 `finish_reason=length` 必须如实告知（agent 层补"被截断"提示 + 空正文占位说明），不再静默腰斩；③ 流式链路（chatStream 首包 + 续跑循环）与 doChat 一样要透传 reasoningMode/maxTokens——此前两处都不传，配 `disabled` 关不掉思考、maxTokens 不生效（`off` 对推理模型=照常推理，推理与正文抢同一份 max_tokens）。守护：`/test` 场景 12/13/14 + provider-openai `PromotionGuardSelfTest`（runnable main）；诗歌节点已配 `reasoningMode="disabled"`
 - `beforeMsgTable` 的 `beforeResult` 在 `msg.systemArgs["beforeResult"]` 中，需在業務方法主動讀取。`afterMsgTable` 會覆蓋返回值，記憶保存改為內部調用
 - Tool call 的 `arguments` 必須是 JSON 字符串（`gson.toJson()`），不能用 JSON 對象（`gson.toJsonTree()`）
 - DeepSeek: tools 和 temperature 不能同時傳，model 名在 Provider 配置中指定

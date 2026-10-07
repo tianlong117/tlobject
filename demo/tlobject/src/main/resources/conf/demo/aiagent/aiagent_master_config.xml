@@ -44,7 +44,12 @@
 
         <!-- ===== 推理/思考链 (ReAct) 参数 =====
              reasoningMode: 推理模式选择
-               - off    (默认) 不处理推理，省token。什么也不做
+               - off    (默认) 不干预：什么都不传。⚠ 对推理模型等于"照常推理"——
+                        实测 deepseek-v4-flash 不传 thinking 时，稍难一点的提示词就会
+                        reasoning_tokens=max_tokens、finish_reason=length、正文为空，
+                        纯粹烧 token。要真关请用 disabled
+               - disabled 显式关闭推理（发 thinking:{"type":"disabled"}）——
+                        汇报/生成类 agent 用这个，预算全给正文
                - prompt 在system prompt中注入💭引导，LLM输出思考文本再调用工具
                         通用方案，适用GPT-4、Qwen等无原生reasoning的模型
                - native 解析LLM原生reasoning字段
@@ -56,9 +61,13 @@
              运行时切换: 控制台输入 /thinking off|prompt|native|auto
              单次请求:   msg.setParam("reasoningMode", "native")
              注意: 每个子Agent独立配置自己的reasoningMode，主Agent不自动传播
+             ⚠ off 与 disabled 的区别是高频误解点：off=不干预（推理模型仍思考），disabled=真关。
+               流式链路（webui）此前完全不传 reasoningMode，配了也不生效——已修（TLAiAgent 首包+续跑透传）
         -->
-        <!-- reasoningMode: 推理模式 off|prompt|native|auto，详见上方注释 -->
-        <reasoningMode value="off"/>
+        <!-- reasoningMode: 推理模式 off|disabled|prompt|native|auto，详见上方注释 -->
+        <!-- master 是汇报型 agent（把工具结果讲给用户听），思考只会跟正文抢 max_tokens：
+             实测一次汇总轮推理 1.3 万字吃光 4096，正文 0 字 → 关掉 -->
+        <reasoningMode value="disabled"/>
         <!-- reasoningVisible: 推理内容是否暴露给调用方 -->
         <reasoningVisible value="true"/>
         <!-- thinkingBudget: Claude Extended Thinking token预算（仅native/auto生效） -->
