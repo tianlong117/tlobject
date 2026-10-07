@@ -47,8 +47,73 @@ public class WordEngineSelfTest {
         check("markdown: 有序列表 1. → NUMBERED",
                 WordMarkdown.parse("1. 首项").get(0).type == WordMarkdown.Block.Type.NUMBERED);
 
+        // ================= WordTextExtractor =================
+        org.apache.poi.xwpf.usermodel.XWPFDocument d1 = newDoc();
+        addPara(d1, "项目报告", "Heading1");
+        addPara(d1, "本报告统计了收入。", null);
+        org.apache.poi.xwpf.usermodel.XWPFTable t1 = d1.createTable(2, 2);
+        t1.getRow(0).getCell(0).setText("月份");
+        t1.getRow(0).getCell(1).setText("收入");
+        t1.getRow(1).getCell(0).setText("1月");
+        t1.getRow(1).getCell(1).setText("100");
+
+        String txt = WordTextExtractor.read(d1, 0, -1);
+        check("read: 含段落号 [0] 与样式 Heading1", txt.contains("[0] [Heading1] 项目报告"));
+        check("read: 普通段落标注 Normal", txt.contains("[1] [Normal]"));
+        check("read: 内嵌表格标记", txt.contains("[表格 0]"));
+        check("read: 表格单元格内容入文本", txt.contains("月份") && txt.contains("100"));
+        check("read: from/to 切片只取第二段",
+                WordTextExtractor.read(d1, 1, 1).contains("[1] ")
+                        && !WordTextExtractor.read(d1, 1, 1).contains("项目报告"));
+
+        String ol = WordTextExtractor.outline(d1);
+        check("outline: 只出标题", ol.contains("[0] 项目报告") && !ol.contains("本报告统计"));
+
+        // 不写 pStyle、只靠 outlineLvl 表示标题的文档（read 与 outline 必须一致认它）
+        org.apache.poi.xwpf.usermodel.XWPFDocument d2 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph op = d2.createParagraph();
+        op.getCTP().addNewPPr().addNewOutlineLvl().setVal(java.math.BigInteger.valueOf(0));
+        op.createRun().setText("靠 outlineLvl 的标题");
+        addPara(d2, "正文", null);
+        check("outline: 认 outlineLvl 标题（与 read 的 [Heading1] 一致）",
+                WordTextExtractor.outline(d2).contains("[0] 靠 outlineLvl 的标题")
+                        && WordTextExtractor.read(d2, 0, 0).contains("[0] [Heading1]")
+                        && Integer.valueOf(1).equals(WordTextExtractor.info(d2).get("headings")));
+
+        String tb = WordTextExtractor.tables(d1, -1);
+        check("tables: 二维内容", tb.contains("月份") && tb.contains("1月"));
+
+        java.util.Map<String, Object> inf = WordTextExtractor.info(d1);
+        check("info: 段落数 = 2", Integer.valueOf(2).equals(inf.get("paragraphs")));
+        check("info: 表格数 = 1", Integer.valueOf(1).equals(inf.get("tables")));
+        check("info: 标题数 = 1", Integer.valueOf(1).equals(inf.get("headings")));
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
+    }
+
+    // ================= 共用的造文档工具 =================
+
+    /** 用一个全新文档跑 body，返回它 */
+    static org.apache.poi.xwpf.usermodel.XWPFDocument newDoc() {
+        return new org.apache.poi.xwpf.usermodel.XWPFDocument();
+    }
+
+    static org.apache.poi.xwpf.usermodel.XWPFParagraph addPara(
+            org.apache.poi.xwpf.usermodel.XWPFDocument d, String text, String style) {
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p = d.createParagraph();
+        if (style != null) p.setStyle(style);
+        org.apache.poi.xwpf.usermodel.XWPFRun r = p.createRun();
+        r.setText(text);
+        return p;
+    }
+
+    static java.nio.file.Path saveTmp(org.apache.poi.xwpf.usermodel.XWPFDocument d, String name)
+            throws Exception {
+        java.nio.file.Path p = java.nio.file.Files.createTempDirectory("wordsf")
+                .resolve(name);
+        try (java.io.OutputStream o = java.nio.file.Files.newOutputStream(p)) { d.write(o); }
+        return p;
     }
 
     static void check(String desc, boolean ok) {
