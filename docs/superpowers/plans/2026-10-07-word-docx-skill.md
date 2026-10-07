@@ -2494,8 +2494,24 @@ git commit -m "TLWordJavaSkill：技能壳（schema/输入解析/JSON 回执/Lin
                statup="true"
                skillName="word"
                allowedRootPath="."
-               workDir="data/documents"/>
+               workDir="data/documents"
+               skillDescription="Read, create and modify Microsoft Word .docx documents. Actions: read (structured text with paragraph numbers and styles), outline (headings only - use this FIRST on a long document), tables, info, create/append (content is Markdown: # headings, - bullets, |a|b| tables, **bold**, --- page break), replace (find/replace, preserves formatting by default; mode=rewrite if a paragraph is skipped), set_paragraph, insert_paragraph, delete_paragraph, set_table_cell, add_table_row, fill_template (replaces ${key}/{{key}} placeholders in body and tables). ONLY .docx is supported - .doc must be re-saved as .docx first. WORKFLOW: call outline or read first to get PARAGRAPH NUMBERS, then use those numbers with the modify actions - never guess. Paragraph numbers SHIFT after insert_paragraph/delete_paragraph, so re-read before the next edit. replace reports a skipped count when a paragraph contains hyperlinks or field codes (those cannot be edited in place without damage) - if skipped>0, retry that edit with mode=rewrite."/>
 ```
+
+⚠️ **这里的 `skillDescription` 不是可选的装饰，是必需品。** Task 14 实测发现：`TLBaseSkill`
+的 `setModuleParams()` 会**先把** `skillDescription` 设成 `name + " skill"`，
+所以技能类里那段 `if (isNullOrEmpty) 赋长描述` **永远不执行**——那是死代码。
+
+证据：`new TLDesktopJavaSkill("desktop")` 实际 desc 长度 = 13（`"desktop skill"`）；
+真实 trace 里有 **31 处 `"description": "desktop skill"`**，而 Python 版 desktop 的富描述
+有 988 处——**desktop-java 的详细描述也从未进过真实 prompt**。
+
+`browser` 技能就是靠 XML 里这条属性绕过该问题的（`TLBaseSkill` 优先读 XML 传入值）。
+不补这条，模型只看到 `"word skill"` 四个字，不知道有 13 个动作、不知道要先用 `outline`
+拿段落号——**技能上线即等于不可用**。
+
+（框架层面的修法——把技能类里那段赋值移到 `super.setModuleParams()` 之前——**不在本次范围**：
+它会同时改变 desktop/browser-java 等既有技能的行为，属另一轮评估。）
 
 - [ ] **Step 3: 补主 agent 对 fileAgent 的描述（易漏点）**
 
