@@ -82,7 +82,7 @@ Expected: 10 个路径全部列出，无 "No such file"。
 ### Task 2: 根 pom 加 dependencyManagement + execl 升版
 
 **Files:**
-- Modify: `pom.xml`（根，`</build>` 之前插入）
+- Modify: `pom.xml`（根，`</build>` 之后、`</project>` 之前插入）
 - Modify: `execl/pom.xml:19-33`
 
 - [ ] **Step 1: 根 pom 插入 dependencyManagement**
