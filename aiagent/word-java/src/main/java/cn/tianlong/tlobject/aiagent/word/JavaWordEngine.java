@@ -114,12 +114,13 @@ public class JavaWordEngine {
     }
 
     /** 取必填文本参数。缺 key 视为调用错误——静默按空串处理会毁掉段落/单元格内容。
-     *  显式传空串是允许的（清空是合法意图）。 */
+     *  显式传空串是允许的（清空是合法意图）。
+     *  取值一律经 {@link #toDocString}：JSON 整数到这里已是 Double，String.valueOf 会写出 "100.0"。 */
     private static String requiredText(Map<String, Object> in) {
         if (!in.containsKey("text") || in.get("text") == null)
             throw new IllegalArgumentException(
                     "text is required (to clear the paragraph, pass text=\"\")");
-        return String.valueOf(in.get("text"));
+        return toDocString(in.get("text"));
     }
 
     /**
@@ -127,6 +128,7 @@ public class JavaWordEngine {
      *
      * 坑：provider 用 gson.fromJson(args, Map.class) 解析工具参数，JSON 整数一律变 Double，
      * 直接 String.valueOf 会往文档里写出 "100.0"。整值必须还原成 "100"。
+     * 凡"会进文档"的入参一律经此：text / replace / values / data / content（少一处就是一条漏网）。
      */
     static String toDocString(Object v) {
         if (v == null) return "";
@@ -176,7 +178,7 @@ public class JavaWordEngine {
         if (Files.exists(p) && !overwrite)
             return Result.fail("file exists (pass overwrite=true): " + p);
         Files.createDirectories(p.getParent());
-        String content = String.valueOf(in.getOrDefault("content", ""));
+        String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = new XWPFDocument()) {
             WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content));
             save(doc, p);
@@ -186,7 +188,7 @@ public class JavaWordEngine {
 
     private Result doAppend(Map<String, Object> in) throws IOException {
         Path p = resolve(od(in, "path"), true);
-        String content = String.valueOf(in.getOrDefault("content", ""));
+        String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = open(p)) {
             WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content));
             save(doc, p);
@@ -198,7 +200,12 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         String find = od(in, "find");
         if (find == null || find.isEmpty()) return Result.fail("find is required");
-        String repl = String.valueOf(in.getOrDefault("replace", ""));
+        // replace 是必填 key：getOrDefault("replace","") 会把"模型漏参数"和"显式删掉这段文字"
+        // 当成同一件事——实测漏参数时 {"ok":true,"replaced":1} 而匹配处已被删空（F2 同类）。
+        // 显式传空串仍然合法（删除是正常意图）。
+        if (!in.containsKey("replace") || in.get("replace") == null)
+            return Result.fail("replace is required (to delete the match, pass replace=\"\")");
+        String repl = toDocString(in.get("replace"));
         try (XWPFDocument doc = open(p)) {
             WordTextEditor.ReplaceReport rep = WordTextEditor.replaceInDocument(
                     doc, find, repl, oi(in, "index", -1),

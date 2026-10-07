@@ -13,6 +13,13 @@ public class WordEngineSelfTest {
 
     private static int passed = 0, failed = 0;
 
+    private static final org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.Enum
+            BEGIN = org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.BEGIN;
+    private static final org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.Enum
+            SEPARATE = org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.SEPARATE;
+    private static final org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.Enum
+            END = org.openxmlformats.schemas.wordprocessingml.x2006.main.STFldCharType.END;
+
     public static void main(String[] args) throws Exception {
         check("骨架可实例化", true);
 
@@ -314,13 +321,14 @@ public class WordEngineSelfTest {
         }
         check("编号一致: 增删后 extractor 的 [N] 与编辑动作同号（逐行核对）", sameNumbering);
 
-        // ================= rewrite 逃生舱：不得重复换行（Task 10 遗留）=================
-        // 缺陷实测（HEAD 版）：getText 把 br 合成 \n 写回 <w:t>（字面 \n）而 br 仍在
-        //   → "金额：${amount}\n尾注" 替换后变成 "金额：100\n尾注\n"（多一个换行，落盘重载仍在）
-        // 计划 Fix1 明说 rewrite 语义=丢段内格式「先拉平」，Fix2 清残留 br，
-        // 两者合力后实测=「金额：100 尾注」——空格，一个 \n 都没有（Fix1+Fix2 的必然结果）。
-        // 故此处期望串按计划给定的修复代码实测值写，而非计划里那句按「仅 Fix2」推出的
-        // "金额：100\n尾注"（那个字面量与 Fix1 互斥，二者同时应用时不可能出现）。
+        // ================= rewrite：段落不安全就**拒绝**（不再"拉平 + 清 br"）=================
+        // 历史：Task 10 的缺陷是 rewrite 把 br 合成的 \n 写回 <w:t> 造成换行重复，当时的修法是
+        // 「拉平（\n→空格）+ 清残留 br」，本文件也从那时起钉住了"金额：100 尾注"这个期望值。
+        // N1 复审推翻了那个修法，故本块断言**整体改写**为拒绝语义，理由：
+        //   ① 清 br 本身就是内容损失（段内换行被抹掉，用户没要求删换行）；
+        //   ② 同一条路径对域/超链接是毁灭性的（实测模型文本落进域代码区、域结果被清空，回执 ok）；
+        //   ③ rewritten 段落里既有 br 又有文本时，"拉平"只是让损失看起来小一点，本质仍是整段重造。
+        // 现在的契约：跳过 + 原因点名元素 + 正文一字不动（拒绝发生在任何改动之前）。
         org.apache.poi.xwpf.usermodel.XWPFDocument dRw = newDoc();
         org.apache.poi.xwpf.usermodel.XWPFParagraph pRw = dRw.createParagraph();
         org.apache.poi.xwpf.usermodel.XWPFRun rRw = pRw.createRun();
@@ -328,21 +336,32 @@ public class WordEngineSelfTest {
         rRw.addBreak();
         org.apache.poi.xwpf.usermodel.XWPFRun rRw2 = pRw.createRun();
         rRw2.setText("尾注");
-        WordTextEditor.replaceInDocument(dRw, "${amount}", "100", -1, "rewrite");
-        check("rewrite: 整段文本被拉平（无重复换行）",
-                dRw.getParagraphs().get(0).getText().equals("金额：100 尾注"));
-        check("rewrite: 文本里没有残留 \\n（不重复也不尾随）",
-                !dRw.getParagraphs().get(0).getText().contains("\n"));
-        check("rewrite: 残留 br 已清掉",
+        check("rewrite 前置: 段落 text 是 br 合成的 \"金额：${amount}\\n尾注\"",
+                pRw.getText().equals("金额：${amount}\n尾注"));
+        WordTextEditor.ReplaceReport repRw =
+                WordTextEditor.replaceInDocument(dRw, "${amount}", "100", -1, "rewrite");
+        check("rewrite: 含 br 的段落被拒绝（replaced=0, skipped=1）",
+                repRw.replaced == 0 && repRw.skipped == 1);
+        check("rewrite: 跳过原因点名元素 w:br（不再是笼统的 hyperlink/field/break）",
+                repRw.skippedReasons.size() == 1
+                        && repRw.skippedReasons.get(0).contains("w:br")
+                        && repRw.skippedReasons.get(0).startsWith("paragraph 0"));
+        check("rewrite: 段落文本一字未改（不拉平、不清 br、换行不重复也不尾随）",
+                dRw.getParagraphs().get(0).getText().equals("金额：${amount}\n尾注"));
+        check("rewrite: 占位符原样保留（不是「改了一半」的半改态）",
+                dRw.getParagraphs().get(0).getText().contains("${amount}"));
+        check("rewrite: br 仍在（拒绝发生在改动之前）",
                 dRw.getParagraphs().get(0).getRuns().stream()
-                        .noneMatch(r -> r.getCTR().sizeOfBrArray() > 0));
-        // 原文缺陷「survives save→reload」——重载后必须还是干净的
-        java.nio.file.Path pRwf = saveTmp(dRw, "rewrite.docx");
+                        .anyMatch(r -> r.getCTR().sizeOfBrArray() > 0));
+        // 落盘重载后仍是原样：拒绝=什么都没发生，落盘的 XML 也得是原样
+        java.nio.file.Path pRwf = saveTmp(dRw, "rewrite_refused.docx");
         try (java.io.InputStream in = java.nio.file.Files.newInputStream(pRwf);
              org.apache.poi.xwpf.usermodel.XWPFDocument re =
                      new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
-            check("rewrite: 落盘重载后仍无重复换行",
-                    re.getParagraphs().get(0).getText().equals("金额：100 尾注"));
+            check("rewrite: 落盘重载后段落仍是原样（拒绝不是内存态假象）",
+                    re.getParagraphs().get(0).getText().equals("金额：${amount}\n尾注")
+                            && re.getParagraphs().get(0).getRuns().stream()
+                                    .anyMatch(r -> r.getCTR().sizeOfBrArray() > 0));
         }
 
         // ================= Critical 回归：setText(v,0) 只写 t[0] =================
@@ -396,17 +415,75 @@ public class WordEngineSelfTest {
         WordTextEditor.replaceInDocument(dW, "${k}", "V", -1, "rewrite");
         check("rewrite 回归: 不复制内容", "前缀 V 后缀".equals(dW.getParagraphs().get(0).getText()));
 
-        // 穷举式不安全判定：Word 会在这些元素处切断 w:t，都必须被识别为不安全
-        org.apache.poi.xwpf.usermodel.XWPFParagraph pSH = newDoc().createParagraph();
-        org.apache.poi.xwpf.usermodel.XWPFRun rSH = pSH.createRun();
-        rSH.setText("软连字符处被切断的");
-        rSH.getCTR().addNewSoftHyphen();
-        check("不安全判定: w:softHyphen 被识别为不安全", WordTextEditor.isUnsafeRun(rSH));
-        org.apache.poi.xwpf.usermodel.XWPFParagraph pLR = newDoc().createParagraph();
+        // ================= N2 真值表：不安全判定 = "text() 会为它合成/变换字符" =================
+        // 判据来自实测而非直觉：逐条对照 POI 5.5.1 的 XWPFRun.text()/_getText()（javap -c 反编译
+        // D:\repository\org\apache\poi\poi-ooxml\5.5.1\poi-ooxml-5.5.1.jar），并逐元素构造 run 跑过。
+        // 关键实测：run 里 [rPr, X, t("X")] 时 X 会不会给 text() 添字——
+        //   br/cr → '\n'；tab/ptab → '\t'；**noBreakHyphen → U+2011（反直觉！）**；
+        //   delText → 追加内容；footnoteReference → "[footnoteRef:N]"；ruby → 注音基字；
+        //   而 lastRenderedPageBreak/softHyphen/sym/drawing/pict/object 一个字符都不添。
+        // 旧白名单"只许 w:t 与 w:rPr"把最后一类也判成危险，代价是整份文档大面积改不动
+        // （复审实测 186 篇语料：跳过段落 263→287，仅 lastRenderedPageBreak 就占 24 段/5 篇）。
+        check("真值表: w:br 不安全（text() 合成 '\\n'）",
+                "w:br".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewBr()))));
+        check("真值表: w:cr 不安全（CTEmpty 分支同样合成 '\\n'）",
+                "w:cr".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewCr()))));
+        check("真值表: w:tab 不安全（合成 '\\t'）",
+                "w:tab".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewTab()))));
+        check("真值表: w:ptab 不安全（CTPTab 分支合成 '\\t'）",
+                "w:ptab".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewPtab()))));
+        check("真值表: w:noBreakHyphen 不安全（实测 text() = \"‑X\"，多出一个 U+2011）",
+                "w:noBreakHyphen".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewNoBreakHyphen()))));
+        check("真值表: w:delText 不安全（CTText 分支只排除 instrText/delInstrText，delText 会追加）",
+                "w:delText".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> { c.addNewDelText().setStringValue("DEL"); return null; }))));
+        check("真值表: w:footnoteReference 不安全（合成 '[footnoteRef:N]'）",
+                "w:footnoteReference".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewFootnoteReference()))));
+        check("真值表: w:fldChar 不安全（域结构必拒；BEGIN+ffData 还会合成 '|X|'）",
+                "w:fldChar".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewFldChar()))));
+        check("真值表: w:instrText 不安全（域代码：整段重写会把新文本写进域代码区）",
+                "w:instrText".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> { c.addNewInstrText().setStringValue(" HYPERLINK \"x\" "); return null; }))));
+        check("真值表: w:ruby 不安全（handleRuby 取注音，顶层 <w:t> 却是空）",
+                "w:ruby".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(c -> c.addNewRuby()))));
+        check("真值表: caps 格式不安全（text() 会 toUpperCase，写回把大写烘进正文 = 不互逆）",
+                "w:caps".equals(WordTextEditor.unsafeRunReason(
+                        probeRun(null, r -> r.setCapitalized(true)))));
+        // 安全侧：这一组是 N2 的立论所在，谁把它们改回"危险"，语料可用性立刻塌回去
+        check("真值表: w:lastRenderedPageBreak 安全（Windows Word 每个分页处都会插，text() 零贡献）",
+                WordTextEditor.unsafeRunReason(probeRun(c -> c.addNewLastRenderedPageBreak())) == null);
+        check("真值表: w:softHyphen 安全（实测零贡献、写回 round-trip 精确）",
+                WordTextEditor.unsafeRunReason(probeRun(c -> c.addNewSoftHyphen())) == null);
+        check("真值表: w:drawing 安全（内联图片原位保留，text() 零贡献）",
+                WordTextEditor.unsafeRunReason(probeRun(c -> c.addNewDrawing())) == null);
+        check("真值表: w:sym 安全（text() 零贡献）",
+                WordTextEditor.unsafeRunReason(probeRun(c -> c.addNewSym())) == null);
+
+        // N2 核心回归：真实形态 [rPr, lastRenderedPageBreak, t] 既能改、又 round-trip 精确
+        org.apache.poi.xwpf.usermodel.XWPFDocument dLR = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pLR = dLR.createParagraph();
         org.apache.poi.xwpf.usermodel.XWPFRun rLR = pLR.createRun();
-        rLR.setText("分页符处被切断的");
+        rLR.setBold(true);
         rLR.getCTR().addNewLastRenderedPageBreak();
-        check("不安全判定: w:lastRenderedPageBreak 被识别为不安全", WordTextEditor.isUnsafeRun(rLR));
+        rLR.getCTR().addNewT().setStringValue("订单号：${orderNo}");
+        check("lastRenderedPageBreak: 段落不再被跳过（旧白名单下这里返回 -2）",
+                WordTextEditor.replaceInParagraph(pLR, "${orderNo}", "A123") == 1);
+        check("lastRenderedPageBreak: 文本 round-trip 正确（元素不给 text() 添字）",
+                "订单号：A123".equals(pLR.getText()));
+        check("lastRenderedPageBreak: 元素与格式原位保住（不是被清掉）",
+                rLR.getCTR().sizeOfLastRenderedPageBreakArray() == 1 && rLR.isBold()
+                        && rLR.getCTR().sizeOfTArray() == 1);
+        check("lastRenderedPageBreak: 落盘重载后仍如此",
+                roundTripText(dLR, "lrpb.docx").equals("订单号：A123"));
+
         // 反例：普通 run 绝不能被误判（否则整个技能形同虚设）
         org.apache.poi.xwpf.usermodel.XWPFParagraph pOK = newDoc().createParagraph();
         org.apache.poi.xwpf.usermodel.XWPFRun rOK = pOK.createRun();
@@ -418,6 +495,101 @@ public class WordEngineSelfTest {
         rOK2.getCTR().addNewT().setStringValue("也算安全");
         check("不安全判定: 多 <w:t> 的 run 是安全的（已能正确写回）",
                 !WordTextEditor.isUnsafeRun(rOK2));
+
+        // ================= N1 回归：整段重写必须拒绝，不许把域/超链接改坏 =================
+        // 复审实测的损伤形态（修复前）：带 HYPERLINK 域的段落上 set_paragraph 把模型文本写进了
+        // **域代码区**（fldChar begin 那个 run 里多了 <w:t>NEW-TEXT-FROM-MODEL</w:t>）、并清空了
+        // 域结果；回执 {"ok":true}、read 还报 "[0] [Normal] NEW-TEXT-FROM-MODEL"，而 Word 显示的是
+        // 一个坏掉的域。set_table_cell / add_table_row / replace 的 rewrite 分支同源。
+        org.apache.poi.xwpf.usermodel.XWPFDocument dFld = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pFld = dFld.createParagraph();
+        pFld.createRun().getCTR().addNewFldChar().setFldCharType(BEGIN);
+        pFld.createRun().getCTR().addNewInstrText()
+                .setStringValue(" HYPERLINK \"https://example.com/x\" ");
+        pFld.createRun().getCTR().addNewFldChar().setFldCharType(SEPARATE);
+        pFld.createRun().setText("click here");
+        pFld.createRun().getCTR().addNewFldChar().setFldCharType(END);
+        check("N1 前置: 域段落 text = \"click here\"（域代码/域标志不进文本）",
+                "click here".equals(pFld.getText()));
+        check("N1 前置: 段落整段重写判定为不安全且点名 w:fldChar",
+                "w:fldChar".equals(WordTextEditor.paragraphUnsafeReason(pFld))
+                        && WordTextEditor.paragraphHasUnsafeRuns(pFld));
+        String fldXmlBefore = pFld.getCTP().xmlText();
+        String fldErr = null;
+        try { WordTextEditor.setParagraphText(dFld, 0, "NEW-TEXT-FROM-MODEL"); }
+        catch (IllegalStateException e) { fldErr = e.getMessage(); }
+        check("N1: set_paragraph 在含域的段落上拒绝（抛 IllegalStateException）", fldErr != null);
+        check("N1: 报错点名元素并给出可执行的下一步（replace / 手工删域）",
+                fldErr != null && fldErr.contains("w:fldChar")
+                        && fldErr.contains("cannot be fully rewritten safely")
+                        && fldErr.contains("edit it with replace"));
+        check("N1: 段落 XML 逐字节未变（拒绝发生在任何改动之前，不是半改）",
+                fldXmlBefore.equals(pFld.getCTP().xmlText()));
+        check("N1: 文本仍是 click here（模型文本没落进域代码区）",
+                "click here".equals(pFld.getText()));
+        // rewrite 模式同源：只记 skipped + 原因，不把整个操作丢掉、也不动段落
+        WordTextEditor.ReplaceReport fldRep =
+                WordTextEditor.replaceInDocument(dFld, "click here", "X", -1, "rewrite");
+        check("N1: rewrite 模式 skipped=1 且原因点名 w:fldChar（段落号 + 元素）",
+                fldRep.replaced == 0 && fldRep.skipped == 1
+                        && fldRep.skippedReasons.size() == 1
+                        && fldRep.skippedReasons.get(0).startsWith("paragraph 0")
+                        && fldRep.skippedReasons.get(0).contains("w:fldChar"));
+        check("N1: rewrite 拒绝后段落未被破坏", "click here".equals(pFld.getText()));
+        // 对照：preserve（默认）模式只动命中区间里的 <w:t> 那个 run，同一段落可以安全替换
+        // ——这正是修好后的技能描述给模型的指路（"用 replace，别硬来"）
+        check("N1 对照: preserve 模式可安全替换域结果文本",
+                WordTextEditor.replaceInParagraph(pFld, "click here", "点这里") == 1
+                        && "点这里".equals(pFld.getText()));
+        check("N1 对照: 替换后域结构仍是 3 个 fldChar + 1 段 instrText（没被顺手清掉）",
+                countFldChar(pFld) == 3 && countInstrText(pFld) == 1);
+
+        // N1 同族（内联内容控件 w:sdt）：getRuns() 看不到、getText()/Word 却会显示，
+        // 整段重写只会把新文本与旧内容粘在一起——实测后 getText() = "WHOLE-NEWSECRET-INVISIBLE"。
+        // 注：sdt 必须**落盘重载后**才进 POI 的 iruns（内存里刚手工加进去的，POI 的列表是旧的）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dSdt = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pSdt = dSdt.createParagraph();
+        pSdt.createRun().setText("前缀");
+        sdtContent(pSdt.getCTP()).addNewR().addNewT().setStringValue("SECRET-INVISIBLE");
+        java.nio.file.Path pSdtF = saveTmp(dSdt, "sdt.docx");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(pSdtF);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph rpSdt = re.getParagraphs().get(0);
+            check("N1 前置: sdt 内容对 getText() 可见（getRuns() 却只有 1 个）",
+                    "前缀SECRET-INVISIBLE".equals(rpSdt.getText())
+                            && rpSdt.getRuns().size() == 1);
+            String sdtErr = null;
+            try { WordTextEditor.setParagraphText(re, 0, "WHOLE-NEW"); }
+            catch (IllegalStateException e) { sdtErr = e.getMessage(); }
+            check("N1: 含内联内容控件的段落整段重写被拒绝（点名 w:sdt）",
+                    sdtErr != null && sdtErr.contains("w:sdt"));
+            check("N1: 拒绝后新旧内容没有粘连（仍是 前缀SECRET-INVISIBLE）",
+                    "前缀SECRET-INVISIBLE".equals(rpSdt.getText()));
+        }
+
+        // N1: 单元格路径——拒绝时单元格必须**原封不动**，不能半清（当前实现先改首段再删多余段）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dCell = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFTable tCell = dCell.createTable(1, 1);
+        org.apache.poi.xwpf.usermodel.XWPFTableCell cCell = tCell.getRow(0).getCell(0);
+        org.apache.poi.xwpf.usermodel.XWPFRun cRun = cCell.getParagraphs().get(0).createRun();
+        cRun.setText("第一段");
+        cRun.addBreak();                       // 首段有 br → 整段重写不安全
+        cCell.addParagraph().createRun().setText("第二段");
+        int cellParas = cCell.getParagraphs().size();
+        check("N1 前置: 单元格有 2 段、首段含 br", cellParas == 2
+                && cCell.getParagraphs().get(0).getRuns().get(0).getCTR().sizeOfBrArray() > 0);
+        boolean cellRefused = false;
+        try { WordTextEditor.setTableCell(dCell, 0, 0, 0, "新文本"); }
+        catch (IllegalStateException e) { cellRefused = true; }
+        check("N1: set_table_cell 在含 br 的单元格上拒绝", cellRefused);
+        check("N1: 拒绝时单元格一段未删（两段都在，没走到删除循环）",
+                cCell.getParagraphs().size() == cellParas);
+        check("N1: 首段文本与 br 都原样（不是半清）",
+                cCell.getParagraphs().get(0).getText().startsWith("第一段")
+                        && cCell.getParagraphs().get(0).getRuns().get(0).getCTR().sizeOfBrArray() > 0);
+        check("N1: 第二段原样（没被当作多余段落删掉）",
+                "第二段".equals(cCell.getParagraphs().get(1).getText()));
 
         // ================= WordMarkdownWriter =================
         org.apache.poi.xwpf.usermodel.XWPFDocument d11 = newDoc();
@@ -651,6 +823,85 @@ public class WordEngineSelfTest {
             check("F3: 同行的字符串值照常写入", "乙".equals(t.getRow(lastRow).getCell(0).getText()));
         }
 
+        // ================= N1 端到端：拒绝必须经引擎翻成 JSON 错误，而不是 ok=true 的坏域 ==========
+        java.nio.file.Path fldPath = work.resolve("域.docx");
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument fd = newDoc()) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph fp = fd.createParagraph();
+            fp.createRun().getCTR().addNewFldChar().setFldCharType(BEGIN);
+            fp.createRun().getCTR().addNewInstrText().setStringValue(" HYPERLINK \"x\" ");
+            fp.createRun().getCTR().addNewFldChar().setFldCharType(SEPARATE);
+            fp.createRun().setText("点我");
+            fp.createRun().getCTR().addNewFldChar().setFldCharType(END);
+            try (java.io.OutputStream o = java.nio.file.Files.newOutputStream(fldPath)) { fd.write(o); }
+        }
+        byte[] fldBytesBefore = java.nio.file.Files.readAllBytes(fldPath);
+        JavaWordEngine.Result n1Engine = eng.execute("set_paragraph",
+                map("path", "域.docx", "index", 0, "text", "NEW"));
+        check("N1 端到端: 含域的文档 set_paragraph → ok=false", !n1Engine.ok);
+        check("N1 端到端: 错误文案含安全说明与元素名（模型能自纠）",
+                String.valueOf(n1Engine.json.get("error")).contains("cannot be fully rewritten safely")
+                        && String.valueOf(n1Engine.json.get("error")).contains("w:fldChar"));
+        check("N1 端到端: 文件字节未变（拒绝后什么都没落盘）",
+                java.util.Arrays.equals(fldBytesBefore, java.nio.file.Files.readAllBytes(fldPath)));
+        check("N1 端到端: 同一文件用 replace（preserve）能改域结果",
+                eng.execute("replace", map("path", "域.docx", "find", "点我", "replace", "点这里")).ok
+                        && eng.execute("read", map("path", "域.docx")).text.contains("点这里"));
+
+        // ================= N3 回归：text / replace 也要过 toDocString（F3 只补了一半） =================
+        // F3 当时只把 toDocString 接到了 fill_template 与 add_table_row；requiredText（set_paragraph /
+        // insert_paragraph / set_table_cell）与 doReplace 的 replace 仍是 String.valueOf——
+        // 实测 set_paragraph(text=100.0d) 往文档里写出 "100.0"，replace(replace=2.0d) 写出 "2.0"。
+        // 判据一律用**整行比对**，防 "100.0" 里也含 "100" 的假绿。
+        JavaWordEngine.Result cN3 = eng.execute("create",
+                map("path", "数字文本.docx", "content", "占位"));
+        check("N3 前置: 文本文档建好", cN3.ok);
+        JavaWordEngine.Result n3a = eng.execute("set_paragraph",
+                map("path", "数字文本.docx", "index", 0, "text", 100.0d));
+        String n3Read = eng.execute("read", map("path", "数字文本.docx")).text;
+        check("N3: set_paragraph(text=100.0d) 写成 \"100\"", n3a.ok
+                && n3Read.split("\n", -1)[0].equals("[0] [Normal] 100"));
+        JavaWordEngine.Result n3b = eng.execute("replace",
+                map("path", "数字文本.docx", "find", "100", "replace", 2.0d));
+        check("N3: replace(replace=2.0d) 写成 \"2\"（不是 2.0）", n3b.ok
+                && eng.execute("read", map("path", "数字文本.docx")).text
+                        .split("\n", -1)[0].equals("[0] [Normal] 2"));
+        JavaWordEngine.Result n3c = eng.execute("insert_paragraph",
+                map("path", "数字文本.docx", "index", 0, "text", 7.0d));
+        check("N3: insert_paragraph(text=7.0d) 写成 \"7\"", n3c.ok
+                && eng.execute("read", map("path", "数字文本.docx")).text
+                        .split("\n", -1)[0].equals("[0] [Normal] 7"));
+        check("N3 前置: 带表格文档建好（复用 F3 的数字表）",
+                eng.execute("create", map("path", "数字格.docx", "content", "| A |")).ok);
+        JavaWordEngine.Result n3d = eng.execute("set_table_cell",
+                map("path", "数字格.docx", "table", 0, "row", 0, "col", 0, "text", 9.0d));
+        String n3Cell = eng.execute("read", map("path", "数字格.docx")).text;
+        check("N3: set_table_cell(text=9.0d) 写成 \"9\" 且文档里没有 \".0\" 脏串",
+                n3d.ok && n3Cell.contains("9") && !n3Cell.contains("9.0"));
+
+        // ================= N4 回归：replace 缺 replace 参数不得静默删除 =================
+        // 缺陷实测（修复前）：doReplace 用 getOrDefault("replace","")，于是 replace(find="DELETEME")
+        // 回执 {"ok":true,"replaced":1} 而匹配的文字已被删空——与 F2（漏传 text 清空段落）同一类：
+        // 把"模型漏参数"和"显式删掉这段文字"当成同一件事。
+        JavaWordEngine.Result cN4 = eng.execute("create",
+                map("path", "缺参r.docx", "content", "DELETEME 后面的字"));
+        check("N4 前置: 文档建好", cN4.ok);
+        String n4Before = eng.execute("read", map("path", "缺参r.docx")).text;
+        JavaWordEngine.Result n4 = eng.execute("replace",
+                map("path", "缺参r.docx", "find", "DELETEME"));      // 故意不带 replace
+        check("N4: 缺 replace 参数 → ok=false", !n4.ok);
+        check("N4: 报错说明 replace 必填（模型读得到就能自纠）",
+                String.valueOf(n4.json.get("error")).contains("replace is required"));
+        check("N4: 匹配处一个字没少（不再静默删除整段匹配）",
+                n4Before.equals(eng.execute("read", map("path", "缺参r.docx")).text));
+        check("N4: 文档里 DELETEME 仍在",
+                eng.execute("read", map("path", "缺参r.docx")).text.contains("DELETEME"));
+        // 反面守：显式 replace="" 是合法意图（删除匹配），不能被同一个守卫误伤
+        JavaWordEngine.Result n4b = eng.execute("replace",
+                map("path", "缺参r.docx", "find", "DELETEME", "replace", ""));
+        check("N4: 显式 replace=\"\" 仍然允许（删除是合法操作）", n4b.ok
+                && Integer.valueOf(1).equals(n4b.json.get("replaced"))
+                && !eng.execute("read", map("path", "缺参r.docx")).text.contains("DELETEME"));
+
         // ================= F5 回归：insert_paragraph 标题不得悬空 =================
         // 缺陷实测（修复前）：style="Heading1" 只做了 setStyle，而本技能 create 出来的文档没有
         // styles part → pStyle 是悬空引用。对照 markdown writer 的标题（三重设定）：
@@ -840,6 +1091,56 @@ public class WordEngineSelfTest {
                 .resolve(name);
         try (java.io.OutputStream o = java.nio.file.Files.newOutputStream(p)) { d.write(o); }
         return p;
+    }
+
+    /** 落盘重载后第 0 段的文本（断言不能只活在内存里） */
+    static String roundTripText(org.apache.poi.xwpf.usermodel.XWPFDocument d, String name)
+            throws Exception {
+        java.nio.file.Path p = saveTmp(d, name);
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(p);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            return re.getParagraphs().get(0).getText();
+        }
+    }
+
+    /** 给 run 的 CTR 添子元素的 lambda（返回值忽略，用 Object 以兼容各种 CT*） */
+    interface ElementAdder {
+        Object add(org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr);
+    }
+
+    /** 造 [rPr(bold), 指定元素, t("X")] 的 run——Windows Word 里最常见的元素形态 */
+    static org.apache.poi.xwpf.usermodel.XWPFRun probeRun(ElementAdder add) {
+        return probeRun(add, null);
+    }
+
+    static org.apache.poi.xwpf.usermodel.XWPFRun probeRun(ElementAdder add,
+                        java.util.function.Consumer<org.apache.poi.xwpf.usermodel.XWPFRun> tweak) {
+        org.apache.poi.xwpf.usermodel.XWPFRun r =
+                newDoc().createParagraph().createRun();
+        r.setBold(true);
+        if (tweak != null) tweak.accept(r);
+        if (add != null) add.add(r.getCTR());
+        r.getCTR().addNewT().setStringValue("X");
+        return r;
+    }
+
+    /** 段落级内联内容控件：返回内容容器供挂 run（sdt 只在落盘重载后才进 POI 的 iruns） */
+    static org.openxmlformats.schemas.wordprocessingml.x2006.main.CTSdtContentRun sdtContent(
+            org.openxmlformats.schemas.wordprocessingml.x2006.main.CTP ctp) {
+        return ctp.addNewSdt().addNewSdtContent();
+    }
+
+    static int countFldChar(org.apache.poi.xwpf.usermodel.XWPFParagraph p) {
+        int n = 0;
+        for (org.apache.poi.xwpf.usermodel.XWPFRun r : p.getRuns()) n += r.getCTR().sizeOfFldCharArray();
+        return n;
+    }
+
+    static int countInstrText(org.apache.poi.xwpf.usermodel.XWPFParagraph p) {
+        int n = 0;
+        for (org.apache.poi.xwpf.usermodel.XWPFRun r : p.getRuns()) n += r.getCTR().sizeOfInstrTextArray();
+        return n;
     }
 
     /** 小号 map 字面量：map("k1", v1, "k2", v2) */

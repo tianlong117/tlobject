@@ -1,10 +1,16 @@
 package cn.tianlong.tlobject.aiagent.word;
 
 import org.apache.poi.xwpf.usermodel.*;
+import org.apache.xmlbeans.XmlCursor;
+import org.apache.xmlbeans.XmlObject;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 改：跨 run 精确替换 + 段落/表格操作。
@@ -15,8 +21,11 @@ import java.util.Map;
  * 解法（最小重建）：把段落所有 run 文本拼成 full 做匹配，定位覆盖区间后只改这几个 run
  * 的**文本**，不新建不删除 run 对象 —— 字体/加粗/颜色/字号挂在 run 上原地不动，格式必然保留。
  *
- * 安全策略：命中含超链接/域，或除 w:t / w:rPr 外还有别的子元素（br/tab/drawing/softHyphen…）
- * 的 run 时**跳过并上报**，绝不静默改坏——这类 run 的 text() 无法原样写回。
+ * 安全策略一句话：**写回必须与 XWPFRun.text() 互逆**（判据与实测清单见 {@link #unsafeRunReason}）。
+ * 命中这类 run 时，精确替换**跳过并上报**（绝不静默改坏）；整段重写（set_paragraph /
+ * set_table_cell / replace 的 mode=rewrite）另加段落级守卫 {@link #paragraphUnsafeReason}：
+ * 段落里只要有域、超链接、br、内联内容控件就**拒绝执行**——整段重写会把它们当场毁掉
+ * （实测：模型文本被写进域代码区、域结果被清空，而 read 却报文本已写入）。
  *
  * 创建日期：2026/10/07 作者:tianlong
  */
@@ -33,34 +42,77 @@ public final class WordTextEditor {
         Span(int s, int e, XWPFRun r) { start = s; end = e; run = r; }
     }
 
-    /** 段落里是否含"重写会丢东西"的 run */
-    static boolean isUnsafeRun(XWPFRun r) {
-        if (r instanceof XWPFHyperlinkRun) return true;   // 文本由 relationship 管理
-        if (r instanceof XWPFFieldRun) return true;       // PAGE/NUMPAGES 等域
+    private static final String W_NS =
+            "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+    /**
+     * 实测过"对 XWPFRun.text() 零贡献、且 setRunText 不碰"的元素（w 命名空间局部名）。
+     * 只有这些（外加我们真正要改写的 w:t、纯格式的 w:rPr）才允许出现在 run 里；
+     * 其余一律不安全——生僻元素（域代码、脚注引用、ruby…）宁可跳过也不赌。
+     */
+    private static final Set<String> TEXT_INERT_ELEMENTS = new HashSet<>(Arrays.asList(
+            "t", "rPr", "lastRenderedPageBreak", "softHyphen", "sym", "drawing", "pict", "object"));
+
+    /**
+     * 该 run 的不安全原因（元素名，如 {@code w:br}）；null = 安全可改。
+     *
+     * 判据不是"元素看着危不危险"，而是**写回必须与 XWPFRun.text() 互逆**：我们只往 &lt;w:t&gt;
+     * 写文本，所以只有 text() 会为它**合成/变换字符**的元素才会毁——写回后那个字符会多出一份
+     * （前缀/后缀取自 text()，已经把合成的字符包含进去了）。
+     *
+     * 逐条核实 POI 5.5.1 的 XWPFRun.text()/_getText()（javap -c 反编译
+     * D:\repository\org\apache\poi\poi-ooxml\5.5.1\poi-ooxml-5.5.1.jar），并逐元素构造 run 实测：
+     *   w:br / w:cr      → 追加 '\n'（CTBr 分支；以及 CTEmpty 的 br/cr）
+     *   w:tab / w:ptab   → 追加 '\t'（CTEmpty 的 tab；以及 CTPTab 分支）
+     *   w:noBreakHyphen  → 追加 U+2011（CTEmpty 的 noBreakHyphen——"只有 br/tab 才合成字符"的想当然
+     *                      在此翻车：实测 [rPr,noBreakHyphen,t("TXT")].text() = "‑TXT"）
+     *   w:delText        → 直接追加内容（CTText 分支只排除 instrText/delInstrText）
+     *   w:footnoteReference / w:endnoteReference → 追加 "[footnoteRef:N]"（CTFtnEdnRef 分支）
+     *   w:fldChar(BEGIN 带 ffData 复选框) → 追加 "|X|"/"|_|"（CTFldChar 分支）
+     *   w:ruby           → handleRuby 递归取 rt/rubyBase（实测顶层 &lt;w:t&gt; 为空而 text() 取到注音基字）
+     *   rPr 的 w:caps / w:smallCaps → text() 把文本 toUpperCase（实测 "abc def"→"ABC DEF"）：
+     *                      写回等于把大写烘进 &lt;w:t&gt;，原文大小写丢失，同样不是互逆
+     * 反面（实测零贡献、round-trip 精确，故放行）：
+     *   w:t（多个 &lt;w:t&gt; 也安全，setRunText 会把多余的删掉）/ w:rPr / w:lastRenderedPageBreak /
+     *   w:softHyphen / w:sym / w:drawing / w:pict / w:object
+     * 其中 w:lastRenderedPageBreak 是重点：Windows Word 在每个分页处都会往 run 里塞它，
+     * 旧白名单"只许 w:t 与 w:rPr"把它判成危险，整份文档大面积改不动（复审实测 186 篇语料
+     * 跳过段落 263→287）。
+     */
+    static String unsafeRunReason(XWPFRun r) {
+        if (r instanceof XWPFHyperlinkRun) return "w:hyperlink";   // 文本由 relationship 管理
+        if (r instanceof XWPFFieldRun) return "w:fldChar";         // PAGE/NUMPAGES 等域
         try {
-            // 穷举式判定：只允许 w:t 与 w:rPr 两种子元素。
-            // 用"列举坏元素"的黑名单一定会漏——Word 会在 w:softHyphen/w:noBreakHyphen/
-            // w:lastRenderedPageBreak 等处同样切断 w:t，而这些都会让 text() 无法原样写回。
-            org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
-            org.apache.xmlbeans.XmlCursor c = ctr.newCursor();
+            if (r.isCapitalized() || r.isSmallCaps()) return "w:caps";
+            CTR ctr = r.getCTR();
+            XmlCursor c = ctr.newCursor();
             try {
                 c.selectPath("./*");
                 while (c.toNextSelection()) {
-                    String name = c.getObject().getDomNode().getLocalName();
-                    if (name == null) {                   // 非命名空间感知的 DOM 兜底：nodeName 去前缀
-                        String nn = c.getObject().getDomNode().getNodeName();
-                        int colon = nn == null ? -1 : nn.indexOf(':');
-                        name = colon >= 0 ? nn.substring(colon + 1) : nn;
-                    }
-                    if (!"t".equals(name) && !"rPr".equals(name)) return true;
+                    String name = wElementName(c.getObject());
+                    if (name == null) return "<non-w child>";      // 不是 w 命名空间：赌不起
+                    if (!TEXT_INERT_ELEMENTS.contains(name)) return "w:" + name;
                 }
             } finally {
                 c.dispose();
             }
+            return null;
         } catch (Throwable ignored) {
-            return true;                                      // 探测不了就当不安全，保守
+            return "<probe failed>";                               // 探测不了就当不安全，保守
         }
-        return false;
+    }
+
+    static boolean isUnsafeRun(XWPFRun r) { return unsafeRunReason(r) != null; }
+
+    /** 直接子元素的 w 命名空间局部名（"t"/"br"…）；不是 w 命名空间或取不到时返回 null */
+    private static String wElementName(XmlObject o) {
+        org.w3c.dom.Node n = o.getDomNode();
+        if (!W_NS.equals(n.getNamespaceURI())) return null;
+        String ln = n.getLocalName();
+        if (ln != null) return ln;
+        String nn = n.getNodeName();                               // 非命名空间感知的 DOM 兜底
+        int colon = nn == null ? -1 : nn.indexOf(':');
+        return colon >= 0 ? nn.substring(colon + 1) : nn;
     }
 
     /**
@@ -80,10 +132,10 @@ public final class WordTextEditor {
     }
 
     /**
-     * 预扫描：本段所有 find 匹配的 run 区间里，是否有一处会碰到不安全 run。
+     * 预扫描：本段所有 find 匹配的 run 区间里，第一个会碰到的危险元素名（null=全安全）。
      * 用于保证整段替换的原子性——不能改了一半才发现后面有一处碰不得。
      */
-    private static boolean anyHitUnsafe(XWPFParagraph p, String find) {
+    private static String unsafeHitReason(XWPFParagraph p, String find) {
         List<XWPFRun> runs = p.getRuns();
         List<Span> spans = new ArrayList<>();
         StringBuilder full = new StringBuilder();
@@ -97,7 +149,7 @@ public final class WordTextEditor {
         int scan = 0;
         while (true) {
             int ms = hay.indexOf(find, scan);
-            if (ms < 0) return false;
+            if (ms < 0) return null;
             int me = ms + find.length();
             int ri = -1, rj = -1;
             for (int k = 0; k < spans.size(); k++) {
@@ -106,9 +158,40 @@ public final class WordTextEditor {
                 if (s.start < me && me <= s.end) { rj = k; break; }
             }
             if (ri < 0 || rj < 0 || ri > rj) { scan = ms + 1; continue; }
-            for (int k = ri; k <= rj; k++) if (isUnsafeRun(spans.get(k).run)) return true;
+            for (int k = ri; k <= rj; k++) {
+                String why = unsafeRunReason(spans.get(k).run);
+                if (why != null) return why;
+            }
             scan = me;
         }
+    }
+
+    /**
+     * 段落级守卫：整段重写（set_paragraph / set_table_cell / replace 的 mode=rewrite）会清掉
+     * **所有** run，段落里只要有危险元素就会被当场毁掉，故这里是"段落里有就算"而不是
+     * "命中区间碰到才算"——它动的是整段。
+     *
+     * @return 危险原因（元素名）；null = 可以整段重写
+     */
+    static String paragraphUnsafeReason(XWPFParagraph p) {
+        for (XWPFRun r : p.getRuns()) {
+            String why = unsafeRunReason(r);
+            if (why != null) return why;
+        }
+        // 段落里还有 getRuns() 看不到、Word 却会显示的内容——内联内容控件 w:sdt 最典型。
+        // 实测（落盘重载后，真实文档形态）：段落 = run("前缀") + sdt("SECRET-INVISIBLE") 时
+        // getRuns() 只有 1 个 run、getText() 却是 "前缀SECRET-INVISIBLE"；整段重写后
+        // getText() = "WHOLE-NEWSECRET-INVISIBLE"——新旧内容粘在一起，而回执 ok=true。
+        for (IRunElement e : p.getIRuns()) {
+            if (!(e instanceof XWPFRun))
+                return (e instanceof XWPFSDT) ? "w:sdt" : e.getClass().getSimpleName();
+        }
+        return null;
+    }
+
+    /** 段落内是否有"整段重写会毁掉"的元素（域、超链接、br/tab、内联内容控件 w:sdt 等） */
+    static boolean paragraphHasUnsafeRuns(XWPFParagraph p) {
+        return paragraphUnsafeReason(p) != null;
     }
 
     /**
@@ -120,7 +203,7 @@ public final class WordTextEditor {
         if (find == null || find.isEmpty()) return 0;
         List<XWPFRun> runs = p.getRuns();
         if (runs.isEmpty()) return 0;
-        if (anyHitUnsafe(p, find)) return SKIPPED_UNSAFE;    // 原子性：先判后改，不做半改
+        if (unsafeHitReason(p, find) != null) return SKIPPED_UNSAFE;   // 原子性：先判后改，不做半改
 
         List<Span> spans = new ArrayList<>();
         StringBuilder full = new StringBuilder();
@@ -200,8 +283,16 @@ public final class WordTextEditor {
             if (rewrite) {
                 String t = p.getText();
                 if (t != null && t.contains(find)) {
+                    String why = paragraphUnsafeReason(p);
+                    if (why != null) {
+                        // 整段重写会清掉所有 run：域/超链接/br 会被当场毁掉（实测模型文本被写进
+                        // 域代码区、域结果被清空）。拒绝并点名，绝不用"改坏"换"改成"。
+                        rep.skipped++;
+                        rep.skippedReasons.add("paragraph " + i + " contains " + why + ", skipped");
+                        continue;
+                    }
                     // getText() 把 br/tab 合成了 \n/\t，直接写回会造成换行重复；
-                    // rewrite 语义=丢段内格式，故先拉平
+                    // rewrite 语义=丢段内格式，故先拉平（能走到这里就说明段落里没有 br/tab）
                     String flat = t.replace("\n", " ").replace("\t", " ");
                     int before = countOccurrences(flat, find);
                     rewriteParagraph(p, flat.replace(find, replace));
@@ -211,21 +302,30 @@ public final class WordTextEditor {
                 int n = replaceInParagraph(p, find, replace);
                 if (n == SKIPPED_UNSAFE) {
                     rep.skipped++;
+                    String why = unsafeHitReason(p, find);
                     rep.skippedReasons.add("paragraph " + i
-                            + " contains hyperlink/field/break run, skipped");
+                            + " contains " + (why == null ? "unsafe run" : why) + ", skipped");
                 } else if (n > 0) {
                     rep.replaced += n;
                 }
             }
         }
-        // 表格：单元格内也有段落，按表格定位；表格单元格里的不安全 run 同样计数
-        for (XWPFTable t : doc.getTables()) {
-            for (XWPFTableRow r : t.getRows()) {
-                for (XWPFTableCell c : r.getTableCells()) {
-                    for (XWPFParagraph p : c.getParagraphs()) {
+        // 表格：单元格内也有段落，按表格定位；表格单元格里的不安全 run 同样计数并点名
+        List<XWPFTable> ts = doc.getTables();
+        for (int ti = 0; ti < ts.size(); ti++) {
+            List<XWPFTableRow> rows = ts.get(ti).getRows();
+            for (int ri = 0; ri < rows.size(); ri++) {
+                List<XWPFTableCell> cells = rows.get(ri).getTableCells();
+                for (int ci = 0; ci < cells.size(); ci++) {
+                    for (XWPFParagraph p : cells.get(ci).getParagraphs()) {
                         int n = replaceInParagraph(p, find, replace);
                         if (n > 0) rep.replaced += n;
-                        else if (n == SKIPPED_UNSAFE) rep.skipped++;
+                        else if (n == SKIPPED_UNSAFE) {
+                            rep.skipped++;
+                            String why = unsafeHitReason(p, find);
+                            rep.skippedReasons.add("table " + ti + " row " + ri + " col " + ci
+                                    + " contains " + (why == null ? "unsafe run" : why) + ", skipped");
+                        }
                     }
                 }
             }
@@ -233,8 +333,19 @@ public final class WordTextEditor {
         return rep;
     }
 
-    /** 整段重写：清空所有 run，用第一个 run 的格式写回（丢段内混合格式） */
+    /**
+     * 整段重写：清空所有 run，用第一个 run 的格式写回（丢段内混合格式）。
+     *
+     * 段落含域/超链接/br/tab/内联内容控件时**拒绝执行**（抛 IllegalStateException）：
+     * 这类段落整段重写必毁（实测域代码区被写进新文本、域结果被清空，而 read 仍报文本在），
+     * 拒绝发生在任何改动之前，调用方拿到的是"段落原封不动 + 一条能读懂的报错"。
+     */
     static void rewriteParagraph(XWPFParagraph p, String newText) {
+        String why = paragraphUnsafeReason(p);
+        if (why != null)
+            throw new IllegalStateException("paragraph contains " + why
+                    + " and cannot be fully rewritten safely; "
+                    + "edit it with replace, or remove the field manually");
         List<XWPFRun> runs = p.getRuns();
         if (runs.isEmpty()) {
             setRunText(p.createRun(), newText);
@@ -244,10 +355,12 @@ public final class WordTextEditor {
         // 其余 run 一律清空——必须走 setRunText：只写 t[0] 会留下 t[1..]，
         // 那些残留文本会被段落 text() 拼回来（rewrite 模式整段复制/尾串重复的根因）
         for (int k = 1; k < runs.size(); k++) setRunText(runs.get(k), "");
-        // 清掉残留的 br/tab：否则它们会与新写入的文本重复（Task 10 实测）
+        // 兜底清残留 br/tab（Task 10 实测：它们会与新写入的文本重复）。
+        // 上面的守卫已保证走到这里的段落没有 br/tab——有就抛了；留着纯属二道保险：
+        // 将来若有人放宽守卫，这里仍不会把换行标志重复一遍。
         for (XWPFRun r : runs) {
             try {
-                org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
+                CTR ctr = r.getCTR();
                 while (ctr.sizeOfBrArray() > 0) ctr.removeBr(0);
                 while (ctr.sizeOfTabArray() > 0) ctr.removeTab(0);
             } catch (Throwable ignored) { }

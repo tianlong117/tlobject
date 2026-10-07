@@ -50,16 +50,19 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "(headings only — use this FIRST on a long document), tables, info, "
                     + "create/append (content is Markdown: # headings, - bullets, |a|b| tables, "
                     + "**bold**, --- page break), replace (find/replace, preserves formatting by "
-                    + "default; mode=rewrite if a paragraph is skipped), set_paragraph, "
+                    + "default), set_paragraph, "
                     + "insert_paragraph, delete_paragraph, set_table_cell, add_table_row, "
                     + "fill_template (replaces ${key}/{{key}} placeholders in body and tables). "
                     + "ONLY .docx is supported — .doc must be re-saved as .docx first. "
                     + "WORKFLOW: call outline or read first to get PARAGRAPH NUMBERS, then use "
                     + "those numbers with the modify actions — never guess. Paragraph numbers "
                     + "SHIFT after insert_paragraph/delete_paragraph, so re-read before the next "
-                    + "edit. replace reports \"skipped\" when a paragraph contains hyperlinks or "
-                    + "field codes (those cannot be edited in place without damage) — if skipped>0, "
-                    + "retry that edit with mode=rewrite.";
+                    + "edit. The writing actions (set_paragraph, insert_paragraph, set_table_cell, "
+                    + "add_table_row) require an explicit text argument — never omit it. "
+                    + "replace reports a skipped count when a paragraph cannot be edited in place "
+                    + "without damage (hyperlinks, field codes, embedded breaks). Those paragraphs "
+                    + "are LEFT UNTOUCHED - do not try to force them; tell the user which paragraph "
+                    + "number could not be changed.";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
