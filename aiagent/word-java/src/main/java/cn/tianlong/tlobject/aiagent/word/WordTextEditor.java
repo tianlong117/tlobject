@@ -15,7 +15,8 @@ import java.util.Map;
  * 解法（最小重建）：把段落所有 run 文本拼成 full 做匹配，定位覆盖区间后只改这几个 run
  * 的**文本**，不新建不删除 run 对象 —— 字体/加粗/颜色/字号挂在 run 上原地不动，格式必然保留。
  *
- * 安全策略：命中含超链接/域/br/tab/drawing 的 run 时**跳过并上报**，绝不静默改坏。
+ * 安全策略：命中含超链接/域，或除 w:t / w:rPr 外还有别的子元素（br/tab/drawing/softHyphen…）
+ * 的 run 时**跳过并上报**，绝不静默改坏——这类 run 的 text() 无法原样写回。
  *
  * 创建日期：2026/10/07 作者:tianlong
  */
@@ -37,14 +38,45 @@ public final class WordTextEditor {
         if (r instanceof XWPFHyperlinkRun) return true;   // 文本由 relationship 管理
         if (r instanceof XWPFFieldRun) return true;       // PAGE/NUMPAGES 等域
         try {
+            // 穷举式判定：只允许 w:t 与 w:rPr 两种子元素。
+            // 用"列举坏元素"的黑名单一定会漏——Word 会在 w:softHyphen/w:noBreakHyphen/
+            // w:lastRenderedPageBreak 等处同样切断 w:t，而这些都会让 text() 无法原样写回。
             org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
-            if (ctr.sizeOfBrArray() > 0) return true;         // 段内换行，run.text() 不含它
-            if (ctr.sizeOfTabArray() > 0) return true;        // 制表符同理
-            if (ctr.sizeOfDrawingArray() > 0) return true;    // 内嵌图片
+            org.apache.xmlbeans.XmlCursor c = ctr.newCursor();
+            try {
+                c.selectPath("./*");
+                while (c.toNextSelection()) {
+                    String name = c.getObject().getDomNode().getLocalName();
+                    if (name == null) {                   // 非命名空间感知的 DOM 兜底：nodeName 去前缀
+                        String nn = c.getObject().getDomNode().getNodeName();
+                        int colon = nn == null ? -1 : nn.indexOf(':');
+                        name = colon >= 0 ? nn.substring(colon + 1) : nn;
+                    }
+                    if (!"t".equals(name) && !"rPr".equals(name)) return true;
+                }
+            } finally {
+                c.dispose();
+            }
         } catch (Throwable ignored) {
             return true;                                      // 探测不了就当不安全，保守
         }
         return false;
+    }
+
+    /**
+     * 写入 run 文本，使其与 XWPFRun.text() **互逆**。
+     *
+     * 坑：XWPFRun.setText(v, 0) 只覆盖 &lt;w:t&gt;[0]，而 XWPFRun.text() 拼接**全部** &lt;w:t&gt;。
+     * 两者不是逆操作——一个 run 里若有多个 &lt;w:t&gt;，写完后残留的 t[1..] 仍会被 text() 读出来。
+     * 后果实测：替换循环永不停（每次残留都重新命中），rewrite 模式复制段落内容。
+     * 故写完后必须把多余的 &lt;w:t&gt; 删掉。
+     */
+    static void setRunText(XWPFRun r, String text) {
+        r.setText(text == null ? "" : text, 0);
+        try {
+            org.openxmlformats.schemas.wordprocessingml.x2006.main.CTR ctr = r.getCTR();
+            while (ctr.sizeOfTArray() > 1) ctr.removeT(1);
+        } catch (Throwable ignored) { }
     }
 
     /**
@@ -119,11 +151,11 @@ public final class WordTextEditor {
             String prefix = hay.substring(spans.get(ri).start, ms);
             String suffix = hay.substring(me, spans.get(rj).end);
             if (ri == rj) {
-                spans.get(ri).run.setText(prefix + replace + suffix, 0);
+                setRunText(spans.get(ri).run, prefix + replace + suffix);
             } else {
-                spans.get(ri).run.setText(prefix + replace, 0);
-                for (int k = ri + 1; k < rj; k++) spans.get(k).run.setText("", 0);
-                spans.get(rj).run.setText(suffix, 0);
+                setRunText(spans.get(ri).run, prefix + replace);
+                for (int k = ri + 1; k < rj; k++) setRunText(spans.get(k).run, "");
+                setRunText(spans.get(rj).run, suffix);
             }
             count++;
 
@@ -205,11 +237,13 @@ public final class WordTextEditor {
     static void rewriteParagraph(XWPFParagraph p, String newText) {
         List<XWPFRun> runs = p.getRuns();
         if (runs.isEmpty()) {
-            p.createRun().setText(newText);
+            setRunText(p.createRun(), newText);
             return;
         }
-        runs.get(0).setText(newText, 0);
-        for (int k = 1; k < runs.size(); k++) runs.get(k).setText("", 0);
+        setRunText(runs.get(0), newText);
+        // 其余 run 一律清空——必须走 setRunText：只写 t[0] 会留下 t[1..]，
+        // 那些残留文本会被段落 text() 拼回来（rewrite 模式整段复制/尾串重复的根因）
+        for (int k = 1; k < runs.size(); k++) setRunText(runs.get(k), "");
         // 清掉残留的 br/tab：否则它们会与新写入的文本重复（Task 10 实测）
         for (XWPFRun r : runs) {
             try {

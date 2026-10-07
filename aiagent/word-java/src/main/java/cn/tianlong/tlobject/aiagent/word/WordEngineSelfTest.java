@@ -345,6 +345,80 @@ public class WordEngineSelfTest {
                     re.getParagraphs().get(0).getText().equals("金额：100 尾注"));
         }
 
+        // ================= Critical 回归：setText(v,0) 只写 t[0] =================
+        // 一个 run 挂多个 <w:t>（Word 在 softHyphen/lastRenderedPageBreak 等处会这样切）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dT = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pT = dT.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rT = pT.createRun();
+        rT.setText("abc");
+        rT.getCTR().addNewT().setStringValue("def");
+        check("多<t>: 前置条件——run.text() 确实是拼接结果", "abcdef".equals(rT.text()));
+        int nT = WordTextEditor.replaceInParagraph(pT, "abc", "X");
+        check("多<t>: 替换计数 = 1", nT == 1);
+        check("多<t>: 结果不是 'Xdefdef'（后缀不得重复）", "Xdef".equals(pT.getText()));
+        check("多<t>: run 只余一个 <w:t>", rT.getCTR().sizeOfTArray() == 1);
+
+        org.apache.poi.xwpf.usermodel.XWPFDocument dT2 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pT2 = dT2.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rT2 = pT2.createRun();
+        rT2.setText("AAA");
+        rT2.getCTR().addNewT().setStringValue("BBB");
+        WordTextEditor.setParagraphText(dT2, 0, "NEW");
+        check("多<t>: set_paragraph 不得残留 'NEWBBB'", "NEW".equals(pT2.getText()));
+
+        org.apache.poi.xwpf.usermodel.XWPFDocument dT3 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFTable tT3 = dT3.createTable(1, 1);
+        org.apache.poi.xwpf.usermodel.XWPFTableCell cT3 = tT3.getRow(0).getCell(0);
+        org.apache.poi.xwpf.usermodel.XWPFRun rT3 = cT3.getParagraphs().get(0).createRun();
+        rT3.setText("旧");
+        rT3.getCTR().addNewT().setStringValue("内容");
+        WordTextEditor.setTableCell(dT3, 0, 0, 0, "新");
+        check("多<t>: set_table_cell 不得残留 '新内容'", "新".equals(cT3.getText()));
+
+        // C1 死循环：多<t> 且 <t> 里就有 find 时必须能终止
+        //（不设超时——修复前这条会挂住；修复后必须瞬间返回。若你的自测卡住，
+        //  说明修复没生效，直接 Ctrl-C 并报告）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dL = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pL = dL.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rL = pL.createRun();
+        rL.setText("订单号：");
+        rL.getCTR().addNewT().setStringValue("${orderNo}");
+        int nL = WordTextEditor.replaceInParagraph(pL, "${orderNo}", "A123");
+        check("死循环回归: 返回而非挂死", nL == 1);
+        check("死循环回归: 文本正确", "订单号：A123".equals(pL.getText()));
+
+        // rewrite 模式在多<t> 段落下不得复制内容
+        org.apache.poi.xwpf.usermodel.XWPFDocument dW = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pW = dW.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rW = pW.createRun();
+        rW.setText("前缀 ");
+        rW.getCTR().addNewT().setStringValue("${k} 后缀");
+        WordTextEditor.replaceInDocument(dW, "${k}", "V", -1, "rewrite");
+        check("rewrite 回归: 不复制内容", "前缀 V 后缀".equals(dW.getParagraphs().get(0).getText()));
+
+        // 穷举式不安全判定：Word 会在这些元素处切断 w:t，都必须被识别为不安全
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pSH = newDoc().createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rSH = pSH.createRun();
+        rSH.setText("软连字符处被切断的");
+        rSH.getCTR().addNewSoftHyphen();
+        check("不安全判定: w:softHyphen 被识别为不安全", WordTextEditor.isUnsafeRun(rSH));
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pLR = newDoc().createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rLR = pLR.createRun();
+        rLR.setText("分页符处被切断的");
+        rLR.getCTR().addNewLastRenderedPageBreak();
+        check("不安全判定: w:lastRenderedPageBreak 被识别为不安全", WordTextEditor.isUnsafeRun(rLR));
+        // 反例：普通 run 绝不能被误判（否则整个技能形同虚设）
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pOK = newDoc().createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rOK = pOK.createRun();
+        rOK.setBold(true); rOK.setFontSize(14); rOK.setText("普通 run");
+        check("不安全判定: 普通 run 不被误判", !WordTextEditor.isUnsafeRun(rOK));
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pOK2 = newDoc().createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rOK2 = pOK2.createRun();
+        rOK2.setText("两个 t");
+        rOK2.getCTR().addNewT().setStringValue("也算安全");
+        check("不安全判定: 多 <w:t> 的 run 是安全的（已能正确写回）",
+                !WordTextEditor.isUnsafeRun(rOK2));
+
         // ================= WordMarkdownWriter =================
         org.apache.poi.xwpf.usermodel.XWPFDocument d11 = newDoc();
         WordMarkdownWriter.writeBlocks(d11, WordMarkdown.parse(
