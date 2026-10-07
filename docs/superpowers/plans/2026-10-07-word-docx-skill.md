@@ -305,9 +305,9 @@ public class ExcelSmoke {
 - [ ] **Step 2b: 编译并运行**
 
 ```bash
-/d/maven/bin/mvn -q -pl execl dependency:build-classpath -Dmdep.outputFile=/tmp/execl-cp.txt
-javac -encoding UTF-8 -cp "execl/target/classes;$(cat /tmp/execl-cp.txt)" -d /tmp /tmp/ExcelSmoke.java
-java -Dfile.encoding=UTF-8 -cp "/tmp;execl/target/classes;$(cat /tmp/execl-cp.txt)" ExcelSmoke "常用云桌面资费.xlsx" /tmp/roundtrip.xls
+/d/maven/bin/mvn -q -pl execl dependency:build-classpath -Dmdep.outputFile=execl-cp.txt
+javac -encoding UTF-8 -cp "execl/target/classes;$(cat execl/execl-cp.txt)" -d /tmp /tmp/ExcelSmoke.java
+java -Dfile.encoding=UTF-8 -cp "/tmp;execl/target/classes;$(cat execl/execl-cp.txt)" ExcelSmoke "常用云桌面资费.xlsx" /tmp/roundtrip.xls
 ```
 
 Expected: 打印 `读出行数 = N`、`首行列名 = [...]`、`回读行数 = N — PASS`。
@@ -511,7 +511,7 @@ package cn.tianlong.tlobject.aiagent.word;
  * word 引擎自测（runnable main，无 JUnit——与仓库自测惯例一致）。
  *
  * 运行：
- *   /d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=aiagent/word-java/cp.txt
+ *   /d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=cp.txt
  *   java -cp "aiagent/word-java/target/classes;$(cat aiagent/word-java/cp.txt)" \
  *        cn.tianlong.tlobject.aiagent.word.WordEngineSelfTest
  * 失败以退出码 1 结束。
@@ -538,11 +538,17 @@ public class WordEngineSelfTest {
 
 ```bash
 /d/maven/bin/mvn -q -pl aiagent/word-java -am install -DskipTests
-/d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=aiagent/word-java/cp.txt
+/d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=cp.txt
 java -cp "aiagent/word-java/target/classes;$(cat aiagent/word-java/cp.txt)" cn.tianlong.tlobject.aiagent.word.WordEngineSelfTest
 ```
 
 Expected: `1 passed, 0 failed`。
+
+⚠️ **`-Dmdep.outputFile` 是相对「模块目录」解析的，不是相对调用目录。** 所以必须是
+`-Dmdep.outputFile=cp.txt`（落在 `aiagent/word-java/cp.txt`），**不能**写
+`-Dmdep.outputFile=aiagent/word-java/cp.txt`——那会写出
+`aiagent/word-java/aiagent/word-java/cp.txt`，紧接着的 `cat` 必然失败。Task 6
+首次执行时实测踩到过。下面的 `cat` 路径照旧用 `aiagent/word-java/cp.txt`。
 
 ⚠️ `cp.txt` 加进 `.gitignore` 或提交前删掉——它是本机路径，不该进库。
 先确认：`grep -n "cp.txt" .gitignore`，没有就加一行。

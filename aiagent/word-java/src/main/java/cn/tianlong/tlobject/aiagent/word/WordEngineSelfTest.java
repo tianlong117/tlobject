@@ -4,7 +4,7 @@ package cn.tianlong.tlobject.aiagent.word;
  * word 引擎自测（runnable main，无 JUnit——与仓库自测惯例一致）。
  *
  * 运行：
- *   /d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=aiagent/word-java/cp.txt
+ *   /d/maven/bin/mvn -q -pl aiagent/word-java dependency:build-classpath -Dmdep.outputFile=cp.txt
  *   java -cp "aiagent/word-java/target/classes;$(cat aiagent/word-java/cp.txt)" \
  *        cn.tianlong.tlobject.aiagent.word.WordEngineSelfTest
  * 失败以退出码 1 结束。
