@@ -5,6 +5,17 @@ body {
 }
 .hidden { display: none !important; }
 
+/* ===== 滚动条：窄条深色（IDEA 风格）——默认的白色宽槽（15px）在深色页面上很扎眼 ===== */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }        /* 轨道透明：面板底色透出来，与页面一体 */
+::-webkit-scrollbar-thumb { background: #2f3542; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #3d4557; }
+::-webkit-scrollbar-corner { background: transparent; }
+/* 非 WebKit 引擎（Firefox）兜底：标准属性；Chromium 有上面的伪元素规则不进这里，避免两套互相覆盖 */
+@supports not selector(::-webkit-scrollbar) {
+  * { scrollbar-width: thin; scrollbar-color: #2f3542 transparent; }
+}
+
 /* ===== 登录 ===== */
 #loginView { height: 100vh; display: flex; align-items: center; justify-content: center; }
 .login-box {
