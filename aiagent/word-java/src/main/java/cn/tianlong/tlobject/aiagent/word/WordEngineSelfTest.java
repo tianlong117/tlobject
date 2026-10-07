@@ -88,6 +88,83 @@ public class WordEngineSelfTest {
         check("info: 表格数 = 1", Integer.valueOf(1).equals(inf.get("tables")));
         check("info: 标题数 = 1", Integer.valueOf(1).equals(inf.get("headings")));
 
+        // ================= 跨 run 匹配核心 =================
+        // 段落 = "订单号：${orderNo}"，切成 ["订单号：","${","orderNo","}"]
+        // 注：doc 变量名用 d2b——d2 已被上面的 outlineLvl 用例占用
+        org.apache.poi.xwpf.usermodel.XWPFDocument d2b = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p2 = addSplitPara(d2b,
+                new String[]{"订单号：", "${", "orderNo", "}"}, true);
+
+        int n2 = WordTextEditor.replaceInParagraph(p2, "${orderNo}", "A123");
+        check("跨run: 替换计数 = 1", n2 == 1);
+        check("跨run: 段落文本已是替换后", "订单号：A123".equals(p2.getText()));
+        check("跨run: 首 run 的 bold 保住了", p2.getRuns().get(0).isBold());
+        check("跨run: 字号保住 = 14", p2.getRuns().get(0).getFontSize() == 14);
+        check("跨run: run 数量未增加（最小重建，不新建 run）", p2.getRuns().size() == 4);
+        // 上一条查的是没被动的 run[0]；真正接住新文本的是 run[1]，它的格式才是承诺所在
+        check("跨run: 接收新文本的 run[1] 字号也保住 = 14", p2.getRuns().get(1).getFontSize() == 14);
+
+        // 替换后再次替换，验证可重复
+        check("跨run: 可再次替换", WordTextEditor.replaceInParagraph(p2, "A123", "B456") == 1
+                && "订单号：B456".equals(p2.getText()));
+
+        // 落盘重载：内存里的结果要能在 XML 里活下来（rPr 不被序列化丢掉才算真保住）
+        java.nio.file.Path p2f = saveTmp(d2b, "crossrun.docx");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(p2f);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph rp = re.getParagraphs().get(0);
+            check("跨run: 落盘重载后文本/格式/run 数都在",
+                    "订单号：B456".equals(rp.getText()) && rp.getRuns().size() == 4
+                            && rp.getRuns().get(0).isBold() && rp.getRuns().get(1).getFontSize() == 14);
+        }
+
+        // 同段多处替换：区间表必须在每次替换后跟上（长度变化的替换最容易露馅——
+        // 增量更新会留下空隙/重叠，表现为漏替换或把文本写串）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dMulti = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pMulti = dMulti.createParagraph();
+        pMulti.createRun().setText("X");
+        pMulti.createRun().setText("a-b");
+        pMulti.createRun().setText("c-d");
+        check("多处: 同段两处都替换且文本不错位",
+                WordTextEditor.replaceInParagraph(pMulti, "-", "--") == 2
+                        && "Xa--bc--d".equals(pMulti.getText()));
+
+        // 单个 run 内替换
+        org.apache.poi.xwpf.usermodel.XWPFDocument d3 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p3 = addPara(d3, "金额：100 元", null);
+        check("同run: 替换成功", WordTextEditor.replaceInParagraph(p3, "100", "200") == 1
+                && "金额：200 元".equals(p3.getText()));
+
+        // 不安全 run 要被跳过而不是改坏。
+        // 判据是"匹配区间 [ri,rj] 碰到不安全 run"（spec §5），不是"段落里有不安全 run"：
+        // 落在含 <w:br/> 的 run 上时，hay 里含 run.text() 补出的 '\n'，重写会把这个换行标志
+        // 当普通字符写进 <w:t>（凭空多一个换行）——所以占位符必须真的压在这个 run 上才触发。
+        org.apache.poi.xwpf.usermodel.XWPFDocument d4 = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p4 = d4.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun r4 = p4.createRun();
+        r4.setText("第一行有 ${x} 占位符");
+        r4.addBreak();                      // 段落内换行 → 该 run 不安全
+        org.apache.poi.xwpf.usermodel.XWPFRun r4b = p4.createRun();
+        r4b.setText("的模板块");
+        check("不安全run: 匹配落在含 br 的 run 上返回 -2（跳过）",
+                WordTextEditor.replaceInParagraph(p4, "${x}", "OK") == -2);
+        check("不安全run: 文本未被改动", p4.getText().contains("${x}"));
+        // 反面守：同段落里没被不安全 run 波及的匹配照常替换——判据过宽会让整段不可编辑，
+        // "很安全但没用"，而这里改的 run 是干净的，没有任何东西会被写坏
+        check("不安全run: 同段落在干净 run 上的匹配不被殃及",
+                WordTextEditor.replaceInParagraph(p4, "模板块", "模板") == 1
+                        && p4.getText().contains("的模板"));
+
+        // 匹配不到
+        check("无匹配: 返回 0", WordTextEditor.replaceInParagraph(p3, "不存在的词", "x") == 0);
+
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p5 = newDoc().createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun r5 = p5.createRun();
+        r5.setBold(true); r5.setText("普通的 ${y} 文字");
+        check("误判检查: 普通 run 不被当作不安全",
+                WordTextEditor.replaceInParagraph(p5, "${y}", "Z") == 1);
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -105,6 +182,20 @@ public class WordEngineSelfTest {
         if (style != null) p.setStyle(style);
         org.apache.poi.xwpf.usermodel.XWPFRun r = p.createRun();
         r.setText(text);
+        return p;
+    }
+
+    /** 造一个把 ${name} 拆成多个 run 的段落（模拟真实 Word 的 run 碎片化） */
+    static org.apache.poi.xwpf.usermodel.XWPFParagraph addSplitPara(
+            org.apache.poi.xwpf.usermodel.XWPFDocument d,
+            String[] pieces, boolean boldFirst) {
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p = d.createParagraph();
+        for (int i = 0; i < pieces.length; i++) {
+            org.apache.poi.xwpf.usermodel.XWPFRun r = p.createRun();
+            if (i == 0 && boldFirst) r.setBold(true);
+            r.setFontSize(14);
+            r.setText(pieces[i]);
+        }
         return p;
     }
 
