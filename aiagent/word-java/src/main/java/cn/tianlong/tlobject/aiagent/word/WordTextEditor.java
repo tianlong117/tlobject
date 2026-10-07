@@ -292,8 +292,29 @@ public final class WordTextEditor {
             np = (c == null) ? doc.createParagraph() : doc.insertNewParagraph(c);
         }
         if (np == null) throw new IllegalStateException("insertNewParagraph returned null");
-        if (style != null && !style.isEmpty()) np.setStyle(style);
-        np.createRun().setText(text);
+
+        // style="HeadingN" 不能只 setStyle：本技能自己的 create 建出来的文档**没有 styles part**
+        // （new XWPFDocument() 的 getStyles() 就是 null），pStyle="Heading1" 是个悬空引用——
+        // Word 里渲染成正文，而 read/outline 却报 Heading1（两处自相矛盾）。
+        // 故与 WordMarkdownWriter.applyHeading 走同一套三重设定：pStyle + outlineLvl + 直接格式。
+        int headingLv = 0;
+        if (style != null && !style.isEmpty()) {
+            java.util.regex.Matcher hm =
+                    java.util.regex.Pattern.compile("(?i)^heading\\s*([1-6])$").matcher(style.trim());
+            if (hm.matches()) {
+                headingLv = Integer.parseInt(hm.group(1));
+                WordMarkdownWriter.applyHeading(np, headingLv);
+            } else {
+                np.setStyle(style);
+            }
+        }
+        XWPFRun run = np.createRun();
+        run.setText(text);
+        if (headingLv > 0) {
+            // 第 3 重（直接格式兜底）挂在 run 上：writer 的 writeSpans(p,spans,lv) 就是这么做的
+            run.setBold(true);
+            run.setFontSize(WordMarkdownWriter.headingFontSize(headingLv));
+        }
     }
 
     /** 锚点之后的游标；锚点是 body 最后一个元素（没有下一兄弟）时返回 null，由调用方兜底 */

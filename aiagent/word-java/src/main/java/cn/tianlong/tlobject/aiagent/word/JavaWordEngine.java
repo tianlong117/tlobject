@@ -113,6 +113,32 @@ public class JavaWordEngine {
         try { return Integer.parseInt(String.valueOf(v).trim()); } catch (Exception e) { return def; }
     }
 
+    /** 取必填文本参数。缺 key 视为调用错误——静默按空串处理会毁掉段落/单元格内容。
+     *  显式传空串是允许的（清空是合法意图）。 */
+    private static String requiredText(Map<String, Object> in) {
+        if (!in.containsKey("text") || in.get("text") == null)
+            throw new IllegalArgumentException(
+                    "text is required (to clear the paragraph, pass text=\"\")");
+        return String.valueOf(in.get("text"));
+    }
+
+    /**
+     * 把入参值转成写入文档的字符串。
+     *
+     * 坑：provider 用 gson.fromJson(args, Map.class) 解析工具参数，JSON 整数一律变 Double，
+     * 直接 String.valueOf 会往文档里写出 "100.0"。整值必须还原成 "100"。
+     */
+    static String toDocString(Object v) {
+        if (v == null) return "";
+        if (v instanceof Double || v instanceof Float) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) return String.valueOf(d);
+            if (d == Math.rint(d) && Math.abs(d) < 1e15) return String.valueOf((long) d);
+            return java.math.BigDecimal.valueOf(d).stripTrailingZeros().toPlainString();
+        }
+        return String.valueOf(v);
+    }
+
     // ================= 读类动作 =================
 
     private Result doRead(Map<String, Object> in) throws IOException {
@@ -188,7 +214,7 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         try (XWPFDocument doc = open(p)) {
             WordTextEditor.setParagraphText(doc, oi(in, "index", -1),
-                    String.valueOf(in.getOrDefault("text", "")));
+                    requiredText(in));
             save(doc, p);
         }
         return receipt("set_paragraph", p, null);
@@ -199,7 +225,7 @@ public class JavaWordEngine {
         boolean before = !"after".equalsIgnoreCase(String.valueOf(in.getOrDefault("position", "before")));
         try (XWPFDocument doc = open(p)) {
             WordTextEditor.insertParagraph(doc, oi(in, "index", -1),
-                    String.valueOf(in.getOrDefault("text", "")), od(in, "style"), before);
+                    requiredText(in), od(in, "style"), before);
             save(doc, p);
         }
         return receipt("insert_paragraph", p, null);
@@ -218,7 +244,7 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         try (XWPFDocument doc = open(p)) {
             WordTextEditor.setTableCell(doc, oi(in, "table", -1), oi(in, "row", -1),
-                    oi(in, "col", -1), String.valueOf(in.getOrDefault("text", "")));
+                    oi(in, "col", -1), requiredText(in));
             save(doc, p);
         }
         return receipt("set_table_cell", p, null);
@@ -231,7 +257,7 @@ public class JavaWordEngine {
         if (v instanceof List) {
             List<?> l = (List<?>) v;
             vals = new String[l.size()];
-            for (int i = 0; i < l.size(); i++) vals[i] = l.get(i) == null ? "" : String.valueOf(l.get(i));
+            for (int i = 0; i < l.size(); i++) vals[i] = toDocString(l.get(i));
         } else if (v != null && !String.valueOf(v).trim().isEmpty()) {
             vals = String.valueOf(v).split(",", -1);
         }
@@ -250,7 +276,7 @@ public class JavaWordEngine {
         Object raw = in.get("data");
         if (raw instanceof Map) {
             for (Map.Entry<String, Object> e : ((Map<String, Object>) raw).entrySet())
-                data.put(e.getKey(), e.getValue() == null ? "" : String.valueOf(e.getValue()));
+                data.put(e.getKey(), toDocString(e.getValue()));
         }
         try (XWPFDocument doc = open(src)) {
             WordTextEditor.ReplaceReport rep = WordTextEditor.fillTemplate(doc, data);

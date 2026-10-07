@@ -565,6 +565,153 @@ public class WordEngineSelfTest {
         check("engine: fill_template 支持 output 另存", rft.ok
                 && work.resolve("填好.docx").toFile().isFile());
 
+        // ================= F2 回归：漏传 text 不得静默清空 =================
+        // 缺陷实测（修复前）：set_paragraph(index=1) 不带 text → ok=true，段落变 ""（内容被毁）；
+        // set_table_cell 同款把单元格写空。根因是 String.valueOf(getOrDefault("text",""))——
+        // 把"模型漏参数"和"显式清空"当成同一件事。漏参数必须报错，显式空串仍合法。
+        JavaWordEngine.Result cF2 = eng.execute("create",
+                map("path", "漏参.docx", "content", "# 标题\n\n正文甲\n\n正文乙"));
+        check("F2 前置: 测试文档建好（3 段）", cF2.ok);
+        String f2BeforeP = eng.execute("read", map("path", "漏参.docx")).text;
+        check("F2 前置: 第 1 段读得到正文甲", f2BeforeP.contains("正文甲"));
+
+        JavaWordEngine.Result missP = eng.execute("set_paragraph",
+                map("path", "漏参.docx", "index", 1));            // 故意不带 text
+        check("F2: set_paragraph 缺 text → ok=false", !missP.ok);
+        check("F2: 错误文案说明 text 必填（模型读得到就能自纠）",
+                String.valueOf(missP.json.get("error")).contains("text is required"));
+        String f2AfterP = eng.execute("read", map("path", "漏参.docx")).text;
+        check("F2: 缺 text 时**整篇文本逐字未变**（段落没被清空）", f2BeforeP.equals(f2AfterP));
+        check("F2: 段落里仍有正文甲（不是空串）", f2AfterP.contains("正文甲"));
+
+        // 反面守：显式 text="" 是合法意图（清空段落），不能被同一个守卫误伤
+        JavaWordEngine.Result emptyP = eng.execute("set_paragraph",
+                map("path", "漏参.docx", "index", 1, "text", ""));
+        check("F2: 显式 text=\"\" 仍允许（清空是合法操作）", emptyP.ok);
+        check("F2: 显式空串确实把段落清空了（守卫只挡「缺 key」）",
+                !eng.execute("read", map("path", "漏参.docx")).text.contains("正文甲"));
+
+        JavaWordEngine.Result cF2t = eng.execute("create",
+                map("path", "漏参表.docx", "content", "| A | B |\n| C | D |"));
+        check("F2 前置: 带表格文档建好", cF2t.ok);
+        String cellBeforeF2;
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("漏参表.docx"))) {
+            cellBeforeF2 = d.getTables().get(0).getRow(0).getCell(1).getText();
+        }
+        JavaWordEngine.Result missC = eng.execute("set_table_cell",
+                map("path", "漏参表.docx", "table", 0, "row", 0, "col", 1));   // 故意不带 text
+        check("F2: set_table_cell 缺 text → ok=false", !missC.ok);
+        String cellAfterF2;
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("漏参表.docx"))) {
+            cellAfterF2 = d.getTables().get(0).getRow(0).getCell(1).getText();
+        }
+        check("F2: 单元格值原样保留（\"" + cellBeforeF2 + "\" → \"" + cellAfterF2 + "\"，没被写空）",
+                "B".equals(cellBeforeF2) && cellBeforeF2.equals(cellAfterF2));
+
+        // ================= F3 回归：Gson Double 不得写成 100.0 =================
+        // 真链路：provider 用 gson.fromJson(argsStr, Map.class) 解析工具参数，JSON 整数一律变
+        // Double。自测若手搓 String 值就永远看不见这个坑，故这里照真链路造 Double。
+        JavaWordEngine.Result cF3 = eng.execute("create",
+                map("path", "数字.docx", "content", "金额：${amount} 元\n\n数量：${qty}\n\n费率：${rate}"));
+        check("F3 前置: 模板文档建好", cF3.ok);
+        java.util.LinkedHashMap<String, Object> numData = new java.util.LinkedHashMap<>();
+        numData.put("amount", 100.0d);      // JSON 100 经 gson.fromJson(Map.class) 就是这个
+        numData.put("qty", 3.0d);
+        numData.put("rate", 2.5d);
+        JavaWordEngine.Result rf3 = eng.execute("fill_template",
+                map("path", "数字.docx", "data", numData));
+        check("F3: fill_template 成功", rf3.ok);
+        String gotF3 = eng.execute("read", map("path", "数字.docx")).text;
+        check("F3: 整值 100.0d 写成 100 而非 100.0", gotF3.contains("金额：100 元"));
+        // 注意不能只查 contains("数量：3")——"数量：3.0" 里也含这个子串，那样断言在缺陷态照样绿。
+        // 必须整行精确比对，才真的看得见尾部那个 ".0"。
+        String[] f3Lines = gotF3.split("\n", -1);
+        check("F3: 第 1 段整行 = 「[1] [Normal] 数量：3」（不是 数量：3.0）",
+                f3Lines.length > 1 && f3Lines[1].equals("[1] [Normal] 数量：3"));
+        check("F3: 真小数 2.5d 整行 = 「[2] [Normal] 费率：2.5」（不失精度也不拖尾零）",
+                f3Lines.length > 2 && f3Lines[2].equals("[2] [Normal] 费率：2.5"));
+        check("F3: 文档里没有任何 \".0\" 脏串",
+                !gotF3.contains("100.0") && !gotF3.contains("3.0") && !gotF3.contains("2.50"));
+
+        JavaWordEngine.Result cF3t = eng.execute("create",
+                map("path", "数字表.docx", "content", "| 名称 | 数量 |\n| 甲 | 0 |"));
+        check("F3 前置: 表格文档建好", cF3t.ok);
+        java.util.List<Object> rowVals = new java.util.ArrayList<>();
+        rowVals.add("乙");
+        rowVals.add(100.0d);                // List 里的 Double（provider 解析 JSON 数组的结果）
+        JavaWordEngine.Result rt3 = eng.execute("add_table_row",
+                map("path", "数字表.docx", "table", 0, "values", rowVals));
+        check("F3: add_table_row 成功", rt3.ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("数字表.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFTable t = d.getTables().get(0);
+            int lastRow = t.getRows().size() - 1;
+            check("F3: 新行数 = 3", t.getRows().size() == 3);
+            check("F3: 表格单元格里的 100.0d 写成 \"100\"（不是 \"100.0\"）",
+                    "100".equals(t.getRow(lastRow).getCell(1).getText()));
+            check("F3: 同行的字符串值照常写入", "乙".equals(t.getRow(lastRow).getCell(0).getText()));
+        }
+
+        // ================= F5 回归：insert_paragraph 标题不得悬空 =================
+        // 缺陷实测（修复前）：style="Heading1" 只做了 setStyle，而本技能 create 出来的文档没有
+        // styles part → pStyle 是悬空引用。对照 markdown writer 的标题（三重设定）：
+        // pStyle=Heading1 outlineLvl=0 bold=true vs 修复前的 outlineLvl=null bold=false。
+        JavaWordEngine.Result cF5 = eng.execute("create",
+                map("path", "标题插入.docx", "content", "正文一段\n\n正文二段"));
+        check("F5 前置: 文档建好（2 段）", cF5.ok);
+        JavaWordEngine.Result ri5 = eng.execute("insert_paragraph",
+                map("path", "标题插入.docx", "index", 0, "text", "新标题", "style", "Heading1"));
+        check("F5: insert_paragraph 成功", ri5.ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("标题插入.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph hp = d.getParagraphs().get(0);
+            check("F5: 新段落文本与 pStyle 正确",
+                    "新标题".equals(hp.getText()) && "Heading1".equals(hp.getStyle()));
+            check("F5: 标题写了 outlineLvl=0（pStyle 不再是悬空引用）",
+                    hp.getCTP().getPPr() != null
+                            && hp.getCTP().getPPr().getOutlineLvl() != null
+                            && hp.getCTP().getPPr().getOutlineLvl().getVal().intValue() == 0);
+            check("F5: 标题 run 是粗体（直接格式兜底，与 writer 一致）",
+                    !hp.getRuns().isEmpty() && hp.getRuns().get(0).isBold());
+            check("F5: 标题 run 字号 = 20（headingFontSize(1)）",
+                    hp.getRuns().get(0).getFontSize() == WordMarkdownWriter.headingFontSize(1));
+            check("F5: outline() 认得出插入的标题（读侧与写侧一致）",
+                    WordTextExtractor.outline(d).contains("新标题"));
+            check("F5: 正文段未被波及", "正文一段".equals(d.getParagraphs().get(1).getText()));
+        }
+        // 级别从串里解析：Heading2 → outlineLvl=1，字号也要跟着走
+        JavaWordEngine.Result ri5b = eng.execute("insert_paragraph",
+                map("path", "标题插入.docx", "index", 0, "text", "二级", "style", "Heading2"));
+        check("F5: Heading2 插入成功", ri5b.ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("标题插入.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph hp2 = d.getParagraphs().get(0);
+            // 判据要 null 安全：缺陷态下 getOutlineLvl() 就是 null，直接取值会抛 NPE 把整个自测打断，
+            // 那样红的是"崩"，不是"这条断言失败"——红态也得看得懂
+            boolean hp2Outline1 = hp2.getCTP().getPPr() != null
+                    && hp2.getCTP().getPPr().getOutlineLvl() != null
+                    && hp2.getCTP().getPPr().getOutlineLvl().getVal().intValue() == 1;
+            check("F5: Heading2 → outlineLvl=1 且粗体且字号 16",
+                    hp2Outline1 && hp2.getRuns().get(0).isBold()
+                            && hp2.getRuns().get(0).getFontSize() == WordMarkdownWriter.headingFontSize(2));
+        }
+        // 反面守：非 HeadingN 的样式仍走原路（不能被标题分支吞掉）
+        JavaWordEngine.Result ri5c = eng.execute("insert_paragraph",
+                map("path", "标题插入.docx", "index", 0, "text", "列表项", "style", "ListParagraph"));
+        check("F5: 非标题样式照常 setStyle", ri5c.ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("标题插入.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph lp = d.getParagraphs().get(0);
+            check("F5: ListParagraph 段没被强加粗体/outlineLvl",
+                    "ListParagraph".equals(lp.getStyle())
+                            && (lp.getCTP().getPPr() == null
+                                || lp.getCTP().getPPr().getOutlineLvl() == null)
+                            && !lp.getRuns().get(0).isBold());
+        }
+
+        // 漏传 text 对 insert_paragraph 同样报错（同一类错误要同一套反馈）
+        JavaWordEngine.Result missI = eng.execute("insert_paragraph",
+                map("path", "标题插入.docx", "index", 0));
+        check("F2: insert_paragraph 缺 text → ok=false", !missI.ok);
+        check("F2: insert_paragraph 缺 text 时文档未被改动",
+                eng.execute("read", map("path", "标题插入.docx")).text.contains("列表项"));
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -597,6 +744,13 @@ public class WordEngineSelfTest {
             r.setText(pieces[i]);
         }
         return p;
+    }
+
+    /** 打开引擎写出的落盘文件（断言要落在 XML 上，内存态骗不了文件） */
+    static org.apache.poi.xwpf.usermodel.XWPFDocument openDocx(java.nio.file.Path p)
+            throws Exception {
+        return new org.apache.poi.xwpf.usermodel.XWPFDocument(
+                java.nio.file.Files.newInputStream(p));
     }
 
     static java.nio.file.Path saveTmp(org.apache.poi.xwpf.usermodel.XWPFDocument d, String name)
