@@ -144,6 +144,12 @@ public class TLAppStartUp extends TLBaseModule {
         moduleFactory.setClassPath(classPath);
         moduleFactory.startFactory(null,null);
         moduleFactory.boot();
+        // 启动横幅补 user.dir：配置里的相对路径（./data、./data/traces、jdbc:sqlite:data/aiagent.db 等）
+        // 一律按【进程工作目录】解析——从不同目录启动会读到不同的数据环境（看似"数据丢了"），排障第一现场。
+        // 放在 boot() 之后是因为 putLog 要经工厂取 log 模块（更早调用工厂未就绪）
+        putLog("user.dir : " + System.getProperty("user.dir")
+                        + "    （相对路径配置如 ./data/traces、data/aiagent.db 按此目录解析）",
+                LogLevel.INFO);
         appFactory =moduleFactory ;
         modules.put(MODULEFACTORY,moduleFactory);
         if (configFile != null) {
