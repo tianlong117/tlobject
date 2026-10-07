@@ -345,6 +345,62 @@ public class WordEngineSelfTest {
                     re.getParagraphs().get(0).getText().equals("金额：100 尾注"));
         }
 
+        // ================= WordMarkdownWriter =================
+        org.apache.poi.xwpf.usermodel.XWPFDocument d11 = newDoc();
+        WordMarkdownWriter.writeBlocks(d11, WordMarkdown.parse(
+                "# 报告\n\n正文一段\n\n- 甲\n- 乙\n\n| 月 | 值 |\n| 1 | 100 |"));
+        check("writer: 标题段落已建", d11.getParagraphs().get(0).getText().equals("报告"));
+        check("writer: 标题用了 Heading1",
+                "Heading1".equals(d11.getParagraphs().get(0).getStyle()));
+        // 标题必须是"真标题"：直接格式（粗体）与 outlineLvl 都要落盘，
+        // 否则 Word 打开可能退化成正文、导航窗格不认（Task 8 实测发现 new XWPFDocument()
+        // 没有 styles part，只写 pStyle 是悬空引用）
+        check("writer: 标题 run 是粗体（直接格式兜底）",
+                d11.getParagraphs().get(0).getRuns().get(0).isBold());
+        check("writer: 标题设了 outlineLvl=0",
+                d11.getParagraphs().get(0).getCTP().getPPr() != null
+                        && d11.getParagraphs().get(0).getCTP().getPPr().getOutlineLvl() != null
+                        && d11.getParagraphs().get(0).getCTP().getPPr().getOutlineLvl().getVal().intValue() == 0);
+        check("writer: 正文段落", d11.getParagraphs().get(1).getText().equals("正文一段"));
+        // 计划期望 "甲"，与计划给的实现互斥——实测（字符级探针）：该段文本 = U+2022 U+0020 + "甲"。
+        // 判定：**实现对、断言错**。保留字面项目符号是有意的兜底：新建文档既无 numbering part
+        // 也无 styles part，做不出自动编号，pStyle="ListParagraph" 就是悬空引用；去掉 "• " 的后果是
+        // `- 甲` 在 Word/WPS 里退化成普通正文——与"标题只写 pStyle 会退化成正文"同一类静默损失
+        // （本任务标题三重设定的立论基础）。故按实测值钉死：谁把符号去掉，这条立刻红。
+        check("writer: 列表项（带字面项目符号，无编号定义时的可见性兜底）",
+                d11.getParagraphs().get(2).getText().equals("• 甲"));
+        check("writer: 表格已建 2行2列",
+                d11.getTables().size() == 1 && d11.getTables().get(0).getRows().size() == 2);
+        check("writer: 表头内容", d11.getTables().get(0).getRow(0).getCell(0).getText().equals("月"));
+        check("writer: 表体内容", d11.getTables().get(0).getRow(1).getCell(1).getText().equals("100"));
+
+        // 行内粗体真的产生 bold run
+        org.apache.poi.xwpf.usermodel.XWPFDocument d12 = newDoc();
+        WordMarkdownWriter.writeBlocks(d12, WordMarkdown.parse("这**很粗**啊"));
+        org.apache.poi.xwpf.usermodel.XWPFParagraph p12 = d12.getParagraphs().get(0);
+        check("writer: 行内粗体拆成多 run", p12.getRuns().size() == 3);
+        check("writer: 中间 run 是粗体", p12.getRuns().get(1).isBold()
+                && p12.getRuns().get(1).text().equals("很粗"));
+        check("writer: 首尾 run 不粗", !p12.getRuns().get(0).isBold()
+                && !p12.getRuns().get(2).isBold());
+
+        // 落盘重载后标题仍是标题（内存断言骗不了文件）
+        java.nio.file.Path hPath = saveTmp(d11, "heading.docx");
+        try (java.io.InputStream in = java.nio.file.Files.newInputStream(hPath);
+             org.apache.poi.xwpf.usermodel.XWPFDocument re =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(in)) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph hp = re.getParagraphs().get(0);
+            check("writer: 落盘后 style 仍是 Heading1",
+                    "Heading1".equals(hp.getStyle()));
+            check("writer: 落盘后 outlineLvl 仍在",
+                    hp.getCTP().getPPr() != null
+                            && hp.getCTP().getPPr().getOutlineLvl() != null
+                            && hp.getCTP().getPPr().getOutlineLvl().getVal().intValue() == 0);
+            check("writer: 落盘后粗体仍在", hp.getRuns().get(0).isBold());
+            check("writer: 落盘后 outline() 认得出这个标题",
+                    WordTextExtractor.outline(re).contains("报告"));
+        }
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
