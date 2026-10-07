@@ -164,8 +164,11 @@ Expected: BUILD SUCCESS。
 
 - [ ] **Step 4: 确认无残留旧 API**
 
-Run: `grep -rn "HSSFDateUtil" --include=*.java . | grep -v target`
+Run: `grep -rn "HSSFDateUtil\." --include=*.java . | grep -v target`
 Expected: 无输出。
+
+⚠️ 模式里的 `\.` 是故意的：Step 2 的注释里含有 "HSSFDateUtil" 这个词（作为说明文字，
+有价值，保留），不带点才 grep 会命中它造成假失败。带点意味着"还在调用这个类的方法"。
 
 - [ ] **Step 5: Commit**
 
@@ -304,6 +307,42 @@ Expected: 打印 `读出行数 = N`、`首行列名 = [...]`、`回读行数 = N
 
 ⚠️ 若 `常用云桌面资费.xlsx` 不在仓库根或不是 `hasTitle` 结构，换任意一个真实 xlsx 即可，
 重点是**读写往返**而不是这个特定文件。
+
+- [ ] **Step 2c: 必须覆盖"日期格式单元格"这一条路径**
+
+Task 3 改的那一行（`DateUtil.isCellDateFormatted`）只在**数值型且被标记为日期格式**的
+单元格上才会走到。上面那个文件如果全是文本列，这一行根本没被执行——**编译通过不能证明它没坏**。
+
+所以额外造一个含日期列的文件来跑：
+
+```bash
+python -c "
+import zipfile,shutil,os
+# 最省事的做法：用 LibreOffice 或 Excel 手工存一个带日期列的 xlsx 太麻烦，
+# 直接用 python openpyxl 若无则跳过并如实报告
+try:
+    import openpyxl
+except ImportError:
+    print('SKIP: openpyxl 不可用，需手工造一个含日期列的 xlsx'); raise SystemExit(0)
+wb=openpyxl.Workbook(); ws=wb.active
+ws.append(['名称','日期','金额'])
+import datetime
+ws.append(['甲', datetime.date(2026,1,15), 100.5])
+ws.append(['乙', datetime.date(2026,2,20), 200.25])
+for c in ws['B']: c.number_format='yyyy-mm-dd'
+wb.save('/tmp/datecells.xlsx'); print('WROTE /tmp/datecells.xlsx')
+"
+```
+
+然后用同一个 `ExcelSmoke` 跑它，**检查输出里日期列的值**。
+
+Expected: 日期列读出形如 `2026-01-15`（`TLExeclFileUtils` 走
+`TLDateUtils.dateToStr(date, null)`），而**不是** `45672.0` 这种裸序列号。
+
+⚠️ 若读到的是裸数字而不是日期字符串，说明 `isCellDateFormatted` 这条路径**在 5.5.1 下行为变了**
+——这是本次升级最需要盯的一处，必须停下来查清根因，**不要**改成"反正能跑就行"。
+若 `openpyxl` 装不上、也不方便手工造文件，就**如实报告"日期路径未验证"**，
+不要假装覆盖到了。
 
 - [ ] **Step 3: 记录结果**
 
