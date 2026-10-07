@@ -401,6 +401,96 @@ public class WordEngineSelfTest {
                     WordTextExtractor.outline(re).contains("报告"));
         }
 
+        // ================= JavaWordEngine 门面 =================
+        java.nio.file.Path root = java.nio.file.Files.createTempDirectory("wordroot");
+        java.nio.file.Path work = root.resolve("data/default/documents");
+        JavaWordEngine.Config cfg = new JavaWordEngine.Config();
+        cfg.allowedRoot = root;
+        cfg.workDir = work;
+        cfg.backup = true;              // 顺带验证 .bak 分支
+        JavaWordEngine eng = new JavaWordEngine(cfg);
+
+        // 裸文件名落到工作目录
+        JavaWordEngine.Result rc = eng.execute("create",
+                map("path", "报告.docx", "content", "# 标题\n\n正文"));
+        check("engine: create 成功", rc.ok);
+        check("engine: 裸文件名落到 workDir",
+                work.resolve("报告.docx").toFile().isFile());
+        check("engine: create 回执带 bytes", rc.json.get("bytes") != null);
+
+        // 读回来
+        JavaWordEngine.Result rr = eng.execute("read", map("path", "报告.docx"));
+        check("engine: read 是文本模式", rr.textMode);
+        check("engine: read 含标题内容", rr.text.contains("标题"));
+
+        // replace 回执
+        JavaWordEngine.Result rp = eng.execute("replace",
+                map("path", "报告.docx", "find", "正文", "replace", "已改"));
+        check("engine: replace 回执 replaced=1", Integer.valueOf(1).equals(rp.json.get("replaced")));
+        check("engine: backup=true 时写了 .bak.docx",
+                work.resolve("报告.bak.docx").toFile().isFile());
+
+        // 改完文件仍可读
+        JavaWordEngine.Result rr2 = eng.execute("read", map("path", "报告.docx"));
+        check("engine: 改后仍能读且内容已变", rr2.text.contains("已改"));
+
+        // 不存在的文件
+        JavaWordEngine.Result r404 = eng.execute("read", map("path", "没有这个.docx"));
+        check("engine: 文件不存在 → ok=false", !r404.ok);
+        check("engine: 错误文案含 not found",
+                String.valueOf(r404.json.get("error")).toLowerCase().contains("not found"));
+
+        // .doc 拒绝
+        java.nio.file.Files.write(root.resolve("老格式.doc"), new byte[]{1, 2, 3});
+        JavaWordEngine.Result rdoc = eng.execute("read", map("path", "老格式.doc"));
+        check("engine: .doc 被拒", !rdoc.ok);
+        check("engine: .doc 提示另存为 docx",
+                String.valueOf(rdoc.json.get("error")).contains(".docx"));
+
+        // 越界拒绝
+        JavaWordEngine.Result rout = eng.execute("read",
+                map("path", java.nio.file.Paths.get("C:/Windows/win.ini").toString()));
+        check("engine: 越界路径被拒", !rout.ok);
+
+        // 未知 action
+        JavaWordEngine.Result rx = eng.execute("bogus", map("path", "报告.docx"));
+        check("engine: 未知 action 报错", !rx.ok);
+
+        // 原子写：目标不可写时原文件必须原封不动。
+        // 【与计划脚本的唯一偏差，理由】计划脚本把副本放在 root/只读.docx，却用裸名 "只读.docx"
+        // 发起替换；裸名一律落 workDir，引擎实际打开的是 work/只读.docx（不存在）——
+        // 失败原因是 "file not found"，两条原子写断言会因此"通过"而与原子写毫无关系（实测确认）。
+        // 故把副本与陷阱都放在 work/ 下（引擎真正会写的那个路径），并加两条判据堵死假绿：
+        // ①错误必须来自写路径（cannot write）②拆掉陷阱后同一替换必须成功（对照）。
+        java.nio.file.Path ro = work.resolve("只读.docx");
+        java.nio.file.Files.copy(work.resolve("报告.docx"), ro);
+        byte[] beforeBytes = java.nio.file.Files.readAllBytes(ro);
+        java.nio.file.Path tmpTrap = ro.resolveSibling(ro.getFileName() + ".tmp");
+        java.nio.file.Files.createDirectory(tmpTrap);   // 用目录占住 .tmp 路径让写入失败
+        JavaWordEngine.Result rf = eng.execute("replace",
+                map("path", "只读.docx", "find", "已改", "replace", "又改"));
+        check("原子写: 失败时 ok=false", !rf.ok);
+        check("原子写: 失败来自写路径而非找不到文件（防空转假绿）",
+                String.valueOf(rf.json.get("error")).toLowerCase().contains("cannot write"));
+        check("原子写: 原文件字节未变",
+                java.util.Arrays.equals(beforeBytes, java.nio.file.Files.readAllBytes(ro)));
+
+        // 对照：拆掉陷阱后同一替换必须成功——证明上面的失败确实由陷阱造成，不是"什么都失败"
+        java.nio.file.Files.deleteIfExists(tmpTrap);
+        JavaWordEngine.Result rf2 = eng.execute("replace",
+                map("path", "只读.docx", "find", "已改", "replace", "又改"));
+        JavaWordEngine.Result rr3 = eng.execute("read", map("path", "只读.docx"));
+        check("原子写对照: 无陷阱时同一替换成功且内容已变",
+                rf2.ok && rr3.ok && rr3.text.contains("又改"));
+
+        // fill_template 带 output
+        JavaWordEngine.Result rft = eng.execute("fill_template",
+                map("path", "报告.docx", "data", new java.util.LinkedHashMap<String, Object>() {{
+                    put("x", "y");
+                }}, "output", "填好.docx"));
+        check("engine: fill_template 支持 output 另存", rft.ok
+                && work.resolve("填好.docx").toFile().isFile());
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
@@ -441,6 +531,13 @@ public class WordEngineSelfTest {
                 .resolve(name);
         try (java.io.OutputStream o = java.nio.file.Files.newOutputStream(p)) { d.write(o); }
         return p;
+    }
+
+    /** 小号 map 字面量：map("k1", v1, "k2", v2) */
+    static java.util.Map<String, Object> map(Object... kv) {
+        java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) m.put((String) kv[i], kv[i + 1]);
+        return m;
     }
 
     static void check(String desc, boolean ok) {
