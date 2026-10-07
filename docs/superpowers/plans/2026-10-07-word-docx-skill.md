@@ -307,7 +307,7 @@ public class ExcelSmoke {
 ```bash
 /d/maven/bin/mvn -q -pl execl dependency:build-classpath -Dmdep.outputFile=/tmp/execl-cp.txt
 javac -encoding UTF-8 -cp "execl/target/classes;$(cat /tmp/execl-cp.txt)" -d /tmp /tmp/ExcelSmoke.java
-java -Dfile.encoding=UTF-8 -cp "/tmp;execl/target/classes;$(cat /tmp/execl-cp.txt)" ExcelSmoke "常用云桌面资费.xlsx" /tmp/roundtrip.xlsx
+java -Dfile.encoding=UTF-8 -cp "/tmp;execl/target/classes;$(cat /tmp/execl-cp.txt)" ExcelSmoke "常用云桌面资费.xlsx" /tmp/roundtrip.xls
 ```
 
 Expected: 打印 `读出行数 = N`、`首行列名 = [...]`、`回读行数 = N — PASS`。
@@ -315,8 +315,17 @@ Expected: 打印 `读出行数 = N`、`首行列名 = [...]`、`回读行数 = N
 **这一步是 POI 升级的真正风险闸门**（`commons-io` 2.4→2.21、`commons-compress` 1.19→1.28
 都在 `XSSFWorkbook` 读 xlsx 的路径上）。
 
-⚠️ 若 `常用云桌面资费.xlsx` 不在仓库根或不是 `hasTitle` 结构，换任意一个真实 xlsx 即可，
-重点是**读写往返**而不是这个特定文件。
+⚠️ **目标文件名必须是 `.xls`，不能是 `.xlsx`。** 实测发现：`listToExeclFile` 永远构造
+`HSSFWorkbook`（写 OLE2/.xls 二进制），与目标文件名的扩展名无关；而 `parseSheet` 是**按扩展名**
+分派的。所以写到 `.xlsx` 名字的文件回读时抛 `OLE2NotOfficeXmlFileException`（还是 RuntimeException，
+`parseSheet` 的 `catch (IOException)` 兜不住）。
+
+这是**既存缺陷，不是 POI 升级引入的**——已用未升级的 4.1.2 classpath 做 A/B 对照，行为逐字节一致。
+**不在本次范围内修**，但如果将来要修，两个方向：让 `listToExclFile` 按目标扩展名选 XSSF，
+或让 `parseSheet` 嗅探内容而非信扩展名。
+
+⚠️ 若 `常用云桌面资费.xlsx` 不在仓库根或不是 `hasTitle` 结构（实测它不是——首行是合并标题行，
+真表头在第 1 行），换任意一个真实 xlsx 即可，重点是**读写往返**而不是这个特定文件。
 
 - [ ] **Step 2c: 必须覆盖"日期格式单元格"这一条路径**
 
