@@ -41,6 +41,13 @@
                statup="true"
                skillName="file_operation"
                skillDescription="Read and write files on the local filesystem. Operations: read, write, list, exists, delete."/>
+        <!-- word 文档技能（Java 版，依赖 POI；类不在 classpath 时工具结果会明确报错，见 ensureEngine 注释）
+             backup 参数：配 backup="true" 后，每个改内容的动作（replace/set_paragraph/set_table_cell/…）
+             都会在改动前把原文件复制一份 xxx.bak.docx 放在原文件旁边，用于事后手工回退。
+             默认不开（此处未配 = false）：save() 已是"先写临时文件再原子替换"，失败时原文件原样不动，
+             备份不是数据安全的必要条件，只是一份可人工回退的快照；开了代价是目录里多出一堆 .bak.docx，
+             每次编辑都盖一份（同名覆盖，不是无限增长）。需要 LLM 临时要一份备份时，
+             也可以在单次调用里传 backup=true，覆盖这里的配置。 -->
         <skill name="word"
                sameClassAs="wordJavaSkill"
                statup="true"

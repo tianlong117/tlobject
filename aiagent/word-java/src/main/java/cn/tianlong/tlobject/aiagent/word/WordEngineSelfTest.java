@@ -712,6 +712,87 @@ public class WordEngineSelfTest {
         check("F2: insert_paragraph 缺 text 时文档未被改动",
                 eng.execute("read", map("path", "标题插入.docx")).text.contains("列表项"));
 
+        // ================= F4b：backup 参数接线（技能壳 → 引擎 Config） =================
+        // 引擎层的 .bak 分支上面已断言过（cfg.backup=true → 报告.bak.docx）。这里补的是壳这一层：
+        // XML params / 单次调用参数怎么落到 cfg.backup 上。缺陷态（修复前）是 JavaWordEngine.Config
+        // 的 backup 字段根本没人写——配置里写 backup="true" 也永远不生效（spec 的"可选 backup"不可达）。
+        //
+        // 不启框架的实例化方式：TLWordJavaSkill 走 (String) 构造器（(String,TLObjectFactory) 会
+        // 在 registFactory 上 NPE），params 用反射塞（protected，且声明在 base 包里，同包也读不到），
+        // 只调 setModuleParams() 与私有的 ensureEngine(msg, input) ——两个都不碰工厂、不发消息、不落日志。
+        TLWordJavaSkill sk = new TLWordJavaSkill("word");
+        java.lang.reflect.Field pf = Class.forName("cn.tianlong.tlobject.base.TLBaseModule")
+                .getDeclaredField("params");
+        pf.setAccessible(true);
+        java.util.HashMap<String, String> sp = new java.util.HashMap<>();
+        sp.put("backup", "true");
+        pf.set(sk, sp);
+        sk.setModuleParams();   // protected，与自测同类同包，直接调
+
+        java.lang.reflect.Method me = TLWordJavaSkill.class.getDeclaredMethod(
+                "ensureEngine", cn.tianlong.tlobject.base.TLMsg.class, java.util.Map.class);
+        me.setAccessible(true);
+        java.lang.reflect.Field cf = JavaWordEngine.class.getDeclaredField("cfg");
+        cf.setAccessible(true);
+        cn.tianlong.tlobject.base.TLMsg msg0 = new cn.tianlong.tlobject.base.TLMsg();
+
+        JavaWordEngine.Config c1 = (JavaWordEngine.Config)
+                cf.get(me.invoke(sk, msg0, map("action", "replace")));
+        check("F4b: XML params backup=true → 引擎 cfg.backup=true（接通了）", c1.backup);
+
+        JavaWordEngine.Config c2 = (JavaWordEngine.Config)
+                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", "false")));
+        check("F4b: 单次调用 backup=false 能覆盖 XML 的 true", !c2.backup);
+
+        JavaWordEngine.Config c3 = (JavaWordEngine.Config)
+                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", true)));
+        check("F4b: 单次调用 backup=true（真 Boolean）同样生效", c3.backup);
+
+        // 默认必须是关：别把"接通"顺手改成"默认开"（原子写已够安全，备份只为手工回退）
+        TLWordJavaSkill sk2 = new TLWordJavaSkill("word");
+        pf.set(sk2, new java.util.HashMap<String, String>());   // XML 没配 backup
+        sk2.setModuleParams();
+        JavaWordEngine.Config c4 = (JavaWordEngine.Config)
+                cf.get(me.invoke(sk2, msg0, map("action", "replace")));
+        check("F4b: XML 未配 backup → 默认 false", !c4.backup);
+
+        java.lang.reflect.Field scf = Class.forName("cn.tianlong.tlobject.aiagent.TLBaseSkill")
+                .getDeclaredField("parameterSchema");
+        scf.setAccessible(true);
+        Object schemaObj = scf.get(sk);
+        check("F4b: parameterSchema 里有 backup（LLM 才看得见这个参数）",
+                schemaObj instanceof java.util.Map && ((java.util.Map<?, ?>) schemaObj).containsKey("backup"));
+
+        // 端到端（真调 execute，含 input 组装和平铺参数兜底）：这条才是"平铺列表里漏写 backup"的守门员——
+        // 上面几条走的是反射直取 ensureEngine，绕过了 execute 里那段 key 列表。
+        TLWordJavaSkill sk3 = new TLWordJavaSkill("word");
+        java.util.HashMap<String, String> sp3 = new java.util.HashMap<>();
+        sp3.put("allowedRootPath", root.toString());
+        pf.set(sk3, sp3);
+        sk3.setModuleParams();
+        // 路径带分隔符 → 按 allowedRoot 解析。裸名才会落 workDir，而 workDir 约定是相对目录，
+        // 绝对路径会被 Paths.get(workDir).resolve(userId) 再拼一层 userId，故这里走相对路径这条
+        String rel = "data/default/documents/壳测.docx";
+        try {
+            check("F4b 前置: 壳测.docx 建好",
+                    eng.execute("create", map("path", "壳测.docx", "content", "甲段\n\n乙段")).ok);
+            cn.tianlong.tlobject.base.TLMsg flat = new cn.tianlong.tlobject.base.TLMsg();
+            flat.setParam("action", "replace");       // 平铺参数（不套 SKILLINPUT 包）
+            flat.setParam("path", rel);
+            flat.setParam("find", "甲段");
+            flat.setParam("replace", "丙段");
+            flat.setParam("backup", "true");          // 该键若不在兜底列表里会被丢掉 → 不产出 .bak
+            cn.tianlong.tlobject.base.TLMsg out = sk3.execute(null, flat);
+            check("F4b: 平铺参数 backup=true 端到端产出 壳测.bak.docx",
+                    out != null && Boolean.TRUE.equals(out.getParam(cn.tianlong.tlobject.base.TLParamString.RESULT))
+                            && work.resolve("壳测.bak.docx").toFile().isFile());
+            check("F4b: 端到端替换本身也成功（.bak 不是失败路径的残留）",
+                    eng.execute("read", map("path", "壳测.docx")).text.contains("丙段"));
+        } catch (Throwable t) {
+            // execute() 的错误路径会 putLog → putMsg(log) → 无工厂 NPE，故整段兜住并如实报红
+            check("F4b: 平铺参数 backup=true 端到端产出 壳测.bak.docx（抛异常: " + t + "）", false);
+        }
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }

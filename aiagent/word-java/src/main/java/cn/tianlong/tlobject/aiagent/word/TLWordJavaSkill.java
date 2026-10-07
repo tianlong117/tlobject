@@ -19,6 +19,7 @@ import java.util.Map;
  * 配置参数（XML params）：
  *   allowedRootPath  允许操作的根目录（默认 "."，按进程 CWD 解析）
  *   workDir          裸文件名落到的工作目录（默认 data/documents）
+ *   backup           true = 每个改内容的动作前留一份 xxx.bak.docx（默认 false）
  *
  * 创建日期：2026/10/07 作者:tianlong
  */
@@ -26,6 +27,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
 
     private String allowedRootPath = ".";
     private String workDir = "data/documents";
+    /** 改动前是否留 .bak.docx：XML params 配默认值，单次调用可用 backup 参数覆盖 */
+    private boolean backup = false;
 
     public TLWordJavaSkill() { super(); }
     public TLWordJavaSkill(String name) { super(name); }
@@ -36,6 +39,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
         if (params != null) {
             if (params.get("allowedRootPath") != null) allowedRootPath = params.get("allowedRootPath");
             if (params.get("workDir") != null) workDir = params.get("workDir");
+            if (params.get("backup") != null) backup = Boolean.parseBoolean(params.get("backup"));
         }
         super.setModuleParams();
 
@@ -81,6 +85,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("data", prop("object", "Key→value map for fill_template placeholders"));
             parameterSchema.put("output", prop("string", "fill_template output path (default: overwrite input)"));
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
+            parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
             parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
         }
@@ -104,7 +109,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
             input = new LinkedHashMap<>();
             for (String k : new String[]{"action", "path", "content", "find", "replace", "index",
                     "mode", "text", "style", "position", "table", "row", "col", "values", "data",
-                    "output", "overwrite", "from", "to"}) {
+                    "output", "overwrite", "from", "to", "backup"}) {
                 if (msg.containsParam(k)) input.put(k, msg.getParam(k));
             }
         }
@@ -116,7 +121,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
         try {
             // ensureEngine 在 try 内：classpath 手接线缺失时引擎构造抛的是 LinkageError，
             // 框架工具执行器不兜 Error——放 try 外工具结果会凭空消失（与 browser-java/desktop-java 同款防护）
-            JavaWordEngine eng = ensureEngine(msg);
+            JavaWordEngine eng = ensureEngine(msg, input);
             JavaWordEngine.Result r = eng.execute(action.toLowerCase(), input);
             if (r.textMode)
                 return createMsg().setParam(RESULT, r.ok).setParam(AI_P_SKILLOUTPUT, r.text);
@@ -134,8 +139,9 @@ public class TLWordJavaSkill extends TLBaseSkill {
     }
 
     /** 每用户独立工作目录。userId 三通道取：args → systemArgs → sessionId 兜底
-     *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏） */
-    private JavaWordEngine ensureEngine(TLMsg msg) {
+     *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏）。
+     *  backup 同理：XML 配默认值，单次调用显式传 backup 时以调用为准（传了就用传的，含 false）。 */
+    private JavaWordEngine ensureEngine(TLMsg msg, Map<String, Object> input) {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
         cfg.allowedRoot = Paths.get(allowedRootPath);
         String userId = msg.getStringParam(AI_P_USERID, null);
@@ -146,6 +152,9 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     : String.valueOf(u);
         }
         cfg.workDir = Paths.get(workDir).resolve(userId);
+        cfg.backup = (input != null && input.containsKey("backup"))
+                ? Boolean.parseBoolean(String.valueOf(input.get("backup")))
+                : backup;
         return new JavaWordEngine(cfg);
     }
 

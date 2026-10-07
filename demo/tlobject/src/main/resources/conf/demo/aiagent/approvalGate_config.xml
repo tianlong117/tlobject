@@ -10,6 +10,7 @@
          规则为结构化 &lt;rules&gt; 段（见下方），操作名提取逻辑（见 TLApprovalModule.extractOperation）:
            file_operation → args.operation (read/write/delete/list/exists)
            http_request   → args.method (GET/POST/PUT/DELETE)
+           word           → args.action (delete_paragraph/set_table_cell/create/…，即 word 的动作名)
            code_execution / script_execution → 无操作参数，命中即审批
     -->
     <params>
@@ -39,5 +40,29 @@
               statup="true"
               description="询价/下单需要审批"
               rule="*"/>
+
+        <!-- ===== word（Word 文档读写技能）=====
+             背景：word 技能（TLWordJavaSkill，函数名 word）此前完全未挂审批规则——
+             它能直接覆盖/删除已有文档内容，却连 file_operation 的 delete/write 那点门禁都没有。
+
+             门禁边界（刻意只卡"整块覆盖已有内容"的动作，与 file_operation 的 delete/write 同级）：
+               需审批 — delete_paragraph（删整段）
+                        set_paragraph（整段替换）
+                        set_table_cell（整格替换，顺带丢掉格内其他段落）
+                        create（overwrite=true 时覆盖已有文件）
+                        fill_template（output 缺省 = 就地覆盖输入模板）
+               不审批 — replace（原地文本替换，保留格式，且有 skipped 回执告知跳过哪些段）
+                        insert_paragraph / append / add_table_row（纯新增，不毁已有内容）
+                        read / outline / tables / info（只读）
+             为什么不整工具全审：word 是高频编辑工具（改错别字、加一行都要调），
+             每次弹框会让日常编辑不可用；只卡覆盖类动作，保护与可用性才平衡。
+
+             注意 action 列表里填的是 word 的动作名（extractOperation 的 default 分支取 args.action），
+             不是 "delete"/"write" 这类通用操作名——写错会因"提取不到操作名"而整工具全审（取安全侧）。
+             新增 word 动作时，若是覆盖类，记得加进这里。 -->
+        <rule name="word"
+              statup="true"
+              description="Word 文档：整段/整单元格覆盖、删除段落、覆盖已有文件需要审批"
+              action="delete_paragraph,set_paragraph,set_table_cell,create,fill_template"/>
     </rules>
 </moduleConfig>
