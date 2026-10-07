@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.aiagent;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -59,11 +60,17 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
             if (params.get("enabled") != null)
                 enabled = Boolean.parseBoolean(params.get("enabled"));
         }
-        // 默认用模块名作为skillName
+        // 默认用模块名作为skillName（模块名是真实的名字，兜底合理）
         if (skillName == null || skillName.isEmpty())
             skillName = name;
-        if (skillDescription == null)
-            skillDescription = name + " skill";
+        // ⚠ skillDescription 此处**故意不填默认值**。
+        // 原因：本方法由子类 setModuleParams() 的第一行 super.setModuleParams() 调用，**整个方法
+        // 先于子类方法体执行完毕**。若在此填了默认值，子类随后的
+        // `if (skillDescription == null || isEmpty()) skillDescription = "长描述"` 就恒为假
+        // ——类里写的描述成了死代码（实测 desktopJavaSkill 的 1100 字符操作指南从未进过真实
+        // prompt，模型只看到 "desktop skill"）。
+        // 兜底改到读取时做（effectiveSkillDescription()），并**发出 WARN**：技能没描述是配置
+        // 缺陷，要让人看见，不能再编一个 "X skill" 静默糊过去。
         if (parameterSchema == null)
             parameterSchema = new LinkedHashMap<>();
 
@@ -116,7 +123,8 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
 
         // frontmatter description 与已有 skillDescription 合并
         if (fmDescription != null && !fmDescription.isEmpty()) {
-            if (skillDescription == null || skillDescription.equals(name + " skill")) {
+            // 判空即可：不再拿 name + " skill" 当哨兵——那串已不再由本类预填
+            if (skillDescription == null || skillDescription.isEmpty()) {
                 skillDescription = fmDescription;
             } else if (!skillDescription.contains(fmDescription)) {
                 skillDescription = fmDescription + "\n\n" + skillDescription;
@@ -158,13 +166,39 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
 
     // ======================== 公共方法 ========================
 
+    /** 缺描述时的告警只发一次，避免 toolDefs 反复重建时刷屏 */
+    private boolean descMissingLogged = false;
+
+    /**
+     * 取生效的技能描述。
+     *
+     * 技能描述是**约定必须提供**的（写在子类 setModuleParams() 里，或 agent 配置的
+     * skillDescription 属性里，或 SKILL.md 的 frontmatter 里）。三处都没有 = 配置缺陷：
+     * 这里兜一个不含信息量的串保证链路不崩，但**同时发 WARN 点名**，让它可见——
+     * 以前是在 setModuleParams() 里静默填 "X skill"，结果模型只收到 "desktop skill"
+     * 这种毫无用处的描述，却没有任何地方报错。
+     */
+    protected String effectiveSkillDescription() {
+        if (skillDescription != null && !skillDescription.isEmpty()) return skillDescription;
+        if (!descMissingLogged) {
+            descMissingLogged = true;
+            // putLog 在模块未初始化/无工厂时会 NPE——告警路径不能反过来把链路搞崩
+            try {
+                putLog("技能 " + name + " 没有任何描述（子类 setModuleParams / 配置 skillDescription / "
+                        + "SKILL.md frontmatter 三处都空）——模型将收到无意义的占位描述，请补上",
+                        LogLevel.WARN);
+            } catch (Throwable ignored) { }
+        }
+        return name + " skill";
+    }
+
     /**
      * 返回skill的元信息（名称、描述、参数schema）
      */
     protected TLMsg getSkillInfo(Object fromWho, TLMsg msg) {
         return createMsg()
                 .setParam(AI_P_SKILLNAME, skillName)
-                .setParam(AI_P_SKILLDESCRIPTION, skillDescription)
+                .setParam(AI_P_SKILLDESCRIPTION, effectiveSkillDescription())
                 .setParam(AI_P_SKILLPARAMS, parameterSchema);
     }
 
@@ -203,7 +237,7 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
      * 将skill转换为LLM function definition。
      */
     public TLFunctionDefinition buildFunctionDefinition() {
-        return TLFunctionDefinition.fromSkill(skillName, skillDescription, parameterSchema);
+        return TLFunctionDefinition.fromSkill(skillName, effectiveSkillDescription(), parameterSchema);
     }
 
     // ======================== getters/setters ========================
