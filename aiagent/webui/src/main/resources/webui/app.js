@@ -969,8 +969,25 @@ function bindEvents() {
     document.querySelectorAll('#tabBar button').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === btn.dataset.tab));
   });
-  // 右侧设置/调试面板：顶栏开关（拖拽调宽在 Task 4 接入）
+  // 右侧设置/调试面板：顶栏开关 + 左边缘拖拽调宽 + 双击复位
   $('#panelBtn').onclick = togglePanel;
+  const resizer = $('#panelResizer');
+  resizer.addEventListener('mousedown', e => {
+    e.preventDefault();   // 阻止选中文本等默认行为；mousedown 的 preventDefault 不影响 dblclick
+    document.body.classList.add('dragging');
+    // 面板贴视口右缘：宽 = 视口宽 - 鼠标 x
+    const move = ev => setPanelWidth(window.innerWidth - ev.clientX);
+    const up = () => {
+      document.body.classList.remove('dragging');
+      document.removeEventListener('mousemove', move);
+      document.removeEventListener('mouseup', up);
+      window.removeEventListener('blur', up);
+    };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+    window.addEventListener('blur', up);   // 鼠标在窗口外松开时的兜底
+  });
+  resizer.addEventListener('dblclick', () => setPanelWidth(PANEL_W_DEFAULT));
   $('#apApproveBtn').onclick = approveAction;
   $('#apRejectBtn').onclick = rejectAction;
   // 顶栏功能图标：定时任务 / 后台任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
