@@ -165,6 +165,55 @@ public class WordEngineSelfTest {
         check("误判检查: 普通 run 不被当作不安全",
                 WordTextEditor.replaceInParagraph(p5, "${y}", "Z") == 1);
 
+        // 原子性：一处可改、一处不可改时，整段不动
+        org.apache.poi.xwpf.usermodel.XWPFDocument dAtom = newDoc();
+        org.apache.poi.xwpf.usermodel.XWPFParagraph pAtom = dAtom.createParagraph();
+        org.apache.poi.xwpf.usermodel.XWPFRun rA = pAtom.createRun();
+        rA.setText("目标");
+        org.apache.poi.xwpf.usermodel.XWPFRun rB = pAtom.createRun();
+        rB.setText("目标");
+        rB.addBreak();                    // 第二个 run 不安全
+        String atomBefore = pAtom.getText();
+        check("原子性: 段内后一处不可改 → 整段放弃（-2）",
+                WordTextEditor.replaceInParagraph(pAtom, "目标", "改后") == -2);
+        check("原子性: 前一处也没被改（不是半改状态）", atomBefore.equals(pAtom.getText()));
+
+        // ================= 文档级 replace / fill_template =================
+        org.apache.poi.xwpf.usermodel.XWPFDocument d6 = newDoc();
+        addSplitPara(d6, new String[]{"客户：", "${", "cust", "}"}, false);
+        addPara(d6, "金额：${amount} 元", null);
+        org.apache.poi.xwpf.usermodel.XWPFTable t6 = d6.createTable(1, 2);
+        t6.getRow(0).getCell(0).setText("${amount}");
+        t6.getRow(0).getCell(1).setText("备注");
+
+        java.util.Map<String, String> tpl = new java.util.LinkedHashMap<>();
+        tpl.put("cust", "张三");
+        tpl.put("amount", "100");
+        WordTextEditor.ReplaceReport rep = WordTextEditor.fillTemplate(d6, tpl);
+        check("fill: 命中 3 处（正文2 + 表格1）", rep.replaced == 3);
+        check("fill: 无跳过", rep.skipped == 0);
+        check("fill: 跨run 占位符被替换", d6.getParagraphs().get(0).getText().equals("客户：张三"));
+        check("fill: 同run 占位符被替换", d6.getParagraphs().get(1).getText().equals("金额：100 元"));
+        check("fill: 表格单元格被替换",
+                d6.getTables().get(0).getRow(0).getCell(0).getText().equals("100"));
+
+        // 数据里没有的键 → 保持原样（不静默清空）
+        org.apache.poi.xwpf.usermodel.XWPFDocument d7 = newDoc();
+        addPara(d7, "保留 ${unknown} 原样", null);
+        WordTextEditor.ReplaceReport rep2 = WordTextEditor.fillTemplate(d7,
+                new java.util.LinkedHashMap<String, String>());
+        check("fill: 缺失键不替换、不报错", rep2.replaced == 0
+                && d7.getParagraphs().get(0).getText().contains("${unknown}"));
+
+        // 段落限定替换
+        org.apache.poi.xwpf.usermodel.XWPFDocument d8 = newDoc();
+        addPara(d8, "目标 目标", null);
+        addPara(d8, "目标", null);
+        check("replace: index 限定只改指定段落",
+                WordTextEditor.replaceInDocument(d8, "目标", "改后", 1, "preserve").replaced == 1
+                        && d8.getParagraphs().get(0).getText().equals("目标 目标")
+                        && d8.getParagraphs().get(1).getText().equals("改后"));
+
         System.out.println("\n" + passed + " passed, " + failed + " failed");
         if (failed > 0) System.exit(1);
     }
