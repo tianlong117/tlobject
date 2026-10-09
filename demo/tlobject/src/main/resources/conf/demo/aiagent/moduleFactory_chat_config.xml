@@ -44,11 +44,15 @@
                 configfile="demoWorkflow_config.xml"/>
         <!-- 定时任务引擎（schedule_task 技能对接；poolSize 决定并发执行的任务数） -->
         <module name="taskScheduler" sameClassAs="msgTask" configfile="taskScheduler_config.xml" singleton="true"/>
+        <!-- myopenAiProvider：应用级/评测裁判用的 provider（主对话 provider 在 aiagent_master_config.xml）。
+             supportVision="false"：下游为纯文本网关（DeepSeek-V4-Pro），不支持 image_url 图片块、
+             带图请求会被 400；false = 发送时跳过图片只发文字（完整说明见 aiagent_master_config.xml 同名参数注释） -->
         <module name="myopenAiProvider" sameClassAs="openAiProvider"
                 statup="true"
                 apiKey="sk-your-api-key"
-                apiBaseUrl="https://api.deepseek.com"
-                defaultModel="deepseek-v4-flash"
+                apiBaseUrl="https://aigw-gzgy2.cucloud.cn:8443"
+                defaultModel="DeepSeek-V4-Pro"
+                supportVision="false"
                 connTimeOut="30"
                 readTimeOut="120"/>
     </modules>

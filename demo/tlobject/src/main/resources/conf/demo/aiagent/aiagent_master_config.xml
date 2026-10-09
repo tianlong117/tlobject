@@ -105,6 +105,14 @@
         <!-- 意图路由缓存：cache → routing → openAi 三层装饰链。
              cacheDelegateProvider 指定缓存层目标；delegateProvider 保留给内层 routing。
              停用缓存：sameClassAs 改回 routingProvider、删掉 cacheDelegateProvider -->
+        <!-- supportVision：本 provider 的下游模型是否支持图片（视觉能力）。
+             默认 true：历史消息里的图片会拼成 image_url 内容块随请求发出；
+             纯文本模型/网关（如本联通云 DeepSeek-V4-Pro，vLLM 文本部署）不支持图片块，
+             带图请求会被网关一律 400 Bad Request（前端表现为"[流式错误] HTTP 400"、
+             轮次停在 checkpoint 看似无响应），故配 false：
+             发送时跳过图片块、只发文字清单（如"[工具结果：图片]"），
+             原图仍保留在 data/*/attachments/，前端历史展示与 view_image 逻辑不受影响。
+             注意：只影响"发送给模型"的内容；接入多模态模型时不配或配 true。 -->
         <provider name="openAiProvider"
                   sameClassAs="intentCacheProvider"
                   cacheDelegateProvider="routingProvider"
@@ -114,13 +122,14 @@
                   traceDir="./data/traces"
                   enablePromptCaching="true"
                   apiKey="sk-your-api-key"
-                  apiBaseUrl="https://api.deepseek.com"
-                  defaultModel="deepseek-v4-flash"
+                  apiBaseUrl="https://aigw-gzgy2.cucloud.cn:8443"
+                  defaultModel="DeepSeek-V4-Pro"
                   checkProviderOnStartup="true"
-                  simpleModel="deepseek-v4-flash"
+                  supportVision="false"
+                  simpleModel="DeepSeek-V4-Pro"
                   simpleKeywords="你好,hello,hi,是什么,定义,解释,翻译,translate,谢谢,再见,笑话,天气"
 
-                  complexModel="deepseek-v4-flash"
+                  complexModel="DeepSeek-V4-Pro"
                   complexKeywords="写代码,编程,实现,debug,修复,重构,推理,分析原因,为什么,逻辑,计算,数学,写诗,创作,故事,多步骤,按计划,逐步"
 
                   strategy="hybrid"/>
@@ -179,6 +188,11 @@
                statup="true"
                description="文件操作专家，读写、列表、删除文件，并支持 Word 文档（.docx）的读取、生成与修改（含表格、模板占位符填充）。仅用于本地文件操作任务。网页下载请用 browser，代码执行请用 codeAgent。"/>
 
+         <!--agent name="cloudRevenueAgent"
+               sameClassAs="aiagent"
+               statup="true"
+               description="联通云收入统计分析师，使用Python脚本处理月度云资源业务明细表，按归属单位和云类型统计收入并输出Excel汇总。当用户提到联通云、云资源、收入统计时使用此Agent。"/-->
+
         <agent name="codeAgent"
                sameClassAs="aiagent"
                configfile="codeAgent_config.xml"
@@ -215,6 +229,12 @@
         <skill name="viewImageSkill"
                sameClassAs="viewImageSkill"
                statup="true"/>
+        <skill name="liantongyun"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               interpreter="python"
+               maxExecutionTime="120"
+               allowedScriptDir="skills/liantongyun/scripts"/>
         <skill name="skillmd_test"
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"
@@ -225,6 +245,19 @@
                skillName="install_skill"
                skillDescription="将脚本文件安装为可复用的 AI Agent Skill。当用户想把某个脚本（Python/Shell/JS等）安装为 Skill 时使用。"/>
 
+        <!-- 定时任务：对接应用工厂声明的 taskScheduler（TLMsgTask）引擎。
+             ownerAgent 显式配 aiagent_master——任务消息 destination 用它；
+             msgTaskModule 指定引擎模块名（与 moduleFactory_chat_config.xml 的实例名一致）。 -->
+        <skill name="schedule_task"
+               sameClassAs="scheduleTaskSkill"
+               statup="true"
+               ownerAgent="aiagent_master"
+               msgTaskModule="taskScheduler"
+               maxConcurrentTasks="3"
+               progressPushIntervalMs="250"
+               taskStaleMinutes="30"
+               skillDescription="Create and manage tasks (定时任务/后台任务). Two kinds: (1) kind=background — run a LONG task immediately without blocking the conversation (e.g. 股票分析/长报告/批量处理), results come back into this session when done; (2) default schedule — fire at a future time or repeatedly (cron/delay/one_shot), results are reported back at each fire. op=create/list/remove/update/stop. Use kind=background when a request needs long-running analysis or a long report and should not block the chat."/>
+
         <!-- ===== Computer Use / GUI Agent (可选) =====
              依赖: pip install playwright && playwright install chromium  (browser)
                    pip install pyautogui mss                           (desktop)
@@ -232,9 +265,11 @@
                    pip install playwright pyautogui mss -i https://pypi.tuna.tsinghua.edu.cn/simple
                    python -m playwright install chromium
              启用: statup="true" -->
-        <!-- 浏览器。已启用真实浏览器模式（③）：agent 通过 CDP 接管系统 Chrome/Edge（专用 profile）。
-             浏览器没开时自动拉起（cdpAutoLaunch）；先在浏览器窗口里人工登录，agent 用同一浏览器干活；
-             暂不想接管时把 cdpEndpoint/cdpAutoLaunch 两行删掉即可回到②持久化模式。详见 aiagent/README.md -->
+        <!-- 浏览器。已启用真实浏览器模式（③）：agent 通过 CDP 接管系统 Chrome/Edge（专用 profile，
+             与 agentbrowser.bat 默认路径一致；浏览器没开时自动拉起）。先在浏览器窗口里人工登录，
+             agent 用同一浏览器干活；暂不想接管时把 cdpEndpoint/cdpAutoLaunch 两行删掉即可回到②持久化。
+             详见 aiagent/README.md
+             切 Java 版：把 sameClassAs="browserSkill" 改成 "browserJavaSkill"（参数同名共用；回退改回来） -->
         <skill name="browser"
                sameClassAs="browserJavaSkill"
                statup="true"
@@ -249,15 +284,6 @@
                cdpAutoLaunch="true"
                cdpProfileDir="data/browser_agent_profile"
                skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
-        <skill name="schedule_task"
-               sameClassAs="scheduleTaskSkill"
-               statup="true"
-               ownerAgent="aiagent_master"
-               msgTaskModule="taskScheduler"
-               maxConcurrentTasks="3"
-               progressPushIntervalMs="250"
-               taskStaleMinutes="30"
-               skillDescription="Create and manage tasks (定时任务/后台任务). Two kinds: (1) kind=background — run a LONG task immediately without blocking the conversation (e.g. 股票分析/长报告/批量处理), results come back into this session when done; (2) default schedule — fire at a future time or repeatedly (cron/delay/one_shot), results are reported back at each fire. op=create/list/remove/update/stop. Use kind=background when a request needs long-running analysis or a long report and should not block the chat."/>
         <!-- 桌面自动化：Java 版（纯 JDK Robot，零外部依赖；动作比 Python 版多 double_click/drag/key/
              wait/get_mouse_position/paste）。回退 Python 版 = 把 sameClassAs 改回 "scriptExecutionSkill"
              并恢复 interpreter/allowedScriptDir 两行 -->
