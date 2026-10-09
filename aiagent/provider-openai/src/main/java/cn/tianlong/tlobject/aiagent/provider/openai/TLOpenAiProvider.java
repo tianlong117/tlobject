@@ -67,8 +67,9 @@ public class TLOpenAiProvider extends TLLlmProvider {
             JsonObject m = new JsonObject();
             m.addProperty("role", h.getRole().name());
 
-            if (h.hasImages() && h.getRole() == TLConversationHistory.Role.user) {
-                // 图片块数组（DeepSeek/OpenAI 兼容）。图片只能出现在 user 消息中，其余角色丢弃防 400
+            if (h.hasImages() && h.getRole() == TLConversationHistory.Role.user && supportVision) {
+                // 图片块数组（DeepSeek/OpenAI 兼容）。图片只能出现在 user 消息中，其余角色丢弃防 400。
+                // supportVision=false（文本网关）时走下面的纯文字分支：带 image_url 块会被网关 400
                 JsonArray blocks = new JsonArray();
                 if (h.getContent() != null && !h.getContent().isEmpty()) {
                     JsonObject tb = new JsonObject();
@@ -293,7 +294,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
             }
 
             // 解析usage
-            if (json.has("usage")) {
+            if (json.has("usage") && !json.get("usage").isJsonNull()) {
                 JsonObject usage = json.getAsJsonObject("usage");
                 result.setParam("promptTokens", usage.has("prompt_tokens")
                         ? usage.get("prompt_tokens").getAsInt() : 0);
@@ -302,7 +303,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 result.setParam("totalTokens", usage.has("total_tokens")
                         ? usage.get("total_tokens").getAsInt() : 0);
                 // 推理 token：推理模型下它会和正文抢 max_tokens，是"content 为空"的第一现场证据
-                if (usage.has("completion_tokens_details")) {
+                // 注意: 部分网关（如联通云 aigw）会显式返回 "completion_tokens_details": null，直接 getAsJsonObject 会 ClassCastException
+                if (usage.has("completion_tokens_details") && !usage.get("completion_tokens_details").isJsonNull()) {
                     JsonObject details = usage.getAsJsonObject("completion_tokens_details");
                     if (details != null && details.has("reasoning_tokens")) {
                         result.setParam(AI_P_REASONING_TOKENS, details.get("reasoning_tokens").getAsInt());
@@ -316,9 +318,10 @@ public class TLOpenAiProvider extends TLLlmProvider {
                     result.setParam(AI_P_CACHEMISSTOKENS, usage.get("prompt_cache_miss_tokens").getAsLong());
                 }
                 // OpenAI cached_tokens（prompt_tokens_details 子对象）
-                if (!result.containsParam(AI_P_CACHEHITTOKENS) && usage.has("prompt_tokens_details")) {
+                if (!result.containsParam(AI_P_CACHEHITTOKENS) && usage.has("prompt_tokens_details")
+                        && !usage.get("prompt_tokens_details").isJsonNull()) {
                     JsonObject details = usage.getAsJsonObject("prompt_tokens_details");
-                    if (details.has("cached_tokens")) {
+                    if (details != null && details.has("cached_tokens")) {
                         result.setParam(AI_P_CACHEHITTOKENS, details.get("cached_tokens").getAsLong());
                     }
                 }
@@ -480,7 +483,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
         Request request = buildHttpRequest(path, "", null);
         // 需要GET请求
         Request getRequest = new Request.Builder()
-                .url(apiBaseUrl + path)
+                .url(joinBaseUrl(apiBaseUrl, path))
                 .get()
                 .addHeader("Authorization", "Bearer " + apiKey)
                 .build();

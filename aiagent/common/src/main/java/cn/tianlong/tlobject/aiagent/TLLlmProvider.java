@@ -67,6 +67,11 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     /** 启动时自行检查 API Key / 连通性（默认 false） */
     protected boolean checkProviderOnStartup = false;
 
+    // ======================== 多模态能力 ========================
+    /** 是否向模型发送图片内容块（默认 true）。纯文本网关（如 vLLM 文本模型）收到 image_url 块会返回 400，
+     *  配 supportVision="false" 时发送端跳过图片块（历史消息里的文字清单仍保留） */
+    protected boolean supportVision = true;
+
     public TLLlmProvider() {
         super();
     }
@@ -132,6 +137,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             }
             if (params.get("checkProviderOnStartup") != null) {
                 checkProviderOnStartup = Boolean.parseBoolean(params.get("checkProviderOnStartup"));
+            }
+            if (params.get("supportVision") != null) {
+                supportVision = Boolean.parseBoolean(params.get("supportVision"));
             }
         }
     }
@@ -360,6 +368,20 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
     }
 
     /**
+     * 拼接 base URL 与 API path。
+     * 容忍 base 使用 OpenAI SDK 约定的写法（自带版本段，如厂商文档给的 https://host/v1）：
+     * path 以 "/v1/" 开头时，若 base 已以 "/v1" 结尾则先去掉，避免拼出 /v1/v1/... 的 404。
+     */
+    protected static String joinBaseUrl(String base, String path) {
+        String url = base;
+        if (url.endsWith("/")) url = url.substring(0, url.length() - 1);
+        if (url.endsWith("/v1") && path.startsWith("/v1/")) {
+            url = url.substring(0, url.length() - 3);
+        }
+        return url + path;
+    }
+
+    /**
      * 构建HTTP请求
      */
     protected Request buildHttpRequest(String path, String jsonBody, Map<String, String> extraHeaders) {
@@ -368,9 +390,7 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
 
     protected Request buildHttpRequest(String path, String jsonBody, Map<String, String> extraHeaders,
                                        String sessionId) {
-        String url = apiBaseUrl;
-        if (url.endsWith("/")) url = url.substring(0, url.length() - 1);
-        url += path;
+        String url = joinBaseUrl(apiBaseUrl, path);
 
         MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
         RequestBody body = RequestBody.create(mediaType, jsonBody);

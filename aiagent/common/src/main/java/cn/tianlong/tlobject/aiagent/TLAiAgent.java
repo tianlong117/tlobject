@@ -2398,6 +2398,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // Provider 流式错误。人为停止（stopChat 置 cancelFlags）时 LLM 流被 cancel
             // 触发此分支：收尾为 completed 不留断点（主动停止=放弃执行，重新进入不再提示
             // 恢复）；非人为错误（网络故障/Provider 报错）保持 checkpoint，供恢复。
+            // 非人为错误必须留痕：此前该分支静默转发，排障时前端只有一句"流式错误 HTTP 400"、日志无痕
+            if (!cancelled.get()) {
+                putLog("Stream error (not user-cancel): sessionId=" + sessionId
+                        + " err=" + msg.getParam(AI_P_STREAMERROR) + " (round kept as checkpoint)", LogLevel.WARN);
+            }
             if (cancelled.get()) {
                 notifySessionManager(createMsg()
                         .setAction("chatAborted")
