@@ -75,7 +75,7 @@
 | `WordMarkdownWriter` | `writeBlocks(doc, blocks, boolean chineseLayout)`；`applyHeading(p, lv, boolean chineseLayout)`（lv==1 且 chinese 时 `setAlignment(CENTER)`）；新增 `applyFirstLineIndent(p)` 小助手写 `w:ind` |
 | `WordTextEditor` | `insertParagraph(..., boolean chineseLayout)`：无样式→缩进；HeadingN→`applyHeading`（带开关）；其他样式→只 setStyle |
 | `WordEngineSelfTest` | 更新调用点 + 新增断言块（见 §5） |
-| `fileAgent_config.xml` / `CLAUDE.md` | 配置显式 `layout="chinese"` + 注释可选 plain；skillDescription 同步（XML 那份才是真生效的——类里那份是死代码，基类先填了 `name+" skill"`；同步改一份防误导）；CLAUDE.md word 条目补排版默认值 |
+| `fileAgent_config.xml` / `CLAUDE.md` | 配置显式 `layout="chinese"` + 注释可选 plain；skillDescription 两份都改（XML 那份是该实例生效的描述；类里那份是 **XML 未配时的活兜底**——实施期读码证实基类已不再预填，`effectiveSkillDescription()` 直接取子类值；两份受众不同、非字节同步但语义必须一致）；CLAUDE.md word 条目补排版默认值 |
 
 **skillDescription 给模型补两句**（关键）：
 

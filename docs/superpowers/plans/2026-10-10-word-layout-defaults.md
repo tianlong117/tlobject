@@ -610,7 +610,7 @@ Expected: 编译失败——`normalizeLayout`/`resolveLayout` 不存在、`ensur
                     + "plain = no alignment/indent added (use for English docs, poetry, code blocks)"));
 ```
 
-skillDescription 增加一段（类里那份——死代码但同步防误导；XML 那份是真的）：
+skillDescription 增加一段（类里那份是 **XML 未配时的活兜底**，不是死代码——基类已不再预填，`effectiveSkillDescription()` 直接取子类值；两份都要改，语义一致即可）：
 
 ```java
                     + "CREATE/APPEND/INSERT apply a layout automatically: with layout=\"chinese\" "
