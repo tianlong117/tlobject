@@ -47,14 +47,20 @@
              默认不开（此处未配 = false）：save() 已是"先写临时文件再原子替换"，失败时原文件原样不动，
              备份不是数据安全的必要条件，只是一份可人工回退的快照；开了代价是目录里多出一堆 .bak.docx，
              每次编辑都盖一份（同名覆盖，不是无限增长）。需要 LLM 临时要一份备份时，
-             也可以在单次调用里传 backup=true，覆盖这里的配置。 -->
+             也可以在单次调用里传 backup=true，覆盖这里的配置。
+             layout 参数：排版默认值。chinese（默认，也可显式写上）= 一级标题（#）居中 +
+             正文段落首行缩进 2 字符（w:ind firstLineChars=200 兜底 firstLine=420，直接格式，
+             新建文档无 styles part 也能生效）；plain = 新段落不加任何对齐/缩进，适合英文文档、
+             诗歌、代码块、在别人已有文档上插段。单次调用可传 layout 参数覆盖这里的配置
+             （模型自己判断文档类型）。 -->
         <skill name="word"
                sameClassAs="wordJavaSkill"
                statup="true"
                skillName="word"
                allowedRootPath="."
                workDir="data/documents"
-               skillDescription="Read, create and modify Microsoft Word .docx documents. Actions: read (structured text with paragraph numbers and styles), outline (headings only - use this FIRST on a long document), tables, info, create/append (content is Markdown: # headings, - bullets, |a|b| tables, **bold**, --- page break), replace (find/replace, preserves formatting by default), set_paragraph, insert_paragraph, delete_paragraph, set_table_cell, add_table_row, fill_template (replaces ${key}/{{key}} placeholders in body and tables). ONLY .docx is supported - .doc must be re-saved as .docx first. WORKFLOW: call outline or read first to get PARAGRAPH NUMBERS, then use those numbers with the modify actions - never guess. Paragraph numbers SHIFT after insert_paragraph/delete_paragraph, so re-read before the next edit. The writing actions (set_paragraph, insert_paragraph, set_table_cell, add_table_row) require an explicit text argument - never omit it. replace reports a skipped count when a paragraph cannot be edited in place without damage (hyperlinks, field codes, embedded breaks). Those paragraphs are LEFT UNTOUCHED - do not try to force them; tell the user which paragraph number could not be changed."/>
+               layout="chinese"
+               skillDescription="Read, create and modify Microsoft Word .docx documents. Actions: read (structured text with paragraph numbers and styles), outline (headings only - use this FIRST on a long document), tables, info, create/append (content is Markdown: # headings, - bullets, |a|b| tables, **bold**, --- page break), replace (find/replace, preserves formatting by default), set_paragraph, insert_paragraph, delete_paragraph, set_table_cell, add_table_row, fill_template (replaces ${key}/{{key}} placeholders in body and tables). ONLY .docx is supported - .doc must be re-saved as .docx first. WORKFLOW: call outline or read first to get PARAGRAPH NUMBERS, then use those numbers with the modify actions - never guess. Paragraph numbers SHIFT after insert_paragraph/delete_paragraph, so re-read before the next edit. The writing actions (set_paragraph, insert_paragraph, set_table_cell, add_table_row) require an explicit text argument - never omit it. replace reports a skipped count when a paragraph cannot be edited in place without damage (hyperlinks, field codes, embedded breaks). Those paragraphs are LEFT UNTOUCHED - do not try to force them; tell the user which paragraph number could not be changed. CREATE/APPEND/INSERT apply a layout automatically: with layout=chinese (default) level-1 headings are centered and body paragraphs get a 2-character first-line indent - do NOT add leading spaces or indent characters yourself. Pass layout=plain for English documents, poetry, or content where no formatting is wanted."/>
     </skills>
 
     <memoryStores>

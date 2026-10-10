@@ -20,6 +20,8 @@ import java.util.Map;
  *   allowedRootPath  允许操作的根目录（默认 "."，按进程 CWD 解析）
  *   workDir          裸文件名落到的工作目录（默认 data/documents）
  *   backup           true = 每个改内容的动作前留一份 xxx.bak.docx（默认 false）
+ *   layout           排版默认值 chinese|plain（默认 chinese = H1 居中 + 正文首行缩进 2 字符；
+ *                    plain = 不加对齐/缩进，适合英文文档/诗歌）；单次调用可覆盖
  *
  * 创建日期：2026/10/07 作者:tianlong
  */

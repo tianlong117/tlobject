@@ -1278,6 +1278,12 @@ public class WordEngineSelfTest {
         check("排版接线: parameterSchema 里有 layout（LLM 才看得见这个参数）",
                 ((java.util.Map<?, ?>) scf.get(skLayP)).containsKey("layout"));
 
+        Object layProp = ((java.util.Map<?, ?>) scf.get(skLayP)).get("layout");
+        check("排版接线: schema 描述按实际配置显示默认值（plain）",
+                layProp instanceof java.util.Map
+                        && String.valueOf(((java.util.Map<?, ?>) layProp).get("description"))
+                                .contains("Current default: plain"));
+
         // 端到端：XML plain 真的落到产出文件上
         try {
             cn.tianlong.tlobject.base.TLMsg mLayP = new cn.tianlong.tlobject.base.TLMsg();
