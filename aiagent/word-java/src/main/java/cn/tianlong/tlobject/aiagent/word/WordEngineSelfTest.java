@@ -1164,22 +1164,23 @@ public class WordEngineSelfTest {
         sk.setModuleParams();   // protected，与自测同类同包，直接调
 
         java.lang.reflect.Method me = TLWordJavaSkill.class.getDeclaredMethod(
-                "ensureEngine", cn.tianlong.tlobject.base.TLMsg.class, java.util.Map.class);
+                "ensureEngine", cn.tianlong.tlobject.base.TLMsg.class,
+                java.util.Map.class, boolean.class);
         me.setAccessible(true);
         java.lang.reflect.Field cf = JavaWordEngine.class.getDeclaredField("cfg");
         cf.setAccessible(true);
         cn.tianlong.tlobject.base.TLMsg msg0 = new cn.tianlong.tlobject.base.TLMsg();
 
         JavaWordEngine.Config c1 = (JavaWordEngine.Config)
-                cf.get(me.invoke(sk, msg0, map("action", "replace")));
+                cf.get(me.invoke(sk, msg0, map("action", "replace"), true));
         check("F4b: XML params backup=true → 引擎 cfg.backup=true（接通了）", c1.backup);
 
         JavaWordEngine.Config c2 = (JavaWordEngine.Config)
-                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", "false")));
+                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", "false"), true));
         check("F4b: 单次调用 backup=false 能覆盖 XML 的 true", !c2.backup);
 
         JavaWordEngine.Config c3 = (JavaWordEngine.Config)
-                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", true)));
+                cf.get(me.invoke(sk, msg0, map("action", "replace", "backup", true), true));
         check("F4b: 单次调用 backup=true（真 Boolean）同样生效", c3.backup);
 
         // 默认必须是关：别把"接通"顺手改成"默认开"（原子写已够安全，备份只为手工回退）
@@ -1187,7 +1188,7 @@ public class WordEngineSelfTest {
         pf.set(sk2, new java.util.HashMap<String, String>());   // XML 没配 backup
         sk2.setModuleParams();
         JavaWordEngine.Config c4 = (JavaWordEngine.Config)
-                cf.get(me.invoke(sk2, msg0, map("action", "replace")));
+                cf.get(me.invoke(sk2, msg0, map("action", "replace"), true));
         check("F4b: XML 未配 backup → 默认 false", !c4.backup);
 
         java.lang.reflect.Field scf = Class.forName("cn.tianlong.tlobject.aiagent.TLBaseSkill")
@@ -1225,6 +1226,99 @@ public class WordEngineSelfTest {
         } catch (Throwable t) {
             // execute() 的错误路径会 putLog → putMsg(log) → 无工厂 NPE，故整段兜住并如实报红
             check("F4b: 平铺参数 backup=true 端到端产出 壳测.bak.docx（抛异常: " + t + "）", false);
+        }
+
+        // ================= 排版: layout 参数接线（XML 默认 + 单次覆盖 + 校验）=================
+        check("排版接线: normalizeLayout 大小写/空白容错，非法返回 null",
+                "plain".equals(TLWordJavaSkill.normalizeLayout(" PLAIN "))
+                        && "chinese".equals(TLWordJavaSkill.normalizeLayout("Chinese"))
+                        && TLWordJavaSkill.normalizeLayout("foo") == null
+                        && TLWordJavaSkill.normalizeLayout(null) == null);
+
+        TLWordJavaSkill skLayP = new TLWordJavaSkill("word");
+        java.util.HashMap<String, String> spLayP = new java.util.HashMap<>();
+        spLayP.put("allowedRootPath", root.toString());
+        spLayP.put("layout", "plain");
+        pf.set(skLayP, spLayP);
+        skLayP.setModuleParams();
+
+        java.lang.reflect.Method rlM = TLWordJavaSkill.class.getDeclaredMethod(
+                "resolveLayout", java.util.Map.class);
+        rlM.setAccessible(true);
+        check("排版接线: 未传 → 走 XML（plain）",
+                Boolean.FALSE.equals(rlM.invoke(skLayP, map("action", "create"))));
+        check("排版接线: 空串视为未传 → 走 XML（plain）",
+                Boolean.FALSE.equals(rlM.invoke(skLayP, map("layout", ""))));
+        check("排版接线: 单次 layout=chinese 覆盖 XML",
+                Boolean.TRUE.equals(rlM.invoke(skLayP, map("layout", "chinese"))));
+        check("排版接线: 大小写/空白容错（\" PLAIN \" → false）",
+                Boolean.FALSE.equals(rlM.invoke(skLayP, map("layout", " PLAIN "))));
+        String layErr = null;
+        try { rlM.invoke(skLayP, map("layout", "foo")); }
+        catch (java.lang.reflect.InvocationTargetException e) { layErr = String.valueOf(e.getCause()); }
+        check("排版接线: 非法值抛 IllegalArgumentException（消息含合法取值，模型可自纠）",
+                layErr != null && layErr.contains("unknown layout") && layErr.contains("chinese | plain"));
+
+        check("排版接线: parameterSchema 里有 layout（LLM 才看得见这个参数）",
+                ((java.util.Map<?, ?>) scf.get(skLayP)).containsKey("layout"));
+
+        // 端到端：XML plain 真的落到产出文件上
+        try {
+            cn.tianlong.tlobject.base.TLMsg mLayP = new cn.tianlong.tlobject.base.TLMsg();
+            mLayP.setParam("action", "create");
+            mLayP.setParam("path", "data/default/documents/排版壳plain.docx");
+            mLayP.setParam("content", "# 报告\n\n正文");
+            check("排版接线: XML layout=plain 端到端 create 成功",
+                    Boolean.TRUE.equals(skLayP.execute(null, mLayP)
+                            .getParam(cn.tianlong.tlobject.base.TLParamString.RESULT)));
+            try (org.apache.poi.xwpf.usermodel.XWPFDocument d =
+                         openDocx(work.resolve("排版壳plain.docx"))) {
+                check("排版接线: XML plain → 产出文档 H1 无 jc、正文无缩进",
+                        !d.getParagraphs().get(0).isAlignmentSet()
+                                && d.getParagraphs().get(1).getIndentationFirstLine() == -1);
+            }
+        } catch (Throwable t) {
+            check("排版接线: XML layout=plain 端到端 create（抛异常: " + t + "）", false);
+        }
+        // 端到端：单次参数覆盖 XML（走平铺 key 列表——这条同时守"平铺列表漏写 layout"）
+        try {
+            cn.tianlong.tlobject.base.TLMsg mLayO = new cn.tianlong.tlobject.base.TLMsg();
+            mLayO.setParam("action", "create");
+            mLayO.setParam("path", "data/default/documents/排版壳chinese.docx");
+            mLayO.setParam("content", "# 报告\n\n正文");
+            mLayO.setParam("layout", "chinese");
+            check("排版接线: 单次 layout=chinese 覆盖 XML plain（端到端）",
+                    Boolean.TRUE.equals(skLayP.execute(null, mLayO)
+                            .getParam(cn.tianlong.tlobject.base.TLParamString.RESULT)));
+            try (org.apache.poi.xwpf.usermodel.XWPFDocument d =
+                         openDocx(work.resolve("排版壳chinese.docx"))) {
+                check("排版接线: 覆盖后 H1 居中且正文有缩进",
+                        d.getParagraphs().get(0).getAlignment()
+                                == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                                && d.getParagraphs().get(1).getIndentationFirstLine() == 420);
+            }
+        } catch (Throwable t) {
+            check("排版接线: 单次覆盖端到端（抛异常: " + t + "）", false);
+        }
+        // 端到端：非法值 → 干净回执 + 文档未被创建（走 execute 的参数错误分支，不落日志）
+        try {
+            cn.tianlong.tlobject.base.TLMsg mLayBad = new cn.tianlong.tlobject.base.TLMsg();
+            mLayBad.setParam("action", "create");
+            mLayBad.setParam("path", "data/default/documents/非法排版.docx");
+            mLayBad.setParam("content", "甲");
+            mLayBad.setParam("layout", "foo");
+            cn.tianlong.tlobject.base.TLMsg outBad = skLayP.execute(null, mLayBad);
+            // 【与计划脚本的偏差，理由】AI_P_SKILLOUTPUT 声明在 TLAiAgentParamString（TLBaseSkill 实现它），
+            // 不在 TLParamString —— 计划写的 TLParamString.AI_P_SKILLOUTPUT 编译不过。
+            String errBad = String.valueOf(
+                    outBad.getParam(cn.tianlong.tlobject.aiagent.TLAiAgentParamString.AI_P_SKILLOUTPUT));
+            check("排版接线: 非法 layout → ok=false 且报错点名取值",
+                    Boolean.FALSE.equals(outBad.getParam(cn.tianlong.tlobject.base.TLParamString.RESULT))
+                            && errBad.contains("unknown layout") && errBad.contains("foo"));
+            check("排版接线: 非法 layout 时文档未被创建",
+                    !java.nio.file.Files.exists(work.resolve("非法排版.docx")));
+        } catch (Throwable t) {
+            check("排版接线: 非法 layout 报错（抛异常: " + t + "）", false);
         }
 
         System.out.println("\n" + passed + " passed, " + failed + " failed");

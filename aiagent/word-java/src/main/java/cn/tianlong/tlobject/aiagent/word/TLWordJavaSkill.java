@@ -29,6 +29,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
     private String workDir = "data/documents";
     /** 改动前是否留 .bak.docx：XML params 配默认值，单次调用可用 backup 参数覆盖 */
     private boolean backup = false;
+    /** 排版默认值：chinese = H1 居中 + 正文首行缩进 2 字符；plain = 不加任何对齐/缩进 */
+    private String layout = "chinese";
 
     public TLWordJavaSkill() { super(); }
     public TLWordJavaSkill(String name) { super(name); }
@@ -40,6 +42,12 @@ public class TLWordJavaSkill extends TLBaseSkill {
             if (params.get("allowedRootPath") != null) allowedRootPath = params.get("allowedRootPath");
             if (params.get("workDir") != null) workDir = params.get("workDir");
             if (params.get("backup") != null) backup = Boolean.parseBoolean(params.get("backup"));
+            if (params.get("layout") != null) {
+                String lv = normalizeLayout(params.get("layout"));
+                if (lv != null) layout = lv;
+                else putLog("word skill: unknown layout \"" + params.get("layout")
+                        + "\" in XML params, fallback to chinese", LogLevel.WARN);
+            }
         }
         super.setModuleParams();
 
@@ -62,7 +70,12 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "replace reports a skipped count when a paragraph cannot be edited in place "
                     + "without damage (hyperlinks, field codes, embedded breaks). Those paragraphs "
                     + "are LEFT UNTOUCHED - do not try to force them; tell the user which paragraph "
-                    + "number could not be changed.";
+                    + "number could not be changed. "
+                    + "CREATE/APPEND/INSERT apply a layout automatically: with layout=\"chinese\" "
+                    + "(default) level-1 headings are centered and body paragraphs get a 2-character "
+                    + "first-line indent - do NOT add leading spaces or indent characters yourself. "
+                    + "Pass layout=\"plain\" for English documents, poetry, or content where no "
+                    + "formatting is wanted. ";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
@@ -89,6 +102,10 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("output", prop("string", "fill_template output path (default: overwrite input)"));
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
             parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
+            parameterSchema.put("layout", prop("string", "Document layout: chinese (default) = H1 "
+                    + "headings centered + 2-character first-line indent on body paragraphs; "
+                    + "plain = no alignment/indent added (use for English documents, poetry, "
+                    + "code blocks, or inserting into a document you did not create)"));
             parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
         }
@@ -112,7 +129,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
             input = new LinkedHashMap<>();
             for (String k : new String[]{"action", "path", "content", "find", "replace", "index",
                     "mode", "text", "style", "position", "table", "row", "col", "values", "data",
-                    "output", "overwrite", "from", "to", "backup"}) {
+                    "output", "overwrite", "from", "to", "backup", "layout"}) {
                 if (msg.containsParam(k)) input.put(k, msg.getParam(k));
             }
         }
@@ -121,10 +138,20 @@ public class TLWordJavaSkill extends TLBaseSkill {
             return createMsg().setParam(RESULT, false).setParam(AI_P_SKILLOUTPUT,
                     "Error: action is required");
 
+        boolean chineseLayout;
+        try {
+            chineseLayout = resolveLayout(input);
+        } catch (IllegalArgumentException e) {
+            // 参数错误是"模型的锅"：与引擎层 Result.fail 同口径，干净回执、不落 WARN 日志，
+            // 模型读得到就能自纠。若走下面通用 catch 会先 putLog——无工厂的自测环境还会 NPE。
+            return createMsg().setParam(RESULT, false).setParam(AI_P_SKILLOUTPUT,
+                    "{\"ok\":false,\"error\":\"" + esc(e.getMessage()) + "\"}");
+        }
+
         try {
             // ensureEngine 在 try 内：classpath 手接线缺失时引擎构造抛的是 LinkageError，
             // 框架工具执行器不兜 Error——放 try 外工具结果会凭空消失（与 browser-java/desktop-java 同款防护）
-            JavaWordEngine eng = ensureEngine(msg, input);
+            JavaWordEngine eng = ensureEngine(msg, input, chineseLayout);
             JavaWordEngine.Result r = eng.execute(action.toLowerCase(), input);
             if (r.textMode)
                 return createMsg().setParam(RESULT, r.ok).setParam(AI_P_SKILLOUTPUT, r.text);
@@ -141,12 +168,34 @@ public class TLWordJavaSkill extends TLBaseSkill {
         }
     }
 
+    /** 单次调用 layout 覆盖 XML 默认；空/空白视为未传；非法值抛（execute 转成 JSON 错误）。 */
+    private boolean resolveLayout(Map<String, Object> input) {
+        Object v = (input == null) ? null : input.get("layout");
+        String s = (v == null) ? null : String.valueOf(v).trim();
+        if (s == null || s.isEmpty()) return !"plain".equals(layout);
+        String n = normalizeLayout(s);
+        if (n == null)
+            throw new IllegalArgumentException(
+                    "unknown layout: \"" + s + "\" (expected chinese | plain)");
+        return "chinese".equals(n);
+    }
+
+    /** 归一化 layout 取值（大小写不敏感、去空白）；null = 非法 */
+    static String normalizeLayout(String v) {
+        if (v == null) return null;
+        String s = v.trim().toLowerCase(java.util.Locale.ROOT);
+        if (s.equals("chinese")) return "chinese";
+        if (s.equals("plain")) return "plain";
+        return null;
+    }
+
     /** 每用户独立工作目录。userId 三通道取：args → systemArgs → sessionId 兜底
      *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏）。
      *  backup 同理：XML 配默认值，单次调用显式传 backup 时以调用为准（传了就用传的，含 false）。 */
-    private JavaWordEngine ensureEngine(TLMsg msg, Map<String, Object> input) {
+    private JavaWordEngine ensureEngine(TLMsg msg, Map<String, Object> input, boolean chineseLayout) {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
         cfg.allowedRoot = Paths.get(allowedRootPath);
+        cfg.chineseLayout = chineseLayout;
         String userId = msg.getStringParam(AI_P_USERID, null);
         if (userId == null || userId.isEmpty()) {
             Object u = msg.getSystemParam(AI_P_USERID, null);
