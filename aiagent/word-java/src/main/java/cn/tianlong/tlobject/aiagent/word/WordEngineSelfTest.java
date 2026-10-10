@@ -1153,7 +1153,7 @@ public class WordEngineSelfTest {
         //
         // 不启框架的实例化方式：TLWordJavaSkill 走 (String) 构造器（(String,TLObjectFactory) 会
         // 在 registFactory 上 NPE），params 用反射塞（protected，且声明在 base 包里，同包也读不到），
-        // 只调 setModuleParams() 与私有的 ensureEngine(msg, input) ——两个都不碰工厂、不发消息、不落日志。
+        // 只调 setModuleParams() 与私有的 ensureEngine(msg, input, chineseLayout)——两个都不碰工厂、不发消息、不落日志。
         TLWordJavaSkill sk = new TLWordJavaSkill("word");
         java.lang.reflect.Field pf = Class.forName("cn.tianlong.tlobject.base.TLBaseModule")
                 .getDeclaredField("params");
@@ -1258,6 +1258,22 @@ public class WordEngineSelfTest {
         catch (java.lang.reflect.InvocationTargetException e) { layErr = String.valueOf(e.getCause()); }
         check("排版接线: 非法值抛 IllegalArgumentException（消息含合法取值，模型可自纠）",
                 layErr != null && layErr.contains("unknown layout") && layErr.contains("chinese | plain"));
+
+        // XML 非法值：不抛（告警路径自守护）+ 回退 chinese（不是"保持旧值"——setModuleParams 可重入）
+        TLWordJavaSkill skLayBad = new TLWordJavaSkill("word");
+        java.util.HashMap<String, String> spBad1 = new java.util.HashMap<>();
+        spBad1.put("layout", "plain");
+        pf.set(skLayBad, spBad1);
+        skLayBad.setModuleParams();                       // 先让 plain 生效
+        java.util.HashMap<String, String> spBad2 = new java.util.HashMap<>();
+        spBad2.put("layout", "bogus");
+        pf.set(skLayBad, spBad2);
+        boolean badXmlNoThrow = true;
+        try { skLayBad.setModuleParams(); }               // 模拟 reload/setParam 重入
+        catch (Throwable t) { badXmlNoThrow = false; }
+        check("排版接线: XML 非法 layout 不抛（告警路径不把链路搞崩）", badXmlNoThrow);
+        check("排版接线: 已生效 plain 后再配错 → 回退 chinese（不是保持旧值）",
+                Boolean.TRUE.equals(rlM.invoke(skLayBad, map("action", "create"))));
 
         check("排版接线: parameterSchema 里有 layout（LLM 才看得见这个参数）",
                 ((java.util.Map<?, ?>) scf.get(skLayP)).containsKey("layout"));

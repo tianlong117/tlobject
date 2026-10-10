@@ -42,11 +42,26 @@ public class TLWordJavaSkill extends TLBaseSkill {
             if (params.get("allowedRootPath") != null) allowedRootPath = params.get("allowedRootPath");
             if (params.get("workDir") != null) workDir = params.get("workDir");
             if (params.get("backup") != null) backup = Boolean.parseBoolean(params.get("backup"));
-            if (params.get("layout") != null) {
-                String lv = normalizeLayout(params.get("layout"));
-                if (lv != null) layout = lv;
-                else putLog("word skill: unknown layout \"" + params.get("layout")
-                        + "\" in XML params, fallback to chinese", LogLevel.WARN);
+            String rawLayout = params.get("layout");
+            if (rawLayout == null || rawLayout.trim().isEmpty()) {
+                layout = "chinese";                        // XML 未配/空 → 默认（与调用级"空串视为未传"同语义，不 WARN）
+            } else {
+                String lv = normalizeLayout(rawLayout);
+                if (lv != null) {
+                    layout = lv;
+                } else {
+                    // 配置错误不该让调用崩：回退默认值 chinese 并告警。
+                    // 注意是"回退"不是"保持旧值"——setModuleParams 会被 reloadConfig/setParam 重入，
+                    // 旧值可能是此前生效的 plain，保持不动会与 WARN 文案不符（评审实测）。
+                    layout = "chinese";
+                    try {
+                        putLog("word skill: unknown layout \"" + rawLayout
+                                + "\" in XML params, fallback to chinese", LogLevel.WARN);
+                    } catch (Throwable ignored) {
+                        // 告警路径不能反过来把链路搞崩（与 TLBaseSkill.effectiveSkillDescription 同款约定；
+                        // 无工厂的自测环境里 putLog 会 NPE）
+                    }
+                }
             }
         }
         super.setModuleParams();
@@ -102,10 +117,10 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("output", prop("string", "fill_template output path (default: overwrite input)"));
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
             parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
-            parameterSchema.put("layout", prop("string", "Document layout: chinese (default) = H1 "
-                    + "headings centered + 2-character first-line indent on body paragraphs; "
-                    + "plain = no alignment/indent added (use for English documents, poetry, "
-                    + "code blocks, or inserting into a document you did not create)"));
+            parameterSchema.put("layout", prop("string", "Document layout: chinese = H1 headings "
+                    + "centered + 2-character first-line indent on body paragraphs; plain = no "
+                    + "alignment/indent added (use for English documents, poetry, code blocks, or "
+                    + "inserting into a document you did not create). Current default: " + layout));
             parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
         }
@@ -168,7 +183,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
         }
     }
 
-    /** 单次调用 layout 覆盖 XML 默认；空/空白视为未传；非法值抛（execute 转成 JSON 错误）。 */
+    /** 单次调用 layout 覆盖 XML 默认；空/空白视为未传；非法值抛（execute 转成 JSON 错误）。
+     *  对所有 action（含 read/info）都校验：非法值一律 fail-fast，宁可让模型自纠，不静默忽略。 */
     private boolean resolveLayout(Map<String, Object> input) {
         Object v = (input == null) ? null : input.get("layout");
         String s = (v == null) ? null : String.valueOf(v).trim();
@@ -191,7 +207,9 @@ public class TLWordJavaSkill extends TLBaseSkill {
 
     /** 每用户独立工作目录。userId 三通道取：args → systemArgs → sessionId 兜底
      *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏）。
-     *  backup 同理：XML 配默认值，单次调用显式传 backup 时以调用为准（传了就用传的，含 false）。 */
+     *  backup 同理：XML 配默认值，单次调用显式传 backup 时以调用为准（传了就用传的，含 false）。
+     *  chineseLayout 由 execute 解析后传入（不在本方法内解析）：校验要能在主 try 之前抛出、
+     *  被局部 catch 转成干净 JSON 回执，见 execute。 */
     private JavaWordEngine ensureEngine(TLMsg msg, Map<String, Object> input, boolean chineseLayout) {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
         cfg.allowedRoot = Paths.get(allowedRootPath);
