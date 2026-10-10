@@ -89,7 +89,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "are LEFT UNTOUCHED - do not try to force them; tell the user which paragraph "
                     + "number could not be changed. "
                     + "CREATE/APPEND/INSERT apply a layout automatically: with layout=\"chinese\" "
-                    + "(default) level-1 headings are centered and body paragraphs get a 2-character "
+                    + "level-1 headings are centered and body paragraphs get a 2-character "
                     + "first-line indent - do NOT add leading spaces or indent characters yourself. "
                     + "Pass layout=\"plain\" for English documents, poetry, or content where no "
                     + "formatting is wanted. ";

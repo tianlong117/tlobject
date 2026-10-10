@@ -1284,6 +1284,15 @@ public class WordEngineSelfTest {
                         && String.valueOf(((java.util.Map<?, ?>) layProp).get("description"))
                                 .contains("Current default: plain"));
 
+        TLWordJavaSkill skLayDef = new TLWordJavaSkill("word");
+        pf.set(skLayDef, new java.util.HashMap<String, String>());   // XML 未配 layout
+        skLayDef.setModuleParams();
+        Object layPropDef = ((java.util.Map<?, ?>) scf.get(skLayDef)).get("layout");
+        check("排版接线: 未配 layout 的实例 schema 描述显示 chinese（插值而非字面量）",
+                layPropDef instanceof java.util.Map
+                        && String.valueOf(((java.util.Map<?, ?>) layPropDef).get("description"))
+                                .contains("Current default: chinese"));
+
         // 端到端：XML plain 真的落到产出文件上
         try {
             cn.tianlong.tlobject.base.TLMsg mLayP = new cn.tianlong.tlobject.base.TLMsg();
