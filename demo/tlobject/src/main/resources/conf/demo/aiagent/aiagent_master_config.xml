@@ -105,14 +105,12 @@
         <!-- 意图路由缓存：cache → routing → openAi 三层装饰链。
              cacheDelegateProvider 指定缓存层目标；delegateProvider 保留给内层 routing。
              停用缓存：sameClassAs 改回 routingProvider、删掉 cacheDelegateProvider -->
-        <!-- supportVision：本 provider 的下游模型是否支持图片（视觉能力）。
+        <!-- supportVision（可选，默认 true）：本 provider 的下游模型是否支持图片（视觉）。
              默认 true：历史消息里的图片会拼成 image_url 内容块随请求发出；
-             纯文本模型/网关（如本联通云 DeepSeek-V4-Pro，vLLM 文本部署）不支持图片块，
-             带图请求会被网关一律 400 Bad Request（前端表现为"[流式错误] HTTP 400"、
-             轮次停在 checkpoint 看似无响应），故配 false：
-             发送时跳过图片块、只发文字清单（如"[工具结果：图片]"），
-             原图仍保留在 data/*/attachments/，前端历史展示与 view_image 逻辑不受影响。
-             注意：只影响"发送给模型"的内容；接入多模态模型时不配或配 true。 -->
+             下游为纯文本模型/网关（如 vLLM 文本部署）时不支持图片块、带图请求会被
+             一律 400 Bad Request（前端表现为"[流式错误] HTTP 400"），此时配
+             supportVision="false"：跳过图片块、只发文字清单（如"[工具结果：图片]"，
+             原图仍保留在 data/*/attachments/）。接多模态模型时不配（保持默认）。 -->
         <provider name="openAiProvider"
                   sameClassAs="intentCacheProvider"
                   cacheDelegateProvider="routingProvider"
@@ -122,14 +120,13 @@
                   traceDir="./data/traces"
                   enablePromptCaching="true"
                   apiKey="sk-your-api-key"
-                  apiBaseUrl="https://aigw-gzgy2.cucloud.cn:8443"
-                  defaultModel="DeepSeek-V4-Pro"
+                  apiBaseUrl="https://api.deepseek.com"
+                  defaultModel="deepseek-v4-flash"
                   checkProviderOnStartup="true"
-                  supportVision="false"
-                  simpleModel="DeepSeek-V4-Pro"
+                  simpleModel="deepseek-v4-flash"
                   simpleKeywords="你好,hello,hi,是什么,定义,解释,翻译,translate,谢谢,再见,笑话,天气"
 
-                  complexModel="DeepSeek-V4-Pro"
+                  complexModel="deepseek-v4-flash"
                   complexKeywords="写代码,编程,实现,debug,修复,重构,推理,分析原因,为什么,逻辑,计算,数学,写诗,创作,故事,多步骤,按计划,逐步"
 
                   strategy="hybrid"/>
