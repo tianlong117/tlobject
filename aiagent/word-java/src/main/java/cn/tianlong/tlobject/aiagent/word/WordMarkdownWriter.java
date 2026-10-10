@@ -1,7 +1,10 @@
 package cn.tianlong.tlobject.aiagent.word;
 
 import org.apache.poi.xwpf.usermodel.*;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTInd;
+import org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr;
 
+import java.math.BigInteger;
 import java.util.List;
 
 /**
@@ -13,18 +16,23 @@ public final class WordMarkdownWriter {
 
     private WordMarkdownWriter() {}
 
-    public static void writeBlocks(XWPFDocument doc, List<WordMarkdown.Block> blocks) {
+    /**
+     * @param chineseLayout true = 中文排版默认值（H1 居中 + 正文段落首行缩进 2 字符）；
+     *                      false = plain，新段落不加任何对齐/缩进（= 旧行为）
+     */
+    public static void writeBlocks(XWPFDocument doc, List<WordMarkdown.Block> blocks, boolean chineseLayout) {
         for (WordMarkdown.Block b : blocks) {
             switch (b.type) {
                 case HEADING: {
                     XWPFParagraph p = doc.createParagraph();
                     int lv = Math.max(1, Math.min(6, b.level));
-                    applyHeading(p, lv);
+                    applyHeading(p, lv, chineseLayout);
                     writeSpans(p, b.spans, lv);
                     break;
                 }
                 case PARAGRAPH: {
                     XWPFParagraph p = doc.createParagraph();
+                    if (chineseLayout) applyFirstLineIndent(p);
                     writeSpans(p, b.spans);
                     break;
                 }
@@ -82,13 +90,25 @@ public final class WordMarkdownWriter {
      *
      * 三重叠加后，无论 Word / WPS / POI 哪家、无论 styles part 在不在，标题都成立。
      */
-    static void applyHeading(XWPFParagraph p, int lv) {
+    static void applyHeading(XWPFParagraph p, int lv, boolean chineseLayout) {
         p.setStyle("Heading" + lv);
+        if (chineseLayout && lv == 1) p.setAlignment(ParagraphAlignment.CENTER);
         try {
             org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr pPr = p.getCTP().isSetPPr()
                     ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
             pPr.addNewOutlineLvl().setVal(java.math.BigInteger.valueOf(lv - 1));
         } catch (Throwable ignored) { }
+    }
+
+    /**
+     * 无排版的标题（= 旧行为）。
+     *
+     * 2 参重载保留给插入类动作（WordTextEditor.insertParagraph）的既有调用点：
+     * 本任务只管 create/append 的新写段落，插入路径的排版开关由 Task 2 接管——
+     * 在那之前这条路必须保持原样（pStyle + outlineLvl，不写 jc）。
+     */
+    static void applyHeading(XWPFParagraph p, int lv) {
+        applyHeading(p, lv, false);
     }
 
     /** 标题的字号表（磅） */
@@ -99,6 +119,21 @@ public final class WordMarkdownWriter {
             case 3: return 14;
             default: return 12;
         }
+    }
+
+    /**
+     * 正文段落首行缩进 2 字符。
+     *
+     * firstLineChars（字符单位）是 Word/WPS 的正主——段落对话框显示"首行缩进 2 字符"，
+     * 随字号自适应；firstLine（twips）兜底给不认字符单位的渲染器：
+     * 2 × 五号 10.5pt = 21pt = 420 twips ≈ 0.74cm（中文 Word 默认字号下的"2 字符"）。
+     * 不吞异常：写不进去就报错，不静默丢格式（与"拒绝而非改坏"哲学一致）。
+     */
+    static void applyFirstLineIndent(XWPFParagraph p) {
+        CTPPr pPr = p.getCTP().isSetPPr() ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
+        CTInd ind = pPr.isSetInd() ? pPr.getInd() : pPr.addNewInd();
+        ind.setFirstLineChars(BigInteger.valueOf(200));
+        ind.setFirstLine(BigInteger.valueOf(420));
     }
 
     private static void writeSpans(XWPFParagraph p, List<WordMarkdown.Span> spans) {

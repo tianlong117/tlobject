@@ -30,6 +30,8 @@ public class JavaWordEngine {
         public Path allowedRoot;
         public Path workDir;
         public boolean backup;            // 改动前是否留 .bak.docx（默认关，原子写已够安全）
+        /** 中文排版（layout="chinese"，默认）：H1 居中 + 正文段落首行缩进 2 字符；false = plain */
+        public boolean chineseLayout = true;
     }
 
     public static class Result {
@@ -180,7 +182,7 @@ public class JavaWordEngine {
         Files.createDirectories(p.getParent());
         String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = new XWPFDocument()) {
-            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content));
+            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content), cfg.chineseLayout);
             save(doc, p);
         }
         return receipt("create", p, null);
@@ -190,7 +192,7 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = open(p)) {
-            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content));
+            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content), cfg.chineseLayout);
             save(doc, p);
         }
         return receipt("append", p, null);

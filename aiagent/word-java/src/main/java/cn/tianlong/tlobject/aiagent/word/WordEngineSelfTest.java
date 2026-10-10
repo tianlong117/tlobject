@@ -594,7 +594,7 @@ public class WordEngineSelfTest {
         // ================= WordMarkdownWriter =================
         org.apache.poi.xwpf.usermodel.XWPFDocument d11 = newDoc();
         WordMarkdownWriter.writeBlocks(d11, WordMarkdown.parse(
-                "# 报告\n\n正文一段\n\n- 甲\n- 乙\n\n| 月 | 值 |\n| 1 | 100 |"));
+                "# 报告\n\n正文一段\n\n- 甲\n- 乙\n\n| 月 | 值 |\n| 1 | 100 |"), true);
         check("writer: 标题段落已建", d11.getParagraphs().get(0).getText().equals("报告"));
         check("writer: 标题用了 Heading1",
                 "Heading1".equals(d11.getParagraphs().get(0).getStyle()));
@@ -622,13 +622,60 @@ public class WordEngineSelfTest {
 
         // 行内粗体真的产生 bold run
         org.apache.poi.xwpf.usermodel.XWPFDocument d12 = newDoc();
-        WordMarkdownWriter.writeBlocks(d12, WordMarkdown.parse("这**很粗**啊"));
+        WordMarkdownWriter.writeBlocks(d12, WordMarkdown.parse("这**很粗**啊"), true);
         org.apache.poi.xwpf.usermodel.XWPFParagraph p12 = d12.getParagraphs().get(0);
         check("writer: 行内粗体拆成多 run", p12.getRuns().size() == 3);
         check("writer: 中间 run 是粗体", p12.getRuns().get(1).isBold()
                 && p12.getRuns().get(1).text().equals("很粗"));
         check("writer: 首尾 run 不粗", !p12.getRuns().get(0).isBold()
                 && !p12.getRuns().get(2).isBold());
+
+        // ================= 排版默认值：chinese = H1 居中 + 正文首行缩进 2 字符 =================
+        // 判据落在段落属性（XML）上；未设置时 getAlignment() 返回 LEFT 但 isAlignmentSet()=false，
+        // getIndentationFirstLine() 返回 -1——所以"没有格式"的判据用 isAlignmentSet/getInd
+        org.apache.poi.xwpf.usermodel.XWPFDocument dLayW = newDoc();
+        WordMarkdownWriter.writeBlocks(dLayW, WordMarkdown.parse(
+                "# 报告\n\n正文一段\n\n## 一、背景\n\n- 甲\n\n| 月 | 值 |\n| 1 | 100 |"), true);
+        org.apache.poi.xwpf.usermodel.XWPFParagraph layH1 = dLayW.getParagraphs().get(0);
+        org.apache.poi.xwpf.usermodel.XWPFParagraph layBody = dLayW.getParagraphs().get(1);
+        org.apache.poi.xwpf.usermodel.XWPFParagraph layH2 = dLayW.getParagraphs().get(2);
+        org.apache.poi.xwpf.usermodel.XWPFParagraph layBullet = dLayW.getParagraphs().get(3);
+        check("排版: H1 居中（jc 写进段落属性）",
+                layH1.getAlignment() == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER);
+        check("排版: H2 不居中（jc 根本没设）", !layH2.isAlignmentSet());
+        check("排版: 正文段首行缩进 = 2 字符（firstLineChars=200 + 兜底 firstLine=420）",
+                layBody.getCTP().getPPr() != null && layBody.getCTP().getPPr().getInd() != null
+                        && layBody.getCTP().getPPr().getInd().getFirstLineChars() != null
+                        && layBody.getCTP().getPPr().getInd().getFirstLineChars().intValue() == 200
+                        && "420".equals(String.valueOf(layBody.getCTP().getPPr().getInd().getFirstLine())));
+        check("排版: 列表项无缩进（字面 • 已占位，再缩进是双缩进）",
+                layBullet.getCTP().getPPr() == null || layBullet.getCTP().getPPr().getInd() == null);
+        check("排版: 表格单元格段无缩进",
+                dLayW.getTables().get(0).getRow(0).getCell(0).getParagraphs().get(0)
+                        .getCTP().getPPr() == null
+                        || dLayW.getTables().get(0).getRow(0).getCell(0).getParagraphs().get(0)
+                        .getCTP().getPPr().getInd() == null);
+        org.apache.poi.xwpf.usermodel.XWPFDocument dPlainW = newDoc();
+        WordMarkdownWriter.writeBlocks(dPlainW, WordMarkdown.parse("# 报告\n\n正文一段"), false);
+        check("排版: plain 下 H1 无 jc（plain = 什么都不加）",
+                !dPlainW.getParagraphs().get(0).isAlignmentSet());
+        check("排版: plain 下正文无缩进",
+                dPlainW.getParagraphs().get(1).getIndentationFirstLine() == -1);
+        java.nio.file.Path layWPath = saveTmp(dLayW, "layout.docx");
+        try (java.io.InputStream layIn = java.nio.file.Files.newInputStream(layWPath);
+             org.apache.poi.xwpf.usermodel.XWPFDocument layRe =
+                     new org.apache.poi.xwpf.usermodel.XWPFDocument(layIn)) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph lr0 = layRe.getParagraphs().get(0);
+            org.apache.poi.xwpf.usermodel.XWPFParagraph lr1 = layRe.getParagraphs().get(1);
+            check("排版: 落盘重载后 H1 仍居中",
+                    lr0.getAlignment() == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER);
+            check("排版: 落盘重载后正文缩进仍在（chars=200 / tw=420）",
+                    lr1.getCTP().getPPr() != null && lr1.getCTP().getPPr().getInd() != null
+                            && lr1.getCTP().getPPr().getInd().getFirstLineChars().intValue() == 200
+                            && "420".equals(String.valueOf(lr1.getCTP().getPPr().getInd().getFirstLine())));
+            check("排版: read 文本 = 「[1] [Normal] 正文一段」（缩进不进文本层）",
+                    WordTextExtractor.read(layRe, 1, 1).trim().equals("[1] [Normal] 正文一段"));
+        }
 
         // 落盘重载后标题仍是标题（内存断言骗不了文件）
         java.nio.file.Path hPath = saveTmp(d11, "heading.docx");
