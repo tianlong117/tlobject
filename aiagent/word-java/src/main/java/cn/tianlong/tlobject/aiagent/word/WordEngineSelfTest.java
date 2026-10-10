@@ -1145,6 +1145,25 @@ public class WordEngineSelfTest {
             check("排版: 空白 style 不写空白 pStyle，按正文缩进 420",
                     sp.getStyle() == null && sp.getIndentationFirstLine() == 420);
         }
+        // 相邻同型 boolean（before, chineseLayout）的守护：四象限里只有两象限能区分写反，
+        // 恰好这两象限此前都没测——对抗性评审变异实证：swap 实参后 273 条全绿（I1）。
+        check("排版: chinese 引擎 position=after 插入 → ok",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "锚点后插",
+                                "position", "after")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            check("排版: position=after 插在锚点之后（不是之前）且带缩进（swap 实参即红）",
+                    "锚点后插".equals(d.getParagraphs().get(1).getText())
+                            && d.getParagraphs().get(1).getIndentationFirstLine() == 420);
+        }
+        check("排版: plain 引擎默认 before 插入 → ok",
+                engPlainI.execute("insert_paragraph",
+                        map("path", "排版plain.docx", "index", 0, "text", "锚点前插")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版plain.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph p0 = d.getParagraphs().get(0);
+            check("排版: plain 默认 before 插在锚点之前（不是之后）且不缩进（swap 实参即红）",
+                    "锚点前插".equals(p0.getText()) && p0.getIndentationFirstLine() == -1);
+        }
 
         // ================= F4b：backup 参数接线（技能壳 → 引擎 Config） =================
         // 引擎层的 .bak 分支上面已断言过（cfg.backup=true → 报告.bak.docx）。这里补的是壳这一层：
@@ -1274,6 +1293,12 @@ public class WordEngineSelfTest {
         check("排版接线: XML 非法 layout 不抛（告警路径不把链路搞崩）", badXmlNoThrow);
         check("排版接线: 已生效 plain 后再配错 → 回退 chinese（不是保持旧值）",
                 Boolean.TRUE.equals(rlM.invoke(skLayBad, map("action", "create"))));
+
+        Object layPropBad = ((java.util.Map<?, ?>) scf.get(skLayBad)).get("layout");
+        check("排版接线: 重入 setModuleParams 后 schema 默认值刷新（不滞留首建值）",
+                layPropBad instanceof java.util.Map
+                        && String.valueOf(((java.util.Map<?, ?>) layPropBad).get("description"))
+                                .contains("Current default: chinese"));
 
         check("排版接线: parameterSchema 里有 layout（LLM 才看得见这个参数）",
                 ((java.util.Map<?, ?>) scf.get(skLayP)).containsKey("layout"));

@@ -119,13 +119,17 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("output", prop("string", "fill_template output path (default: overwrite input)"));
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
             parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
-            parameterSchema.put("layout", prop("string", "Document layout: chinese = H1 headings "
-                    + "centered + 2-character first-line indent on body paragraphs; plain = no "
-                    + "alignment/indent added (use for English documents, poetry, code blocks, or "
-                    + "inserting into a document you did not create). Current default: " + layout));
             parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
         }
+
+        // layout 描述里插了动态默认值（Current default: <layout>）：parameterSchema 只在首建，
+        // 而 setModuleParams 会被 setParam/reloadConfig 重入——每次重入刷新这一条，
+        // 否则运行期改配置后模型看到的默认值提示与实际相反（对抗性评审 M1 实测）。
+        parameterSchema.put("layout", prop("string", "Document layout: chinese = H1 headings "
+                + "centered + 2-character first-line indent on body paragraphs; plain = no "
+                + "alignment/indent added (use for English documents, poetry, code blocks, or "
+                + "inserting into a document you did not create). Current default: " + layout));
     }
 
     private Map<String, Object> prop(String type, String desc) { return prop(type, desc, false); }
