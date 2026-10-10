@@ -412,18 +412,19 @@ public final class WordTextEditor {
         // 故与 WordMarkdownWriter.applyHeading 走同一套三重设定：pStyle + outlineLvl + 直接格式。
         // 排版规则与 writer 同源（显式样式优先）：HeadingN → 三重设定；其他显式样式 → 只 setStyle，
         // 不插手（显式样式自己说了算）；无样式 → 视为正文段落，chinese 时加首行缩进。
+        String st = (style == null) ? null : style.trim();
         int headingLv = 0;
-        if (style != null && !style.isEmpty()) {
+        if (st != null && !st.isEmpty()) {
             java.util.regex.Matcher hm =
-                    java.util.regex.Pattern.compile("(?i)^heading\\s*([1-6])$").matcher(style.trim());
+                    java.util.regex.Pattern.compile("(?i)^heading\\s*([1-6])$").matcher(st);
             if (hm.matches()) {
                 headingLv = Integer.parseInt(hm.group(1));
                 WordMarkdownWriter.applyHeading(np, headingLv, chineseLayout);
             } else {
-                np.setStyle(style);
+                np.setStyle(st);
             }
         } else if (chineseLayout) {
-            // 无样式 = 正文段落：与 writer 的 PARAGRAPH 分支同口径
+            // 无样式（含只含空白的字符串）= 正文段落：与 writer 的 PARAGRAPH 分支同口径
             WordMarkdownWriter.applyFirstLineIndent(np);
         }
         XWPFRun run = np.createRun();

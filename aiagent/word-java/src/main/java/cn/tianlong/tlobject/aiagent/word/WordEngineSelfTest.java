@@ -1124,6 +1124,27 @@ public class WordEngineSelfTest {
             check("排版: plain 引擎 insert 无 style 不缩进",
                     d.getParagraphs().get(0).getIndentationFirstLine() == -1);
         }
+        check("排版: plain 引擎 insert Heading1 → ok",
+                engPlainI.execute("insert_paragraph",
+                        map("path", "排版plain.docx", "index", 0, "text", "裸标题",
+                                "style", "Heading1")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版plain.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph hp = d.getParagraphs().get(0);
+            check("排版: plain insert Heading1 不居中但仍是真标题（outlineLvl+粗体）",
+                    !hp.isAlignmentSet()
+                            && hp.getCTP().getPPr() != null
+                            && hp.getCTP().getPPr().getOutlineLvl() != null
+                            && hp.getRuns().get(0).isBold());
+        }
+        check("排版: style 只有空白 → 视为无样式（trim 后按正文缩进）",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "空白样式段",
+                                "style", " ")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            org.apache.poi.xwpf.usermodel.XWPFParagraph sp = d.getParagraphs().get(0);
+            check("排版: 空白 style 不写空白 pStyle，按正文缩进 420",
+                    sp.getStyle() == null && sp.getIndentationFirstLine() == 420);
+        }
 
         // ================= F4b：backup 参数接线（技能壳 → 引擎 Config） =================
         // 引擎层的 .bak 分支上面已断言过（cfg.backup=true → 报告.bak.docx）。这里补的是壳这一层：
