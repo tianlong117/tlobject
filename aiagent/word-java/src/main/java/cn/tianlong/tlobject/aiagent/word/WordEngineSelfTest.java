@@ -656,11 +656,18 @@ public class WordEngineSelfTest {
                         || dLayW.getTables().get(0).getRow(0).getCell(0).getParagraphs().get(0)
                         .getCTP().getPPr().getInd() == null);
         org.apache.poi.xwpf.usermodel.XWPFDocument dPlainW = newDoc();
-        WordMarkdownWriter.writeBlocks(dPlainW, WordMarkdown.parse("# 报告\n\n正文一段"), false);
+        WordMarkdownWriter.writeBlocks(dPlainW, WordMarkdown.parse(
+                "# 报告\n\n正文一段\n\n## 一、背景\n\n- 甲\n\n| 月 | 值 |\n| 1 | 100 |"), false);
         check("排版: plain 下 H1 无 jc（plain = 什么都不加）",
                 !dPlainW.getParagraphs().get(0).isAlignmentSet());
         check("排版: plain 下正文无缩进",
                 dPlainW.getParagraphs().get(1).getIndentationFirstLine() == -1);
+        check("排版: plain H1 仍是真标题（pStyle/outlineLvl/粗体都在——plain 是「不加」不是「清除」）",
+                "Heading1".equals(dPlainW.getParagraphs().get(0).getStyle())
+                        && dPlainW.getParagraphs().get(0).getCTP().getPPr() != null
+                        && dPlainW.getParagraphs().get(0).getCTP().getPPr().getOutlineLvl() != null
+                        && dPlainW.getParagraphs().get(0).getRuns().get(0).isBold());
+        check("排版: plain 下 H2 也不居中", !dPlainW.getParagraphs().get(2).isAlignmentSet());
         java.nio.file.Path layWPath = saveTmp(dLayW, "layout.docx");
         try (java.io.InputStream layIn = java.nio.file.Files.newInputStream(layWPath);
              org.apache.poi.xwpf.usermodel.XWPFDocument layRe =
@@ -726,6 +733,55 @@ public class WordEngineSelfTest {
         // 改完文件仍可读
         JavaWordEngine.Result rr2 = eng.execute("read", map("path", "报告.docx"));
         check("engine: 改后仍能读且内容已变", rr2.text.contains("已改"));
+
+        // ================= 排版: 引擎 create/append 真的把开关传到 writer（评审变异守）=================
+        // 直接调 writeBlocks 的断言证明不了"Config.chineseLayout 接线"——把 doCreate/doAppend 的
+        // 实参改成 false 也全绿（评审变异实测）。这里从 execute 走真链路：两处接线任一写反即红。
+        JavaWordEngine.Config cfgLayE = new JavaWordEngine.Config();
+        cfgLayE.allowedRoot = root;
+        cfgLayE.workDir = work;                     // 默认 chineseLayout = true
+        JavaWordEngine engLayE = new JavaWordEngine(cfgLayE);
+        check("排版接线(引擎): chinese create ok",
+                engLayE.execute("create", map("path", "排版引擎.docx",
+                        "content", "# 报告\n\n正文一段")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版引擎.docx"))) {
+            check("排版接线(引擎): chinese create → H1 居中 + 正文缩进（doCreate 实参没被写反）",
+                    d.getParagraphs().get(0).getAlignment()
+                            == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                            && d.getParagraphs().get(1).getIndentationFirstLine() == 420);
+        }
+        check("排版接线(引擎): chinese append ok",
+                engLayE.execute("append", map("path", "排版引擎.docx",
+                        "content", "追加的正文段")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版引擎.docx"))) {
+            check("排版接线(引擎): chinese append → 新段有缩进（doAppend 实参没被写反）",
+                    d.getParagraphs().get(2).getIndentationFirstLine() == 420);
+        }
+        JavaWordEngine.Config cfgLayE2 = new JavaWordEngine.Config();
+        cfgLayE2.allowedRoot = root;
+        cfgLayE2.workDir = work;
+        cfgLayE2.chineseLayout = false;
+        JavaWordEngine engLayE2 = new JavaWordEngine(cfgLayE2);
+        check("排版接线(引擎): plain create ok",
+                engLayE2.execute("create", map("path", "排版引擎plain.docx",
+                        "content", "# 报告\n\n正文一段")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版引擎plain.docx"))) {
+            check("排版接线(引擎): plain create → 无 jc 无缩进",
+                    !d.getParagraphs().get(0).isAlignmentSet()
+                            && d.getParagraphs().get(1).getIndentationFirstLine() == -1);
+        }
+        // append 的硬边界（spec §3）：只给新段落加格式，已有段落一律不动
+        check("排版接线(引擎): 已有 chinese 文档上 plain append ok",
+                engLayE2.execute("append", map("path", "排版引擎.docx",
+                        "content", "不再缩进的追加段")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版引擎.docx"))) {
+            check("排版接线(引擎): append 只影响新段——旧 H1 仍居中、旧正文仍缩进、chinese 追加段缩进、plain 追加段无缩进",
+                    d.getParagraphs().get(0).getAlignment()
+                            == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER
+                            && d.getParagraphs().get(1).getIndentationFirstLine() == 420
+                            && d.getParagraphs().get(2).getIndentationFirstLine() == 420
+                            && d.getParagraphs().get(3).getIndentationFirstLine() == -1);
+        }
 
         // 不存在的文件
         JavaWordEngine.Result r404 = eng.execute("read", map("path", "没有这个.docx"));
