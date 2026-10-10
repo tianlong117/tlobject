@@ -70,7 +70,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `TLWordJavaSkill` | 新增字段 `layout="chinese"`，`setModuleParams` 读 XML（非法值 WARN+回退）；`execute` 平铺 key 列表补 `layout`；`parameterSchema` 加 `layout`；`ensureEngine` 解析（调用级覆盖 XML 级）→ `cfg.chineseLayout`；skillDescription 补排版说明 |
+| `TLWordJavaSkill` | 新增字段 `layout="chinese"`，`setModuleParams` 读 XML（非法值 WARN+回退）；`execute` 平铺 key 列表补 `layout`；`parameterSchema` 加 `layout`；`execute` 里解析校验（非法值直接回干净 JSON 错误、**不落日志**——参数错误是模型的锅，且无工厂的自测环境走通用 catch 会 putLog NPE；调用级覆盖 XML 级）后传入 `ensureEngine` → `cfg.chineseLayout`；skillDescription 补排版说明 |
 | `JavaWordEngine` | `Config` 加 `boolean chineseLayout = true`；`doCreate`/`doAppend`/`doInsertParagraph` 把开关传给下层 |
 | `WordMarkdownWriter` | `writeBlocks(doc, blocks, boolean chineseLayout)`；`applyHeading(p, lv, boolean chineseLayout)`（lv==1 且 chinese 时 `setAlignment(CENTER)`）；新增 `applyFirstLineIndent(p)` 小助手写 `w:ind` |
 | `WordTextEditor` | `insertParagraph(..., boolean chineseLayout)`：无样式→缩进；HeadingN→`applyHeading`（带开关）；其他样式→只 setStyle |
