@@ -234,7 +234,7 @@ public class JavaWordEngine {
         boolean before = !"after".equalsIgnoreCase(String.valueOf(in.getOrDefault("position", "before")));
         try (XWPFDocument doc = open(p)) {
             WordTextEditor.insertParagraph(doc, oi(in, "index", -1),
-                    requiredText(in), od(in, "style"), before);
+                    requiredText(in), od(in, "style"), before, cfg.chineseLayout);
             save(doc, p);
         }
         return receipt("insert_paragraph", p, null);

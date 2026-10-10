@@ -234,7 +234,7 @@ public class WordEngineSelfTest {
                 d9.getParagraphs().get(0).getText().equals("甲")
                         && d9.getParagraphs().get(2).getText().equals("丙"));
 
-        WordTextEditor.insertParagraph(d9, 1, "插入", null, true);
+        WordTextEditor.insertParagraph(d9, 1, "插入", null, true, false);
         check("insert_paragraph: 前插后位置正确",
                 d9.getParagraphs().get(1).getText().equals("插入")
                         && d9.getParagraphs().get(2).getText().equals("乙改"));
@@ -257,11 +257,11 @@ public class WordEngineSelfTest {
         addPara(d9b, "A", null);
         addPara(d9b, "B", null);
         addPara(d9b, "C", null);
-        WordTextEditor.insertParagraph(d9b, 1, "MID", null, false);
+        WordTextEditor.insertParagraph(d9b, 1, "MID", null, false, false);
         check("insert_paragraph: 中间段后插位置正确",
                 d9b.getParagraphs().get(2).getText().equals("MID")
                         && d9b.getParagraphs().get(3).getText().equals("C"));
-        WordTextEditor.insertParagraph(d9b, d9b.getParagraphs().size() - 1, "TAIL", null, false);
+        WordTextEditor.insertParagraph(d9b, d9b.getParagraphs().size() - 1, "TAIL", null, false, false);
         check("insert_paragraph: 末段后插落在末尾（而非文档开头）",
                 d9b.getParagraphs().size() == 5
                         && d9b.getParagraphs().get(4).getText().equals("TAIL"));
@@ -1065,6 +1065,65 @@ public class WordEngineSelfTest {
         check("F2: insert_paragraph 缺 text → ok=false", !missI.ok);
         check("F2: insert_paragraph 缺 text 时文档未被改动",
                 eng.execute("read", map("path", "标题插入.docx")).text.contains("列表项"));
+
+        // ================= 排版: insert_paragraph 与 writer 同源 =================
+        JavaWordEngine.Result cLayIns = eng.execute("create",
+                map("path", "排版插入.docx", "content", "正文甲\n\n正文乙"));
+        check("排版插入前置: 文档建好", cLayIns.ok);
+        check("排版: insert 无 style → ok",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "新正文")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            check("排版: insert 无 style 的段落带首行缩进 2 字符",
+                    d.getParagraphs().get(0).getIndentationFirstLine() == 420);
+        }
+        check("排版: insert Heading1 → ok",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "新标题",
+                                "style", "Heading1")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            check("排版: insert Heading1 居中（与 writer 同源）",
+                    d.getParagraphs().get(0).getAlignment()
+                            == org.apache.poi.xwpf.usermodel.ParagraphAlignment.CENTER);
+        }
+        check("排版: insert Heading2 → ok",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "二级",
+                                "style", "Heading2")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            check("排版: insert Heading2 不居中（只有 H1 居中）",
+                    !d.getParagraphs().get(0).isAlignmentSet());
+        }
+        check("排版: insert ListParagraph → ok",
+                eng.execute("insert_paragraph",
+                        map("path", "排版插入.docx", "index", 0, "text", "列表",
+                                "style", "ListParagraph")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版插入.docx"))) {
+            check("排版: insert 显式样式段无缩进无居中（显式样式优先，反面守）",
+                    d.getParagraphs().get(0).getIndentationFirstLine() == -1
+                            && !d.getParagraphs().get(0).isAlignmentSet());
+        }
+        // plain 引擎：create 与 insert 全链路都不加格式（端到端，不是只看 Config 字段）
+        JavaWordEngine.Config cfgPlainI = new JavaWordEngine.Config();
+        cfgPlainI.allowedRoot = root;
+        cfgPlainI.workDir = work;
+        cfgPlainI.chineseLayout = false;
+        JavaWordEngine engPlainI = new JavaWordEngine(cfgPlainI);
+        check("排版: plain 引擎 create ok",
+                engPlainI.execute("create",
+                        map("path", "排版plain.docx", "content", "# 报告\n\n正文")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版plain.docx"))) {
+            check("排版: plain 引擎 create 的 H1 无 jc 且正文无缩进",
+                    !d.getParagraphs().get(0).isAlignmentSet()
+                            && d.getParagraphs().get(1).getIndentationFirstLine() == -1);
+        }
+        check("排版: plain 引擎 insert 无 style → ok",
+                engPlainI.execute("insert_paragraph",
+                        map("path", "排版plain.docx", "index", 0, "text", "裸段")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("排版plain.docx"))) {
+            check("排版: plain 引擎 insert 无 style 不缩进",
+                    d.getParagraphs().get(0).getIndentationFirstLine() == -1);
+        }
 
         // ================= F4b：backup 参数接线（技能壳 → 引擎 Config） =================
         // 引擎层的 .bak 分支上面已断言过（cfg.backup=true → 报告.bak.docx）。这里补的是壳这一层：

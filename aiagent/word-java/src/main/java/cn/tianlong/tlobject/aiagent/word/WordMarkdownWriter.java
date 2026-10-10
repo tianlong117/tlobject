@@ -100,17 +100,6 @@ public final class WordMarkdownWriter {
         } catch (Throwable ignored) { }
     }
 
-    /**
-     * 无排版的标题（= 旧行为）。
-     *
-     * 2 参重载保留给插入类动作（WordTextEditor.insertParagraph）的既有调用点：
-     * 本任务只管 create/append 的新写段落，插入路径的排版开关由 Task 2 接管——
-     * 在那之前这条路必须保持原样（pStyle + outlineLvl，不写 jc）。
-     */
-    static void applyHeading(XWPFParagraph p, int lv) {
-        applyHeading(p, lv, false);
-    }
-
     /** 标题的字号表（磅） */
     static int headingFontSize(int lv) {
         switch (lv) {

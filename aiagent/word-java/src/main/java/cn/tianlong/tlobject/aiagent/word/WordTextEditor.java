@@ -388,7 +388,7 @@ public final class WordTextEditor {
     }
 
     public static void insertParagraph(XWPFDocument doc, int index, String text,
-                                       String style, boolean before) {
+                                       String style, boolean before, boolean chineseLayout) {
         List<XWPFParagraph> ps = doc.getParagraphs();
         if (index < 0 || index >= ps.size())
             throw new IndexOutOfBoundsException("paragraph index " + index
@@ -410,16 +410,21 @@ public final class WordTextEditor {
         // （new XWPFDocument() 的 getStyles() 就是 null），pStyle="Heading1" 是个悬空引用——
         // Word 里渲染成正文，而 read/outline 却报 Heading1（两处自相矛盾）。
         // 故与 WordMarkdownWriter.applyHeading 走同一套三重设定：pStyle + outlineLvl + 直接格式。
+        // 排版规则与 writer 同源（显式样式优先）：HeadingN → 三重设定；其他显式样式 → 只 setStyle，
+        // 不插手（显式样式自己说了算）；无样式 → 视为正文段落，chinese 时加首行缩进。
         int headingLv = 0;
         if (style != null && !style.isEmpty()) {
             java.util.regex.Matcher hm =
                     java.util.regex.Pattern.compile("(?i)^heading\\s*([1-6])$").matcher(style.trim());
             if (hm.matches()) {
                 headingLv = Integer.parseInt(hm.group(1));
-                WordMarkdownWriter.applyHeading(np, headingLv);
+                WordMarkdownWriter.applyHeading(np, headingLv, chineseLayout);
             } else {
                 np.setStyle(style);
             }
+        } else if (chineseLayout) {
+            // 无样式 = 正文段落：与 writer 的 PARAGRAPH 分支同口径
+            WordMarkdownWriter.applyFirstLineIndent(np);
         }
         XWPFRun run = np.createRun();
         run.setText(text);
