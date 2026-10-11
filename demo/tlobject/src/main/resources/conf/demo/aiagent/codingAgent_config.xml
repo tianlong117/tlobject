@@ -39,6 +39,16 @@
                maxExecutionTime="300"
                allowedScriptDir="."
                skillDescription="Execute an existing script file (.py, .sh, .js etc.) and return its output."/>
+        <!-- 任务清单（todo 技能）不在此挂：子 agent 与 master 共享 sessionId，todo 的落盘文件与清单条
+             事件都按 sessionId 定位——子 agent 挂上后会拿自己的"内部步骤表"覆盖/争抢用户看到的那份
+             清单（真 LLM 冒烟实测：4 项内部清单闪现全绿后又被 master 的 3 项覆盖）。
+             子 agent 的进度由 master 清单里的对应步骤代表；若将来要展示子 agent 独立清单，
+             需先给存储与事件加 agent 维度的命名空间（见会话记录 2026-10-11）。 -->
+        <!--skill name="todoSkill"
+               sameClassAs="todoSkill"
+               statup="true"
+               skillName="todo"
+               skillDescription="维护当前任务的多步清单。operation=write 全量重写清单"/-->
     </skills>
     <memoryStores>
         <memoryStore name="longTermMemory"

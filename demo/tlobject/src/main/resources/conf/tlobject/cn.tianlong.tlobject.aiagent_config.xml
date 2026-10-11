@@ -26,6 +26,9 @@
                 singleton="true"/>
         <module name="viewImageSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLViewImageSkill"
                 singleton="true"/>
+        <!-- 任务清单技能（函数名 todo）：write 全量重写 / read 读回；落盘 data/{userId}/tasks/{sessionId}.md -->
+        <module name="todoSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLTodoSkill"
+                singleton="true"/>
         <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
                 singleton="true"/>
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"

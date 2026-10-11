@@ -2,11 +2,14 @@
 <moduleConfig>
     <!-- ===== poetc 配置（诗歌评判 Agent）=====
          在 poemWorkflow 的 <modules> 中通过 configfile 引用。
-         filesystemMcp 作为 LLM 可调用的工具（factoryShared 共享主工厂实例，不重复启动 npx），
-         供 poetc 调用 write_file 把分析结果写入文件。 -->
+         filesystemMcpWrite 作为 LLM 可调用的工具（factoryShared 共享主工厂实例，不重复启动 npx），
+         供 poetc 调用 write_file 把分析结果写入文件。
+         ⚠ factoryShared 按"模块名"共享主工厂实例：同名多声明时**先初始化者的白名单生效**
+         （曾踩：与 fileAgent 的同名 filesystemMcp 撞车——它想要 3 工具却只拿到本组的 write_file，
+         故写-only 组改用 filesystemMcpWrite 区分）。 -->
 
     <agents>
-        <agent name="filesystemMcp"
+        <agent name="filesystemMcpWrite"
                statup="true"
                factoryShared="true"
                type="mcp"

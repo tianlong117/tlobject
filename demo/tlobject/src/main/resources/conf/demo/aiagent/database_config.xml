@@ -280,11 +280,10 @@
         为简化某些查询操作，定义了视图表模块（不是数据库的视图）。使用时直接赋值参数即可。
         cacheName：缓存名称，对应缓存模块配种中名字
 
-    <!--
-      触发器模块配置：
+        触发器模块配置：
             name：模块名字
             delete="onDelete"  insert="onInsert" query="onQuery"  update="onUpdate" :表明当执行表的delete、insert、query、update时执行模块的相应方法
             classfile：模块对应的具体类名。如果以逗号.开始，则默认包名为params中配置的包前缀dbPackageName
--->
+    -->
 
 </moduleConfig>

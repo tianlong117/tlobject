@@ -8,7 +8,10 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import okhttp3.*;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -24,6 +27,10 @@ public class TLHttpRequestSkill extends TLBaseSkill {
 
     private OkHttpClient httpClient;
     private Gson gson;
+
+    /** 响应体读取上限（KB，params 可配）。此前 body().string() 全量物化——抓超大页面/文件会吃爆内存
+     *  （OOM 是 Error，逃出 execute 经框架链 shutdown 整个应用）；改为流式读取封顶，超出截断并注明 */
+    private int maxResponseKB = 2048;
 
     public TLHttpRequestSkill() {
         super();
@@ -44,6 +51,11 @@ public class TLHttpRequestSkill extends TLBaseSkill {
             skillName = "http_request";
         if (skillDescription == null || skillDescription.isEmpty())
             skillDescription = "Send HTTP requests to fetch web content or call APIs. Supports GET and POST methods with custom headers and body.";
+
+        if (params != null && params.get("maxResponseKB") != null) {
+            try { maxResponseKB = Integer.parseInt(params.get("maxResponseKB").trim()); }
+            catch (NumberFormatException ignored) {}
+        }
 
         // 默认参数schema
         if (parameterSchema == null || parameterSchema.isEmpty()) {
@@ -134,7 +146,7 @@ public class TLHttpRequestSkill extends TLBaseSkill {
             putLog("HTTP Skill: " + method + " " + url, LogLevel.DEBUG);
 
             try (Response response = httpClient.newCall(request).execute()) {
-                String responseBody = response.body() != null ? response.body().string() : "";
+                String responseBody = readBodyCapped(response, maxResponseKB * 1024L);
                 int statusCode = response.code();
 
                 Map<String, Object> result = new LinkedHashMap<>();
@@ -158,6 +170,28 @@ public class TLHttpRequestSkill extends TLBaseSkill {
             putLog("HTTP Skill error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "HTTP request failed (invalid url or headers): " + e.getMessage());
+        }
+    }
+
+    /** 流式读取响应体、封顶 maxBytes（读的是解压后字节；gzip 响应同样受封顶保护）。
+     *  超限截断并附注明；UTF-8 边界截断可能产生一个替换符，可接受。 */
+    private static String readBodyCapped(Response response, long maxBytes) throws IOException {
+        ResponseBody b = response.body();
+        if (b == null) return "";
+        try (InputStream in = b.byteStream()) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            long total = 0;
+            int n;
+            while (total < maxBytes && (n = in.read(buf, 0, (int) Math.min(buf.length, maxBytes - total))) > 0) {
+                out.write(buf, 0, n);
+                total += n;
+            }
+            boolean truncated = in.read() != -1;
+            String s = new String(out.toByteArray(), StandardCharsets.UTF_8);
+            if (truncated)
+                s = "...(response body exceeds " + (maxBytes / 1024) + "KB, truncated)\n" + s;   // 标记放头：下游还有一次"输出截 5000 字符"，放尾会被切掉
+            return s;
         }
     }
 }

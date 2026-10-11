@@ -79,7 +79,7 @@
           <nodes>
               <node id="poetA" type="agent" action="chat"/>
               <node id="poetB" type="agent" action="chat"/>
-              <node id="merge" type="join"/>        &lt;!-- 合并点 = merge --&gt;
+              <node id="merge" type="join"/>        【合并点 = merge】
           </nodes>
           <edges>
               <edge from="poetA" to="merge"/>

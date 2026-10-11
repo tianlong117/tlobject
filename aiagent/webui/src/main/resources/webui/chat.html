@@ -48,6 +48,11 @@
     <!-- 聊天窗口 -->
     <section id="chatPane">
       <div id="msgList"></div>
+      <!-- 任务清单条（todo 技能经 msgBus todoEvent 推送；无清单整条隐藏，按会话隔离） -->
+      <div id="todoBar" class="hidden">
+        <div class="todo-head"><span id="todoSummary"></span><span class="todo-toggle" id="todoToggle">▾</span></div>
+        <div class="todo-items" id="todoItems"></div>
+      </div>
       <!-- 上传成功文件名条 -->
       <div id="uploadBar" class="hidden">
         <span class="ub-label">📎 已上传</span>

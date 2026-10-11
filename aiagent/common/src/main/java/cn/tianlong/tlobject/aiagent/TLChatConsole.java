@@ -71,7 +71,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private static final int MAX_HISTORY = 200;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
-    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL }
+    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO }
 
     private static final class ConsoleEvent {
         final EventType type;
@@ -118,6 +118,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .setParam("destination", "approvalEvent").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "taskResult").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "todoEvent").setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
         }
@@ -178,6 +180,20 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                                 + "] " + msg.getStringParam("text", ""))
                         .setParam("success", true)
                         .setParam("notifyOnly", true)));
+                return running ? createMsg().setParam(RESULT, true) : null;
+            }
+            case "todoEvent": {
+                // 任务清单事件（TLTodoSkill 每次 write 发布，经 msgBus 订阅）：
+                // 与 taskResult 同法按 userId 过滤——事件总线是进程级，控制台常与 webui 同进程，
+                // 其他用户的清单不得打进本控制台（事件缺 userId 时不拦，宁显示勿静默塌掉）
+                String evtUser = msg.getStringParam("userId", "");
+                if (!evtUser.isEmpty() && !evtUser.equals(userId)) return null;
+                String block = formatTodoBlock(msg.getStringParam("text", ""));
+                if (block.isEmpty()) return null;
+                // 渲染走审批框同一机制：排进事件队列由主循环打印 + 重打输入提示符
+                // （用户停在提示符上也能看到，无需回车）；ack 只在控制台真的在跑时才给，
+                // 否则发布方以为有人渲染了（同 approvalEvent）
+                offer(new ConsoleEvent(EventType.TODO, block, null));
                 return running ? createMsg().setParam(RESULT, true) : null;
             }
         }
@@ -263,6 +279,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .setParam("destination", "taskResult").setParam("object", this));
             if (taskRegMsg == null || !Boolean.TRUE.equals(taskRegMsg.getParam(RESULT)))
                 putLog("msgBus 订阅定时任务结果事件被拒绝", cn.tianlong.tlobject.modules.LogLevel.WARN);
+            // 任务清单变更事件（TLTodoSkill 每次 write 发布）
+            TLMsg todoRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "todoEvent").setParam("object", this));
+            if (todoRegMsg == null || !Boolean.TRUE.equals(todoRegMsg.getParam(RESULT)))
+                putLog("msgBus 订阅任务清单事件被拒绝", cn.tianlong.tlobject.modules.LogLevel.WARN);
         } catch (Exception e) {
             putLog("msgBus 订阅事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
         }
@@ -429,6 +450,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     printPrompt();
                     System.out.flush();
                     break;
+                case TODO:
+                    // 任务清单块（e.text 已由 formatTodoBlock 组织好，自带首行空行）
+                    // + 紧随其后的输入提示符：同审批框机制，用户停在提示符上也能看到，无需回车
+                    System.out.println(e.text);
+                    printPrompt();
+                    System.out.flush();
+                    break;
             }
         }
 
@@ -463,6 +491,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
                 case STREAM_END: onStreamEnd(e.text,
                         e.msg != null ? e.msg.getStringParam(AI_P_REASONING, null) : null); break;
+                case TODO:
+                    // 降级（非 raw）模式同样渲染清单块 + 重打提示符
+                    System.out.println(e.text);
+                    printPrompt();
+                    System.out.flush();
+                    break;
             }
         }
         System.out.println("再见！");
@@ -2059,6 +2093,39 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     // ======================== 终端辅助 ========================
 
     private void printPrompt() { System.out.print(prompt); }
+
+    /**
+     * 把 todoEvent 的 text（TLTodoSkill 渲染好的清单原文，与 webui 同款）组织成控制台展示块：
+     * 首行前空一行，每个原 text 行前加两格缩进，首行再加 "▸ " 前缀。
+     * 不做右对齐边框/ANSI 着色：中文全角宽度在部分终端不可靠（仓库有教训），紧凑左缩进最稳；
+     * 标记 [x]/[~]/[ ]/[✗] 原样保留。返回空串表示无需渲染（text 空）。
+     * 包级可见 static：探针测试直接调用。
+     *
+     * <pre>
+     * 输入（text 通常以换行结尾）:
+     *   任务清单（2 项：1 完成 / 1 待执行）：
+     *   - [x] 已完成事项
+     *   - [ ] 待执行事项
+     * 输出（首行自带空行，供调用方 println）:
+     *
+     *     ▸ 任务清单（2 项：1 完成 / 1 待执行）：
+     *     - [x] 已完成事项
+     *     - [ ] 待执行事项
+     * </pre>
+     */
+    static String formatTodoBlock(String eventText) {
+        if (eventText == null) return "";
+        String s = eventText.replace("\r\n", "\n").replace('\r', '\n');
+        while (s.endsWith("\n")) s = s.substring(0, s.length() - 1);   // 技能渲染以 \n 结尾
+        if (s.isEmpty()) return "";
+        String[] lines = s.split("\n", -1);
+        StringBuilder sb = new StringBuilder("\n");   // 首行前空一行
+        for (int i = 0; i < lines.length; i++) {
+            if (i > 0) sb.append('\n');
+            sb.append(i == 0 ? "  ▸ " : "  ").append(lines[i]);
+        }
+        return sb.toString();
+    }
 
     /** Tab 命令补全 */
     private void handleTabComplete(StringBuilder line) {

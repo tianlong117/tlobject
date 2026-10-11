@@ -25,7 +25,9 @@ function viewOf(sid) {
       box: box,
       uploads: [],           // 已上传文件名（本会话草稿区，切会话各带各的）
       busy: false, abort: null, unread: 0, tasks: {}, draft: '',
-      kicked: false          // 被其他设备接管 → 本会话禁输入（切回来也不解锁；点「接管」夺回后清除）
+      kicked: false,         // 被其他设备接管 → 本会话禁输入（切回来也不解锁；点「接管」夺回后清除）
+      todo: null,            // 最近一次任务清单事件（todo 技能推送；null=无清单 → 清单条隐藏）
+      todoExpanded: false    // 清单条展开态（按会话记忆，切回来保持）
     };
   }
   return state.sessions[sid];
@@ -56,6 +58,7 @@ function switchSessionView(sid) {
   $('#sendBtn').disabled = !!v.kicked;
   setBusy(v.busy);
   renderUploadBar();                // 附件条随会话切换（各会话草稿区附件独立）
+  renderTodoBar();                  // 任务清单条同理（各会话各看各的清单/展开态）
   renderSessionList();   // P11 已实现该函数（函数声明，hoisting 保证可用），原 typeof 守卫恒真故直接调用
   reportCurrentSession();
 }
@@ -238,6 +241,7 @@ async function doLogin() {
       state.sessionId = null;
       localStorage.removeItem('tlweb_session');
       renderUploadBar();     // sessionId 已清 → 附件条隐藏（各会话 uploads 随下方视图表重置）
+      renderTodoBar();       // 同上：清单条也隐藏（视图表随后被整体重置）
       // 每会话视图随用户重置：清掉视图表（旧 box 由 switchSessionView 从 #msgList 摘除），
       // 避免上一用户的自定义会话ID/内容残留在本页面内存里
       state.sessions = Object.create(null);   // 同初始化：无原型，见 state 定义处说明
@@ -730,6 +734,58 @@ function bindUpload() {
   $('#clearUploads').onclick = () => { viewOf(state.sessionId).uploads = []; renderUploadBar(); };
 }
 
+// ======================== 任务清单条（todo 技能 → msgBus todoEvent → SSE） ========================
+// 按会话隔离（同附件草稿）：事件落 state.sessions[sid].todo，切会话各看各的；无清单整条隐藏。
+/** 标记 → 着色 class（与 todo 技能的渲染标记同一套：[x] 完成 / [~] 进行中 / [ ] 待执行 / [✗] 失败） */
+function todoMarkClass(mark) {
+  if (mark === 'x') return 'tk-x';
+  if (mark === '~') return 'tk-prog';
+  if (mark === '✗') return 'tk-fail';
+  return 'tk-pend';
+}
+/** 清单文本行 → 展开区 HTML（只认 "- [m] 文本" 行；首行"任务清单（…）："表头不匹配自然被滤掉） */
+function todoItemsHtml(text) {
+  return String(text == null ? '' : text).split('\n')
+    .map(line => /^- \[(.)\]\s?(.*)$/.exec(line.trim()))
+    .filter(Boolean)
+    .map(m => '<div class="todo-item ' + todoMarkClass(m[1]) + '">'
+      + '<span class="tk-mark">[' + esc(m[1]) + ']</span><span class="tk-text">' + esc(m[2]) + '</span></div>')
+    .join('');
+}
+function renderTodoBar() {
+  const bar = $('#todoBar');
+  if (!bar) return;
+  const v = state.sessionId ? state.sessions[state.sessionId] : null;
+  if (!v || !v.todo) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  const t = v.todo;
+  const completed = Number(t.completedCount) || 0;
+  const total = completed + (Number(t.inProgressCount) || 0)
+      + (Number(t.pendingCount) || 0) + (Number(t.failedCount) || 0);
+  $('#todoSummary').textContent = '任务清单（' + completed + '/' + total + ' 完成）';
+  $('#todoToggle').textContent = v.todoExpanded ? '▾' : '▸';
+  const items = $('#todoItems');
+  // 折叠时清空：长清单不必留在 DOM 里（展开再按最新事件重渲染，内容不会过期）
+  if (!v.todoExpanded) { items.classList.add('hidden'); items.innerHTML = ''; return; }
+  items.classList.remove('hidden');
+  items.innerHTML = todoItemsHtml(t.text);
+}
+/** 落一条 todo 事件到其所属会话视图；命中当前显示会话才立即重渲染（非当前会话切过去时由
+ *  switchSessionView 渲染；viewOf 对未知 sid 会建空视图——与 kicked 事件同一既有约定） */
+function applyTodoEvent(evt) {
+  if (!evt || !evt.sessionId) return;
+  viewOf(evt.sessionId).todo = evt;
+  if (evt.sessionId === state.sessionId) renderTodoBar();
+}
+function bindTodoBar() {
+  $('#todoBar .todo-head').onclick = () => {
+    const v = state.sessionId ? state.sessions[state.sessionId] : null;
+    if (!v || !v.todo) return;          // 无清单时整条不可见，防误触
+    v.todoExpanded = !v.todoExpanded;
+    renderTodoBar();
+  };
+}
+
 // 上报当前打开的会话（定时任务执行期需要知道"用户现在在看哪个会话"）
 function reportCurrentSession() {
   if (!state.sessionId) return;
@@ -770,6 +826,7 @@ function openEvents() {
     if (evt.type === 'taskStarted' || evt.type === 'taskProgress' || evt.type === 'taskResult') {
       handleTaskEvent(evt);
     }
+    if (evt.type === 'todo') { applyTodoEvent(evt); }   // 任务清单变更（输入区上方清单条）
     if (evt.type === 'sessionTitle') {
       // 首轮完成后模型自动起名推送：命中缓存行则就地更新标题并节流重渲染。
       // 未命中（新会话首轮刚完成、侧栏缓存里还没有它）→ 拉一次列表让该行出现
@@ -1040,6 +1097,7 @@ function bindEvents() {
     else toast('[错误] ' + ((r && (r.error || r.message)) || '停止失败'), 'err');
   };
   bindUpload();
+  bindTodoBar();
 }
 
 document.addEventListener('DOMContentLoaded', () => {

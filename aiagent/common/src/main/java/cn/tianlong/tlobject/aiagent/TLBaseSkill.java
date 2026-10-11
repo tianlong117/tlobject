@@ -147,21 +147,58 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        TLMsg returnMsg = null;
-        switch (msg.getAction()) {
-            case SKILL_GETINFO:
-                returnMsg = getSkillInfo(fromWho, msg);
-                break;
-            case SKILL_EXECUTE:
-                returnMsg = execute(fromWho, msg);
-                break;
-            case SKILL_VALIDATE:
-                returnMsg = validate(fromWho, msg);
-                break;
-            default:
-                returnMsg = null;
+        String action = msg == null ? null : msg.getAction();
+        return guard(action, () -> {
+            switch (msg.getAction()) {
+                case SKILL_GETINFO:
+                    return getSkillInfo(fromWho, msg);
+                case SKILL_EXECUTE:
+                    return execute(fromWho, msg);
+                case SKILL_VALIDATE:
+                    return validate(fromWho, msg);
+                default:
+                    return null;
+            }
+        });
+    }
+
+    /**
+     * 技能动作统一兜底（backlog ⑥）：把动作体（标准 switch 之外的**自定义动作分发**同样适用，
+     * 如 TLScheduleTaskSkill 的 runScheduledTask/onTaskStream 引擎回调）包进安全网——任何
+     * Throwable 转"优雅工具报错"。逃出技能层的 Throwable 会经框架链（无 exceptionHandler 时
+     * moduleFactory.shutdown(-1)）终止整个应用；此处是最后一道安全网（含 Error 族：IOError/SOE/OOM）。
+     * ThreadDeath 原样重抛保持线程终止语义；异常 message 不泄给 LLM（只给类名 + 指向错误日志）。
+     */
+    protected TLMsg guard(String action, java.util.function.Supplier<TLMsg> body) {
+        try {
+            return body.get();
+        } catch (ThreadDeath t) {
+            throw t;   // 保持线程终止语义
+        } catch (Throwable t) {
+            // 各技能内部更精确的守卫照旧优先（更可行动的文案），本兜底是最后一道安全网。
+            // 日志本身再包一层 try：日志路径（模块未初始化/无工厂）不能反过来把安全网搞崩。
+            try {
+                putLog("Skill [" + skillName + "] action=" + action
+                        + " threw " + t.getClass().getName() + ": " + t.getMessage()
+                        + "\n" + stackTraceToString(t), LogLevel.ERROR, "skill-guard");
+            } catch (Throwable ignored) {
+            }
+            // 不向 LLM 泄漏 JVM 内部异常文本：只给类简单名 + 指向错误日志。
+            // 匿名异常类 getSimpleName() 为空——退化为全限定名，别让文案成 "error:  ——"
+            String cls = t.getClass().getSimpleName();
+            if (cls == null || cls.isEmpty()) cls = t.getClass().getName();
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "Skill internal error: " + cls
+                            + " —— 操作未完成（详细信息见错误日志）");
         }
-        return returnMsg;
+    }
+
+    /** Throwable 堆栈转字符串（含 cause 链），供兜底日志落盘——putLog(Exception,...) 只接 Exception，
+     *  Error 族（IOError/SOE）必须走字符串日志，否则堆栈在日志里无声丢失。 */
+    private static String stackTraceToString(Throwable t) {
+        java.io.StringWriter sw = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(sw));
+        return sw.toString();
     }
 
     // ======================== 公共方法 ========================

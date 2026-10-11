@@ -201,17 +201,21 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     /**
      * 动作分发：技能标准动作（execute/validate/getInfo）之外，额外接收引擎回调动作
      * runScheduledTask（经 agent→toolManager 薄转发到达；框架不做方法名反射，必须显式分发）。
+     * 引擎分支不经基类 switch——必须各自经 guard() 同样纳入统一兜底：抛出的任何 Throwable
+     * 若沿框架链逃逸（无 exceptionHandler 时 moduleFactory.shutdown(-1)）会终止整个应用；
+     * onTaskStream 是逐 chunk 的热回调，风险最高。
      */
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        if ("runScheduledTask".equals(msg.getAction()))
-            return runScheduledTask(fromWho, msg);
-        if ("runScheduledMessage".equals(msg.getAction()))
-            return runScheduledMessage(fromWho, msg);
-        if ("tasksCmd".equals(msg.getAction()))
-            return tasksCmd(fromWho, msg);
-        if ("onTaskStream".equals(msg.getAction()))
-            return onTaskStream(fromWho, msg);
+        String action = msg.getAction();
+        if ("runScheduledTask".equals(action))
+            return guard(action, () -> runScheduledTask(fromWho, msg));
+        if ("runScheduledMessage".equals(action))
+            return guard(action, () -> runScheduledMessage(fromWho, msg));
+        if ("tasksCmd".equals(action))
+            return guard(action, () -> tasksCmd(fromWho, msg));
+        if ("onTaskStream".equals(action))
+            return guard(action, () -> onTaskStream(fromWho, msg));
         return super.checkMsgAction(fromWho, msg);
     }
 

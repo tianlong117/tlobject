@@ -58,7 +58,7 @@
       · 表达式里每个 IDENT 都是 AGENT 节点，必须对应 <modules> 里声明的模块名
         （本配置即 poetA/poetB/poetc）
       · JOIN/FANOUT/CONDITION 由编译器自动生成（__e1、__e2...），不能作为 IDENT 写
-      · 工具类模块（如 MCP 的 filesystemMcp）不能作为工作流节点（节点一律发 chat，
+      · 工具类模块（如 MCP 的 filesystemMcpWrite）不能作为工作流节点（节点一律发 chat，
         MCP 无 chat 动作会 FAILED）——应声明为节点 Agent 的 <agents> 工具
         （见 poetc_config.xml：factoryShared 共享主工厂实例）
       · 本配置的表达式等价写法：poetA && poetB
@@ -78,7 +78,7 @@
           <nodes>
               <node id="poetA" type="agent" action="chat"/>
               <node id="poetB" type="agent" action="chat"/>
-              <node id="merge" type="join"/>        &lt;!-- 合并点 = merge --&gt;
+              <node id="merge" type="join"/>        【合并点 = merge】
           </nodes>
           <edges>
               <edge from="poetA" to="merge"/>
@@ -151,7 +151,7 @@
                 reasoningMode="disabled"
                 systemMessage="你是一个现实主义诗人，请用朴实深刻的语言回应用户。"
                 temperature="0.7"/>
-        <!-- poetc 的工具（filesystemMcp MCP）声明在其自己的配置文件 poetc_config.xml 的
+        <!-- poetc 的工具（filesystemMcpWrite MCP）声明在其自己的配置文件 poetc_config.xml 的
              <agents> 段（factoryShared 共享主工厂实例）——工具模块不能作为工作流节点。
              task 参数：通用 agent 参数，固定任务前缀（systemMessage 管人设，task 管工作） -->
         <module name="poetc" sameClassAs="aiagent"

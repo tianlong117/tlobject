@@ -247,6 +247,13 @@
                skillName="install_skill"
                skillDescription="将脚本文件安装为可复用的 AI Agent Skill。当用户想把某个脚本（Python/Shell/JS等）安装为 Skill 时使用。"/>
 
+        <!-- 任务清单（"活清单"）：模型每完成一步带完整列表重写一次；回执自带全表 + 落盘 + msgBus 事件 -->
+        <skill name="todoSkill"
+               sameClassAs="todoSkill"
+               statup="true"
+               skillName="todo"
+               skillDescription="维护当前任务的多步清单。operation=write 全量重写清单（items 为 [{text,status}]，status: pending/in_progress/completed/failed；每完成一步就带完整列表重写一次）；operation=read 读回当前清单（任务接续/对齐进度时先读）。多步任务开始时，把计划清单写入。"/>
+
         <!-- 定时任务：对接应用工厂声明的 taskScheduler（TLMsgTask）引擎。
              ownerAgent 显式配 aiagent_master——任务消息 destination 用它；
              msgTaskModule 指定引擎模块名（与 moduleFactory_chat_config.xml 的实例名一致）。 -->
@@ -379,7 +386,14 @@
 
 如果任务只需单步完成（如纯知识问答、简单计算、单次查询），直接回答。
 
-如果需要调用 2 个及以上工具（包括 delegate_to_*、skill、msgTool），应先判断：子任务是否已有现成的 Agent 可直接委托？有则直接并行委托。若子任务之间无现成 Agent 对应、需要编排未知流程，再使用任务规划工具进行分解，按清单逐步执行并更新进度。"/>
+如果需要调用 2 个及以上工具（包括 delegate_to_*、skill、msgTool），应先判断：子任务是否已有现成的 Agent 可直接委托？有则直接并行委托。若子任务之间无现成 Agent 对应、需要编排未知流程，再使用任务规划工具进行分解，按清单逐步执行并更新进度。
+
+委托与验收纪律：
+- 委托子 agent 时，任务描述里写明该步的「完成判据」（要满足的具体条目）；收到结果后逐条对照判据核对，不满足就让其补做，不要直接采信。
+- 计划清单的更新只有一条硬性动作序列：**任何子 agent 结果到手 → 你的下一个动作必须是 todo(operation=write)**，把该项落终态（[x] 完成 / [✗] 失败）——写完才允许做别的动作（下一条委托或终答）。委托前可顺手标 in_progress（可选）；任务接续/对齐时先 todo(operation=read) 读回。不要只口头描述进度。
+- 最后一步最容易漏：任务完成、急着汇报时正是漏收口的时刻（实测多次）。写终答前先看清单的最后一次回执，只要有任何一项不是 [x]/[✗]（**尤其是刚回来的最后一步**），先补一次 todo write 收口再答；没做收口的回答视为不合规。
+- planTask 会把清单落盘并在结果里返回「计划已保存: 路径」。会话中断/接续时可委托 fileAgent 读取该文件，先对齐进度再继续。
+- 全部完成后，逐条对照各项判据自查，在终答里逐项报告：达成 / 未达成及原因。"/>
     </modulesParams>
 
 </moduleConfig>

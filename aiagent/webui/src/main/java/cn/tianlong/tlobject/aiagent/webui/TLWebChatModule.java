@@ -15,6 +15,7 @@ import com.google.gson.Gson;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -78,6 +79,21 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private final Map<String, String> sessionLogin = new ConcurrentHashMap<>();
     /** userId → 前端当前打开的会话（setCurrentSession 上报；定时任务执行期解析目标会话用） */
     private final Map<String, String> currentSessionByUser = new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * sessionId → 该会话最近一次任务清单事件（todoEvent 的 evt，前端直接渲染用）。
+     * 事件是一次性推送：页面刷新/SSE 断线重连期间发布的清单若不留档就再也见不到，
+     * 故与未决审批同思路做"通道建立时重放"；同一会话只留最新（后到覆盖先到）。
+     * 有界（只保最近 {@link #TODO_CACHE_MAX} 个会话）：清单是小事件但会话可无限新建，
+     * 不设上限等于随会话数无限增长；LinkedHashMap 插入序淘汰最老的，重放只要最新值不受影响。
+     */
+    private static final int TODO_CACHE_MAX = 200;
+    private final Map<String, Map<String, Object>> lastTodoBySession =
+            Collections.synchronizedMap(new LinkedHashMap<String, Map<String, Object>>(16, 0.75f, false) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Map<String, Object>> eldest) {
+                    return size() > TODO_CACHE_MAX;
+                }
+            });
     /** 离线消息箱存储（DB 后端，表声明见 database_config.xml 的 aiInbox） */
     private final InboxStore inboxStore = new InboxStore(this);
 
@@ -131,6 +147,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             // ===== 会话标题（agent 首轮自动起名 / 手动改名后广播）=====
             case "sessionTitle":
                 return onSessionTitleEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            // ===== 任务清单变更（TLTodoSkill 每次 write 发布；前端输入区上方清单条实时刷新）=====
+            case "todoEvent":
+                return onTodoEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -460,6 +479,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         // 不清则退出后任务仍判"在线"，离线消息箱永远收不到东西
         currentSessionByUser.remove(userId);
         rejectPendingApprovals(userId);   // 退出即拒该用户未决审批（不等 5 分钟超时，安全默认）
+        clearTodoCacheOf(userId);         // 任务清单缓存同理：换用户/重登不串上一用户的清单
         // 释放本登录占用的会话（loginId 为空则释放该用户全部占用，兼容旧前端）；
         // 只动属于当前用户的会话（sessionOwner 归属校验），其他登录/用户的占用保留
         String loginId = msg.getStringParam("loginId", "");
@@ -655,6 +675,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
         // 重进/重连：审批事件只发布一次，断线后补推该用户的未决审批（弹框重现）
         replayPendingApprovals(userId, channel);
+        // 任务清单同理：todoEvent 只推一次，刷新/重连后按缓存补推该用户各会话的最新清单
+        replayTodoStates(userId, channel);
         if (channel != null) channel.awaitClosed();
         return null;
     }
@@ -705,6 +727,33 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             } catch (Exception e) {
                 putLog("拒绝审批失败: " + e, LogLevel.WARN);
             }
+        }
+    }
+
+    /** 退出登录：清掉该用户的任务清单缓存（按事件自带 userId 与 sessionBelongsTo 双重匹配） */
+    private void clearTodoCacheOf(String userId) {
+        synchronized (lastTodoBySession) {
+            lastTodoBySession.entrySet().removeIf(e ->
+                    userId.equals(String.valueOf(e.getValue().get("userId"))) || sessionBelongsTo(e.getKey(), userId));
+        }
+    }
+
+    /**
+     * 事件通道建立后重放该用户各会话最近一次任务清单（前端清单条立即重现；无清单的会话不发）。
+     * 归属过滤用"事件自带 userId 或 sessionBelongsTo 二者其一命中"（与 {@link #clearTodoCacheOf} 同一口径）：
+     * 不能只认 sessionBelongsTo——自定义会话ID（顶栏手输，非 webchat_ 前缀）在流式回合结束后
+     * sessionOwner 条目已被清理，单靠它会重放不出来（清单缓存白留，用户刷新后清单条消失）。
+     */
+    private void replayTodoStates(String userId, TLWebChannel channel) {
+        if (channel == null) return;
+        List<Map<String, Object>> snapshot;
+        synchronized (lastTodoBySession) {   // synchronizedMap 的遍历需手动加锁
+            snapshot = new ArrayList<>(lastTodoBySession.values());
+        }
+        for (Map<String, Object> evt : snapshot) {
+            if (!userId.equals(String.valueOf(evt.get("userId")))
+                    && !sessionBelongsTo(String.valueOf(evt.get("sessionId")), userId)) continue;
+            channel.write(GSON.toJson(evt));
         }
     }
 
@@ -783,6 +832,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("destination", "taskResult").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "sessionTitle").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "todoEvent").setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
@@ -1023,6 +1074,36 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return sent;
     }
 
+    /**
+     * 任务清单事件（msgBus 回调：TLTodoSkill 每次 write 发布）：
+     * 按事件自带的 userId 推给其全部 SSE 连接（与 sessionTitle/taskStarted 同口径；userId 缺失时
+     * 回退用 sessionOwner 定位属主）；同时留档到 {@link #lastTodoBySession} 供断线重连重放。
+     * 路由用 userId 而非 streamWriters 的 streamKey：事件通道（/api/events）按 userId 建、与流式通道无关。
+     *
+     * @return 是否真的推给了至少一条打开的连接（无人打开页面时事件静默丢弃，靠重放兜底）
+     */
+    private boolean onTodoEvent(TLMsg msg) {
+        String sid = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", "");
+        if (userId.isEmpty() && !sid.isEmpty()) userId = sessionOwner.getOrDefault(sid, "");
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", "todo");
+        evt.put("sessionId", sid);
+        evt.put("userId", userId);
+        evt.put("text", msg.getStringParam("text", ""));
+        evt.put("pendingCount", msg.getIntParam("pendingCount", 0));
+        evt.put("inProgressCount", msg.getIntParam("inProgressCount", 0));
+        evt.put("completedCount", msg.getIntParam("completedCount", 0));
+        evt.put("failedCount", msg.getIntParam("failedCount", 0));
+        if (!sid.isEmpty()) lastTodoBySession.put(sid, evt);   // 先留档再推送：推送失败（无通道）也得能重放
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        boolean sent = false;
+        if (list != null) for (TLWebChannel c : list) {
+            if (c.isOpen()) { c.write(GSON.toJson(evt)); sent = true; }
+        }
+        return sent;
+    }
+
     /** 前端上报当前打开的会话（页面加载/切会话/开新会话时调用；只记内存，不落盘） */
     private TLMsg onSetCurrentSession(TLMsg msg) {
         String userId = msg.getStringParam("userId", "");
@@ -1239,6 +1320,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 订阅会话标题事件被拒绝", LogLevel.WARN);
             else
                 putLog("webui 已订阅会话标题事件（msgBus sessionTitle）", LogLevel.INFO);
+            // 任务清单变更事件（TLTodoSkill 每次 write 发布）
+            TLMsg todoRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "todoEvent").setParam("object", this));
+            if (todoRegMsg == null || !Boolean.TRUE.equals(todoRegMsg.getParam(RESULT)))
+                putLog("webui 订阅任务清单事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅任务清单事件（msgBus todoEvent）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("msgBus 订阅事件失败: " + e, LogLevel.WARN);
         }
