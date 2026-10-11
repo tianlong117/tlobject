@@ -240,6 +240,18 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
         return TLFunctionDefinition.fromSkill(skillName, effectiveSkillDescription(), parameterSchema);
     }
 
+    // ======================== 工具方法 ========================
+
+    /** 安全字符串化：null → def；String 原样；非字符串（Gson 数字为 Double、布尔）→ String.valueOf。
+     *  普通 (String) 强转遇非字符串会 CCE——若发生在 execute 的 try 之外，会逃出技能层
+     *  经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）终止整个应用。
+     *  注：数字经 String.valueOf 得 "42.0"（Gson Double），如需 JSON 原文保真另议。 */
+    protected static String asString(Object raw, String def) {
+        if (raw == null) return def;
+        if (raw instanceof String) return (String) raw;
+        return String.valueOf(raw);
+    }
+
     // ======================== getters/setters ========================
 
     public String getSkillName() { return skillName; }

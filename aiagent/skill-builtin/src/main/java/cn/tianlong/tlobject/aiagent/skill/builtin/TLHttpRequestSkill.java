@@ -96,10 +96,14 @@ public class TLHttpRequestSkill extends TLBaseSkill {
             if (msg.containsParam("body")) input.put("body", msg.getStringParam("body", ""));
         }
 
-        String url = (String) input.getOrDefault("url", "");
-        String method = (String) input.getOrDefault("method", "GET");
-        Map<String, Object> headers = (Map<String, Object>) input.getOrDefault("headers", new LinkedHashMap<>());
-        String body = (String) input.getOrDefault("body", "");
+        // asString（非 (String) 强转）：LLM 发数字/布尔时 Gson 解析为 Double/Boolean，强转 CCE 会逃出
+        // execute 经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）终止整个应用
+        String url = asString(input.getOrDefault("url", ""), "");
+        String method = asString(input.getOrDefault("method", "GET"), "GET");
+        // headers 的 Map 强转同理：非 Map 值（如数字）强转 CCE 同样会杀死应用；非 Map 按"未传"处理
+        Object headersRaw = input.getOrDefault("headers", new LinkedHashMap<>());
+        Map<String, Object> headers = headersRaw instanceof Map ? (Map<String, Object>) headersRaw : new LinkedHashMap<>();
+        String body = asString(input.getOrDefault("body", ""), "");
 
         if (url.isEmpty()) {
             return createMsg().setParam(RESULT, false)
@@ -147,6 +151,13 @@ public class TLHttpRequestSkill extends TLBaseSkill {
             putLog("HTTP Skill error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "HTTP request failed: " + e.getMessage());
+        } catch (IllegalArgumentException e) {
+            // 字符串化后的数字 url（如 "123"）/ 非法请求头名：OkHttp 抛 IllegalArgumentException——
+            // 它是 RuntimeException，不在 IOException 捕获范围内，会逃出 execute 经框架异常链
+            // （无 exceptionHandler 时 moduleFactory.shutdown(-1)）杀死整个应用；转成优雅报错
+            putLog("HTTP Skill error: " + e.toString(), LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "HTTP request failed (invalid url or headers): " + e.getMessage());
         }
     }
 }

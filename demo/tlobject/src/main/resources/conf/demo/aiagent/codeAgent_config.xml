@@ -7,6 +7,10 @@
         <defaultLlmProvider value="openAiProvider"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <!-- defaultMaxTokens: 单次 LLM 回复输出上限。生成脚本/大文件时正文装在代码参数里，
+             4096 写长脚本会被截断（实测连撞 3 次 4096 后耗尽迭代）；8192 减半往返次数。
+             子 agent 调用不走主 agent 的 maxTokens（executeAsTool 不透传），此处生效 -->
+        <defaultMaxTokens value="8192"/>
         <!-- HITL 审批由共享执行器全局启用（toolExecutor_config.xml），规则按工具名匹配 -->
         <!-- 不走意图缓存：带审批门禁的工具操作不得被学习/命中缓存 -->
         <intentCache value="false"/>

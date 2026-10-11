@@ -86,8 +86,10 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             if (msg.containsParam("code")) input.put("code", msg.getStringParam("code", ""));
         }
 
-        String language = (String) input.getOrDefault("language", "python");
-        String code = (String) input.getOrDefault("code", "");
+        // asString（非 (String) 强转）：LLM 发数字/布尔时 Gson 解析为 Double/Boolean，强转 CCE 会逃出
+        // execute 经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）终止整个应用
+        String language = asString(input.getOrDefault("language", "python"), "python");
+        String code = asString(input.getOrDefault("code", ""), "");
 
         if (code.isEmpty()) {
             return createMsg().setParam(RESULT, false)

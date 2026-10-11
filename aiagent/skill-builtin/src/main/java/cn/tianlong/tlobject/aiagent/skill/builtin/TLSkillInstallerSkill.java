@@ -127,8 +127,22 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     protected TLMsg execute(Object fromWho, TLMsg msg) {
+        // 顶层兜底（与 file_operation 同款）：execute 内任何未预期异常/Error 都不得逃出——
+        // 逃出会经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）杀死整个应用。
+        // IOError 是 Error 族（盘符相对路径 toAbsolutePath 等）；getMessage() 为 null 时退化为类名
+        try {
+            return executeInternal(fromWho, msg);
+        } catch (Exception | java.io.IOError e) {
+            putLog("SkillInstaller error: " + e.toString(), LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "install_skill failed: "
+                            + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private TLMsg executeInternal(Object fromWho, TLMsg msg) {
         // 1. 提取参数
         Map<String, Object> input = (Map<String, Object>) msg.getMapParam(AI_P_SKILLINPUT, new LinkedHashMap<>());
         if (input.isEmpty()) {
@@ -145,12 +159,16 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
                 input.put("max_execution_time", msg.getIntParam("max_execution_time", DEFAULT_MAX_EXECUTION_TIME));
         }
 
-        String scriptPath = (String) input.getOrDefault("script_path", "");
-        String skillName = (String) input.getOrDefault("skill_name", "");
-        String skillDescription = (String) input.getOrDefault("skill_description", "");
-        String interpreter = (String) input.getOrDefault("interpreter", "");
-        int maxExecutionTime = input.get("max_execution_time") instanceof Integer
-                ? (Integer) input.get("max_execution_time")
+        // asString（非 (String) 强转）：LLM 发数字/布尔时 Gson 解析为 Double/Boolean，强转 CCE 会逃出
+        // execute 经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）终止整个应用
+        String scriptPath = asString(input.getOrDefault("script_path", ""), "");
+        String skillName = asString(input.getOrDefault("skill_name", ""), "");
+        String skillDescription = asString(input.getOrDefault("skill_description", ""), "");
+        String interpreter = asString(input.getOrDefault("interpreter", ""), "");
+        // Number（不是 Integer）：真实链路 Gson 把 JSON 数字解析为 Double，instanceof Integer 恒 false
+        // → 传了 60.0 也会被静默忽略回落 120
+        int maxExecutionTime = input.get("max_execution_time") instanceof Number
+                ? ((Number) input.get("max_execution_time")).intValue()
                 : DEFAULT_MAX_EXECUTION_TIME;
 
         // 2. 校验必填参数
@@ -168,16 +186,27 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         }
 
         // 4. 校验脚本文件
-        Path sourceScript = Paths.get(scriptPath);
-        if (!Files.exists(sourceScript)) {
-            return fail("脚本文件不存在: " + sourceScript.toAbsolutePath());
+        // 从 LLM 输入构造 Path 的全过程必须包住：非法字符（* | " < > ?、NUL）抛 InvalidPathException
+        // （IllegalArgumentException 族），盘符相对路径（如 a:b.py）在取绝对路径时抛 IOError（Error 族）——
+        // 两者都会逃出 execute 经框架链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）杀死整个应用
+        Path sourceScript;
+        String fileName;
+        String ext;
+        try {
+            sourceScript = Paths.get(scriptPath);
+            if (!Files.exists(sourceScript)) {
+                return fail("脚本文件不存在: " + safeAbs(sourceScript));
+            }
+            if (!Files.isRegularFile(sourceScript)) {
+                return fail("路径不是文件: " + safeAbs(sourceScript));
+            }
+            // 检查是否是二进制文件（文件名的推导同样源自 LLM 输入，留在同一守卫块内）
+            fileName = sourceScript.getFileName().toString();
+            ext = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf('.')).toLowerCase() : "";
+        } catch (Exception | java.io.IOError e) {
+            String why = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
+            return fail("script_path 无效: " + scriptPath + " (" + why + ")");
         }
-        if (!Files.isRegularFile(sourceScript)) {
-            return fail("路径不是文件: " + sourceScript.toAbsolutePath());
-        }
-        // 检查是否是二进制文件
-        String fileName = sourceScript.getFileName().toString();
-        String ext = fileName.contains(".") ? fileName.substring(fileName.lastIndexOf('.')).toLowerCase() : "";
         if (BINARY_EXTENSIONS.contains(ext)) {
             return fail("不支持的文件类型: " + ext + "（二进制/编译文件不能安装为 Skill）");
         }
@@ -204,14 +233,14 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
 
         // 7. 检查是否已存在
         if (Files.exists(skillsDir)) {
-            return fail("Skill 目录已存在: " + skillsDir.toAbsolutePath()
+            return fail("Skill 目录已存在: " + safeAbs(skillsDir)
                     + "。如果要覆盖，请先手动删除或使用 /uninstall -s " + skillName);
         }
 
         // 8. 创建目录结构
         try {
             Files.createDirectories(scriptsDir);
-            putLog("创建目录: " + scriptsDir.toAbsolutePath(), LogLevel.DEBUG);
+            putLog("创建目录: " + safeAbs(scriptsDir), LogLevel.DEBUG);
         } catch (IOException e) {
             return fail("创建目录失败: " + e.getMessage());
         }
@@ -220,7 +249,7 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         Path destScript = scriptsDir.resolve(fileName);
         try {
             Files.copy(sourceScript, destScript, StandardCopyOption.REPLACE_EXISTING);
-            putLog("复制脚本: " + sourceScript.toAbsolutePath() + " → " + destScript.toAbsolutePath(), LogLevel.DEBUG);
+            putLog("复制脚本: " + safeAbs(sourceScript) + " → " + safeAbs(destScript), LogLevel.DEBUG);
         } catch (IOException e) {
             // 清理已创建的目录
             try { Files.deleteIfExists(destScript); } catch (IOException ignored) {}
@@ -234,7 +263,7 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         Path skillMdPath = skillsDir.resolve("SKILL.md");
         try {
             Files.write(skillMdPath, skillMdContent.getBytes(StandardCharsets.UTF_8));
-            putLog("生成 SKILL.md: " + skillMdPath.toAbsolutePath(), LogLevel.DEBUG);
+            putLog("生成 SKILL.md: " + safeAbs(skillMdPath), LogLevel.DEBUG);
         } catch (IOException e) {
             return fail("生成 SKILL.md 失败: " + e.getMessage());
         }
@@ -314,6 +343,20 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         sb.append("需要 ").append(interpreter).append(" 环境。\n");
 
         return sb.toString();
+    }
+
+    /**
+     * 安全取绝对路径串（消息/日志构造专用）。盘符相对路径（如 a:b.py 且 A: 不存在）调
+     * {@code toAbsolutePath()} 会抛 IOError（Error 族）——报错信息构造本身不能反过来把链路搞崩；
+     * 取不到绝对路径就退化为原路径串。
+     */
+    private static String safeAbs(Path p) {
+        if (p == null) return "";
+        try {
+            return p.toAbsolutePath().toString();
+        } catch (Exception | java.io.IOError e) {
+            return p.toString();
+        }
     }
 
     /** 快捷失败响应 */

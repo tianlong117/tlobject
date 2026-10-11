@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 编码子Agent：写→改→跑→验证 的自循环 =====
+         与 fileAgent（单工具纪律、不执行脚本）、codeAgent（一次性脚本/计算）职责分离 -->
+    <params>
+        <!-- 借主控的 provider（fileAgent 同款，省去重复配 key） -->
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
+        <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
+        <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
+        <!-- 写代码用：正文装工具参数里，4096 会撞截断；8192 已验证 -->
+        <defaultMaxTokens value="8192"/>
+        <!-- 编码循环长（读→改→跑→修），默认 10 不够 -->
+        <maxToolCallIterations value="40"/>
+        <intentCache value="false"/>
+    </params>
+    <skills>
+        <skill name="fileOperationSkill"
+               sameClassAs="fileOperationSkill"
+               statup="true"
+               skillName="file_operation"
+               allowedRootPath="."
+               timeout="120"
+               skillDescription="Read, write and edit files on the local filesystem. Operations: read (pass offset/limit to read a RANGE of a large file, output has line numbers; the 'N| ' prefix is display-only - do not copy it into old_string), write, edit (exact old_string->new_string replace; add context if not unique; set replace_all; prefer edit over write for existing files - never rewrite a whole file for a small change), list, exists, delete, search (regex content search, optional glob filter, default skips .git/node_modules/target dirs), glob (find files by pattern like **/*.py). Set backup=true on write/edit to keep a &lt;file>.bak. After changing code, run it to verify."/>
+        <!-- maxExecutionTime：单次执行超时秒数（默认 code 30s/script 60s 对"跑测试/跑程序"太短——
+             编码循环里真实测试套件常超 60s，300s 仍是有界兜底） -->
+        <skill name="codeExecutionSkill"
+               sameClassAs="codeExecutionSkill"
+               statup="true"
+               skillName="code_execution"
+               maxExecutionTime="300"
+               skillDescription="Execute inline code snippets in Python or JavaScript."/>
+        <!-- allowedScriptDir：注意相对路径（含默认 "."）是相对**配置目录**解析（不是进程工作目录）——
+             要让编码 Agent 跑你项目里的脚本，请改成项目根目录的绝对路径，如
+             allowedScriptDir="D:/myproject"（不改则模型会退回 code_execution 子进程方式执行，仍可用但多绕一步） -->
+        <skill name="scriptExecutionSkill"
+               sameClassAs="scriptExecutionSkill"
+               statup="true"
+               skillName="script_execution"
+               maxExecutionTime="300"
+               allowedScriptDir="."
+               skillDescription="Execute an existing script file (.py, .sh, .js etc.) and return its output."/>
+    </skills>
+    <memoryStores>
+        <memoryStore name="longTermMemory"
+                     sameClassAs="longTermMemory"
+                     statup="true"
+                     memoryType="longTerm"
+                     maxCacheEntries="10000"/>
+    </memoryStores>
+</moduleConfig>

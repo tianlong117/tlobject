@@ -171,8 +171,10 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                 input.put("arguments", msg.getStringParam("arguments", ""));
         }
 
-        String scriptPath = (String) input.getOrDefault("script_path", "");
-        String arguments = (String) input.getOrDefault("arguments", "");
+        // asString（非 (String) 强转）：LLM 发数字/布尔时 Gson 解析为 Double/Boolean，强转 CCE 会逃出
+        // execute 经框架异常链（无 exceptionHandler 时 moduleFactory.shutdown(-1)）终止整个应用
+        String scriptPath = asString(input.getOrDefault("script_path", ""), "");
+        String arguments = asString(input.getOrDefault("arguments", ""), "");
 
         if (scriptPath.isEmpty()) {
             return createMsg().setParam(RESULT, false)
@@ -214,10 +216,14 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                     .setParam(AI_P_SKILLOUTPUT, "Error: invalid script_path '" + scriptPath
                             + "'. allowedDir=" + resolveScriptDir()
                             + ". Must be a script file name. " + availableScriptsHint());
-        } catch (Exception e) {
+        } catch (Exception | java.io.IOError e) {
+            // IOError 是 Error 族（盘符相对路径如 "a:b.py"：WindowsPath.toAbsolutePath 取不到 A: 的
+            // 工作目录即抛），catch(Exception) 接不住，会逃出 execute 经框架链（无 exceptionHandler
+            // 时 moduleFactory.shutdown(-1)）杀死应用；getMessage() 为 null 时退化为类名
             putLog("Script Execution error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_SKILLOUTPUT, "Execution error: " + e.getMessage());
+                    .setParam(AI_P_SKILLOUTPUT, "Execution error: "
+                            + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
     }
 

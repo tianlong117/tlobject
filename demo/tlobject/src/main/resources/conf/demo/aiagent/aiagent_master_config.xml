@@ -194,7 +194,12 @@
                sameClassAs="aiagent"
                configfile="codeAgent_config.xml"
                statup="true"
-               description="代码执行专家，执行 Python/JS 代码和脚本文件。仅用于需要写代码才能完成的计算/分析/算法任务。网页访问请用 browser，文件操作请用 fileAgent。"/>
+               description="代码执行专家，执行 Python/JS 代码和脚本文件。仅用于需要写代码才能完成的计算/分析/算法任务。仅用于一次性执行、不需要迭代调试；需要&quot;改到跑通&quot;的编码任务用 codingAgent。网页访问请用 browser，文件操作请用 fileAgent。"/>
+
+        <agent name="codingAgent"
+               sameClassAs="aiagent"
+               statup="true"
+               description="编码专家：编写、修改、运行并验证代码（自带调试循环）。当任务需要写程序、改代码、跑通验证时使用；单纯文件读写用 fileAgent，一次性计算/生成脚本用 codeAgent。"/>
 
         <agent name="priceTeam"
                sameClassAs="agentGroup"
