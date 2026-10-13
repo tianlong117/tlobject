@@ -52,6 +52,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 待发附件绝对路径（/img 累积，随下一条消息发出后自动清空） */
     private final List<String> pendingAttachments = new ArrayList<>();
     private boolean streamMode = false;
+    // 不要直接打印 prompt——统一走 promptText()（含 [自动] 标记）
     private String prompt = "你 > ";
     private volatile boolean running = false;
     /** 推理展示：是否折叠推理内容（默认折叠，展开后可查看完整思考链） */
@@ -71,7 +72,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private static final int MAX_HISTORY = 200;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
-    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO }
+    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO, INT }
 
     private static final class ConsoleEvent {
         final EventType type;
@@ -87,6 +88,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     // volatile，这里原来漏了；不加的话 reader 可能读到陈旧的 false 而漏发停止信号
     private volatile boolean busy = false;
     private boolean drainInput = false;
+    /** Ctrl+C 信号处理（主线程）置位：读线程在下一次读到时先清空编辑中的行（line 缓冲归读线程独占） */
+    private volatile boolean clearLineRequested = false;
     private long currentStart = 0L;
     private Thread readerThread;
     private ThreadTask currentTask;
@@ -159,12 +162,17 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case STREAM_ONCHUNK:
                 onStreamChunkEvent(msg);
                 break;
-            case "approvalEvent":
+            case "approvalEvent": {
+                // 2026-10-13：事件按 userId 过滤——总线是进程级的，其他用户（webui）的审批不得打到
+                // 本控制台（同 taskResult 口径，宁缺勿串）；缺 userId 时不展示，发布方会回退直接打印。
                 // 审批事件（经 msgBus 订阅）：主循环渲染审批框并重打提示符，无需回车。
                 // ack 只在控制台真的在跑时才给（非 null=已处理），否则事件排进没人消费的队列，
                 // 发布方却以为有人渲染了 —— 返回 null 让它回退到直接打印
+                String evtUser = msg.getStringParam("userId", "");
+                if (!userId.equals(evtUser)) return null;
                 offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
                 return running ? createMsg().setParam(RESULT, true) : null;
+            }
             case "taskResult": {
                 // 事件按 userId 过滤：事件总线是进程级的，web/其他用户的任务结果不得打到本控制台
                 // （本控制台用户以启动时的 userId 为准；事件 userId 缺失时不展示，宁缺勿串）
@@ -259,6 +267,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .streams(System.in, System.out)
                     .build();
             terminal.enterRawMode();
+            // Ctrl+C 在 Windows 控制台 raw 模式下是"控制台信号"而非字符 3（JLine 原生处理器先截获；
+            // 不注册监听则应用完全收不到——实测见 smoke/console/JlineRawProbe：raw 后 ENABLE_PROCESSED_INPUT
+            // 仍置位、注入真实按键只触发 Signal.INT、JVM 不退出）。注册后接成"中断"语义（同 /stop），应用不再退出。
+            terminal.handle(Terminal.Signal.INT, sig -> offer(new ConsoleEvent(EventType.INT, null, null)));
         } catch (Exception e) {
             System.out.println("终端初始化失败，回退到行模式（ESC 不可用）: " + e.getMessage());
             startConsoleFallback();
@@ -295,14 +307,32 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             try {
                 while (running) {
                     int ch = termReader.read();
+                    if (clearLineRequested) {          // Ctrl+C（信号路径）：清空编辑中的行
+                        clearLineRequested = false;
+                        line.setLength(0);
+                        cursorPos = 0;
+                        redrawLine(line, cursorPos);
+                    }
                     if (ch < 0) {
                         if (running) offer(new ConsoleEvent(EventType.INPUT, "/exit", null));
                         break;
                     }
                     if (ch == 3 || ch == 4) {
-                        if (busy) sendStopSignal();
-                        running = false;
-                        break;
+                        // Ctrl+C / Ctrl+D：中断语义（同 /stop），清空当前输入行；不再退出应用。
+                        // 2026-10-13 前此处直接 running=false 静默退出整个应用（raw 模式下 Ctrl+C 以字符 3
+                        // 送达、非 SIGINT，零日志退出——用户误按即"应用莫名 shutdown"）；退出统一走 /exit、/quit
+                        line.setLength(0);
+                        cursorPos = 0;
+                        if (busy) {
+                            // 交给主线程走 /stop 的既有分支（含暂停态的 cancelTask / 状态复位，避免直接碰主循环状态）
+                            offer(new ConsoleEvent(EventType.INPUT, "/stop", null));
+                        } else {
+                            System.out.print("\r\033[K");
+                            System.out.println("（Ctrl+C 中断，不再退出应用；退出请用 /exit）");
+                            printPrompt();
+                            System.out.flush();
+                        }
+                        continue;
                     }
                     if (ch == 27) {
                         int peeked;
@@ -439,6 +469,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             switch (e.type) {
                 case INPUT:      handleInput(e.text); break;
                 case STOP:       handleStopSignal(); break;
+                case INT:        handleInterruptRequest(); break;
                 case RESULT:     onChatResult(e.msg); break;
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
                 case STREAM_END: onStreamEnd(e.text,
@@ -615,7 +646,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
      */
     private void redrawLine(StringBuilder line, int cursorPos) {
         System.out.print("\r\033[K");  // 回行首 + 清除到行尾
-        System.out.print(prompt);
+        System.out.print(promptText());
         System.out.print(line.toString());
         // 把光标移回正确位置（按显示列宽计算）
         int afterCursor = visualWidth(line, cursorPos, line.length());
@@ -655,7 +686,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 busy = false;
                 currentTask = null;
                 paused = false;
-            } else if (input.toLowerCase().startsWith("/approve")) {
+            } else if (input.toLowerCase().startsWith("/approve")
+                    || input.toLowerCase().startsWith("/auto")
+                    || input.toLowerCase().startsWith("/permissions")) {
+                // 运行中也放行：审批决策与权限管理正是等待审批时用户要做的事
                 executeServiceCommand(parseCommand(input));
             } else if (!input.isEmpty()) {
                 System.out.println("⏳ 运行中，按 ESC 或输入 /stop 可中断当前对话");
@@ -797,7 +831,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String resumeMsg2 = pendingCheckpointUserMessage;
                     pendingCheckpointSessionId = null;
                     pendingCheckpointUserMessage = null;
-                    sessionId = resumeSid;
+                    switchSession(resumeSid);
                     busy = true;
                     currentStart = System.currentTimeMillis();
                     IObject target = (IObject) getModule(serviceModule);
@@ -909,10 +943,50 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case "approve":
                 // /approve approve:ID[:modifiedArgs] 或 /approve reject:ID:原因
                 if (parts.length < 2) {
-                    System.out.println("格式: /approve approve:ID 或 /approve reject:ID:原因");
+                    System.out.println("格式: /approve approve:ID | round:ID | session:ID | reject:ID:原因");
                     return null;
                 }
                 return parseApproveCommand(input);
+
+            case "auto": {
+                // /auto on|off|status —— 本会话全部工具免审批（= 通配授权 ruleId="*"）
+                if (parts.length > 1 && ("on".equalsIgnoreCase(parts[1]) || "off".equalsIgnoreCase(parts[1]))) {
+                    msg.setAction("auto").setParam("sub", parts[1].toLowerCase());
+                } else if (parts.length == 1) {
+                    msg.setAction("auto").setParam("sub", "status");
+                } else {
+                    System.out.println("用法: /auto on | /auto off | /auto（查看状态）");
+                    return null;
+                }
+                msg.setParam(AI_P_SESSIONID, sessionId).setParam("userId", userId);
+                break;
+            }
+
+            case "permissions": {
+                // /permissions [-a] | revoke <规则>[:操作] [-s 会话] | grant <规则>[:操作] | clear
+                String sub = "list";
+                boolean all = false;
+                String rule = "", op = "", targetSid = sessionId;
+                for (int i = 1; i < parts.length; i++) {
+                    String p = parts[i];
+                    if ("-a".equals(p)) { all = true; }
+                    else if ("-s".equals(p)) {
+                        if (i + 1 >= parts.length) { System.out.println("-s 需要一个会话ID"); return null; }
+                        targetSid = parts[++i];
+                    }
+                    else if ("list".equals(p) || "revoke".equals(p) || "grant".equals(p) || "clear".equals(p)) { sub = p; }
+                    else if (!p.startsWith("-")) {
+                        int c = p.indexOf(':');
+                        if (c > 0) { rule = p.substring(0, c); op = p.substring(c + 1); }
+                        else rule = p;
+                    }
+                }
+                // sessionId 必须走 args（gate 侧读 args，缺了 clear 会报"缺少 sessionId"）
+                msg.setAction("permissions").setParam("sub", sub).setParam("all", all)
+                        .setParam("ruleId", rule).setParam("operation", op)
+                        .setParam(AI_P_SESSIONID, targetSid).setParam("userId", userId);
+                break;
+            }
 
             case "eval":
                 msg.setAction("eval");
@@ -1065,6 +1139,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         TLMsg msg = createMsg().setAction("approve");
 
+        // round:ID / session:ID —— 批准并把同规则免审授权扩到本轮/本会话（可带 :jsonArgs 修改参数）
+        if (payload.startsWith("round:") || payload.startsWith("session:")) {
+            boolean isRound = payload.startsWith("round:");
+            String[] subParts = payload.substring(payload.indexOf(':') + 1).split(":", 2);
+            msg.setParam("subAction", "approve");
+            msg.setParam("approvalId", subParts[0].trim());
+            msg.setParam("approvalScope", isRound ? "round" : "session");
+            // 注意：gate 侧"非 once + 改参数"会被拒绝（授权只记规则+操作）——
+            // 这里仍保留解析以统一四形态输入，错误信息由 gate 回传
+            if (subParts.length > 1 && !subParts[1].trim().isEmpty()) {
+                try {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> modifiedArgs = new com.google.gson.Gson().fromJson(subParts[1].trim(), Map.class);
+                    msg.setParam("approvalModifiedArguments", modifiedArgs);
+                } catch (Exception ignored) {}
+            }
+            return msg;
+        }
+
         if (payload.startsWith("approve:")) {
             String[] subParts = payload.substring("approve:".length()).split(":", 2);
             msg.setParam("subAction", "approve");
@@ -1082,7 +1175,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             msg.setParam("approvalId", subParts[0].trim());
             msg.setParam("reason", subParts.length > 1 ? subParts[1].trim() : "用户拒绝");
         } else {
-            System.out.println("未知审批操作: " + payload + "  (可用: approve:ID, reject:ID:原因)");
+            System.out.println("未知审批操作: " + payload
+                    + "  (可用: approve:ID, round:ID, session:ID, reject:ID:原因)");
             return null;
         }
         return msg;
@@ -1246,7 +1340,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (data != null) {
                     String targetId = (String) data.get("sessionId");
                     int count = data.get("count") instanceof Integer ? (Integer) data.get("count") : 0;
-                    sessionId = targetId;
+                    switchSession(targetId);
                     System.out.println("✓ 会话 " + sessionId + " 已恢复 (" + count + " 条):");
                     // 打印历史
                     @SuppressWarnings("unchecked")
@@ -1325,13 +1419,29 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "session":
                     String newId = data instanceof String ? (String) data : null;
                     if (newId != null) {
-                        sessionId = newId;
+                        switchSession(newId);
                         System.out.println("✓ 会话ID切换为: " + sessionId);
                     }
                     break;
                 case "approve":
                     System.out.println("✓ " + message);
                     break;
+                case "auto": {
+                    System.out.println(message);
+                    // data{on} 驱动提示符的 [自动] 标记（服务端为唯一事实源，本地只镜像显示）
+                    Object onObj = data instanceof Map ? ((Map<?, ?>) data).get("on") : null;
+                    autoRunOn = Boolean.TRUE.equals(onObj);
+                    break;
+                }
+                case "permissions": {
+                    System.out.println(message);
+                    // 变更类操作（revoke/grant/clear）可能移除"自动运行"通配授权 → 保守复位提示符标记；
+                    // 已知不同步场景：控制台重启、另一控制台/webui 改同会话（见 autoRunOn 字段注释）
+                    String sub = msg.getStringParam("sub", "list");
+                    if (!"list".equals(sub)) autoRunOn = false;
+                    if (data instanceof List && !((List<?>) data).isEmpty()) printGrantList((List<?>) data);
+                    break;
+                }
                 case "eval":
                     printEvalResult(data);
                     break;
@@ -1553,6 +1663,33 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("使用 /continue <id> 继续某个会话，或 /continue 恢复最近会话");
     }
 
+    /** /permissions 列表渲染：范围/规则/操作/会话/时间 + 可复制 revoke 命令 */
+    @SuppressWarnings("unchecked")
+    private void printGrantList(List<?> data) {
+        if (data.isEmpty()) { System.out.println("  (无授权)"); return; }
+        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("MM-dd HH:mm");
+        int i = 1;
+        for (Object o : data) {
+            if (!(o instanceof Map)) continue;
+            Map<String, Object> g = (Map<String, Object>) o;
+            String scope = "session".equals(String.valueOf(g.get("scope"))) ? "本会话" : "本轮";
+            long ts = g.get("grantedAt") instanceof Number ? ((Number) g.get("grantedAt")).longValue() : 0L;
+            String time = ts > 0 ? sdf.format(new java.util.Date(ts)) : "未知";
+            // 注意 String.valueOf(null)="null" 会污染可复制的 revoke 命令，先归一空串
+            String rule = g.get("ruleId") == null ? "" : String.valueOf(g.get("ruleId"));
+            String op = g.get("operation") == null ? "" : String.valueOf(g.get("operation"));
+            System.out.println("  " + (i++) + ". [" + scope + "] " + g.get("display")
+                    + "  session=" + g.get("sessionId") + "  " + time);
+            if ("*".equals(rule)) {
+                System.out.println("     关闭: /auto off");
+            } else {
+                System.out.println("     revoke: /permissions revoke " + rule
+                        + (op.isEmpty() || "*".equals(op) ? "" : ":" + op)
+                        + " -s " + g.get("sessionId"));
+            }
+        }
+    }
+
     /** /tasks 列表渲染（data = 结构化任务 List；head 为服务层给的表头/提示文本） */
     @SuppressWarnings("unchecked")
     private void printTaskList(Object data, String head) {
@@ -1586,7 +1723,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         Map<String, Object> d = (Map<String, Object>) data;
         String targetId = (String) d.get("sessionId");
         int count = d.get("count") instanceof Integer ? (Integer) d.get("count") : 0;
-        sessionId = targetId;
+        switchSession(targetId);
         System.out.println("✓ 已恢复会话 " + targetId + " (" + count + " 条历史)，继续聊吧");
         List<?> history = (List<?>) d.get("history");
         if (history != null) {
@@ -1737,6 +1874,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     private void sendStopSignal() {
         offer(new ConsoleEvent(EventType.STOP, null, null));
+    }
+
+    /** Ctrl+C（信号路径，主线程执行）：清当前输入行 + 运行中则中断对话（同 /stop）；应用不退出（退出走 /exit） */
+    private void handleInterruptRequest() {
+        clearLineRequested = true;      // 读线程下一次读到输入时先清空编辑中的行
+        if (busy) {
+            handleInput("/stop");       // 走既有 /stop 分支（含暂停态清理与状态复位）
+        } else {
+            System.out.print("\r\033[K");
+            System.out.println("（Ctrl+C 中断，不再退出应用；退出请用 /exit）");
+            printPrompt();
+            System.out.flush();
+        }
     }
 
     // ======================== Chat 交互 ========================
@@ -2092,7 +2242,22 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     // ======================== 终端辅助 ========================
 
-    private void printPrompt() { System.out.print(prompt); }
+    /** 本会话自动运行状态（/auto 结果驱动；仅影响提示符显示）。
+     *  注意：这是本地镜像，服务端才是唯一真源——控制台重启、另一控制台/webui 改同会话时会不同步。
+     *  volatile：主循环线程写（命令回复渲染）、reader 线程读（按键重绘提示符），同 busy 的跨线程约束 */
+    private volatile boolean autoRunOn = false;
+
+    /** 切换当前会话：同步清掉 [自动] 标记（该标记是服务端会话级授权的镜像，换会话即失效） */
+    private void switchSession(String newSessionId) {
+        if (newSessionId == null || newSessionId.isEmpty()) return;
+        sessionId = newSessionId;
+        autoRunOn = false;
+    }
+
+    /** 实际提示符文本：自动运行开启时加 [自动] 标记（纯文本，代理对 emoji 在宽度计算里不可靠） */
+    private String promptText() { return autoRunOn ? "[自动] " + prompt : prompt; }
+
+    private void printPrompt() { System.out.print(promptText()); }
 
     /**
      * 把 todoEvent 的 text（TLTodoSkill 渲染好的清单原文，与 webui 同款）组织成控制台展示块：
@@ -2159,7 +2324,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 System.out.print("  " + padRight(m.getKey(), maxLen + 2) + m.getValue() + "\r\n");
             }
             System.out.print("\r\n");
-            System.out.print(prompt);
+            System.out.print(promptText());
             System.out.print(current);
             System.out.flush();
         }
@@ -2371,6 +2536,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /exit, /quit   退出控制台");
         System.out.println("  /stop          中断当前正在运行的对话");
         System.out.println("  ESC            按一下暂停，再按恢复；快速连按两下（500ms 内）中断（同 /stop）");
+        System.out.println("  Ctrl+C         清空当前输入行；运行中则中断对话（同 /stop）——不再退出应用");
         System.out.println("  ↑/↓ 方向键     翻阅输入历史（命令与会话内容均可回翻）");
         System.out.println("  意图缓存       重复任务首次由 LLM 路由并自动缓存，之后直接执行（provider 配 intentCacheProvider）");
         System.out.println("  /stream        切换流式/非流式模式");
@@ -2405,6 +2571,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /skills [ownerName]    列出已注册的Skill");
         System.out.println("  /param <工具名>        查看工具模块的参数");
         System.out.println("  /help                  显示此帮助");
+        System.out.println();
+        System.out.println("审批与授权:");
+        System.out.println("  /approve approve|round|session:<id>   批准（round=本轮同规则免审，session=本会话同规则免审）");
+        System.out.println("  /approve reject:<id>:原因             拒绝");
+        System.out.println("  /auto on|off           自动运行：本会话内所有工具调用免审批");
+        System.out.println("  /permissions [-a] [revoke|grant|clear]  查看/管理本会话的审批授权（-a=全部会话）");
         System.out.println();
         System.out.println("评测命令:");
         System.out.println("  /eval suite             运行全部评测用例");

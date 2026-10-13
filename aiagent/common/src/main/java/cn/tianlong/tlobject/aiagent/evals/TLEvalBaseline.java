@@ -96,8 +96,19 @@ public class TLEvalBaseline {
             // 只在两次都存在的用例上比较：新增用例没有基准可比，
             // 删掉的用例也不该被算成"回归"
             if (was == null) continue;
-            // 跳过的一遍没有结论，不参与比较：一次"没跑"既不是回归也不是改善
-            if (was.skipped || r.skipped) continue;
+            if (was.skipped) continue;   // 基准就是跳过：本次无从比较
+            if (r.skipped) {
+                // 通过 → 跳过 = 回归：验证消失（如环境判定失误吞掉用例）。
+                // 基线比较器若忽略它，"17/17 绿"在失败=0 的门禁下就不再证明这些用例真的跑了
+                if (was.passed) {
+                    TLEvalReport.Change c = change(r, was);
+                    if (c.reason == null || c.reason.isEmpty()) {
+                        c.reason = "原为通过，本次跳过（验证消失）";
+                    }
+                    s.regressions.add(c);
+                }
+                continue;
+            }
             s.baselineCompared++;
             if (was.passed && !r.passed) {
                 s.regressions.add(change(r, was));

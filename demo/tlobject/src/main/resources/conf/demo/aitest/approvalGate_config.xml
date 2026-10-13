@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== 测试用审批配置（独立 aiagent 测试实例专用） =====
+         审查人 = 测试专用：立即返回 pending、不阻塞、记录请求供场景断言。
+         生产配置见 conf/demo/aiagent/approvalGate_config.xml（ConsoleReviewer 阻塞式）。 -->
+    <params>
+        <reviewerClass value="cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer"/>
+        <reviewerStrategy value="sync"/>
+        <!-- 场景 approvalExpire 需要秒级超时（sleep 后断言 EXPIRED） -->
+        <approvalTimeoutMs value="3000"/>
+    </params>
+    <rules>
+        <rule name="file_operation"
+              statup="true"
+              description="删除/写入文件需要审批"
+              action="delete,write"/>
+        <!-- 前缀规则（通配）样例：mcp* 命中 mcpEchoTool 等 -->
+        <rule name="mcp*"
+              statup="true"
+              description="MCP 工具需要审批"
+              rule="*"/>
+    </rules>
+</moduleConfig>

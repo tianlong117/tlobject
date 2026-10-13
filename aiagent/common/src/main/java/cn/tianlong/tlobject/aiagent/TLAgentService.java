@@ -57,6 +57,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("deleteSession", "删除会话（记录 + 上下文，不可恢复）");
         ACTION_REGISTRY.put("renameSession", "会话改名（sessionId + 新标题）");
         ACTION_REGISTRY.put("approve", "审批操作（批准/拒绝）");
+        ACTION_REGISTRY.put("permissions", "审批授权管理（list|-a|revoke|grant|clear）");
+        ACTION_REGISTRY.put("auto", "自动运行开关（on|off，本会话工具免审批）");
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
@@ -134,6 +136,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
+            case "permissions":     return doPermissions(fromWho, msg);
+            case "auto":            return doAuto(fromWho, msg);
 
             // ── 评测 ──
             case "eval":            return doEval(fromWho, msg);
@@ -959,17 +963,205 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             if (msg.containsParam("approvalModifiedArguments")) {
                 approveMsg.setParam("approvalModifiedArguments", msg.getParam("approvalModifiedArguments"));
             }
-            putMsg("approvalGate", approveMsg);
+            // 授权范围透传（once/round/session）；缺省不传=gate 侧按 once 处理
+            String scope = msg.getStringParam(AI_P_APPROVAL_SCOPE, "once");
+            if (!"once".equals(scope)) approveMsg.setParam(AI_P_APPROVAL_SCOPE, scope);
+            approveMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            // 核 gate 返回值：非 once+改参数 / 未知 scope / round 无轮次 / not found / already decided
+            // 都会 RESULT=false+error——透传，不能吞掉谎报"已批准"（本次审批 8b 修复）
+            TLMsg r = putMsg("approvalGate", approveMsg);
+            if (r == null || !r.parseBoolean(RESULT, false)) {
+                return fail("批准失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+            }
             return ok("已批准: " + approvalId);
         } else if ("reject".equals(subAction)) {
             String reason = msg.getStringParam("reason", msg.getStringParam("approvalRejectReason", "用户拒绝"));
-            putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+            TLMsg rejectMsg = createMsg().setAction(APPROVAL_REJECT)
                     .setParam("approvalId", approvalId)
-                    .setParam("approvalRejectReason", reason));
+                    .setParam("approvalRejectReason", reason);
+            rejectMsg.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg("approvalGate", rejectMsg);
+            if (r == null || !r.parseBoolean(RESULT, false)) {
+                return fail("拒绝失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+            }
             return ok("已拒绝: " + approvalId + " (" + reason + ")");
         } else {
             return fail("未知审批子操作: " + subAction + "，可用: approve, reject");
         }
+    }
+
+    /** 会话 ID：args 优先，systemArgs 兜底（同 doCreateBackgroundTask 的通道约定） */
+    private String resolveSid(TLMsg msg) {
+        String sid = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sid != null && !sid.isEmpty()) return sid;
+        Object sp = msg.getSystemParam(AI_P_SESSIONID, null);
+        return sp == null ? "" : String.valueOf(sp);
+    }
+
+    /** 调用方 uid：args 优先、systemArgs 兜底（与既有 webchat_ 归属校验同源） */
+    private String resolveUid(TLMsg msg) {
+        String uid = msg.getStringParam(AI_P_USERID, null);
+        if (uid != null && !uid.isEmpty()) return uid;
+        Object up = msg.getSystemParam(AI_P_USERID, null);
+        return up == null ? "" : String.valueOf(up);
+    }
+
+    /** 授权行是否属于调用方：webchat_ 前缀行必须带 webchat_<uid>_；其他前缀（控制台/测试）放行 */
+    private boolean grantRowVisibleTo(String uid, String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return true;
+        if (!sessionId.startsWith("webchat_")) return true;
+        return uid != null && !uid.isEmpty() && sessionId.startsWith("webchat_" + uid + "_");
+    }
+
+    /**
+     * 目标会话归属校验（第二道防线，同 doCreateBackgroundTask 的 webchat_ 规则）：
+     * /permissions、/auto 是写路径，webui /api/command 只覆盖 userId 不动 sessionId，
+     * 客户端可指定任意会话 ID 操作他人授权——webchat_ 前缀会话必须属于调用方。
+     * 返回 null=通过，否则为拒绝原因。
+     *
+     * 已知限制（残留风险，均源于 webchat_ 命名约定本身，非本方法引入；webui 侧
+     * ensureSessionOwner / doCreateBackgroundTask 使用同款前缀判据）：
+     * 1) uid 前缀碰撞：uid 表同时存在 alice 与 alice_2 时，"webchat_alice_2_x" 会被 uid=alice 误放行；
+     * 2) 非 webchat_ 前缀的自定义会话名一律放行（webui 允许顶栏手输会话名）；
+     * 3) task_* 执行会话直接放行，而 gate 侧会把它归一化到父会话，等价于操作父会话授权。
+     * 根治方向：归属改查 webui 的 sessionOwner 注册表（消息查询）而非解析名字。
+     */
+    private String checkSessionOwnership(TLMsg msg, String sessionId) {
+        String uid = resolveUid(msg);
+        if (sessionId != null && sessionId.startsWith("webchat_")
+                && (uid == null || uid.isEmpty() || !sessionId.startsWith("webchat_" + uid + "_"))) {
+            return "会话不属于当前用户";
+        }
+        return null;
+    }
+
+    /** /permissions：list | -a | revoke | grant | clear —— 纯转发 approvalGate */
+    @SuppressWarnings("unchecked")
+    private TLMsg doPermissions(Object fromWho, TLMsg msg) {
+        String sub = msg.getStringParam("sub", "list");
+        String sid = resolveSid(msg);
+        String ruleId = msg.getStringParam("ruleId", "");
+        String operation = msg.getStringParam("operation", "");
+        boolean all = msg.parseBoolean("all", false);
+        TLMsg f;
+        switch (sub) {
+            case "list": {
+                f = createMsg().setAction(APPROVAL_GRANTS);
+                // 注意：不带 -a 且 sid 为空时必须【省略】sessionId 参数（不能传空串——
+                // gate 侧对"显式空串/非字符串"是硬报错，防 fail-open 列全部）
+                if (!all && !sid.isEmpty()) {
+                    // 显式指名会话：先做归属校验（与 revoke/grant/clear 对称），
+                    // 不让下方"行过滤"成为唯一屏障
+                    String deny = checkSessionOwnership(msg, sid);
+                    if (deny != null) return fail(deny);
+                    f.setParam("sessionId", sid);
+                }
+                f.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg r = putMsg("approvalGate", f);
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    return fail("查询授权失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                }
+                // 无会话过滤（list/-a）会列出全部会话的授权：按调用方 uid 过滤 webchat_ 行，
+                // 防越权看到/管理他人授权（控制台会话非 webchat_ 前缀，照常放行）
+                String uid = resolveUid(msg);
+                List<Map<String, Object>> rows = new ArrayList<>();
+                List<?> grants = r.getListParam("grants", new ArrayList<>());
+                for (Object o : grants) {
+                    if (!(o instanceof Map)) continue;
+                    Map<String, Object> g = (Map<String, Object>) o;
+                    if (!grantRowVisibleTo(uid, String.valueOf(g.get("sessionId")))) continue;
+                    rows.add(g);
+                }
+                return ok(rows.isEmpty() ? "当前无授权" : "授权 " + rows.size() + " 条", rows);
+            }
+            case "revoke": {
+                String deny = checkSessionOwnership(msg, sid);
+                if (deny != null) return fail(deny);
+                f = createMsg().setAction(APPROVAL_REVOKE).setParam("sessionId", sid).setParam("all", all);
+                if (!ruleId.isEmpty()) f.setParam("ruleId", ruleId);
+                if (!operation.isEmpty()) f.setParam("operation", operation);
+                f.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg r = putMsg("approvalGate", f);
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    return fail("撤销失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                }
+                return ok("已撤销 " + r.getIntParam("removed", 0) + " 条授权");
+            }
+            case "grant": {
+                if (ruleId.isEmpty()) return fail("grant 需要 ruleId（如 /permissions grant file_operation:delete）");
+                String deny = checkSessionOwnership(msg, sid);
+                if (deny != null) return fail(deny);
+                f = createMsg().setAction(APPROVAL_GRANT).setParam("sessionId", sid).setParam("ruleId", ruleId);
+                if (!operation.isEmpty()) f.setParam("operation", operation);
+                f.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg r = putMsg("approvalGate", f);
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    return fail("预授权失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                }
+                return ok("已预授权: " + ruleId + (operation.isEmpty() ? "（全部操作）" : ":" + operation));
+            }
+            case "clear": {
+                if (all) return fail("暂不支持跨会话清空，请指定单个会话（clear 不带 -a）");
+                if (sid.isEmpty()) return fail("clear 需要 sessionId");
+                String deny = checkSessionOwnership(msg, sid);
+                if (deny != null) return fail(deny);
+                f = createMsg().setAction(APPROVAL_REVOKE).setParam("sessionId", sid).setParam("all", true);
+                f.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg r = putMsg("approvalGate", f);
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    return fail("清空失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                }
+                return ok("已清空 " + r.getIntParam("removed", 0) + " 条授权");
+            }
+            default:
+                return fail("未知子命令: " + sub + "（可用: list、-a、revoke、grant、clear）");
+        }
+    }
+
+    /** /auto：on|off|status —— 自动运行 = 本会话通配授权（ruleId="*"） */
+    @SuppressWarnings("unchecked")
+    private TLMsg doAuto(Object fromWho, TLMsg msg) {
+        String sub = msg.getStringParam("sub", "status");
+        String sid = resolveSid(msg);
+        if (sid.isEmpty()) return fail("缺少 sessionId");
+        // 写路径归属校验（同 doPermissions，webchat_ 前缀会话必须属于调用方）
+        String deny = checkSessionOwnership(msg, sid);
+        if (deny != null) return fail(deny);
+        if ("on".equals(sub) || "off".equals(sub)) {
+            TLMsg f = "on".equals(sub)
+                    ? createMsg().setAction(APPROVAL_GRANT).setParam("sessionId", sid)
+                            .setParam("ruleId", "*").setParam("operation", "*")
+                    : createMsg().setAction(APPROVAL_REVOKE).setParam("sessionId", sid)
+                            .setParam("ruleId", "*");
+            f.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg("approvalGate", f);
+            if (r == null || !r.parseBoolean(RESULT, false)) {
+                return fail("自动运行切换失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+            }
+            Map<String, Object> d = new LinkedHashMap<>();
+            d.put("on", "on".equals(sub));
+            return ok("on".equals(sub) ? "[自动运行] 已开启（本会话工具免审批）" : "[自动运行] 已关闭", d);
+        }
+        if (!"status".equals(sub)) {
+            return fail("未知子命令: " + sub + "（可用: on、off、status）");
+        }
+        // status：查该会话通配授权是否存在
+        TLMsg f = createMsg().setAction(APPROVAL_GRANTS).setParam("sessionId", sid);
+        f.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg r = putMsg("approvalGate", f);
+        if (r == null || !r.parseBoolean(RESULT, false)) {
+            return fail("查询自动运行状态失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+        }
+        boolean on = false;
+        List<?> grants = r.getListParam("grants", new ArrayList<>());
+        for (Object o : grants) {
+            if (o instanceof Map && "*".equals(String.valueOf(((Map<String, Object>) o).get("ruleId")))) {
+                on = true; break;
+            }
+        }
+        Map<String, Object> d = new LinkedHashMap<>();
+        d.put("on", on);
+        return ok(on ? "[自动运行] 开" : "[自动运行] 关", d);
     }
 
     // ======================== 评测 ========================

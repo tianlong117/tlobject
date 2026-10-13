@@ -1666,9 +1666,21 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 **控制台交互**: 审批框经 `msgBus` 发布（topic `approvalEvent`），控制台启动时 `registBus` 订阅并自行渲染，审批模块与控制台零直接依赖。命令：
 
 ```
-/approve approve:ID        批准
+/approve approve:ID        批准（仅本次）
+/approve round:ID          批准，且本轮内同"规则+操作"免审
+/approve session:ID        批准，且本会话内同"规则+操作"免审
 /approve reject:ID:原因     拒绝
+/auto on|off               自动运行：本会话内所有工具调用免审批（= 通配授权；不带参数查看状态）
+/permissions               查看本会话授权列表
+/permissions -a            查看全部会话的授权列表
+/permissions revoke <规则>[:操作] [-s 会话]   撤销授权（缺省操作 = 该规则全部操作）
+/permissions grant <规则>[:操作]    预授权：不弹框直接写入本会话授权表
+/permissions clear         清空本会话全部授权
 ```
+
+- 授权粒度 = **规则 + 操作**：按 `session:ID` 批准 `file_operation:write` 后，同会话同类写入不再弹框，但同规则的 `delete` 仍需审批
+- `round`/`session` 档位不支持在批准时修改参数（授权只记规则+操作），只批准本次可用 `approve:ID[:jsonArgs]`
+- 开启「自动运行」（本会话存在通配授权）时提示符显示 `[自动]` 前缀；`revoke`/`grant`/`clear` 等变更操作会复位该标记（服务端为唯一事实源，`/permissions` 或 `/auto` 可重新查看）
 
 **拒绝语义（重要）**:
 - 拒绝是**结构化标志**沿委托链逐级传播（`doChat` 返回 `rejected`/`rejectReason` 参数 → `ToolExecutor` 识别子模块拒绝 → 父 agent 回滚并停止循环），不依赖 LLM 读懂文案
@@ -1701,7 +1713,7 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
   - MCP 市场：search/info/install/list/remove
   - 评测：suite/list/quick/run/cascade；测试：list/全部/单用例
   - 追踪：/trace、/stats、/stats all、/stats agent
-- 审批：审批请求经 SSE 推送到浏览器弹框，可编辑参数后批准或拒绝
+- 审批：审批请求经 SSE 推送到浏览器弹框——「批准」/「✓ 本轮不再问」/「✓ 本会话不再问」三档，可编辑参数后批准；顶栏 🔒 自动运行开关（本会话全部免审批）+ 🛡 授权面板（查看/撤销/清空本会话授权）
 - 用户隔离：登录身份透传 agentService，data/{uid}/ 会话与记忆按用户隔离
 - 实现：TLWebChatModule（业务）+ TLWebChatServlet（IO 适配，TLJettyServer extraServlets 挂载），静态页内嵌 jar classpath
 

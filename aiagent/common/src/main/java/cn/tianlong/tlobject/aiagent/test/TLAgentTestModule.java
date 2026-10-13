@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.aiagent.evals.TLEvalBaseline;
 import cn.tianlong.tlobject.aiagent.evals.TLEvalReport;
 import cn.tianlong.tlobject.aiagent.evals.TLEvalReportMsg;
 import cn.tianlong.tlobject.aiagent.evals.TLEvalRunResult;
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -259,7 +260,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         for (Map.Entry<String, String[]> e : TEST_CASES.entrySet()) {
             String[] def = e.getValue();
             TestFunc func = resolveTestCase(e.getKey());
-            String skipReason = skipReasonFor(def, skillsOk);
+            String skipReason = skipReasonFor(e.getKey(), def, skillsOk);
             if (skipReason != null) func = skipTest(skipReason);
             runOne(e.getKey(), def[0], func);
         }
@@ -458,18 +459,36 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("truncNotice",      new String[]{"13-截断如实告知", null});
         TEST_CASES.put("streamParams",     new String[]{"14-流式推理传参", "test_echo 未注册"});
         TEST_CASES.put("streamSyncTrunc",  new String[]{"15-同步流式截断告知", null});
+        TEST_CASES.put("approvalSessionGrant", new String[]{"16-审批会话免审", null});
+        TEST_CASES.put("approvalGrantAdmin", new String[]{"17-审批授权管理", null});
+        // 18/19/20 第二槽（测试 Skill 未注册时的跳过原因）为 null：审批场景直发 approvalGate，不走 Skill——
+        // 填了会让 skill 注册失败的配置下这 3 个场景被静默跳过（假绿）
+        TEST_CASES.put("approvalExpire", new String[]{"18-审批超时收口", null});
+        TEST_CASES.put("approvalBlockWakeup", new String[]{"19-审批阻塞唤醒", null});
+        TEST_CASES.put("approvalBlockTimeout", new String[]{"20-审批阻塞自超时", null});
     }
 
     /**
      * 该用例这一遍要不要跳过（返回 null = 照常跑）。
-     * 两类跳过：测试 Skill 注册失败（def[1]）、依赖模块没配（def[2]）。
+     * 三类跳过：测试 Skill 注册失败（def[1]）、依赖模块没配（def[2]）、审批场景跑在非测试审查人下。
      * 后者按"工厂里有没有这个模块"判定——chat 那套配置没配 testCacheProvider，
      * 之前它被算成 FAIL，测试层因此恒不通过。
      */
-    private String skipReasonFor(String[] def, boolean skillsOk) {
+    private String skipReasonFor(String name, String[] def, boolean skillsOk) {
         if (!skillsOk && def[1] != null) return def[1];
         if (def.length > 2 && def[2] != null && !moduleConfigured(def[2]))
             return "依赖模块 " + def[2] + " 未配置";
+        // 审批场景：必须跑在测试审查人环境下（aitest 配置）；生产 ConsoleReviewer 会阻塞测试线程
+        if (name != null && name.toLowerCase().startsWith("approval")) {
+            Object gate = getModuleInFactory("approvalGate");
+            if (!(gate instanceof IObject)) return "approvalGate 未配置";
+            TLMsg info = putMsg((IObject) gate, createMsg().setAction(APPROVAL_INFO));
+            if (info == null || !info.parseBoolean("infoOk", false)) {
+                return "approvalGate 未响应 APPROVAL_INFO（接线异常，疑似回归）";
+            }
+            String inst = info.getStringParam("reviewerInstance", "");
+            if (!inst.endsWith("TLTestApprovalReviewer")) return "非测试审查人（" + inst + "）";
+        }
         return null;
     }
 
@@ -525,6 +544,11 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "truncnotice":     return this::testTruncNotice;
             case "streamparams":    return this::testStreamParams;
             case "streamsynctrunc": return this::testStreamSyncTrunc;
+            case "approvalsessiongrant": return this::testApprovalSessionGrant;
+            case "approvalgrantadmin": return this::testApprovalGrantAdmin;
+            case "approvalexpire": return this::testApprovalExpire;
+            case "approvalblockwakeup": return this::testApprovalBlockWakeup;
+            case "approvalblocktimeout": return this::testApprovalBlockTimeout;
             default:                return null;
         }
     }
@@ -566,7 +590,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         resetTestSessions();
         try {
             TestFunc func = resolveTestCase(caseName);
-            String skipReason = skipReasonFor(def, skillsOk);
+            String skipReason = skipReasonFor(caseName, def, skillsOk);
             if (skipReason != null) func = skipTest(skipReason);
             runOne(caseName, def[0], func);
         } finally {
@@ -1465,6 +1489,327 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam("error", "streamsync trunc exception: " + e);
         }
+    }
+
+    // ======================== 场景 16: 审批授权（消息级，不经 LLM） ========================
+
+    /** 审批授权测试用会话 */
+    protected static final String SID_APPROVAL = "test_approval_grant";
+
+    /**
+     * 会话级免审：首请求 pending → 批准(scope=session) → 同规则再请求自动批准（不再问审查人）；
+     * 不同操作仍问（粒度隔离）。
+     */
+    protected TLMsg testApprovalSessionGrant(Object fromWho, TLMsg msg) {
+        // 防御性守卫：模块须存在（skipReasonFor 已兜底，这里是第二道）
+        Object gate = getModuleInFactory("approvalGate");
+        if (!(gate instanceof IObject)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 未配置");
+        }
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
+        resetApprovalGrants();   // 套件重入性：同一进程二次 /test 时授权不能残留
+
+        // 1. 首请求：file_operation:delete → pending，审查人被问一次
+        TLMsg r1 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/a.txt\"}");
+        if (!"pending".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "首请求应 pending，实为 "
+                    + r1.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 2. 批准并授予"本会话"
+        TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                .setParam(AI_P_APPROVAL_ID, r1.getStringParam(AI_P_APPROVAL_ID, ""))
+                .setParam(AI_P_APPROVAL_SCOPE, "session"));
+        if (!ap.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "批准失败: " + ap.getStringParam("error", ""));
+        }
+        // 3. 同规则再请求 → 自动批准，审查人计数不变
+        TLMsg r2 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/b.txt\"}");
+        if (!"approved".equals(r2.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "授权命中应 approved，实为 "
+                    + r2.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        if (cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.count() != 1) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "授权命中不应再问审查人，计数=" + cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.count());
+        }
+        // 4. 粒度隔离：同规则不同操作（write）仍需审批
+        TLMsg r3 = requestApprovalFor("file_operation", "{\"operation\":\"write\",\"path\":\"D:/tmp/c.txt\"}");
+        if (!"pending".equals(r3.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "write 应仍 pending（粒度隔离），实为 "
+                    + r3.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        resetApprovalGrants();   // 收尾清扫：不留授权给后续场景（消除对入口 reset 的跨场景耦合依赖）
+        log("[TEST]   审批授权: 会话免审/粒度隔离 通过（审查人计数="
+                + cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.count() + "）");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 管理动作：预授权（grant）→ 直接放行；列表可见；撤销后恢复弹框；
+     * 通配预授权（自动运行等价）；任务会话继承（登记 task→parent）。
+     */
+    protected TLMsg testApprovalGrantAdmin(Object fromWho, TLMsg msg) {
+        Object gate = getModuleInFactory("approvalGate");
+        if (!(gate instanceof IObject)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 未配置");
+        }
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+
+        // 1. 预授权 file_operation:write（不弹框）
+        TLMsg g = putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANT)
+                .setParam("sessionId", SID_APPROVAL)
+                .setParam("ruleId", "file_operation").setParam("operation", "write"));
+        if (!g.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "预授权失败: "
+                    + g.getStringParam("error", ""));
+        }
+        TLMsg r1 = requestApprovalFor("file_operation", "{\"operation\":\"write\",\"path\":\"D:/tmp/w.txt\"}");
+        if (!"approved".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "预授权后应直接 approved，实为 "
+                    + r1.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 2. 列表可见
+        TLMsg list = putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANTS)
+                .setParam("sessionId", SID_APPROVAL));
+        List<?> grants = list.getListParam("grants", new ArrayList<>());
+        if (grants.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "授权列表为空");
+        }
+        // 3. 撤销后恢复弹框
+        TLMsg rv = putMsg("approvalGate", createMsg().setAction(APPROVAL_REVOKE)
+                .setParam("sessionId", SID_APPROVAL)
+                .setParam("ruleId", "file_operation").setParam("operation", "write"));
+        if (rv == null || rv.getIntParam("removed", 0) < 1) {
+            return createMsg().setParam(RESULT, false).setParam("error", "撤销应删除 ≥1 条，实为 "
+                    + (rv == null ? "null" : String.valueOf(rv.getIntParam("removed", 0))));
+        }
+        TLMsg r2 = requestApprovalFor("file_operation", "{\"operation\":\"write\",\"path\":\"D:/tmp/w2.txt\"}");
+        if (!"pending".equals(r2.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "撤销后应恢复 pending，实为 "
+                    + r2.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 4. 通配预授权（自动运行等价）：先对照——无授权时 mcpEchoTool 必须 pending（证明 mcp* 规则真在册）
+        TLMsg r0 = requestApprovalFor("mcpEchoTool", "{\"x\":1}");
+        if (!"pending".equals(r0.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "mcp* 规则未生效（应 pending，实为 " + r0.getStringParam(AI_P_APPROVAL_STATE, "")
+                            + "），步 4 无法证明通配授权起作用");
+        }
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANT)
+                .setParam("sessionId", SID_APPROVAL)
+                .setParam("ruleId", "*").setParam("operation", "*"));
+        TLMsg r3 = requestApprovalFor("mcpEchoTool", "{\"x\":1}");
+        if (!"approved".equals(r3.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "自动运行（通配）应直接 approved，实为 "
+                    + r3.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 5. 任务继承：登记 task→parent 后，父会话授权对任务会话请求生效
+        String parent = "test_approval_parent";
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANT)
+                .setParam("sessionId", parent)
+                .setParam("ruleId", "file_operation").setParam("operation", "delete"));
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_TASKSESSION)
+                .setParam("execSession", "task_x_1").setParam("parentSessionId", parent));
+        java.util.Map<String, Object> dArgs = new com.google.gson.Gson()
+                .fromJson("{\"operation\":\"delete\",\"path\":\"D:/tmp/d.txt\"}", java.util.Map.class);
+        TLMsg r4 = putMsg("approvalGate", createMsg().setAction(APPROVAL_REQUEST)
+                .setParam("toolName", "file_operation").setParam("toolArgs", dArgs)
+                .setSystemParam(AI_P_SESSIONID, "task_x_1")
+                .setSystemParam("userId", TEST_USER_ID)
+                .setSystemParam(AI_P_ROUNDID, "r_task_1"));
+        if (!"approved".equals(r4.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "任务会话应继承父会话授权，实为 "
+                    + r4.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 6. 注销映射后，任务会话不再继承
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_TASKSESSION)
+                .setParam("execSession", "task_x_1").setParam("parentSessionId", ""));
+        TLMsg r5 = putMsg("approvalGate", createMsg().setAction(APPROVAL_REQUEST)
+                .setParam("toolName", "file_operation")
+                .setParam("toolArgs", new com.google.gson.Gson()
+                        .fromJson("{\"operation\":\"delete\",\"path\":\"D:/tmp/d2.txt\"}", java.util.Map.class))
+                .setSystemParam(AI_P_SESSIONID, "task_x_1")
+                .setSystemParam("userId", TEST_USER_ID)
+                .setSystemParam(AI_P_ROUNDID, "r_task_1"));
+        if (!"pending".equals(r5.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "注销映射后应恢复 pending，实为 "
+                    + r5.getStringParam(AI_P_APPROVAL_STATE, ""));
+        }
+        // 7. 负例：不在册的 ruleId 预授权必须被拒
+        TLMsg g2 = putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANT)
+                .setParam("sessionId", SID_APPROVAL).setParam("ruleId", "mcpEchoTool"));
+        if (g2 == null || g2.parseBoolean(RESULT, true)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "不在册 ruleId 的预授权应被拒");
+        }
+        // 8. 负例：grants 传非字符串 sessionId 必须报错（不得 fail-open 列全部）
+        TLMsg g3 = putMsg("approvalGate", createMsg().setAction(APPROVAL_GRANTS)
+                .setParam("sessionId", Integer.valueOf(1)));
+        if (g3 == null || g3.parseBoolean(RESULT, true)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "非字符串 sessionId 的 grants 应报错");
+        }
+        resetApprovalGrants();   // 收尾清扫：不留授权给后续场景（消除对入口 reset 的跨场景耦合依赖）
+        log("[TEST]   审批授权管理: 预授权/列表/撤销/通配/任务继承与注销 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 超时收口（定时任务路径）：请求发出后超过 approvalTimeoutMs（aitest 配 3000ms）→ EXPIRED；迟到批准被拒 */
+    protected TLMsg testApprovalExpire(Object fromWho, TLMsg msg) {
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        TLMsg r1 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/exp.txt\"}");
+        String id = r1.getStringParam(AI_P_APPROVAL_ID, "");
+        if (!"pending".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "应 pending");
+        }
+        try { Thread.sleep(4000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        TLMsg q = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY)
+                .setParam(AI_P_APPROVAL_ID, id));
+        String state = q.getStringParam(AI_P_APPROVAL_STATE, "");
+        if (!"expired".equals(state)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "应 expired（定时任务超时路径），实为 " + state);
+        }
+        TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                .setParam(AI_P_APPROVAL_ID, id));
+        // fail-closed：RESULT 缺失（默认 true）或响应为 null 一律判失败——
+        // 用 default false 会在 wiring 断裂（无 RESULT）时"测试通过"
+        if (ap == null || ap.parseBoolean(RESULT, true)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "已超时的审批不应可再批准");
+        }
+        resetApprovalGrants();
+        log("[TEST]   审批超时收口: EXPIRED + 拒绝迟到批准 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 阻塞路径（生产 ConsoleReviewer 同款）：/approve 消息唤醒 latch，阻塞调用返回 approved */
+    protected TLMsg testApprovalBlockWakeup(Object fromWho, TLMsg msg) {
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.setBlockMode(true);
+        final java.util.concurrent.atomic.AtomicReference<TLMsg> holder = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread t = new Thread(() -> holder.set(
+                requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/blk.txt\"}")));
+        try {
+            t.start();
+            // 等请求登记进审查人记录（拿 approvalId）
+            String id = "";
+            for (int i = 0; i < 50 && id.isEmpty(); i++) {
+                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                List<cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest> reqs =
+                        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.snapshot();
+                if (!reqs.isEmpty()) id = reqs.get(reqs.size() - 1).getApprovalId();
+            }
+            if (id.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞请求未登记（超时）");
+            }
+            TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            if (!ap.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "批准失败: " + ap.getStringParam("error", ""));
+            }
+            t.join(5000);
+            TLMsg ret = holder.get();
+            if (ret == null || !"approved".equals(ret.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞线程应被唤醒并返回 approved，实为 "
+                        + (ret == null ? "null(未返回)" : ret.getStringParam(AI_P_APPROVAL_STATE, "")));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return createMsg().setParam(RESULT, false).setParam("error", "被中断");
+        } finally {
+            cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.setBlockMode(false);
+            resetApprovalGrants();
+        }
+        log("[TEST]   审批阻塞唤醒: latch 唤醒路径 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 阻塞路径自超时：waitForDecision 的 latch 自超时分支 → EXPIRED（另一条超时路径的收口验证） */
+    protected TLMsg testApprovalBlockTimeout(Object fromWho, TLMsg msg) {
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.setBlockMode(true);
+        final java.util.concurrent.atomic.AtomicReference<TLMsg> holder = new java.util.concurrent.atomic.AtomicReference<>();
+        long start = System.currentTimeMillis();
+        Thread t = new Thread(() -> holder.set(
+                requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/blk2.txt\"}")));
+        try {
+            t.start();
+            t.join(8000);   // aitest 超时 3000ms，留足余量
+            long elapsed = System.currentTimeMillis() - start;
+            TLMsg ret = holder.get();
+            if (ret == null) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞线程未返回（应 3 秒自超时）");
+            }
+            String st = ret.getStringParam(AI_P_APPROVAL_STATE, "");
+            if (!"expired".equals(st)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞自超时应 expired，实为 " + st);
+            }
+            if (elapsed < 2500) {
+                return createMsg().setParam(RESULT, false).setParam("error", "提前返回，未走 latch 超时（elapsed=" + elapsed + "ms）");
+            }
+            // 定向探针：消息级请求的定时任务（approval-timeout 线程）deadline 总比 latch 早几毫秒，
+            // 竞态下 waitForDecision 的 `!ok` 分支会被定时任务抢先置 EXPIRED、markExpired 空转
+            // （实测 expired 日志全来自 approval-timeout 线程）——这里绕过消息接口直接调
+            // waitForDecision（无定时任务竞争）确定性地覆盖 latch 自超时分支的收口与 reason 文案
+            Object gateObj = getModuleInFactory("approvalGate");
+            if (gateObj instanceof cn.tianlong.tlobject.aiagent.approval.TLApprovalModule) {
+                cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest probe =
+                        new cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest(
+                                SID_APPROVAL, "file_operation", null, "");
+                probe.setTimeoutMs(300);   // 不登记 pendingApprovals → 无定时任务，纯 latch 超时
+                long ps = System.currentTimeMillis();
+                TLMsg pr = ((cn.tianlong.tlobject.aiagent.approval.TLApprovalModule) gateObj).waitForDecision(probe);
+                long pe = System.currentTimeMillis() - ps;
+                String pst = pr != null ? pr.getStringParam(AI_P_APPROVAL_STATE, "") : "null";
+                if (!"expired".equals(pst)) {
+                    return createMsg().setParam(RESULT, false).setParam("error", "latch 自超时应 expired，实为 " + pst);
+                }
+                if (pe < 250 || pe > 2500) {
+                    return createMsg().setParam(RESULT, false).setParam("error", "latch 自超时耗时异常: " + pe + "ms");
+                }
+                String preason = pr.getStringParam(AI_P_APPROVAL_REJECTREASON, "");
+                if (!preason.contains("3秒")) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "latch 自超时 reason 应含 3秒（approvalTimeoutMs/1000），实为 " + preason);
+                }
+            } else {
+                // 探针守卫：gate 换成别的实现时不得静默跳过（否则场景 20 会假绿）
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "approvalGate 非 TLApprovalModule，latch 自超时探针未执行");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return createMsg().setParam(RESULT, false).setParam("error", "被中断");
+        } finally {
+            cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.setBlockMode(false);
+            resetApprovalGrants();
+        }
+        log("[TEST]   审批阻塞自超时: latch 自超时收口 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 清掉审批场景用会话的全部授权。授权表在 approvalGate 进程内驻留，
+     * 不像会话上下文那样有 resetTestSessions 兜底——不清则同一进程二次 /test 时场景必挂。
+     */
+    private void resetApprovalGrants() {
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_REVOKE)
+                .setParam("sessionId", SID_APPROVAL).setParam("all", true));
+        putMsg("approvalGate", createMsg().setAction(APPROVAL_REVOKE)
+                .setParam("sessionId", "test_approval_parent").setParam("all", true));
+    }
+
+    /** 向 approvalGate 发一条审批请求（消息级，不经执行器/LLM；调用方须先守卫模块存在） */
+    private TLMsg requestApprovalFor(String toolName, String argsJson) {
+        java.util.Map<String, Object> args = new com.google.gson.Gson().fromJson(argsJson, java.util.Map.class);
+        return putMsg("approvalGate", createMsg().setAction(APPROVAL_REQUEST)
+                .setParam("toolName", toolName)
+                .setParam("toolArgs", args)
+                .setSystemParam(AI_P_SESSIONID, SID_APPROVAL)
+                .setSystemParam("userId", TEST_USER_ID)
+                .setSystemParam(AI_P_ROUNDID, "r_test_1"));
     }
 
     // ======================== 工具方法 ========================

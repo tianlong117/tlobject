@@ -94,8 +94,8 @@
         <!-- 获取监管Agent -->
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
 
-        <!-- 获取审批模块（可选，启用审批时解注） -->
-        <!-- <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/> -->
+        <!-- 获取审批模块（测试床：审查人=TLTestApprovalReviewer，见 approvalGate_config.xml） -->
+        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
 
         <!-- 获取认证模块和桥接模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="auth"/>

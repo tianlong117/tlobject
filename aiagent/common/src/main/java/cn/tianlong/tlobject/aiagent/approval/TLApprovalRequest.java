@@ -41,6 +41,10 @@ public class TLApprovalRequest {
     private long createdAt;
     private long timeoutMs;
     private String toolCallId;
+    /** 命中的审批规则唯一标识（授权记忆的键之一） */
+    private String ruleId;
+    /** 发起用户（消息箱通知定位用；审批请求消息携带） */
+    private String userId;
 
     // ======================== 构造器 ========================
 
@@ -129,6 +133,12 @@ public class TLApprovalRequest {
     public String getToolCallId() { return toolCallId; }
     public void setToolCallId(String toolCallId) { this.toolCallId = toolCallId; }
 
+    public String getRuleId() { return ruleId; }
+    public void setRuleId(String ruleId) { this.ruleId = ruleId; }
+
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
+
     /** 审批是否已超时 */
     public boolean isExpired() {
         return timeoutMs > 0 && (System.currentTimeMillis() - createdAt) > timeoutMs;
@@ -162,6 +172,8 @@ public class TLApprovalRequest {
         map.put("createdAt", createdAt);
         map.put("timeoutMs", timeoutMs);
         map.put("toolCallId", toolCallId);
+        map.put("ruleId", ruleId);
+        map.put("userId", userId);
         return map;
     }
 
@@ -187,6 +199,8 @@ public class TLApprovalRequest {
             req.setTimeoutMs(((Number) map.get("timeoutMs")).longValue());
         }
         req.setToolCallId((String) map.get("toolCallId"));
+        req.setRuleId((String) map.get("ruleId"));
+        req.setUserId((String) map.get("userId"));
         return req;
     }
 

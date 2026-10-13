@@ -121,15 +121,20 @@
                 denyMsg="" />
 
 
+        <!-- 工具技能：skillExecute 与 defaultPolicy 统一为 guest 策略（role="guest;member"）。
+             2026-10-13：原配 skillExecute="toolMember"（仅 member 角色），而控制台默认用户
+             console_user 在 demoUserModule 中是 guest 角色（moduleFactory_chat_config.xml）
+             → file/http/code 三类工具在控制台全被拒（"guest 无权限"），且报错发生在审批之前，
+             审批预授权救不了。按决定放开为 guest 策略；如需收紧改回 toolMember。 -->
         <module name="httpRequestSkill"
                 defaultPolicy="guest"
-                skillExecute="toolMember" />
+                skillExecute="guest" />
         <module name="fileOperationSkill"
                 defaultPolicy="guest"
-                skillExecute="toolMember" />
+                skillExecute="guest" />
         <module name="codeExecutionSkill"
                 defaultPolicy="guest"
-                skillExecute="toolMember" />
+                skillExecute="guest" />
     </authModules>
 
     <!-- ======================== 消息 ID 策略映射 ========================

@@ -10,7 +10,8 @@ const state = {
   sessions: Object.create(null),   // sessionId -> 每会话视图（box/uploads/busy/abort/unread/tasks/draft）
                                    // 无原型：sessionId 用户可控（"__proto__"/"constructor" 会命中原型链 → curBox() 拿到坏值）
   currentBox: null,      // 当前会话的 DOM 盒子（挂到 #msgList 上的唯一内容盒子）
-  drawer: null           // 任务详情抽屉当前展示的任务 {tid, sid}；null=未打开
+  drawer: null,          // 任务详情抽屉当前展示的任务 {tid, sid}；null=未打开
+  autoRun: false         // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
 };
 
 // ======================== 每会话视图（状态分片） ========================
@@ -61,6 +62,11 @@ function switchSessionView(sid) {
   renderTodoBar();                  // 任务清单条同理（各会话各看各的清单/展开态）
   renderSessionList();   // P11 已实现该函数（函数声明，hoisting 保证可用），原 typeof 守卫恒真故直接调用
   reportCurrentSession();
+  // 自动运行态随会话走（通配授权按会话隔离）：收口在这里，覆盖全部切会话路径——
+  // newSession / 手输 #sessionId / resumeCheckpoint / continueSession / switchSession / 登录。
+  // 此前只在 continueSession/switchSession 两处刷，newSession 等路径漏刷 → 新会话误显示 🔓。
+  // 函数声明 hoisting 保证本调用先于定义可用；内部有 sid 空守卫与"切走则丢弃迟到响应"守卫
+  refreshAutoState();
 }
 /** 清空某会话内容（新会话/清除上下文用） */
 function clearSessionBox(sid) { viewOf(sid).box.innerHTML = ''; }
@@ -282,6 +288,7 @@ async function enterChat() {
   showView('chat');
   openEvents();
   refreshInboxBadge();      // 登录即拉未读数（离线期间的任务结果会在消息箱提示）
+  // 自动运行开关态不必在此显式刷：上面 switchSessionView 已收口（同 sid，重复发请求）
   await autoResumeLast();   // 先接续最近活跃会话并渲染历史
   promptCheckpoint();       // 再检测断点会话 → 弹窗提示（如命令行启动时的 ⚠ 提示）
   setTimeout(reportCurrentSession, 500);   // 会话恢复是异步的，等 autoResumeLast 落定后上报
@@ -1046,12 +1053,17 @@ function bindEvents() {
     window.addEventListener('blur', up);   // 鼠标在窗口外松开时的兜底
   });
   resizer.addEventListener('dblclick', () => setPanelWidth(PANEL_W_DEFAULT));
-  $('#apApproveBtn').onclick = approveAction;
+  $('#apApproveBtn').onclick = () => approveAction('once');
+  $('#apApproveRoundBtn').onclick = () => approveAction('round');
+  $('#apApproveSessionBtn').onclick = () => approveAction('session');
   $('#apRejectBtn').onclick = rejectAction;
   // 顶栏功能图标：定时任务 / 后台任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
   $('#tasksBtn').onclick = openTasks;
   $('#bgTasksBtn').onclick = openBgTasks;
   $('#inboxBtn').onclick = openInbox;
+  // 自动运行开关 + 授权面板（顶栏）
+  $('#autoBtn').onclick = toggleAuto;
+  $('#permBtn').onclick = openPermissions;
   // 参数弹框：点遮罩关闭
   $('#paramModal').addEventListener('click', e => {
     if (e.target === $('#paramModal')) $('#paramModal').classList.add('hidden');
@@ -1060,12 +1072,14 @@ function bindEvents() {
   $('#tasksModal').addEventListener('click', e => { if (e.target === $('#tasksModal')) closeTasks(); });
   $('#bgTasksModal').addEventListener('click', e => { if (e.target === $('#bgTasksModal')) closeBgTasks(); });
   $('#inboxModal').addEventListener('click', e => { if (e.target === $('#inboxModal')) closeInbox(); });
+  $('#permModal').addEventListener('click', e => { if (e.target === $('#permModal')) closePermissions(); });
   // ESC 保命键：按一次关一个"信息类"弹框（审批框除外——需在场决策，误关会让任务悬置等超时）
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
     if (!$('#bgTasksModal').classList.contains('hidden')) { closeBgTasks(); return; }
     if (!$('#tasksModal').classList.contains('hidden')) { closeTasks(); return; }
     if (!$('#inboxModal').classList.contains('hidden')) { closeInbox(); return; }
+    if (!$('#permModal').classList.contains('hidden')) { closePermissions(); return; }
     if (!$('#checkpointModal').classList.contains('hidden')) { $('#checkpointModal').classList.add('hidden'); return; }
     if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); return; }
     if (!$('#panelPane').classList.contains('hidden')) { togglePanel(); }
@@ -1517,7 +1531,7 @@ async function continueSession(sid, silent) {
     const r = await apiCommand('continue', { userId: state.userId, sessionId: sid });
     if (r.success && r.data) {
       const target = r.data.sessionId || sid;
-      switchSessionView(target);         // 切到目标会话视图（恢复输入/忙碌态由它统一处理）
+      switchSessionView(target);         // 切到目标会话视图（恢复输入/忙碌态/自动运行开关态由它统一处理）
       if (viewOf(target).busy) {
         // 该会话正在流式：清屏重放会让进行中的回复变成孤儿节点（用户永远看不到），保留现场
         if (!silent) toast('该会话正在运行中，保留现场（完成后可刷新恢复完整历史）', 'err');
@@ -1592,7 +1606,7 @@ async function switchSession(sid) {
     }
     const r = await apiCommand('session', { sessionId: sid });
     if (!r.success) { toast(r.error || r.message, 'err'); return; }
-    switchSessionView(sid);   // 切视图（localStorage/#sessionId/占用上报统一在 switchSessionView 里做）
+    switchSessionView(sid);   // 切视图（localStorage/#sessionId/占用上报/自动运行开关态统一在 switchSessionView 里做）
     restoreTaskCards(sid);    // 「进会话」的另一条路径（不重放历史）：补该会话的后台任务卡片
     toast(r.message || sid, 'ok');
   } catch (e) { toast(e.message, 'err'); }
@@ -2145,19 +2159,22 @@ function showApprovalModal(evt) {
   $('#apMsg').classList.add('hidden');
   $('#approvalModal').classList.remove('hidden');
 }
-async function approveAction() {
+async function approveAction(scope) {
   const evt = currentApproval;
   if (!evt) return;
   let modifiedArgs = null;
   try {
-    modifiedArgs = JSON.parse($('#apArgs').value);
+    const raw = $('#apArgs').value.trim();
+    if (raw && raw !== (evt.args || '{}')) modifiedArgs = JSON.parse(raw);
   } catch (e) {
-    $('#apMsg').textContent = '参数 JSON 格式错误：' + e.message;
+    $('#apMsg').textContent = '参数不是合法 JSON: ' + e.message;
     $('#apMsg').classList.remove('hidden');
     return;
   }
   try {
-    const r = await apiCommand('approve', { subAction: 'approve', approvalId: evt.approvalId, approvalModifiedArguments: modifiedArgs });
+    const payload = { subAction: 'approve', approvalId: evt.approvalId, approvalModifiedArguments: modifiedArgs };
+    if (scope && scope !== 'once') payload.approvalScope = scope;
+    const r = await apiCommand('approve', payload);
     toast(r.message || r.error, r.success ? 'ok' : 'err');
     if (r.success) $('#approvalModal').classList.add('hidden');
   } catch (e) { toast(e.message, 'err'); }
@@ -2171,6 +2188,72 @@ async function rejectAction() {
     toast(r.message || r.error, r.success ? 'ok' : 'err');
     if (r.success) $('#approvalModal').classList.add('hidden');
   } catch (e) { toast(e.message, 'err'); }
+}
+
+// ======================== 自动运行 & 授权面板 ========================
+function openPermissions() { $('#permModal').classList.remove('hidden'); loadPermissions(); }
+function closePermissions() { $('#permModal').classList.add('hidden'); }
+
+async function toggleAuto() {
+  try {
+    const on = state.autoRun === true;             // 当前状态 → 点一下取反
+    const r = await apiCommand('auto', { sub: on ? 'off' : 'on', sessionId: state.sessionId });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    if (r.success) { state.autoRun = !on; renderAutoBtn(); }
+  } catch (e) { toast(e.message, 'err'); }        // 网络异常：如实提示，不静默
+}
+function renderAutoBtn() {
+  const b = $('#autoBtn');
+  if (!b) return;
+  b.textContent = state.autoRun ? '🔓 自动运行' : '🔒 自动运行';
+  b.classList.toggle('on', state.autoRun === true);
+}
+async function refreshAutoState() {
+  const sid = state.sessionId;                 // 请求发出时的会话；期间可能被切走
+  if (!sid) return;
+  try {
+    const r = await apiCommand('auto', { sub: 'status', sessionId: sid });
+    if (state.sessionId !== sid) return;       // 已切走：丢弃迟到响应，别覆盖新会话的开关态
+    if (r.success && r.data) { state.autoRun = r.data.on === true; renderAutoBtn(); }
+  } catch (e) {}
+}
+async function loadPermissions() {
+  const box = $('#permBox');
+  try {
+    const r = await apiCommand('permissions', { sub: 'list', userId: state.userId });
+    if (!r.success) { box.innerHTML = '<div class="muted">加载失败: ' + esc(r.error || '') + '</div>'; return; }
+    const list = r.data || [];
+    if (!list.length) { box.innerHTML = '<div class="muted">当前无授权</div>'; return; }
+    box.innerHTML = '';
+    list.forEach(g => {
+      const row = document.createElement('div');
+      row.style.cssText = 'border-bottom:1px solid #2a2f3d;padding:8px 4px;';
+      const scope = g.scope === 'session' ? '本会话' : '本轮';
+      const revokeCmd = { sub: 'revoke', userId: state.userId, sessionId: g.sessionId, ruleId: g.ruleId };
+      if (g.operation && g.operation !== '*') revokeCmd.operation = g.operation;
+      row.innerHTML = '<span class="muted">[' + scope + ']</span> ' + esc(g.display || g.ruleId)
+        + ' <span class="muted">session=' + esc(g.sessionId) + '</span> ';
+      const btn = document.createElement('button');
+      btn.textContent = '撤销';
+      // 行内小按钮：本行不在 .btn-row/.row 里（拿不到样式表规则），内联沿用 .sess-ops/table.tbl 的同款深色小按钮
+      btn.style.cssText = 'padding:2px 8px;font-size:12px;border-radius:4px;'
+        + 'border:1px solid #2a2f3d;background:#232838;color:#d8dde6;cursor:pointer;';
+      btn.onclick = async () => {
+        const rr = await apiCommand('permissions', revokeCmd);
+        toast(rr.message || rr.error, rr.success ? 'ok' : 'err');
+        loadPermissions(); refreshAutoState();
+      };
+      row.appendChild(btn);
+      box.appendChild(row);
+    });
+  } catch (e) { box.innerHTML = '<div class="muted">加载异常: ' + esc(e.message) + '</div>'; }
+}
+async function clearPermissions() {
+  try {
+    const r = await apiCommand('permissions', { sub: 'clear', userId: state.userId, sessionId: state.sessionId });
+    toast(r.message || r.error, r.success ? 'ok' : 'err');
+    loadPermissions(); refreshAutoState();
+  } catch (e) { toast(e.message, 'err'); }        // 网络异常：如实提示，不静默
 }
 
 // ======================== 命令辅助 ========================

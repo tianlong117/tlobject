@@ -566,6 +566,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             return;
         }
         registerTaskSession(rec, execSession);      // webui 归属登记（审批/事件定位；无 webui 静默跳过）
+        notifyApprovalGate(execSession, rec.parentSessionId);   // 审批授权继承：任务会话 → 发起会话（无 approvalGate 静默跳过）
         publishTaskEvent("taskStarted", rec, null, null);
 
         String snapshot = buildContextSnapshot(rec);   // background：承接父会话末尾若干轮（定时任务/关闭时为空串）
@@ -631,6 +632,7 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         rs.terminal = true;
         runningBySession.remove(rs.execSession);
         unregisterTaskSession(rs.execSession);         // 先注销：删除竞态下也不泄漏
+        notifyApprovalGate(rs.execSession, "");        // 审批映射同步注销（任务异常结束路径同走此收尾）
         TaskRecord rec = loadRecords().get(fullId);
         if (rec == null) return;                       // 任务已被删除：不复活
         // 代际校验：记录里的 execSession 与本次执行不符（上一轮残留/删除后重建）→ 不覆盖
@@ -883,6 +885,27 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             putMsg((IObject) webui, m);
         } catch (Exception e) {
             putLog("注销任务会话失败: " + e, LogLevel.DEBUG);
+        }
+    }
+
+    /**
+     * 审批授权继承登记：任务执行会话 → 发起会话（approvalGate 未配置时静默跳过，
+     * 同 registerTaskSession 对 webui 的处理）。parentSessionId 为空 = 注销。
+     * 注意：必须在调用方挂接（不能放进 registerTaskSession/unregisterTaskSession 方法体内）
+     * ——那两个方法在 webui 缺失时会提前 return，放体内会让审批登记跟着被跳过。
+     * 已知限制：映射只解析一跳（任务内的嵌套后台任务不继承根会话授权，退化为弹框，fail-closed）。
+     */
+    private void notifyApprovalGate(String execSession, String parentSessionId) {
+        try {
+            Object gate = getModuleInFactory("approvalGate");
+            if (!(gate instanceof IObject)) return;
+            TLMsg m = createMsg().setAction(APPROVAL_TASKSESSION)
+                    .setParam("execSession", execSession)
+                    .setParam("parentSessionId", parentSessionId == null ? "" : parentSessionId);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg((IObject) gate, m);
+        } catch (Exception e) {
+            putLog("审批任务会话登记失败: " + e, LogLevel.DEBUG);
         }
     }
 

@@ -700,7 +700,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private List<Map<String, Object>> pendingApprovalsOf(String userId) {
         List<Map<String, Object>> result = new ArrayList<>();
         try {
-            TLMsg r = putMsg("approvalGate", createMsg().setAction(APPROVAL_PENDINGLIST));
+            TLMsg query = createMsg().setAction(APPROVAL_PENDINGLIST);
+            query.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块时静默返回（默认行为会关停整个应用）
+            TLMsg r = putMsg("approvalGate", query);
             Object listObj = r != null ? r.getParam("pendingList") : null;
             if (!(listObj instanceof List)) return result;
             for (Object o : (List<?>) listObj) {
@@ -721,11 +723,22 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private void rejectPendingApprovals(String userId) {
         for (Map<String, Object> m : pendingApprovalsOf(userId)) {
             try {
-                putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+                TLMsg reject = createMsg().setAction(APPROVAL_REJECT)
                         .setParam(AI_P_APPROVAL_ID, String.valueOf(m.get("approvalId")))
-                        .setParam(AI_P_APPROVAL_REJECTREASON, "用户退出登录"));
+                        .setParam(AI_P_APPROVAL_REJECTREASON, "用户退出登录");
+                reject.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块时静默返回（默认行为会关停整个应用）
+                putMsg("approvalGate", reject);
             } catch (Exception e) {
                 putLog("拒绝审批失败: " + e, LogLevel.WARN);
+            }
+            // 审批未被受理而终结 → 消息箱兜底告知（与 approvalGate 的超时告知同口径；阶段二将改为"退出转断点"）
+            try {
+                String note = "⚠️ 你退出登录时有一项审批未处理，已拒绝：工具 "
+                        + String.valueOf(m.get("toolName")) + "，会话 " + String.valueOf(m.get("sessionId"));
+                inboxStore.add(userId, "approval", String.valueOf(m.get("approvalId")), note);
+                pushInboxEvent(userId, inboxStore.unreadCount(userId));
+            } catch (Exception e) {
+                putLog("审批退出告知写入消息箱失败: " + e, LogLevel.DEBUG);
             }
         }
     }
@@ -981,17 +994,18 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         evt.put("args", msg.getStringParam("args", "{}"));
         String json = GSON.toJson(evt);
+        // 2026-10-13：按事件自带 userId 路由（与 task/sessionTitle 同口径）。
+        // 此前只用 sessionOwner 反查属主，命中不了就"广播给所有用户"——控制台会话不在
+        // sessionOwner 里，控制台的审批因此串给全部 webui 用户（不同账号可见、可误操作）。
+        // 缺 userId 的旧事件回退按会话属主；两者都定不了 → 不推（宁缺勿串），
+        // 返回 false 让发布方（ConsoleReviewer）回退到控制台直接打印，审批不丢。
+        String evtUser = msg.getStringParam("userId", "");
+        String targetUser = !evtUser.isEmpty() ? evtUser : owner;
         boolean sent = false;
-        if (owner != null) {
-            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(owner);
+        if (targetUser != null && !targetUser.isEmpty() && !"null".equals(targetUser)) {
+            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(targetUser);
             if (list != null) for (TLWebChannel c : list) {
                 if (c.isOpen()) { c.write(json); sent = true; }
-            }
-        } else {
-            for (java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list : eventChannels.values()) {
-                for (TLWebChannel c : list) {
-                    if (c.isOpen()) { c.write(json); sent = true; }
-                }
             }
         }
         return sent;

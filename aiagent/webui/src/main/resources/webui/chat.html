@@ -30,6 +30,8 @@
     <span id="connState" class="conn" title="事件通道连接状态">●</span>
     <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
     <button id="bgTasksBtn" class="ghost" title="后台任务（跨会话查看/停止/删除）">🚀 后台任务</button>
+    <button id="autoBtn" class="ghost" title="自动运行：本会话内工具调用免审批">🔒 自动运行</button>
+    <button id="permBtn" class="ghost" title="审批授权管理（查看/撤销）">🛡 授权</button>
     <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
     <button id="panelBtn" class="ghost" title="设置/调试面板（Agent/Skill、MCP、评测、追踪）">⚙ 设置/调试</button>
     <button id="logoutBtn" class="ghost">退出</button>
@@ -166,6 +168,8 @@
     <textarea id="apArgs" rows="6" spellcheck="false"></textarea>
     <div class="btn-row">
       <button class="ok" id="apApproveBtn">✓ 批准</button>
+      <button id="apApproveRoundBtn" title="本轮内同规则不再询问">✓ 本轮不再问</button>
+      <button id="apApproveSessionBtn" title="本会话内同规则不再询问">✓ 本会话不再问</button>
       <button class="no" id="apRejectBtn">✗ 拒绝</button>
     </div>
     <input id="apReason" placeholder="拒绝原因（可选）">
@@ -212,6 +216,21 @@
     <div id="inboxBox" style="max-height:60vh;overflow:auto;"></div>
     <div class="btn-row">
       <button class="ok" onclick="closeInbox()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 审批授权面板（顶栏 🛡 打开）===== -->
+<div id="permModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🛡 审批授权</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadPermissions()">刷新</button>
+      <button onclick="clearPermissions()">清空本会话授权</button>
+    </div>
+    <div id="permBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closePermissions()">关 闭</button>
     </div>
   </div>
 </div>

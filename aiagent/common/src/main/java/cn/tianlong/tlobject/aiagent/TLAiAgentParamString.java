@@ -439,6 +439,18 @@ public interface TLAiAgentParamString extends TLParamString {
     String APPROVAL_QUERY = "approvalQuery";
     /** 查询全部未决审批列表（用户重连时重放审批弹框用） */
     String APPROVAL_PENDINGLIST = "approvalPendingList";
+    /** 列出授权记录（会话级/轮次级免审 + 自动运行） */
+    String APPROVAL_GRANTS = "approvalGrants";
+    /** 撤销授权 */
+    String APPROVAL_REVOKE = "approvalRevoke";
+    /** 主动预授权单项（不弹框直接授予） */
+    String APPROVAL_GRANT = "approvalGrant";
+    /** 任务执行会话 → 发起会话 映射登记/注销（授权归一化到对话根用） */
+    String APPROVAL_TASKSESSION = "approvalTaskSession";
+    /** 审批模块自述（审查人/规则数，测试与排障用） */
+    String APPROVAL_INFO = "approvalInfo";
+    /** 批准的授权范围：once(默认)/round/session */
+    String AI_P_APPROVAL_SCOPE = "approvalScope";
     /** 审批状态：pending/approved/rejected/expired */
     String AI_P_APPROVAL_STATE = "_approvalState";
     /** 审批 ID（UUID 短码） */

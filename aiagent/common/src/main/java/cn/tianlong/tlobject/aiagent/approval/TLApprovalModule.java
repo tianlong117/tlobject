@@ -40,6 +40,11 @@ import java.util.concurrent.*;
  *   approvalApprove(approvalId, approvalModifiedArguments?)        → 批准
  *   approvalReject(approvalId, approvalRejectReason?)             → 拒绝
  *   approvalQuery(approvalId)                                     → 查询状态
+ *   approvalGrants(sessionId?)                                    → 列出授权
+ *   approvalRevoke(sessionId, ruleId? | all=true)                 → 撤销授权
+ *   approvalGrant(sessionId, ruleId, operation?)                  → 主动预授权
+ *   approvalTaskSession(execSession, parentSessionId?)            → 任务会话→发起会话 映射登记/注销
+ *   approvalInfo()                                                → 审查人/配置自述
  * }</pre>
  *
  * 创建日期：2026/7/25
@@ -54,6 +59,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /** 通配规则前缀（tool:* → "tool:"，tool* → "tool"），按 startsWith 匹配函数名 */
     private final List<String> approvalRulePrefixes = new ArrayList<>();
+
+    /** 前缀 → 配置里的规则名（ruleId 归一用；解析规则时填充，与 approvalRulePrefixes 同步） */
+    private final Map<String, String> prefixRuleNames = new LinkedHashMap<>();
 
     /** 规则名 → description（结构化 &lt;rules&gt; 配置的人可读说明，弹框展示用） */
     private final Map<String, String> ruleDescriptions = new LinkedHashMap<>();
@@ -90,6 +98,19 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     private final Map<String, String> rejectedOps = java.util.Collections.synchronizedMap(new LinkedHashMap<>());
     /** 拒绝记忆上限 */
     private static final int MAX_REJECTED_OPS = 200;
+
+    // ======================== 授权记忆（会话/轮次级免审） ========================
+
+    /** 授权表：key = grantKey(resolve(sessionId), scope, roundId, ruleId, operation) */
+    private final Map<String, ApprovalGrant> approvedGrants =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<String, ApprovalGrant>());
+    /** 授权表上限（超限驱逐最旧（插入序 FIFO）；同 rejectedOps 的既有模式） */
+    private static final int MAX_APPROVED_GRANTS = 200;
+
+    /** 任务执行会话 → 发起会话（TLScheduleTaskSkill 登记；授权归一化到对话根用） */
+    private final Map<String, String> taskSessionParents =
+            java.util.Collections.synchronizedMap(new LinkedHashMap<String, String>());
+    private static final int MAX_TASK_SESSIONS = 200;
 
     /** 决策信号：approvalId → CountDownLatch（同步审查人阻塞在此，handleApprove/handleReject 信号唤醒） */
     private final ConcurrentHashMap<String, java.util.concurrent.CountDownLatch> decisionLatches = new ConcurrentHashMap<>();
@@ -229,6 +250,21 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 return handleQuery(fromWho, msg);
             case APPROVAL_PENDINGLIST:
                 return handlePendingList(fromWho, msg);
+            case APPROVAL_INFO:
+                // infoOk 是"接线探针"：测试层据此区分"审批模块不可用（接线回归）"与"环境不匹配"，
+                // 返回 null 会让用例静默 SKIP —— 而基线比较器忽略跳过，"全绿"就不再证明授权可用
+                return createMsg().setParam(RESULT, true)
+                        .setParam("infoOk", true)
+                        .setParam("reviewerClass", reviewerClass != null ? reviewerClass : "")
+                        .setParam("reviewerInstance", reviewer != null ? reviewer.getClass().getName() : "");
+            case APPROVAL_GRANTS:
+                return handleGrants(fromWho, msg);
+            case APPROVAL_REVOKE:
+                return handleRevoke(fromWho, msg);
+            case APPROVAL_GRANT:
+                return handleGrantPregrant(fromWho, msg);
+            case APPROVAL_TASKSESSION:
+                return handleTaskSession(fromWho, msg);
             default:
                 return null;
         }
@@ -247,9 +283,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             boolean ok = latch.await(request.getTimeoutMs() > 0 ? request.getTimeoutMs() : approvalTimeoutMs,
                     java.util.concurrent.TimeUnit.MILLISECONDS);
             if (!ok) {
-                request.setState(TLApprovalRequest.EXPIRED);
-                request.setRejectionReason("审批超时（" + (approvalTimeoutMs / 1000) + "秒）");
-                putLog("Approval expired: id=" + request.getApprovalId(), LogLevel.INFO);
+                markExpired(request, "审批超时（" + (approvalTimeoutMs / 1000) + "秒）");
             } else if (Thread.currentThread().isInterrupted()) {
                 request.setState(TLApprovalRequest.REJECTED);
                 request.setRejectionReason("审批被中断");
@@ -295,6 +329,12 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 evt.setParam("toolName", request.getToolName());
                 evt.setParam("description", request.getDescription());
                 evt.setParam("sessionId", request.getSessionId() != null ? request.getSessionId() : request.getRootSessionId());
+                // 2026-10-13：事件带 userId 供订阅方按用户过滤。此前不带 userId，webui 端只能按
+                // sessionOwner 反查属主——控制台会话不在 webui 的 sessionOwner 里 → 属主为空 →
+                // 旧实现回退"广播给所有用户"，控制台的审批会串到所有 webui 用户（不同账号）。
+                if (request.getUserId() != null && !request.getUserId().isEmpty()) {
+                    evt.setParam("userId", request.getUserId());
+                }
                 if (request.getToolArguments() != null) {
                     evt.setParam("args", new com.google.gson.Gson().toJson(request.getToolArguments()));
                 }
@@ -351,20 +391,34 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                     .setParam(AI_P_SKILLOUTPUT, buildRejectedOutput(rejectedReason));
         }
 
-        // 1. 检查是否需要审批
-        if (!isApprovalRequired(toolName, toolArgs)) {
-            // 放行：返回空（Agent 据此判断无需审批）
+        String roundIdStr = String.valueOf(msg.getSystemParam(AI_P_ROUNDID, ""));
+        String userId = String.valueOf(msg.getSystemParam("userId", ""));
+
+        // 1. 规则判定 + 2. 授权命中自动批准（规则匹配与操作提取共用一趟）
+        RuleMatch match = matchRule(toolName, toolArgs);
+        if (!match.required) {
             return createMsg().setParam(AI_P_APPROVAL_STATE, "approved");
         }
-
-        // 2. 提取操作名 + 确定风险级别
-        String operation = extractOperation(toolName, toolArgs);
+        ApprovalGrant hit = findGrant(sessionId, roundIdStr, match.ruleId, match.operation);
+        if (hit != null) {
+            putLog("Approval auto-approved by grant: tool=" + toolName + " rule=" + match.ruleId
+                    + " op=" + match.operation + " scope=" + hit.scope + " session=" + sessionId, LogLevel.INFO);
+            traceStage(sessionId, String.valueOf(msg.getSystemParam("rootSessionId", sessionId)),
+                    roundIdStr, "approvalDecided",
+                    "auto-approved(" + hit.scope + (hit.isAutoRun() ? "/wildcard" : "")
+                            + ") rule=" + match.ruleId, 0);
+            return createMsg().setParam(RESULT, true).setParam(AI_P_APPROVAL_STATE, "approved")
+                    .setParam(AI_P_SKILLOUTPUT, "审批通过（已授权）");
+        }
+        String operation = match.operation;
         String riskLevel = resolveRiskLevel(toolName, operation);
 
         // 3. 创建审批请求
         TLApprovalRequest request = new TLApprovalRequest(sessionId, toolName, toolArgs, toolCallId);
         request.setRoundId(String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")));
         request.setRootSessionId(String.valueOf(msg.getSystemParam("rootSessionId", sessionId)));
+        request.setRuleId(match.ruleId);
+        request.setUserId(userId);
         // 命中规则的人可读说明（弹框展示）
         String ruleDesc = findMatchedRuleDescription(toolName);
         if (ruleDesc != null) request.setDescription(ruleDesc);
@@ -436,6 +490,26 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         Map<String, Object> modifiedArgs =
                 (Map<String, Object>) msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null);
         request.setModifiedArguments(modifiedArgs);
+        String scope = msg.getStringParam(AI_P_APPROVAL_SCOPE, "once");
+        if (!"once".equals(scope)) {
+            // 授权只记 rule+operation，改后的参数不会用于后续调用：非 once 授权下必须禁止改参数，
+            // 否则被改掉的危险参数会在下一次自动批准时"复活"，用户还以为改后的才是被批准的。
+            // 提前返回保持请求 PENDING，用户可改用 once 重新批准（语义正确）
+            if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "带参数修改的批准仅支持本次（once）：授权只记规则+操作，改后的参数不会用于后续调用");
+            }
+            if (!ApprovalGrant.SCOPE_ROUND.equals(scope) && !ApprovalGrant.SCOPE_SESSION.equals(scope)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "未知授权范围: " + scope + "（可用 once/round/session）");
+            }
+            if (ApprovalGrant.SCOPE_ROUND.equals(scope)
+                    && (request.getRoundId() == null || request.getRoundId().isEmpty())) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "该请求无轮次信息，无法按轮授权（可用 once/session）");
+            }
+            addGrant(scope, request);
+        }
         request.setState(TLApprovalRequest.APPROVED);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         putLog("Approval approved: id=" + approvalId, LogLevel.INFO);
@@ -516,6 +590,208 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         return createMsg().setParam("pendingList", list);
     }
 
+    // ======================== 授权管理动作 ========================
+
+    /** 列出授权（sessionId 可选过滤，过滤值做会话归一化；为空 = 全部） */
+    private TLMsg handleGrants(Object fromWho, TLMsg msg) {
+        String rawFilter = msg.getStringParam("sessionId", "");
+        // 类型非法（非 String）时 getStringParam 回落 ""，过滤条件会静默消失、列出所有会话的授权
+        // （与 revoke 的硬报错方向相反）——这里统一按参数错误拒绝。containsParam 只看 args
+        // （systemArgs 不参与），故显式传空串同样命中本守卫，属预期（空串过滤无意义）
+        if (msg.containsParam("sessionId") && rawFilter.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 类型非法（需为字符串）");
+        }
+        String filter = rawFilter.isEmpty() ? "" : resolveSession(rawFilter);
+        List<Map<String, Object>> list = new ArrayList<>();
+        synchronized (approvedGrants) {
+            for (ApprovalGrant g : approvedGrants.values()) {
+                if (!filter.isEmpty() && !filter.equals(g.sessionId)) continue;
+                list.add(g.toMap());
+            }
+        }
+        return createMsg().setParam(RESULT, true).setParam("grants", list);
+    }
+
+    /**
+     * 撤销授权：sessionId 必填（归一化后比较）；all=true 清该会话全部；
+     * 否则按 ruleId(+operation) 删（operation 缺省 = 该规则下全部操作，含规则级/通配记录）。
+     * 返回删除条数。
+     */
+    private TLMsg handleRevoke(Object fromWho, TLMsg msg) {
+        String rawSid = msg.getStringParam("sessionId", "");
+        if (rawSid.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "missing sessionId");
+        }
+        String sessionId = resolveSession(rawSid);
+        boolean all = msg.parseBoolean("all", false);
+        boolean hasRule = msg.containsParam("ruleId");
+        // all=true 时 ruleId 会被静默忽略（日志还照打 rule=xxx）——误传会整会话清空，
+        // 这种组合没有合法调用方（清整会话用 all、清清单规则不带 all），直接拒绝
+        if (all && hasRule) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "all=true 时不要带 ruleId（清整会话用 all，清单规则不带 all）");
+        }
+        if (!all && !hasRule) {
+            return createMsg().setParam(RESULT, false).setParam("error", "需要 ruleId 或 all=true");
+        }
+        String ruleId = msg.getStringParam("ruleId", "");
+        boolean hasOp = msg.containsParam("operation");
+        String operation = msg.getStringParam("operation", "");
+        int removed = 0;
+        synchronized (approvedGrants) {
+            java.util.Iterator<Map.Entry<String, ApprovalGrant>> it = approvedGrants.entrySet().iterator();
+            while (it.hasNext()) {
+                ApprovalGrant g = it.next().getValue();
+                if (!sessionId.equals(g.sessionId)) continue;
+                if (!all) {
+                    if (!ruleId.equals(g.ruleId)) continue;
+                    if (hasOp && !operation.equals(g.operation)) continue;
+                }
+                it.remove();
+                removed++;
+            }
+        }
+        putLog("Grants revoked: session=" + sessionId + " all=" + all
+                + " rule=" + ruleId + " removed=" + removed, LogLevel.INFO);
+        return createMsg().setParam(RESULT, true).setParam("removed", removed);
+    }
+
+    /** 主动预授权：不弹框直接写入授权表（ruleId 必填；operation 缺省 = 该规则全部操作） */
+    private TLMsg handleGrantPregrant(Object fromWho, TLMsg msg) {
+        String rawSid = msg.getStringParam("sessionId", "");
+        String ruleId = msg.getStringParam("ruleId", "");
+        if (rawSid.isEmpty() || ruleId.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "需要 sessionId 与 ruleId");
+        }
+        String operation = msg.containsParam("operation")
+                ? msg.getStringParam("operation", "")
+                : ApprovalGrant.WILDCARD;
+        if (ApprovalGrant.WILDCARD.equals(ruleId) && !ApprovalGrant.WILDCARD.equals(operation)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "通配规则（ruleId=*）只支持 operation=*（自动运行），否则该授权无法被查询命中");
+        }
+        // 死路守卫：matchRule 返回的 ruleId 只可能取自 approvalRules.keySet() 或 prefixRuleNames.values()，
+        // 拼错（如写成工具名/配置里没有的规则）的授权永不命中、却在清单里报成功——直接拒绝
+        if (!ApprovalGrant.WILDCARD.equals(ruleId)) {
+            boolean known = approvalRules.containsKey(ruleId) || prefixRuleNames.containsValue(ruleId);
+            if (!known) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "规则不在册: " + ruleId + "（永不命中的授权，已拒绝）");
+            }
+        }
+        // 操作名与 extractOperation/规则解析一致统一小写（operation="WRITE" 原样入库会永不命中）
+        if (operation != null && !operation.isEmpty()) operation = operation.toLowerCase();
+        // 操作在册校验：精确规则配了操作集合时，操作名必须在集合内（拼错=永不命中的假成功）。
+        // 跳过：ruleId/operation 为通配（*）、或规则是前缀/通配形态（approvalRules 里查无集合）、
+        // 或规则没配操作集合（空 Set = 全部操作，任意操作名都合法）。用小写归一后的值比较，
+        // 与 findGrant 侧操作名（matchRule 提取时已小写）同一口径。
+        if (!ApprovalGrant.WILDCARD.equals(ruleId) && !ApprovalGrant.WILDCARD.equals(operation)) {
+            Set<String> ruleOps = approvalRules.get(ruleId);
+            if (ruleOps != null && !ruleOps.isEmpty() && !ruleOps.contains(operation)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "操作不在规则的 action 集合内: " + ruleId + ":" + operation
+                                + "（永不命中的授权，已拒绝）");
+            }
+        }
+        ApprovalGrant g = new ApprovalGrant();
+        g.sessionId = resolveSession(rawSid);
+        g.scope = ApprovalGrant.SCOPE_SESSION;
+        g.roundId = "";
+        g.ruleId = ruleId;
+        g.operation = operation;
+        g.toolName = "";   // toMap 的占位约定：空串（预授权没有"授予时命中的工具名"）
+        g.grantedAt = System.currentTimeMillis();
+        putGrant(g);
+        putLog("Grant pre-granted: rule=" + ruleId + " op=" + g.operation + " session=" + g.sessionId, LogLevel.INFO);
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 任务会话 → 发起会话 映射登记/注销（parentSessionId 为空 = 注销） */
+    private TLMsg handleTaskSession(Object fromWho, TLMsg msg) {
+        String execSession = msg.getStringParam("execSession", "");
+        if (execSession.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "missing execSession");
+        }
+        String parent = msg.getStringParam("parentSessionId", "");
+        if (parent.isEmpty()) {
+            taskSessionParents.remove(execSession);
+        } else {
+            synchronized (taskSessionParents) {
+                if (taskSessionParents.size() >= MAX_TASK_SESSIONS) {
+                    taskSessionParents.remove(taskSessionParents.keySet().iterator().next());
+                }
+                taskSessionParents.put(execSession, parent);
+            }
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    // ======================== 授权表 ========================
+
+    /**
+     * 会话归一化：任务执行会话解析为其发起会话（授权归一化到对话根），其他会话返回自身。
+     * 前提：映射须在授权写入前已登记（写入侧已归一化；事后登记不会迁移既有记录的键）。
+     */
+    private String resolveSession(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) return "";
+        String parent = taskSessionParents.get(sessionId);
+        return parent != null && !parent.isEmpty() ? parent : sessionId;
+    }
+
+    /** 授权键（写入与查询必须走同一构造） */
+    private String grantKey(String sessionId, String scope, String roundId, String ruleId, String operation) {
+        return sessionId + "|" + scope + "|" + (roundId == null ? "" : roundId) + "|"
+                + (ruleId == null ? "" : ruleId) + "|" + (operation == null ? "" : operation);
+    }
+
+    /** 授权入表：超上限驱逐最旧（插入序）；key 统一由 grantKey 构造 */
+    private void putGrant(ApprovalGrant g) {
+        synchronized (approvedGrants) {
+            if (approvedGrants.size() >= MAX_APPROVED_GRANTS) {
+                approvedGrants.remove(approvedGrants.keySet().iterator().next());
+            }
+            approvedGrants.put(grantKey(g.sessionId, g.scope, g.roundId, g.ruleId, g.operation), g);
+        }
+    }
+
+    /**
+     * 授权命中判定：先查通配（自动运行），再精确 规则+操作，最后规则级（预授权不指定操作 = 全操作）；
+     * 会话级优先，轮次级需 roundId 非空。返回命中的授权或 null。
+     */
+    private ApprovalGrant findGrant(String sessionId, String roundId, String ruleId, String operation) {
+        String sid = resolveSession(sessionId);
+        String[] scopes = { ApprovalGrant.SCOPE_SESSION, ApprovalGrant.SCOPE_ROUND };
+        for (String scope : scopes) {
+            boolean isRound = ApprovalGrant.SCOPE_ROUND.equals(scope);
+            if (isRound && (roundId == null || roundId.isEmpty())) continue;
+            String rd = isRound ? roundId : "";
+            ApprovalGrant g = approvedGrants.get(
+                    grantKey(sid, scope, rd, ApprovalGrant.WILDCARD, ApprovalGrant.WILDCARD));
+            if (g != null) return g;
+            g = approvedGrants.get(grantKey(sid, scope, rd, ruleId, operation));
+            if (g != null) return g;
+            g = approvedGrants.get(grantKey(sid, scope, rd, ruleId, ApprovalGrant.WILDCARD));
+            if (g != null) return g;
+        }
+        return null;
+    }
+
+    /** 写入一条授权（幂等覆盖；超上限驱逐最旧） */
+    private void addGrant(String scope, TLApprovalRequest request) {
+        ApprovalGrant g = new ApprovalGrant();
+        g.sessionId = resolveSession(request.getSessionId());
+        g.scope = scope;
+        g.roundId = ApprovalGrant.SCOPE_ROUND.equals(scope)
+                ? (request.getRoundId() == null ? "" : request.getRoundId()) : "";
+        g.ruleId = request.getRuleId() == null ? "" : request.getRuleId();
+        g.operation = request.getOperation() == null ? "" : request.getOperation();
+        g.toolName = request.getToolName();
+        g.grantedAt = System.currentTimeMillis();
+        putGrant(g);
+        putLog("Grant added: scope=" + scope + " rule=" + g.ruleId + " op=" + g.operation
+                + " session=" + g.sessionId, LogLevel.INFO);
+    }
+
     // ======================== 规则匹配 ========================
 
     /** 构建拒绝记忆键：sessionId|toolName|排序后的参数 */
@@ -560,36 +836,45 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 + "。请勿重试或以其他方式绕过，直接向用户说明拒绝原因。";
     }
 
-    /**
-     * 判断一个工具调用是否需要审批。
-     *
-     * @param toolName 工具名（function name）
-     * @param args     工具参数
-     * @return true 需要审批
-     */
-    public boolean isApprovalRequired(String toolName, Map<String, Object> args) {
-        if (approvalRules.isEmpty() && approvalRulePrefixes.isEmpty()) {
-            return false;  // 未配置规则，全部放行
-        }
+    /** 规则匹配结果：是否需审批 + 命中的规则 id + 提取到的操作名（授权记忆的键）。
+     *  required=false 时 ruleId/operation 不构成授权依据（ruleId 非空仅表示规则匹配过）。*/
+    public static class RuleMatch {
+        public boolean required;
+        public String ruleId = "";
+        public String operation = "";
+    }
 
+    /**
+     * 一次匹配返回完整结果（规则判定与操作提取本是一趟逻辑，供审批与授权共用）。
+     * 语义与旧 isApprovalRequired 逐条对齐：前缀命中即需审批；精确规则按操作集合；
+     * 提取不到操作名按安全侧（需审批）。
+     */
+    public RuleMatch matchRule(String toolName, Map<String, Object> args) {
+        RuleMatch r = new RuleMatch();
+        if (approvalRules.isEmpty() && approvalRulePrefixes.isEmpty()) {
+            return r;  // 未配置规则，全部放行
+        }
         // 1. 通配前缀匹配（tool:* 命中 "tool:xxx" 冒号风格函数名；tool* 命中任意前缀，如 MCP 的 agentName_toolName）
         for (String prefix : approvalRulePrefixes) {
             if (toolName.startsWith(prefix)) {
-                return true;
+                r.required = true;
+                r.ruleId = prefixRuleNames.getOrDefault(prefix, prefix);
+                String op = extractOperation(toolName, args);
+                r.operation = op != null ? op : "";
+                return r;
             }
         }
-
         // 2. 精确匹配 toolName
         Set<String> ops = approvalRules.get(toolName);
-        if (ops == null) {
-            return false;  // 不在规则中
-        }
-
+        if (ops == null) return r;
+        r.ruleId = toolName;
         // 3. 空 Set = 该工具的所有操作都需审批
         if (ops.isEmpty()) {
-            return true;
+            r.required = true;
+            String op = extractOperation(toolName, args);
+            r.operation = op != null ? op : "";
+            return r;
         }
-
         // 4. 按操作名匹配
         String operation = extractOperation(toolName, args);
         if (operation == null) {
@@ -597,9 +882,26 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             // operation/method/action 三个键里），原来的 `operation != null && ...` 会直接判成
             // "不需审批" —— 规则配了 action 反而等于放行。这里取安全侧：提取不到就当需要审批。
             putLog("审批规则命中了工具 " + toolName + "，但提取不到操作名，按需要审批处理", LogLevel.WARN);
-            return true;
+            r.required = true;
+            r.operation = "";
+            return r;
         }
-        return ops.contains(operation);
+        if (ops.contains(operation)) {
+            r.required = true;
+            r.operation = operation;
+        }
+        return r;
+    }
+
+    /**
+     * 判断一个工具调用是否需要审批（公开 API，保留签名；实现委托 matchRule）。
+     *
+     * @param toolName 工具名（function name）
+     * @param args     工具参数
+     * @return true 需要审批
+     */
+    public boolean isApprovalRequired(String toolName, Map<String, Object> args) {
+        return matchRule(toolName, args).required;
     }
 
     /**
@@ -625,16 +927,15 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 // 无细分操作：返回 null，由调用方按"提取不到就需审批"处理（安全侧）
                 return null;
             default:
-                // 其他工具：尝试通用 operation/method/action 参数（统一小写，与规则侧一致）
-                if (args.containsKey("operation")) {
-                    return args.get("operation").toString().toLowerCase();
-                }
-                if (args.containsKey("method")) {
-                    return args.get("method").toString().toLowerCase();
-                }
-                if (args.containsKey("action")) {
-                    return args.get("action").toString().toLowerCase();
-                }
+                // 其他工具：尝试通用 operation/method/action 参数（统一小写，与规则侧一致）。
+                // 值判空而非 containsKey：显式 JSON null（{"operation": null}）在 containsKey 下为 true，
+                // 直接 toString() 会 NPE，并被执行器 catch 成"绕开审批"（fail-open）——取安全侧
+                Object opVal = args.get("operation");
+                if (opVal != null) return opVal.toString().toLowerCase();
+                Object methodVal = args.get("method");
+                if (methodVal != null) return methodVal.toString().toLowerCase();
+                Object actionVal = args.get("action");
+                if (actionVal != null) return actionVal.toString().toLowerCase();
                 return null;
         }
     }
@@ -666,6 +967,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     private void parseApprovalRules(String rulesStr) {
         approvalRules.clear();
         approvalRulePrefixes.clear();
+        prefixRuleNames.clear();
         if (rulesStr == null || rulesStr.trim().isEmpty()) return;
 
         for (String rule : rulesStr.split(",")) {
@@ -679,6 +981,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 if ("*".equals(op)) {
                     // tool:* 通配：裸名全部操作 + 冒号风格函数名前缀
                     approvalRulePrefixes.add(tool + ":");
+                    prefixRuleNames.put(tool + ":", rule);
                     approvalRules.putIfAbsent(tool, Collections.emptySet());
                 } else {
                     approvalRules.computeIfAbsent(tool, k -> new LinkedHashSet<>()).add(op);
@@ -686,6 +989,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             } else if (rule.endsWith("*")) {
                 // tool* 前缀通配（MCP 的 agentName_toolName 函数名风格）
                 approvalRulePrefixes.add(rule.substring(0, rule.length() - 1));
+                prefixRuleNames.put(rule.substring(0, rule.length() - 1), rule);
             } else {
                 // 无冒号 = 该工具全部操作都需审批
                 approvalRules.put(rule, Collections.emptySet());
@@ -700,6 +1004,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     private void applyStructuredRules() {
         approvalRules.clear();
         approvalRulePrefixes.clear();
+        prefixRuleNames.clear();
         ruleDescriptions.clear();
         for (Map.Entry<String, HashMap<String, String>> e : rulesConfig.entrySet()) {
             String name = e.getKey().trim();
@@ -716,12 +1021,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 // tool:* 通配：裸名全部操作 + 冒号风格函数名前缀
                 String tool = name.substring(0, name.length() - 2).trim();
                 approvalRulePrefixes.add(tool + ":");
+                prefixRuleNames.put(tool + ":", name);
                 approvalRules.putIfAbsent(tool, Collections.emptySet());
                 continue;
             }
             if (name.endsWith("*")) {
                 // tool* 前缀通配（MCP 的 agentName_toolName 函数名风格）
                 approvalRulePrefixes.add(name.substring(0, name.length() - 1));
+                prefixRuleNames.put(name.substring(0, name.length() - 1), name);
                 continue;
             }
             String actionAttr = attrs.get("action");
@@ -746,8 +1053,11 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     private String findMatchedRuleDescription(String toolName) {
         for (String prefix : approvalRulePrefixes) {
             if (toolName.startsWith(prefix)) {
-                String ruleName = prefix.endsWith(":") ? prefix.substring(0, prefix.length() - 1) : prefix;
+                String ruleName = prefixRuleNames.getOrDefault(prefix, prefix);
                 String d = ruleDescriptions.get(ruleName);
+                if (d == null && prefix.endsWith(":")) {
+                    d = ruleDescriptions.get(prefix.substring(0, prefix.length() - 1));
+                }
                 if (d != null) return d;
             }
         }
@@ -798,17 +1108,51 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     // ======================== 超时处理 ========================
 
+    /**
+     * 统一的"超时失效"收口：改状态 + 唤醒等待线程 + 消息箱告知。
+     * 两条超时路径（scheduleTimeout 定时任务 / waitForDecision 的 latch 自超时）都必须走这里。
+     */
+    private void markExpired(TLApprovalRequest request, String reason) {
+        if (request == null || !TLApprovalRequest.PENDING.equals(request.getState())) return;
+        request.setState(TLApprovalRequest.EXPIRED);
+        if (request.getRejectionReason() == null || request.getRejectionReason().isEmpty()) {
+            request.setRejectionReason(reason);
+        }
+        signalDecision(request.getApprovalId());
+        putLog("Approval expired: id=" + request.getApprovalId() + " reason=" + request.getRejectionReason(),
+                LogLevel.INFO);
+        notifyInbox(request, "审批超时未处理，已按拒绝处理");
+    }
+
+    /** 审批未被受理而终结时写消息箱（无 webui 模块 / 无 userId 时静默跳过） */
+    private void notifyInbox(TLApprovalRequest request, String note) {
+        if (request.getUserId() == null || request.getUserId().isEmpty()
+                || "null".equals(request.getUserId())) return;
+        try {
+            Object webui = getModuleInFactory("webui");
+            if (!(webui instanceof IObject)) return;
+            String text = "⚠️ " + note + "：工具 " + request.getToolName()
+                    + (request.getDescription() != null && !request.getDescription().isEmpty()
+                            ? "（" + request.getDescription() + "）" : "")
+                    + "，会话 " + (request.getSessionId() != null ? request.getSessionId() : "");
+            TLMsg m = createMsg().setAction("inboxAdd")
+                    .setParam("userId", request.getUserId())
+                    .setParam("source", "approval")
+                    .setParam("taskId", request.getApprovalId())
+                    .setParam("text", text);
+            m.setSystemParam(IGNOREMODULEISNULL, true);
+            putMsg((IObject) webui, m);
+        } catch (Exception e) {
+            putLog("审批消息箱通知失败: " + e, LogLevel.DEBUG);
+        }
+    }
+
     private void scheduleTimeout(String approvalId, long timeoutMs) {
         if (timeoutMs <= 0) return;
         timeoutScheduler.schedule(() -> {
             TLApprovalRequest request = pendingApprovals.get(approvalId);
             if (request != null && TLApprovalRequest.PENDING.equals(request.getState())) {
-                request.setState(TLApprovalRequest.EXPIRED);
-                request.setRejectionReason("审批超时（" + (timeoutMs / 1000) + "秒）");
-                putLog("Approval expired: id=" + approvalId, LogLevel.INFO);
-                // 原来只改状态不唤醒：等待线程要一直挂到自己的 latch 超时才返回，
-                // 两条超时路径各走各的（且都会把状态设一遍）
-                signalDecision(approvalId);
+                markExpired(request, "审批超时（" + (timeoutMs / 1000) + "秒）");
             }
         }, timeoutMs, TimeUnit.MILLISECONDS);
     }

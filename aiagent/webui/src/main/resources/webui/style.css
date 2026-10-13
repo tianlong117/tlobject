@@ -168,6 +168,9 @@ main { display: flex; flex: 1; min-height: 0; }
 body.dragging { user-select: none; cursor: col-resize; }
 /* 顶栏「设置/调试」按钮：面板打开时高亮 */
 #panelBtn.on { color: #93c5fd; border-color: #3b82f6; }
+/* 顶栏 ghost 按钮的开启态（#autoBtn 自动运行）：与 #panelBtn.on 同一视觉语言。
+   规则放在 header button.ghost:hover 之后——同为 0,2,2 特异度，靠源序保证开启态在悬停时不掉色 */
+header button.ghost.on { color: #93c5fd; border-color: #3b82f6; }
 #tabBar { display: flex; border-bottom: 1px solid #2a2f3d; background: #1b1e27; }
 #tabBar button {
   flex: 1; padding: 10px 4px; background: none; border: none; color: #9aa3b2;
