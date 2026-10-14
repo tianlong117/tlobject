@@ -215,10 +215,16 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 
 /* ===== 审批弹框 ===== */
 .modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; z-index: 100; }
-.modal-box { width: 520px; max-width: 92vw; background: #1b1e27; border: 1px solid #3b82f6; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 10px;
+/* 审批弹框必须压在其他 modal（断点恢复/任务面板等）之上：审批是限时阻塞决策，
+   被别的弹框盖住会"看得见点不着"（实测被断点恢复弹框挡住按钮、点击被拦截） */
+#approvalModal { z-index: 110; }
+.modal-box { position: relative; width: 520px; max-width: 92vw; background: #1b1e27; border: 1px solid #3b82f6; border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 10px;
   /* 内容超高时必须可在框内滚动：flex 居中 + 无滚动时，超长内容（如断点弹窗里的长消息）会同时
      向上下溢出，底部按钮永不可达、遮罩又挡住整页（2026-10-06 卡死事故） */
   max-height: 88vh; overflow-y: auto; }
+/* 关闭按钮（✕）：右上角；审批弹框上 = 按拒绝处理（见 app.js closeApproval——纯关闭会让任务悬挂到超时） */
+.modal-x { position: absolute; top: 8px; right: 12px; color: #9aa3b2; font-size: 15px; line-height: 1; cursor: pointer; user-select: none; }
+.modal-x:hover { color: #e5e7eb; }
 /* 宽版浮层（任务/消息箱——表格类内容需要横向空间，更大气） */
 .modal-box.wide { width: min(1060px, 94vw); }
 .modal-box.wide table.tbl { font-size: 13px; }

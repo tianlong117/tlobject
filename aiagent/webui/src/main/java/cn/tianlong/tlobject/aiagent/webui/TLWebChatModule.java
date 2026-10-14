@@ -134,6 +134,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null，
                 // 让发布方回退到控制台直接打印，避免"以为有人渲染"而审批提示消失
                 return onApprovalEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            // 审批结束（决策/超时后发布）：推关框指令，让残留弹框自行关闭
+            case "approvalResolved":
+                return onApprovalResolved(msg) ? createMsg().setParam(RESULT, true) : null;
             // ===== 后台任务（TLScheduleTaskSkill：会话归属登记 + msgBus 生命周期事件）=====
             case "registerTaskSession":
                 return onRegisterTaskSession(msg);
@@ -311,6 +314,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         out.put("message", result.getStringParam("message", ""));
         if (result.containsParam("error")) out.put("error", result.getStringParam("error", ""));
         if (result.containsParam("data")) out.put("data", toJsonable(result.getParam("data")));
+        // 审批已结束（不在册/已决策/超时）：前端据此关闭残留弹框（此前点任何按钮都报 already 且不关框）
+        if (result.containsParam("approvalEnded")) out.put("approvalEnded", result.parseBoolean("approvalEnded", false));
         // 透传最终回答（如 traceReplay 重放结果），供前端直接展示
         if (result.containsParam(AI_P_RESPONSE)) out.put("response", result.getStringParam(AI_P_RESPONSE, ""));
         return out;
@@ -847,6 +852,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("destination", "sessionTitle").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "todoEvent").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", "approvalResolved").setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
@@ -1007,6 +1014,35 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             if (list != null) for (TLWebChannel c : list) {
                 if (c.isOpen()) { c.write(json); sent = true; }
             }
+        }
+        return sent;
+    }
+
+    /**
+     * 审批已结束（决策/超时后 approvalGate 发布）：给该用户所有打开的页面推关框指令，
+     * 命中的弹框立即自行关闭——此前审批被别处解决（另一窗口/退出即拒）或超时后，
+     * 弹框残留在屏幕上，再点任何按钮都报 already/not found，只能刷新页面。
+     *
+     * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
+     */
+    private boolean onApprovalResolved(TLMsg msg) {
+        String approvalId = msg.getStringParam("approvalId", "");
+        if (approvalId.isEmpty()) return false;
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", "approvalResolved");
+        evt.put("approvalId", approvalId);
+        evt.put("state", msg.getStringParam("state", ""));
+        evt.put("reason", msg.getStringParam("reason", ""));   // 结束原因（被中断/超时秒数/拒绝原因）
+        String json = GSON.toJson(evt);
+        // 与 onApprovalEvent 同口径：事件自带 userId 优先，缺省按会话属主回退；都定不了不推（宁缺勿串）
+        String evtUser = msg.getStringParam("userId", "");
+        String sid = msg.getStringParam("sessionId", "");
+        String targetUser = !evtUser.isEmpty() ? evtUser : (sid.isEmpty() ? null : sessionOwner.get(sid));
+        if (targetUser == null || targetUser.isEmpty() || "null".equals(targetUser)) return false;
+        boolean sent = false;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(targetUser);
+        if (list != null) for (TLWebChannel c : list) {
+            if (c.isOpen()) { c.write(json); sent = true; }
         }
         return sent;
     }
@@ -1341,6 +1377,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 订阅任务清单事件被拒绝", LogLevel.WARN);
             else
                 putLog("webui 已订阅任务清单事件（msgBus todoEvent）", LogLevel.INFO);
+            // 审批结束事件（approvalGate 决策/超时后发布：弹框自愈关闭）
+            TLMsg resolvedRegMsg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", "approvalResolved").setParam("object", this));
+            if (resolvedRegMsg == null || !Boolean.TRUE.equals(resolvedRegMsg.getParam(RESULT)))
+                putLog("webui 订阅审批结束事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅审批结束事件（msgBus approvalResolved）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("msgBus 订阅事件失败: " + e, LogLevel.WARN);
         }

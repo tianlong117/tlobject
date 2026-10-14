@@ -809,6 +809,15 @@ function openEvents() {
     if (evt.hb) return;
     if (evt.type === 'inbox') { updateInboxBadge(evt.unread || 0); return; }
     if (evt.type === 'approval') showApprovalModal(evt);
+    if (evt.type === 'approvalResolved') {
+      // 决策/超时/中断后服务端推送：命中的弹框立即关闭（根治"请求已死弹框还在，点任何按钮都报已处理"）
+      if (currentApproval && currentApproval.approvalId === evt.approvalId) {
+        const mine = pendingDecision === evt.approvalId;   // 自己刚点的决策：关框即可，别再提示"其他窗口"
+        closeApprovalModal();
+        if (!mine) toast(approvalEndedText(evt.state, evt.reason), 'err');
+      }
+      return;
+    }
     if (evt.type === 'kicked') {
       // 事件按 userId 广播，只有 loginId 匹配自己（被踢的那一方）才响应禁用
       if (evt.loginId && evt.loginId !== state.loginId) return;
@@ -1057,6 +1066,7 @@ function bindEvents() {
   $('#apApproveRoundBtn').onclick = () => approveAction('round');
   $('#apApproveSessionBtn').onclick = () => approveAction('session');
   $('#apRejectBtn').onclick = rejectAction;
+  $('#apCloseBtn').onclick = closeApproval;
   // 顶栏功能图标：定时任务 / 后台任务 / 消息箱（应用级功能 → 浮层；右侧面板留调试/测试）
   $('#tasksBtn').onclick = openTasks;
   $('#bgTasksBtn').onclick = openBgTasks;
@@ -2138,6 +2148,7 @@ async function doStatsAgent() {
 
 // ======================== 审批弹框 ========================
 let currentApproval = null;
+let pendingDecision = null;   // 正在提交决策的 approvalId：resolved 推送对自己刚点的决策不重复提示
 function showApprovalModal(evt) {
   currentApproval = evt;
   const stale = $('#approvalModal .ap-source');
@@ -2159,6 +2170,21 @@ function showApprovalModal(evt) {
   $('#apMsg').classList.add('hidden');
   $('#approvalModal').classList.remove('hidden');
 }
+// 关框统一出口：同时清 currentApproval，防关闭后残留点击再提交（resolved 事件也据此不重复提示）
+function closeApprovalModal() {
+  $('#approvalModal').classList.add('hidden');
+  currentApproval = null;
+}
+// 审批已结束时给用户的说明（后端 state：approved/rejected/expired + 结束原因 reason；
+// reason 优先——如"审批被中断"（工具超时）比笼统的"其他窗口拒绝"准确）
+function approvalEndedText(state, reason) {
+  const s = (state || '').toLowerCase();
+  if (reason) return '该审批已结束（' + reason + '），弹框已关闭';
+  if (s === 'approved') return '该审批已在其他窗口通过，弹框已关闭';
+  if (s === 'rejected') return '该审批已在其他窗口拒绝，弹框已关闭';
+  if (s === 'expired') return '该审批已超时（按拒绝处理），弹框已关闭';
+  return '该审批已结束（可能已在其他窗口处理或已超时），弹框已关闭';
+}
 async function approveAction(scope) {
   const evt = currentApproval;
   if (!evt) return;
@@ -2174,19 +2200,39 @@ async function approveAction(scope) {
   try {
     const payload = { subAction: 'approve', approvalId: evt.approvalId, approvalModifiedArguments: modifiedArgs };
     if (scope && scope !== 'once') payload.approvalScope = scope;
+    pendingDecision = evt.approvalId;      // 自己正在决策：resolved 推送先到也别提示"其他窗口"
     const r = await apiCommand('approve', payload);
-    toast(r.message || r.error, r.success ? 'ok' : 'err');
-    if (r.success) $('#approvalModal').classList.add('hidden');
+    if (r.success) { closeApprovalModal(); toast(r.message, 'ok'); }
+    else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }  // 请求已死：自愈关框
+    else toast(r.message || r.error, 'err');                                                // 参数校验类失败：留框可改后重试
   } catch (e) { toast(e.message, 'err'); }
+  finally { if (pendingDecision === evt.approvalId) pendingDecision = null; }
 }
 async function rejectAction() {
   const evt = currentApproval;
   if (!evt) return;
   const reason = $('#apReason').value.trim() || '用户拒绝';
   try {
+    pendingDecision = evt.approvalId;
     const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason });
-    toast(r.message || r.error, r.success ? 'ok' : 'err');
-    if (r.success) $('#approvalModal').classList.add('hidden');
+    if (r.success) { closeApprovalModal(); toast(r.message, 'ok'); }
+    else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }
+    else toast(r.message || r.error, 'err');
+  } catch (e) { toast(e.message, 'err'); }
+  finally { if (pendingDecision === evt.approvalId) pendingDecision = null; }
+}
+// ✕ 关闭按钮：审批弹框是阻塞式决策，纯关界面会让任务悬挂到超时——关闭即按"拒绝"处理
+// （结构化拒绝，agent 立即收尾）。先关框再提交：任何响应都不会把框卡住；提交异常时
+// 请求可能仍未决，重连重放会再次弹出（自纠正）
+async function closeApproval() {
+  const evt = currentApproval;
+  closeApprovalModal();
+  if (!evt) return;
+  try {
+    const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason: '用户关闭审批弹框' });
+    if (r.success) toast('已按拒绝处理', 'ok');
+    else if (r.approvalEnded) toast(approvalEndedText(), 'err');
+    else toast(r.message || r.error, 'err');
   } catch (e) { toast(e.message, 'err'); }
 }
 

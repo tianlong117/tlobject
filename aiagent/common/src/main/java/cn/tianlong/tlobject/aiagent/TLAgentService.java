@@ -971,7 +971,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             // 都会 RESULT=false+error——透传，不能吞掉谎报"已批准"（本次审批 8b 修复）
             TLMsg r = putMsg("approvalGate", approveMsg);
             if (r == null || !r.parseBoolean(RESULT, false)) {
-                return fail("批准失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                // approvalEnded（not found / already decided）：透传给 webui，让弹框自愈关闭
+                TLMsg f = fail("批准失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                if (r != null && r.parseBoolean("approvalEnded", false)) f.setParam("approvalEnded", true);
+                return f;
             }
             return ok("已批准: " + approvalId);
         } else if ("reject".equals(subAction)) {
@@ -982,7 +985,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             rejectMsg.setSystemParam(IGNOREMODULEISNULL, true);
             TLMsg r = putMsg("approvalGate", rejectMsg);
             if (r == null || !r.parseBoolean(RESULT, false)) {
-                return fail("拒绝失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                TLMsg f = fail("拒绝失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
+                if (r != null && r.parseBoolean("approvalEnded", false)) f.setParam("approvalEnded", true);
+                return f;
             }
             return ok("已拒绝: " + approvalId + " (" + reason + ")");
         } else {

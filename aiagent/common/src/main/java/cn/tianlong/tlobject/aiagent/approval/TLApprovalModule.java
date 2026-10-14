@@ -348,6 +348,42 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         }
     }
 
+    /**
+     * 审批结束（批准/拒绝/超时）后经消息总线发布关框事件。
+     *
+     * <p>审批弹框此前只有"自己点击成功"一条关闭路径：请求被别处解决（另一窗口、
+     * 退出登录即拒）或超时后，弹框仍留在屏幕上，再点任何按钮都报 already/not found，
+     * 只能刷新页面。本事件让所有打开该审批弹框的页面立即自行关闭。
+     *
+     * <p>与 approvalEvent 同口径带 userId 供订阅方按用户路由；无 msgBus / 无订阅者时静默
+     * （控制台没有常驻弹框，不消费该事件）。
+     */
+    private void publishApprovalResolved(TLApprovalRequest request) {
+        if (request == null || request.getApprovalId() == null) return;
+        try {
+            Object bus = getModuleInFactory("msgBus");
+            if (!(bus instanceof IObject)) return;
+            TLMsg evt = createMsg().setAction("approvalResolved")
+                    .setParam("approvalId", request.getApprovalId())
+                    .setParam("state", request.getState() == null ? "" : request.getState());
+            // 结束原因随事件带出（如"审批被中断"/超时秒数）：前端弹框提示据此说清死因，
+            // 而不是把"被工具超时中断"笼统显示成"已在其他窗口拒绝"
+            if (request.getRejectionReason() != null && !request.getRejectionReason().isEmpty()) {
+                evt.setParam("reason", request.getRejectionReason());
+            }
+            if (request.getSessionId() != null && !request.getSessionId().isEmpty()) {
+                evt.setParam("sessionId", request.getSessionId());
+            }
+            if (request.getUserId() != null && !request.getUserId().isEmpty()) {
+                evt.setParam("userId", request.getUserId());
+            }
+            evt.setDestination("approvalResolved");
+            putMsg((IObject) bus, evt);
+        } catch (Exception e) {
+            putLog("publish approval resolved event failed: " + e, LogLevel.DEBUG);
+        }
+    }
+
     // ======================== 审批请求处理 ========================
 
     /**
@@ -462,6 +498,17 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             putLog("Approval pending (async): id=" + request.getApprovalId(), LogLevel.INFO);
         }
 
+        if (!TLApprovalRequest.PENDING.equals(state)) {
+            // 审查人在这条路径上直接给出/带出了结果（同步审查人决策、执行被中断——用户停止/
+            // 工具超时等）——不经 handleApprove/handleReject，必须在此补发关框事件，否则
+            // 请求已终结而弹框残留，再点任何按钮都报 already。历史实况：工具 timeout(120s)
+            // < 审批窗口时，用户还在看弹框决策就被 TASKTIMEOUT 中断成"审批被中断"，正是此
+            // 路径（现 file_operation timeout=360 > 300s 窗口，该截断已不可能；但用户停止
+            // 本轮等中断途径仍会走到这里）。重复发布（handleApprove 已发过）无害：前端对
+            // 已关闭弹框的二次事件是 no-op。
+            publishApprovalResolved(request);
+        }
+
         // 构造返回给 Agent 的 TLMsg
         return buildApprovalResponse(request, reviewerResult);
     }
@@ -478,12 +525,18 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         TLApprovalRequest request = pendingApprovals.get(approvalId);
         if (request == null) {
-            return createMsg().setParam(RESULT, false).setParam("error", "approval not found: " + approvalId);
+            // approvalEnded：请求已不在册（进程重启/被驱逐）。弹框侧据此自愈关闭——此前只报错
+            // 不关框，弹框就永远卡在屏幕上（点任何按钮都报 already/not found，只能刷新页面）
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "approval not found: " + approvalId)
+                    .setParam("approvalEnded", true);
         }
 
         if (!TLApprovalRequest.PENDING.equals(request.getState())) {
+            // approvalEnded：已决策/已超时——同上，让弹框自愈关闭
             return createMsg().setParam(RESULT, false)
-                    .setParam("error", "approval already " + request.getState());
+                    .setParam("error", "approval already " + request.getState())
+                    .setParam("approvalEnded", true);
         }
 
         // 用户可修改参数
@@ -512,6 +565,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         }
         request.setState(TLApprovalRequest.APPROVED);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
+        publishApprovalResolved(request);  // 其他窗口/页面打开的弹框立即关闭
         putLog("Approval approved: id=" + approvalId, LogLevel.INFO);
         traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
                 "approvalDecided", "id=" + approvalId + " approved", 0);
@@ -531,12 +585,16 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         TLApprovalRequest request = pendingApprovals.get(approvalId);
         if (request == null) {
-            return createMsg().setParam(RESULT, false).setParam("error", "approval not found: " + approvalId);
+            // approvalEnded：与 handleApprove 同口径，弹框侧自愈关闭
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "approval not found: " + approvalId)
+                    .setParam("approvalEnded", true);
         }
 
         if (!TLApprovalRequest.PENDING.equals(request.getState())) {
             return createMsg().setParam(RESULT, false)
-                    .setParam("error", "approval already " + request.getState());
+                    .setParam("error", "approval already " + request.getState())
+                    .setParam("approvalEnded", true);
         }
 
         request.setRejectionReason(reason);
@@ -545,6 +603,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         rememberRejection(request.getSessionId(), request.getToolName(),
                 request.getToolArguments(), reason);
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
+        publishApprovalResolved(request);  // 其他窗口/页面打开的弹框立即关闭
         putLog("Approval rejected: id=" + approvalId + " reason=" + reason, LogLevel.INFO);
         traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
                 "approvalDecided", "id=" + approvalId + " rejected", 0);
@@ -1119,6 +1178,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             request.setRejectionReason(reason);
         }
         signalDecision(request.getApprovalId());
+        publishApprovalResolved(request);  // 超时：弹框自行关闭（此前弹框会一直留着，再点就是 already expired）
         putLog("Approval expired: id=" + request.getApprovalId() + " reason=" + request.getRejectionReason(),
                 LogLevel.INFO);
         notifyInbox(request, "审批超时未处理，已按拒绝处理");
