@@ -1090,11 +1090,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             ? (TLToolCall) msg.getParam("pendingToolCall") : null;
                     String savedApprovalId = msg.getStringParam(AI_P_APPROVAL_ID, "");
 
-                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "pending");
+                    // 决策写回：调用方带了 decision（外部驱动）直接用；否则向审批模块查终态
+                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
+                    TLMsg approvalState = null;
+                    if (decision.isEmpty()) {
+                        approvalState = queryApproval(savedApprovalId);
+                        decision = approvalState != null
+                                ? approvalState.getStringParam("decision", "pending") : "pending";
+                    }
                     if ("approved".equals(decision) && savedTc != null) {
                         @SuppressWarnings("unchecked")
                         java.util.Map<String, Object> modifiedArgs =
-                                msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null);
+                                msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS,
+                                        approvalState != null
+                                                ? approvalState.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null) : null);
                         if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
                             savedTc.setArguments(modifiedArgs);
                         }
@@ -1120,7 +1129,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                         .setSystemParam(AI_P_SESSIONID, sessionId)
                                         .setSystemParam("userId", msg.getSystemParam("userId", "default"))
                                         .setSystemParam("rootSessionId", rootSid)
-                                        .setSystemParam(AI_P_ROUNDID, roundId));
+                                        .setSystemParam(AI_P_ROUNDID, roundId)
+                                        .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批：本次调用已获人工批准
                         // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
                         //（审批后执行的工具同样可能声明投图；直接 history.add 会丢掉声明的那张图）
                         List<TLAttachmentRef> pendingImages = new ArrayList<>();
@@ -1139,12 +1149,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         flushToolImages(history, pendingImages);
                         putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
                                 LogLevel.INFO);
+                    } else if ("approved".equals(decision)) {
+                        // 批准但断点缺 pendingToolCall（畸形断点）：无法重放——如实告知并继续，不假装仍在等待
+                        putLog("Approval resumed but pendingToolCall missing: approvalId=" + savedApprovalId, LogLevel.ERROR);
+                        history.add(new TLConversationHistory(
+                                TLConversationHistory.Role.user,
+                                "（上一操作无法恢复：审批已通过但断点工具调用缺失。如需执行请重新发起。）"));
                     } else if ("rejected".equals(decision)) {
-                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
+                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON,
+                                approvalState != null
+                                        ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝") : "用户拒绝");
                         history.add(new TLConversationHistory(
                                 TLConversationHistory.Role.user,
                                 "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
                         putLog("Approval resumed: rejected → reason=" + reason, LogLevel.INFO);
+                    } else if ("lost".equals(decision)) {
+                        String reason = approvalState != null
+                                ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "审批已失效") : "审批已失效";
+                        history.add(new TLConversationHistory(
+                                TLConversationHistory.Role.user,
+                                "（上一操作未执行：审批已失效——" + reason + "。如需执行请重新发起。）"));
+                        putLog("Approval resumed: lost → reason=" + reason, LogLevel.WARN);
                     } else {
                         putLog("Approval still pending on resume: approvalId=" + savedApprovalId, LogLevel.WARN);
                         return createMsg().setParam(RESULT, false)
@@ -1481,17 +1506,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     if (execPending) {
                         pendingApproval = true;
                         finalResponse = execResult.getStringParam("finalResponse", "");
+                        // roundId 必带：断点必须落在本轮的同一行上——此前缺 roundId 会另起一条
+                        // roundId="" 的行，本轮的 chatFinished 又把原行覆盖成 completed，
+                        // findIncomplete 永远看不到待批态（"转断点 → 重登 → 恢复"链路因此断死）
                         notifySessionManager(createMsg()
                                 .setAction("sessionUpdated")
                                 .setParam("sessionId", sessionId)
                                 .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
                             .setParam("agentName", name)
+                                .setParam("roundId", roundId)
                                 .setParam("messages", deltaMessages(history, msgStartIdx))
                                 .setParam("model", model)
                                 .setParam("temperature", temperature)
                                 .setParam("maxTokens", maxTokens)
                                 .setParam("userMessage", userMessage)
-                                .setParam("pendingToolCall", toolCalls.get(0))
+                                // 审批可能拦的是批次里任意一个 tool（执行器按 toolCallId 回报），
+                                // 不能拿 toolCalls.get(0) 顶替——批准恢复会用错工具重放
+                                .setParam("pendingToolCall", pickPendingToolCall(toolCalls, execResult))
                                 .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
                         break;
                     }
@@ -1585,15 +1616,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
             // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
             if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
-            notifySessionManager(createMsg()
-                    .setAction("chatFinished")
-                    .setParam("sessionId", sessionId)
-                    .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
-                    .setParam("roundId", roundId)
-                    .setParam("messages", deltaMessages(history, msgStartIdx))
-                    .setParam("userMessage", userMessage)
-                    .setParam("response", finalResponse));
+            // pending：轮次必须保持 pending_approval（等待批准后经 resume 收尾）——
+            // 发 chatFinished 会把断点覆盖成 completed，findIncomplete 再也找不到它；
+            // 记忆保存同理（"等待人工审批"不是可记忆的回复）
+            if (!pendingApproval) {
+                notifySessionManager(createMsg()
+                        .setAction("chatFinished")
+                        .setParam("sessionId", sessionId)
+                        .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
+                                .setParam("agentName", name)
+                        .setParam("roundId", roundId)
+                        .setParam("messages", deltaMessages(history, msgStartIdx))
+                        .setParam("userMessage", userMessage)
+                        .setParam("response", finalResponse));
+            }
             // 全链追踪：轮次结束打点
             String roundOutcome = "completed";
             if (rejected) roundOutcome = "rejected";
@@ -1603,18 +1639,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // payload = agent 最终输出（finalResponse 各分支恒赋值；guardOutput 在打点之后，此处为原始值）
             traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0,
                     finalResponse != null ? finalResponse : "", null);
-            try {
-                TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                        .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                        .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
-                        .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                        .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
-                        .setParam(AI_P_MEMORYTAG, "chat_history")
-                        .setParam("maxSeq", getMaxSeq(sessionId));
-                saveAgentMemory(fromWho, saveMsg);
-            } catch (Exception e) {
-                putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
+            if (!pendingApproval) {
+                try {
+                    TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
+                            .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                            .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
+                                .setParam("agentName", name)
+                            .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
+                            .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
+                            .setParam(AI_P_MEMORYTAG, "chat_history")
+                            .setParam("maxSeq", getMaxSeq(sessionId));
+                    saveAgentMemory(fromWho, saveMsg);
+                } catch (Exception e) {
+                    putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
+                }
             }
 
             putLog("Chat completed: sessionId=" + sessionId, LogLevel.DEBUG);
@@ -1780,8 +1818,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         String fwdTarget = msg.getStringParam("_streamResultFor", resultFor);
         String fwdAction = msg.getStringParam("_streamResultAction", resultAction);
 
-        // 生成 roundId + 保存转发目标，供 onStreamResult 使用
+        // 生成 roundId + 保存转发目标，供 onStreamResult 使用。
+        // 断点恢复用 resumeRoundId 继承（与 doChat 同规则）：否则 resume 轮生成新 id，
+        // 收尾 chatFinished 覆盖不到待批行，findIncomplete 永远清不掉断点
         String roundId = sessionId + "_" + System.currentTimeMillis();
+        if (msg.parseBoolean("resume", false)) {
+            String resumeRoundId = msg.getStringParam("resumeRoundId", "");
+            if (!resumeRoundId.isEmpty()) roundId = resumeRoundId;
+        }
         sessionRoundIds.put(sessionId, roundId);
         // 会话运行登记：本流是"会话在跑一轮"（供注入排队/侧栏状态/停止定位）；
         // 终态经 cleanupStreamState 统一注销（含提前返回与错误路径）；与 sessionRoundIds 同生，
@@ -1837,13 +1881,39 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
                     // ==== 审批断点恢复（流式）：context system 置顶（DB 历史不含，恢复必须显式补） ====
                     fullHistory = withContextSystem(loadedHistory);
+                    // 本轮增量起点必须在 resume 注入（assistant(tool_calls)/工具结果/拒绝提示）之前记录——
+                    // 否则这些消息不进本轮 delta，收尾 chatFinished 落库时丢失（与非流式 doChat 同语义）
+                    sessionMsgStartIdx.put(sessionId, fullHistory.size());
                     TLToolCall savedTc = msg.containsParam("pendingToolCall")
                             ? (TLToolCall) msg.getParam("pendingToolCall") : null;
-                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "pending");
+                    String savedApprovalId2 = msg.getStringParam(AI_P_APPROVAL_ID, "");
+                    // 决策写回：调用方带了 decision 直接用；否则向审批模块查终态（与非流式 doChat 同构）
+                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
+                    TLMsg approvalState2 = null;
+                    if (decision.isEmpty()) {
+                        approvalState2 = queryApproval(savedApprovalId2);
+                        decision = approvalState2 != null
+                                ? approvalState2.getStringParam("decision", "pending") : "pending";
+                    }
                     if ("approved".equals(decision) && savedTc != null) {
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> modifiedArgs =
+                                msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS,
+                                        approvalState2 != null
+                                                ? approvalState2.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null) : null);
+                        if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
+                            savedTc.setArguments(modifiedArgs);
+                        }
+                        // 断点保存时该 assistant(tool_calls) 消息被刻意回滚（doChat 的 history.remove(aMsgIdx)），
+                        // loadedHistory 里没有工具结果的父消息——不补则 sanitizeToolPairs 会把结果当孤儿删掉，
+                        // 模型永远不知道已批准的工具执行过（与 doChat 批准分支对齐）
+                        java.util.List<TLToolCall> singleTc = new java.util.ArrayList<>();
+                        singleTc.add(savedTc);
+                        fullHistory.add(new TLConversationHistory(
+                                TLConversationHistory.Role.assistant, singleTc));
                         // 批准：重新执行被审批的工具，结果入历史（与 doChat 审批恢复一致）
                         TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
-                                .setParam(AI_P_TOOLCALLS, savedTc));
+                                .setParam(AI_P_TOOLCALLS, singleTc));
                         List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
                                 frResolveMsg.getListParam("tasks", new ArrayList<>());
                         String execId2 = sessionId + "_resume_" + System.nanoTime();
@@ -1854,14 +1924,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                         .setSystemParam(AI_P_SESSIONID, sessionId)
                                         .setSystemParam("userId", msg.getSystemParam("userId", "default"))
                                         .setSystemParam("rootSessionId", rootSid)
-                                        .setSystemParam(AI_P_ROUNDID, roundId));
+                                        .setSystemParam(AI_P_ROUNDID, roundId)
+                                        .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批：本次调用已获人工批准
                         // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
                         //（审批后执行的工具同样可能声明投图；直接 fullHistory.add 会丢掉声明的那张图）
                         List<TLAttachmentRef> pendingImages = new ArrayList<>();
                         TLToolExecutor.ToolResult singleResult = null;
-                        if (singleExecResult != null && singleExecResult.parseBoolean("success", false)) {
-                            List<TLToolExecutor.ToolResult> singleResults = (List<TLToolExecutor.ToolResult>)
-                                    singleExecResult.getListParam("results", null);
+                        // 执行器只带 RESULT/"result"，没有 "success"——旧门禁恒 false，结果永远丢成空占位
+                        if (singleExecResult != null) {
+                            @SuppressWarnings("unchecked")
+                            List<TLToolExecutor.ToolResult> singleResults =
+                                    (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
                             if (singleResults != null && !singleResults.isEmpty())
                                 singleResult = singleResults.get(0);
                         }
@@ -1872,12 +1945,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         flushToolImages(fullHistory, pendingImages);
                         putLog("Approval resumed (stream): approved → tool executed: " + savedTc.getFunctionName(),
                                 LogLevel.INFO);
+                    } else if ("approved".equals(decision)) {
+                        // 批准但断点缺 pendingToolCall（畸形断点）：无法重放——如实告知并继续，不假装仍在等待
+                        putLog("Approval resumed but pendingToolCall missing: approvalId=" + savedApprovalId2, LogLevel.ERROR);
+                        fullHistory.add(new TLConversationHistory(
+                                TLConversationHistory.Role.user,
+                                "（上一操作无法恢复：审批已通过但断点工具调用缺失。如需执行请重新发起。）"));
                     } else if ("rejected".equals(decision)) {
-                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
+                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON,
+                                approvalState2 != null
+                                        ? approvalState2.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝") : "用户拒绝");
                         fullHistory.add(new TLConversationHistory(
                                 TLConversationHistory.Role.user,
                                 "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
                         putLog("Approval resumed (stream): rejected → reason=" + reason, LogLevel.INFO);
+                    } else if ("lost".equals(decision)) {
+                        String reason = approvalState2 != null
+                                ? approvalState2.getStringParam(AI_P_APPROVAL_REJECTREASON, "审批已失效") : "审批已失效";
+                        fullHistory.add(new TLConversationHistory(
+                                TLConversationHistory.Role.user,
+                                "（上一操作未执行：审批已失效——" + reason + "。如需执行请重新发起。）"));
+                        putLog("Approval resumed (stream): lost → reason=" + reason, LogLevel.WARN);
                     } else {
                         putLog("Approval still pending on stream resume: approvalId="
                                 + msg.getStringParam(AI_P_APPROVAL_ID, ""), LogLevel.WARN);
@@ -1888,9 +1976,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
                     // context system 置顶（DB/checkpoint 增量不含，恢复必须显式补）
                     fullHistory = withContextSystem(loadedHistory);
+                    // 本轮增量起点 = 加载历史大小（本分支无注入，等价于加载即记录）
+                    sessionMsgStartIdx.put(sessionId, fullHistory.size());
                 }
-                // 本轮增量起点 = 加载历史大小（收尾 chatFinished 的 messages 按此截取）
-                sessionMsgStartIdx.put(sessionId, fullHistory.size());
                 putLog("Stream resumed from checkpoint: sessionId=" + sessionId
                         + " historySize=" + fullHistory.size(), LogLevel.INFO);
             } else {
@@ -2095,6 +2183,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (streamedText != null && !streamedText.isEmpty()) {
                             aMsg.setContent(streamedText);
                         }
+                        // pending 转断点的回滚点：assistant(tool_calls) 及其后由 execToolsViaExecutor
+                        // 追加的兄弟工具结果（若有）都不能进断点——resume 会按 pendingToolCall 自己重建
+                        int pendingRollbackTo = history.size();
                         history.add(aMsg);
 
                         // 并行执行tool calls（含拒绝标志：被拒则停止续跑并转发拒绝文案）
@@ -2110,6 +2201,34 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
                             forwardStreamFinal(resultFor, resultAction, sessionId,
                                     execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
+                            return null;
+                        }
+                        // 审批待批（转断点）：与非流式 doChat 对称——回滚 assistant(tool_calls)
+                        // （待批工具未执行）、存 pending_approval 断点（必带 roundId：否则成独立
+                        // roundId="" 行，resume 的 chatFinished 覆盖不到）、收尾本轮但【不发 chatFinished】：
+                        // 轮次必须保持待批，由批准后的 resume 完成
+                        if (execResult != null && execResult.parseBoolean("pendingApproval", false)) {
+                            while (history.size() > pendingRollbackTo) history.remove(history.size() - 1);
+                            String pendingText = execResult.getStringParam("finalResponse", "=== 等待人工审批 ===");
+                            notifySessionManager(createMsg()
+                                    .setAction("sessionUpdated")
+                                    .setParam("sessionId", sessionId)
+                                    .setParam("userId", streamUserId)
+                                    .setParam("agentName", name)
+                                    .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
+                                    .setParam("messages", deltaMessages(history,
+                                            sessionMsgStartIdx.getOrDefault(sessionId, 0)))
+                                    .setParam("model", msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
+                                    .setParam("temperature", defaultTemperature)
+                                    .setParam("maxTokens", defaultMaxTokens)
+                                    .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
+                                    // 同非流式：被审批拦截的 tool 按 id 定位（多工具批次不能拿首个顶替）
+                                    .setParam("pendingToolCall", pickPendingToolCall(toolCalls, execResult))
+                                    .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
+                            saveContextHistory(sessionId, history);
+                            traceStage(sessionId, rootSid, roundId, "roundEnd", "pendingApproval", 0,
+                                    pendingText, streamUserId);
+                            forwardStreamFinal(resultFor, resultAction, sessionId, pendingText);
                             return null;
                         }
                         // L2 checkpoint: 首个工具执行后通知 SessionManager（与续跑循环内对称）——
@@ -2487,6 +2606,41 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             llmProvider.clearSessionCacheStats(sessionId);
         }
         return putMsg(contextModuleName, ctxMsg);
+    }
+
+    /**
+     * 断点恢复时向审批模块查本次审批的终态（approved/rejected/pending/lost）。
+     * 返回审批响应 TLMsg；无 approvalGate（未启用审批）或查询失败返回 null（调用方按 pending 处理）。
+     */
+    private TLMsg queryApproval(String approvalId) {
+        if (approvalId == null || approvalId.isEmpty()) return null;
+        try {
+            TLMsg q = createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, approvalId);
+            q.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块静默（默认行为会关停整个应用）
+            TLMsg r = putMsg("approvalGate", q);
+            // 缺模块时 putMsg 返回的是带 IGNOREMODULEISNULL 的空壳（非 null）——按"无 decision 即无 gate"兜住
+            if (r == null || r.getStringParam("decision", "").isEmpty()) return null;   // 无 gate / 非审批响应
+            return r;
+        } catch (Exception e) {
+            putLog("query approval decision failed: " + e, LogLevel.WARN);
+            return null;
+        }
+    }
+
+    /**
+     * 从本批 toolCalls 中取出被审批拦截的那一个（执行器按 toolCallId 回报）。
+     * 找不到（老版本执行器/畸形）→ 回退首个并告警（历史行为）。
+     */
+    private TLToolCall pickPendingToolCall(java.util.List<TLToolCall> toolCalls, TLMsg execResult) {
+        if (toolCalls == null || toolCalls.isEmpty()) return null;
+        String pendingId = execResult != null ? execResult.getStringParam("pendingToolCallId", "") : "";
+        if (!pendingId.isEmpty()) {
+            for (TLToolCall tc : toolCalls) {
+                if (tc != null && pendingId.equals(tc.getId())) return tc;
+            }
+            putLog("pendingToolCallId not found in batch, falling back to first: " + pendingId, LogLevel.WARN);
+        }
+        return toolCalls.get(0);
     }
 
     /**

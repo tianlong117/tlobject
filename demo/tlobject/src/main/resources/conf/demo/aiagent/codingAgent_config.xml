@@ -14,14 +14,14 @@
         <intentCache value="false"/>
     </params>
     <skills>
-        <!-- timeout=360：见 fileAgent_config 同名注释——必须 > approvalGate 的
-             approvalTimeoutMs=300s，否则审批等待会被工具超时中断成"点不动的死框" -->
+        <!-- timeout=0：见 fileAgent_config 同名注释——审批可无限期（approvalTimeoutMs=0），
+             工具级超时会中断审批等待成"审批被中断"；挂死兜底归 toolExecutor 的 staleStateTimeoutMs -->
         <skill name="fileOperationSkill"
                sameClassAs="fileOperationSkill"
                statup="true"
                skillName="file_operation"
                allowedRootPath="."
-               timeout="360"
+               timeout="0"
                skillDescription="Read, write and edit files on the local filesystem. Operations: read (pass offset/limit to read a RANGE of a large file, output has line numbers; the 'N| ' prefix is display-only - do not copy it into old_string), write, edit (exact old_string->new_string replace; add context if not unique; set replace_all; prefer edit over write for existing files - never rewrite a whole file for a small change), list, exists, delete, search (regex content search, optional glob filter, default skips .git/node_modules/target dirs), glob (find files by pattern like **/*.py). Set backup=true on write/edit to keep a &lt;file>.bak. After changing code, run it to verify."/>
         <!-- maxExecutionTime：单次执行超时秒数（默认 code 30s/script 60s 对"跑测试/跑程序"太短——
              编码循环里真实测试套件常超 60s，300s 仍是有界兜底） -->

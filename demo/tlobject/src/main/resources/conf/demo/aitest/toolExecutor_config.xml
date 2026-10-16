@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 测试端启用执行器审批门禁（生产同款接线：approvalModule=approvalGate），
+             场景 approvalResumeExecute 依赖"执行器真的会问审批"来验证免复批。
+             未启用时该场景会假绿（门禁根本不会被问到）。 -->
+        <approvalModule value="approvalGate"/>
+        <!-- 与生产默认一致：0=不限时；staleState 清理阈值保持默认 600000（含 approvalWaiters 跳过守卫） -->
+        <executionTimeoutMs value="0"/>
+        <staleStateTimeoutMs value="600000"/>
+    </params>
+</moduleConfig>

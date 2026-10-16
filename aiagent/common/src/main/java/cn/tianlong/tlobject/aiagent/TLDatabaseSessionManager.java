@@ -165,18 +165,65 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         return rounds;
     }
 
-    // ======================== findIncompleteMeta（查 ai_sessions，按 checkpoint 过滤） ========================
+    // ======================== findIncompleteMeta（轮次明细开态待批优先 + 会话汇总兜底） ========================
 
+    /**
+     * 查找未完成断点。两类（都按 sessionId 可选限定）：
+     *  a) 开态待批轮（黏住语义）：轮次明细表直接查 state=pending_approval——
+     *     pending 是开态，直到被 resume 收尾；会话汇总表只有一行 state/last_active，
+     *     其后任何新轮次写入（后台任务注入/其他写入）都会把它覆盖成 completed → 断点被藏起来（假成功一族）
+     *  b) 会话汇总表 state in (checkpoint, pending_approval) 兜底（意外中断断点）
+     */
     @Override
     @SuppressWarnings("unchecked")
-    protected java.util.Map<String, Object> findIncompleteMeta(String userId) {
-        if (ensureSessTable() == null) return null;
+    protected java.util.Map<String, Object> findIncompleteMeta(String userId, String sessionId) {
         try {
+            // 1) 开态待批轮优先（轮次明细表直接查 state）——其后新轮次写入不得隐藏断点
+            if (roundsTable == null) roundsTable = TLDatabase.getTable("aiSessionRounds", this);
+            if (roundsTable != null) {
+                LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+                p.put("user_id", userId != null ? userId : "");
+                p.put("state", SESSION_STATE_PENDING_APPROVAL);
+                String sql = "select * from [table] where user_id=? and state=?";
+                if (sessionId != null && !sessionId.isEmpty()) {
+                    sql += " and session_id=?";
+                    p.put("session_id", sessionId);
+                }
+                sql += " order by created_at desc limit 1";
+                TLMsg pr = putMsg(roundsTable, createMsg().setAction(DB_QUERY)
+                        .setParam(DB_P_SQL, sql)
+                        .setParam(DB_P_PARAMS, p));
+                java.util.List<java.util.Map<String, Object>> prows = getResultList(pr);
+                if (prows != null && !prows.isEmpty()) {
+                    java.util.Map<String, Object> row = prows.get(0);
+                    normalizeKeys(row);
+                    java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+                    result.put("sessionId", String.valueOf(row.getOrDefault("sessionId", "")));
+                    result.put("state", SESSION_STATE_PENDING_APPROVAL);
+                    result.put("agentName", String.valueOf(row.getOrDefault("agentName", "")));
+                    result.put("userMessage", String.valueOf(row.getOrDefault("userMessage", "")));
+                    result.put("roundSeq", row.getOrDefault("roundSeq", 0));
+                    result.put("savedAt", System.currentTimeMillis());
+                    Object aid = row.get(AI_P_APPROVAL_ID);
+                    if (aid != null && !String.valueOf(aid).isEmpty()) result.put(AI_P_APPROVAL_ID, String.valueOf(aid));
+                    return result;
+                }
+            }
+
+            // 2) 兜底：会话汇总表（checkpoint / pending_approval）
+            if (ensureSessTable() == null) return null;
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
             p.put("user_id", userId != null ? userId : "");
-            p.put("state", SESSION_STATE_CHECKPOINT);
+            p.put("s_checkpoint", SESSION_STATE_CHECKPOINT);
+            p.put("s_pending", SESSION_STATE_PENDING_APPROVAL);
+            String sql = "select * from [table] where user_id=? and state in (?,?)";
+            if (sessionId != null && !sessionId.isEmpty()) {
+                sql += " and session_id=?";
+                p.put("session_id", sessionId);
+            }
+            sql += " order by last_active desc limit 1";
             TLMsg result = putMsg(sessTable, createMsg().setAction(DB_QUERY)
-                    .setParam(DB_P_SQL, "select * from [table] where user_id=? and state=? order by last_active desc limit 1")
+                    .setParam(DB_P_SQL, sql)
                     .setParam(DB_P_PARAMS, p));
             java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
             if (rows == null || rows.isEmpty()) return null;
@@ -364,6 +411,10 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         if (row.containsKey("round_id")) row.put("roundId", row.get("round_id"));
         if (row.containsKey("round_seq")) row.put("roundSeq", objToInt(row.get("round_seq")));
         if (row.containsKey("user_message")) row.put("userMessage", row.get("user_message"));
+        // approvalId 别名：基类 doFindIncomplete/discardPendingRound 按 AI_P_APPROVAL_ID（camelCase）取用
+        if (row.containsKey("approval_id")) row.put(AI_P_APPROVAL_ID, row.get("approval_id"));
+        // maxTokens 别名：discard 重存按 load 出的行回写，无别名时 storeRound 落回 4096 默认（DB resume/trace 读不到真值）
+        if (row.containsKey("max_tokens")) row.put("maxTokens", objToInt(row.get("max_tokens")));
     }
 
     private java.util.Map<String, Object> metaFromSessRow(java.util.Map<String, Object> row) {

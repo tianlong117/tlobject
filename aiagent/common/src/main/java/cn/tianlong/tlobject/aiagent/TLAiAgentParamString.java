@@ -439,6 +439,10 @@ public interface TLAiAgentParamString extends TLParamString {
     String APPROVAL_QUERY = "approvalQuery";
     /** 查询全部未决审批列表（用户重连时重放审批弹框用） */
     String APPROVAL_PENDINGLIST = "approvalPendingList";
+    /** 退出登录/无人在线时把未决审批转为断点等待（保持 PENDING，唤醒阻塞线程以 pending 返回） */
+    String APPROVAL_DEFER = "approvalDefer";
+    /** 放弃审批（撤销待批 + 丢弃断点；不记拒绝记忆——放弃 ≠ 拒绝） */
+    String APPROVAL_ABANDON = "approvalAbandon";
     /** 列出授权记录（会话级/轮次级免审 + 自动运行） */
     String APPROVAL_GRANTS = "approvalGrants";
     /** 撤销授权 */
@@ -459,8 +463,11 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_APPROVAL_TOOLNAME = "approvalToolName";
     /** 待审批的工具参数 */
     String AI_P_APPROVAL_TOOLARGS = "approvalToolArguments";
-    /** 审批决策：approved / rejected */
+    /** 审批决策：approved / rejected。执行器同时将其用作免复批旁路令牌——值=approved 时跳过审批门禁
+     * （断点恢复的已批准执行，仅单任务批次生效） */
     String AI_P_APPROVAL_DECISION = "approvalDecision";
+    /** 审批是否处于断点态（defer 后为 true；弹框陈旧提示/自动续跑判据） */
+    String AI_P_APPROVAL_DEFERRED = "approvalDeferred";
     /** 拒绝原因 */
     String AI_P_APPROVAL_REJECTREASON = "approvalRejectReason";
     /** 用户修改后的参数 */

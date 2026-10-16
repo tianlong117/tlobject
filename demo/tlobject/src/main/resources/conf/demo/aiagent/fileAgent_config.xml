@@ -44,16 +44,18 @@
 
     </agents>
     <skills>
-        <!-- timeout=360：工具执行超时，必须 > approvalGate 的 approvalTimeoutMs=300s。
-             审批等待算在工具执行时间里：此前 120s < 审批窗口，用户还在看弹框决策就被
-             TASKTIMEOUT 中断（日志"审批被中断"= 创建后恰好 +120s），审批弹框随即变成
-             点不动的死框。360 = 300（决策窗口）+ 60 余量；挂死工具的兜底仍由
-             toolExecutor 的 staleStateTimeoutMs=600s 承担。 -->
+        <!-- timeout=0：工具不限时。审批等待算在工具执行时间内，而等待策略改造后
+             审批可无限期（approvalTimeoutMs=0，"一直等"）——工具级超时会把它打断成
+             "审批被中断"（2026-10-14 弹框卡死修复的同一故障类，只是时限不同）。
+             file_operation 是本地文件操作，无真实挂死风险；挂死兜底靠 toolExecutor 的
+             staleStateTimeoutMs 清扫——注意它是"下次工具执行入口"时扫描，不是看门狗
+             （没有后续执行就不动），且正等审批的执行会被跳过；真被卡住的一轮可随时
+             用 ESC / /stop 释放（控制台）或 webui 的停止按钮中断。 -->
         <skill name="fileOperationSkill"
                sameClassAs="fileOperationSkill"
                statup="true"
                skillName="file_operation"
-               timeout="360"
+               timeout="0"
                skillDescription="Read, write and edit files on the local filesystem. Operations: read (pass offset/limit to read a RANGE of a large file, output has line numbers; the 'N| ' prefix is display-only - do not copy it into old_string), write, edit (exact old_string->new_string replace; add context if not unique; set replace_all; prefer edit over write for existing files - never rewrite a whole file for a small change), list, exists, delete, search (regex content search, optional glob filter, default skips .git/node_modules/target dirs), glob (find files by pattern like **/*.py). Set backup=true on write/edit to keep a &lt;file>.bak. After changing code, run it to verify."/>
         <!-- word 文档技能（Java 版，依赖 POI；类不在 classpath 时工具结果会明确报错，见 ensureEngine 注释）
              backup 参数：配 backup="true" 后，每个改内容的动作（replace/set_paragraph/set_table_cell/…）

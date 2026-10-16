@@ -11,7 +11,8 @@ const state = {
                                    // 无原型：sessionId 用户可控（"__proto__"/"constructor" 会命中原型链 → curBox() 拿到坏值）
   currentBox: null,      // 当前会话的 DOM 盒子（挂到 #msgList 上的唯一内容盒子）
   drawer: null,          // 任务详情抽屉当前展示的任务 {tid, sid}；null=未打开
-  autoRun: false         // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
+  autoRun: false,        // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
+  pendingAbandonSessionId: null   // 断点弹框「放弃该操作」目标会话（仅 pending_approval 断点非空，见 promptCheckpoint）
 };
 
 // ======================== 每会话视图（状态分片） ========================
@@ -85,6 +86,16 @@ function fmtTs(ms) {
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
          String(d.getDate()).padStart(2, '0') + ' ' +
          String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+}
+/** 相对时间：刚刚 / N 分钟前 / N 小时前 / N 天前；时间戳缺失/非法 → 未知时间（勿冒充"刚刚"） */
+function fmtAgo(ts) {
+  const n = Number(ts) || 0;
+  if (!n) return '未知时间';
+  const s = Math.max(0, Math.floor((Date.now() - n) / 1000));
+  if (s < 60) return '刚刚';
+  if (s < 3600) return Math.floor(s / 60) + ' 分钟前';
+  if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
+  return Math.floor(s / 86400) + ' 天前';
 }
 function toast(msg, kind) {
   const box = $('#toastBox');
@@ -1037,6 +1048,25 @@ function bindEvents() {
     resumeCheckpoint();
   };
   $('#cpIgnoreBtn').onclick = () => $('#checkpointModal').classList.add('hidden');
+  // 放弃该操作（仅 pending_approval 断点可见）：撤销待批审批 + 丢弃断点，之后可正常对话。
+  // 断点丢弃失败（checkpointDiscarded=false）如实提示——待批卡片可能仍在，重登会再提示
+  $('#cpAbandonBtn').onclick = async () => {
+    const sid = state.pendingAbandonSessionId;
+    const btn = $('#cpAbandonBtn');
+    if (!sid || btn.disabled) return;
+    btn.disabled = true;   // 在途守卫：双击并发两次会给出一对矛盾提示（"已放弃"与"断点未清理"互串）
+    try {
+      const r = await apiCommand('abandonApproval', { sessionId: sid });
+      if (!r.success) { toast(r.error || r.message || '放弃失败', 'err'); return; }
+      $('#checkpointModal').classList.add('hidden');
+      if (r.checkpointDiscarded === false) {
+        toast('已放弃该操作，但断点未清理：' + (r.checkpointError || '待批卡片可能仍在'), 'err');
+      } else {
+        toast(r.message || '已放弃该操作，可继续对话', 'ok');
+      }
+    } catch (e) { toast('放弃失败: ' + e.message, 'err'); }
+    finally { btn.disabled = false; }
+  };
   $('#tabBar').addEventListener('click', e => {
     const btn = e.target.closest('button[data-tab]');
     if (!btn) return;
@@ -1674,12 +1704,56 @@ async function resumeCheckpoint() {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/** 断点态审批（deferred）决策后自动续跑：approve/reject/关框三处共用；非 deferred 不动 */
+function maybeAutoResume(r, evt) {
+  if (!r || !r.deferred) return;              // 缺席=非 deferred，勿测 ===false
+  const sid = r.sessionId || (evt && evt.sessionId);
+  if (sid) autoResumeSession(sid);
+}
+
+/** 断点态审批决策后自动续跑：查该会话断点 → 按「继续会话」同链路清屏渲染历史 → 流式 resume */
+async function autoResumeSession(sid) {
+  try {
+    const r = await apiCommand('resume', { sessionId: sid });
+    if (!r.success) { toast('已处理审批；续跑失败：' + (r.error || '未找到断点'), 'err'); return; }
+    const d = r.data || {};
+    const target = d.sessionId || sid;
+    // 先渲染目标会话历史再续跑（清屏重放 + 占用声明，与「继续会话」同一链路）：
+    // 旧的 switchSessionView + appendMsg 有两个洞——已渲染过的盒会重复补用户气泡；
+    // 空白盒只见续跑轮、更早历史不可见（要刷新才出来）
+    const res = await continueSession(target, true);   // silent：不弹提示；被占用只提示、不强夺
+    if (!res.ok) {
+      // 历史加载失败（极端：会话记录异常）：退回仅切视图 + 手动补断点消息，保底续跑可见
+      switchSessionView(target);
+      appendMsg('user', d.userMessage || '（断点消息）');
+      restoreTaskCards(target);
+    }
+    // 自动续跑即是对该会话断点的处置：关掉残留的断点弹框，避免 ▶/🗑 对进行中的续跑二次操作
+    if (state.pendingAbandonSessionId === target) {
+      $('#checkpointModal').classList.add('hidden');
+      state.pendingAbandonSessionId = null;
+    }
+    toast('正在继续执行…', 'info');
+    await streamChat(d.userMessage || '', { sessionId: target, resume: true });
+  } catch (e) { toast('续跑失败: ' + e.message, 'err'); }
+}
+
 /** 登录后检测断点会话：有则弹窗提示（仿命令行启动时的 ⚠ 提示），点"恢复执行"走流式恢复 */
 async function promptCheckpoint() {
   try {
     const r = await apiCommand('resume', { userId: state.userId });
-    if (!r.success || !r.data || !r.data.sessionId) return;   // 无断点
+    if (!r.success || !r.data || !r.data.sessionId) {
+      // 无断点/响应异常：按钮与目标会话一并复位（防残留上一次的「放弃该操作」误触旧会话）
+      $('#cpAbandonBtn').classList.add('hidden');
+      state.pendingAbandonSessionId = null;
+      return;
+    }
     const d = r.data;
+    // pending_approval 断点：显示「放弃该操作」（批准/拒绝走重放的审批弹框）；
+    // 非 pending 时按钮隐藏并把会话 id 清空，防误触到上一次的断点会话
+    const isPending = (d.state === 'pending_approval');
+    $('#cpAbandonBtn').classList.toggle('hidden', !isPending);
+    state.pendingAbandonSessionId = isPending ? (d.sessionId || null) : null;
     const timeStr = d.savedAt ? fmtTs(d.savedAt) : '未知';
     // 只预览消息开头：断点若落在"后台任务回执"这类长消息上，全文会把弹框撑满整屏（2026-10-06 卡死事故）
     const um = String(d.userMessage || '');
@@ -2153,6 +2227,8 @@ function showApprovalModal(evt) {
   currentApproval = evt;
   const stale = $('#approvalModal .ap-source');
   if (stale) stale.remove();                        // 上一次审批可能带来源行 → 先清，防叠加
+  const staleAgo = $('#approvalModal .ap-stale');
+  if (staleAgo) staleAgo.remove();                  // 陈举行同理：先清，防上一单的"发起于…前"跟到下一单
   if (evt.fromTask) {
     // 来自后台任务执行会话的审批：标注来源（本会话卡片里能查到名字就优先用）
     const local = (evt.parentSessionId && evt.taskId
@@ -2165,6 +2241,14 @@ function showApprovalModal(evt) {
   }
   $('#apTitle').textContent = '⚠ 审批请求：' + (evt.toolName || '未知工具');
   $('#apDesc').textContent = evt.description || '需要您的确认';
+  // 断点态补批：标注发起时间（避免把几小时前的请求当成刚刚的操作确认）
+  if (evt.deferred) {
+    const ago = fmtAgo(evt.createdAt);
+    const hint = document.createElement('div');
+    hint.className = 'ap-stale';
+    hint.textContent = '⏳ 该请求发起于' + ago + '（你不在线时转为了待批断点，批准后将继续执行）';
+    $('#apDesc').after(hint);
+  }
   $('#apArgs').value = evt.args || '{}';
   $('#apReason').value = '';
   $('#apMsg').classList.add('hidden');
@@ -2202,7 +2286,11 @@ async function approveAction(scope) {
     if (scope && scope !== 'once') payload.approvalScope = scope;
     pendingDecision = evt.approvalId;      // 自己正在决策：resolved 推送先到也别提示"其他窗口"
     const r = await apiCommand('approve', payload);
-    if (r.success) { closeApprovalModal(); toast(r.message, 'ok'); }
+    if (r.success) {
+      closeApprovalModal();
+      toast(r.message, 'ok');
+      maybeAutoResume(r, evt);   // 断点态审批（deferred）：决策后自动续跑原会话
+    }
     else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }  // 请求已死：自愈关框
     else toast(r.message || r.error, 'err');                                                // 参数校验类失败：留框可改后重试
   } catch (e) { toast(e.message, 'err'); }
@@ -2215,7 +2303,11 @@ async function rejectAction() {
   try {
     pendingDecision = evt.approvalId;
     const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason });
-    if (r.success) { closeApprovalModal(); toast(r.message, 'ok'); }
+    if (r.success) {
+      closeApprovalModal();
+      toast(r.message, 'ok');
+      maybeAutoResume(r, evt);   // 断点态拒绝后也自动续跑（继续执行 = 让 agent 收下拒绝并收尾）
+    }
     else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }
     else toast(r.message || r.error, 'err');
   } catch (e) { toast(e.message, 'err'); }
@@ -2230,7 +2322,10 @@ async function closeApproval() {
   if (!evt) return;
   try {
     const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason: '用户关闭审批弹框' });
-    if (r.success) toast('已按拒绝处理', 'ok');
+    if (r.success) {
+      toast('已按拒绝处理', 'ok');
+      maybeAutoResume(r, evt);   // 同 rejectAction：断点态关闭后也自动续跑（继续执行 = 让 agent 收下拒绝并收尾）
+    }
     else if (r.approvalEnded) toast(approvalEndedText(), 'err');
     else toast(r.message || r.error, 'err');
   } catch (e) { toast(e.message, 'err'); }

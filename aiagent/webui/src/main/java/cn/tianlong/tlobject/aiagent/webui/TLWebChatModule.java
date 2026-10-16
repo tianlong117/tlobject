@@ -60,6 +60,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     private static final Gson GSON = new Gson();
 
+    /** 待批操作拦截文案：doChat / doChatStream 共用一份，防两份手抄文本漂移 */
+    private static final String PENDING_APPROVAL_BLOCK_MSG = "该会话有待批操作（批准 / 拒绝 / 放弃后才能继续）。请在审批弹框中处理，或在断点提示中选择「放弃该操作」";
+
     private String serviceModule = "agentService";
     private String userModule = "demoUserModule";
     /** 上传大小上限（MB），请求参数覆盖 uploadFile 模块的 fileSizeMax 配置 */
@@ -131,8 +134,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 onStreamChunk(msg);
                 break;
             case "approvalEvent":
-                // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null，
-                // 让发布方回退到控制台直接打印，避免"以为有人渲染"而审批提示消失
+                // ack 只在真正推送出去时才返回（非 null=已处理）；没推成功就返回 null/false，
+                // 让发布方判定无人接收 → 转断点（不再有 stdout 兜底打印）
                 return onApprovalEvent(msg) ? createMsg().setParam(RESULT, true) : null;
             // 审批结束（决策/超时后发布）：推关框指令，让残留弹框自行关闭
             case "approvalResolved":
@@ -316,6 +319,18 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (result.containsParam("data")) out.put("data", toJsonable(result.getParam("data")));
         // 审批已结束（不在册/已决策/超时）：前端据此关闭残留弹框（此前点任何按钮都报 already 且不关框）
         if (result.containsParam("approvalEnded")) out.put("approvalEnded", result.parseBoolean("approvalEnded", false));
+        // 断点态审批的决策：前端据此自动续跑该会话（批准/拒绝后立即 resume）
+        if (result.parseBoolean(AI_P_APPROVAL_DEFERRED, false)) {
+            out.put("deferred", true);
+            if (result.containsParam("sessionId")) out.put("sessionId", result.getStringParam("sessionId", ""));
+        }
+        // 放弃操作的断点丢弃结果：失败时前端要如实提示（卡片可能仍存在）
+        if (result.containsParam("checkpointDiscarded")) {
+            out.put("checkpointDiscarded", result.parseBoolean("checkpointDiscarded", true));
+        }
+        if (result.containsParam("checkpointError")) {
+            out.put("checkpointError", result.getStringParam("checkpointError", ""));
+        }
         // 透传最终回答（如 traceReplay 重放结果），供前端直接展示
         if (result.containsParam(AI_P_RESPONSE)) out.put("response", result.getStringParam(AI_P_RESPONSE, ""));
         return out;
@@ -483,7 +498,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         // 清除在线标记：离线判定（getUserStatus）依据 currentSessionByUser，
         // 不清则退出后任务仍判"在线"，离线消息箱永远收不到东西
         currentSessionByUser.remove(userId);
-        rejectPendingApprovals(userId);   // 退出即拒该用户未决审批（不等 5 分钟超时，安全默认）
+        deferPendingApprovals(userId);    // 退出转断点：待批审批保持待批，等重登后处理（取代"退出即拒"）
         clearTodoCacheOf(userId);         // 任务清单缓存同理：换用户/重登不串上一用户的清单
         // 释放本登录占用的会话（loginId 为空则释放该用户全部占用，兼容旧前端）；
         // 只动属于当前用户的会话（sessionOwner 归属校验），其他登录/用户的占用保留
@@ -527,6 +542,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return outJson(failMap("会话正被另一登录使用。请在左侧『会话』栏该会话行点击『接管』夺回，或开启新会话"), null);
             }
             sessionLogin.put(sessionId, loginId);
+        }
+        // 待批操作守卫：会话有未决审批时拦新消息（批准/拒绝/放弃三选，见审批弹框与断点弹框）
+        if (hasPendingApproval(userId, sessionId)) {
+            return outJson(failMap(PENDING_APPROVAL_BLOCK_MSG), null);
         }
         boolean resume = msg.parseBoolean("resume", false);
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
@@ -634,6 +653,11 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             }
             sessionLogin.put(sessionId, loginId);
         }
+        // 待批操作守卫：会话有未决审批时拦新消息（批准/拒绝/放弃三选，见审批弹框与断点弹框）
+        // 必须在 openSseChannel 之前：fail fast，别开了 SSE 通道再拒
+        if (hasPendingApproval(userId, sessionId)) {
+            return outJson(failMap(PENDING_APPROVAL_BLOCK_MSG), null);
+        }
         String reasoningMode = msg.getParam("reasoningMode") != null ? String.valueOf(msg.getParam("reasoningMode")) : null;
         @SuppressWarnings("unchecked")
         List<Object> attachments = msg.getParam("attachments") instanceof List
@@ -653,6 +677,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("streamTarget", getName())
                     .setParam("streamAction", STREAM_ONCHUNK);
             if (reasoningMode != null && !reasoningMode.isEmpty()) submit.setParam(AI_P_REASONING_MODE, reasoningMode);
+            // 断点恢复透传（framework 路由路径此前漏了这行——resume 请求会被当成新对话重跑）
+            if (msg.parseBoolean("resume", false)) submit.setParam("resume", true);
             if (attachments != null && !attachments.isEmpty()) submit.setParam(AI_P_ATTACHMENTS, normalizeAttachments(attachments, userId));
             TLMsg result = putMsg(serviceModule, submit);
             if (result == null || !result.parseBoolean("success", false)) {
@@ -714,8 +740,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 if (!(o instanceof Map)) continue;
                 Map<String, Object> m = (Map<String, Object>) o;
                 String sid = String.valueOf(m.get("sessionId"));
-                // 归属过滤：webchat_{userId}_ 前缀 + task_* 执行会话（taskSessions/sessionOwner）；未知会话不动
-                if (!sessionBelongsTo(sid, userId)) continue;
+                // 归属过滤：事件自带 userId 命中（自定义会话名退出后 sessionOwner 已清，只靠前缀会漏）
+                // 或 webchat_{userId}_ 前缀 + task_* 执行会话（sessionOwner/taskSessions）；未知会话不动
+                String evtUser = String.valueOf(m.get("userId"));
+                if (!userId.equals(evtUser) && !sessionBelongsTo(sid, userId)) continue;
                 result.add(m);
             }
         } catch (Exception e) {
@@ -724,26 +752,38 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return result;
     }
 
-    /** 退出登录：拒绝该用户的全部未决审批（agent 立即继续，不用等超时） */
-    private void rejectPendingApprovals(String userId) {
+    /** 该会话是否有未决审批（有 → 拦截新消息：批准/拒绝/放弃后才能继续） */
+    private boolean hasPendingApproval(String userId, String sessionId) {
         for (Map<String, Object> m : pendingApprovalsOf(userId)) {
+            if (sessionId.equals(String.valueOf(m.get("sessionId")))) return true;
+        }
+        return false;
+    }
+
+    /** 退出登录：把该用户的未决审批转为断点态（保持待批 + 唤醒阻塞线程以 pending 返回），并写消息箱告知 */
+    void deferPendingApprovals(String userId) {
+        for (Map<String, Object> m : pendingApprovalsOf(userId)) {
+            boolean ok = false;
             try {
-                TLMsg reject = createMsg().setAction(APPROVAL_REJECT)
-                        .setParam(AI_P_APPROVAL_ID, String.valueOf(m.get("approvalId")))
-                        .setParam(AI_P_APPROVAL_REJECTREASON, "用户退出登录");
-                reject.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块时静默返回（默认行为会关停整个应用）
-                putMsg("approvalGate", reject);
+                TLMsg defer = createMsg().setAction(APPROVAL_DEFER)
+                        .setParam(AI_P_APPROVAL_ID, String.valueOf(m.get("approvalId")));
+                defer.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块时静默返回（默认行为会关停整个应用）
+                TLMsg dr = putMsg("approvalGate", defer);
+                ok = dr != null && dr.parseBoolean(RESULT, false);
             } catch (Exception e) {
-                putLog("拒绝审批失败: " + e, LogLevel.WARN);
+                putLog("审批转断点失败: " + e, LogLevel.WARN);
             }
-            // 审批未被受理而终结 → 消息箱兜底告知（与 approvalGate 的超时告知同口径；阶段二将改为"退出转断点"）
+            // 消息箱告知只写一次：转断点成功且此前未 deferred（重复退出登录不再重复写）
+            if (!ok || Boolean.TRUE.equals(m.get("deferred"))) continue;
+            // 消息箱告知（转断点口径：审批没被拒绝，回来后仍可批准/放弃）
             try {
-                String note = "⚠️ 你退出登录时有一项审批未处理，已拒绝：工具 "
-                        + String.valueOf(m.get("toolName")) + "，会话 " + String.valueOf(m.get("sessionId"));
+                String note = "⏳ 你退出登录时有一项审批未处理，已转为待批断点：工具 "
+                        + String.valueOf(m.get("toolName")) + "，会话 " + String.valueOf(m.get("sessionId"))
+                        + "。重新登录后可批准或放弃该操作。";
                 inboxStore.add(userId, "approval", String.valueOf(m.get("approvalId")), note);
                 pushInboxEvent(userId, inboxStore.unreadCount(userId));
             } catch (Exception e) {
-                putLog("审批退出告知写入消息箱失败: " + e, LogLevel.DEBUG);
+                putLog("审批转断点告知写入消息箱失败: " + e, LogLevel.DEBUG);
             }
         }
     }
@@ -795,6 +835,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 evt.put("fromTask", true);
             }
             evt.put("args", String.valueOf(m.get("args")));
+            // 断点态 + 发起时间：前端弹框显示"发起于 X 前"，避免误当成刚刚的操作
+            evt.put("deferred", Boolean.TRUE.equals(m.get("deferred")));
+            evt.put("createdAt", m.get("createdAt") != null ? m.get("createdAt") : 0L);
             channel.write(GSON.toJson(evt));
         }
     }
@@ -978,7 +1021,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     }
 
     /**
-     * 审批事件（msgBus 回调）：按 sessionId 定位属主推送给其 SSE 连接；未知则广播。
+     * 审批事件（msgBus 回调）：事件自带 userId 优先，缺省按 sessionId 定位属主推送给其 SSE 连接；
+     * 两者都定不了 → 不推（缺 userId 且无属主宁缺勿串，不广播）。
      *
      * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）
      */
@@ -1005,7 +1049,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         // 此前只用 sessionOwner 反查属主，命中不了就"广播给所有用户"——控制台会话不在
         // sessionOwner 里，控制台的审批因此串给全部 webui 用户（不同账号可见、可误操作）。
         // 缺 userId 的旧事件回退按会话属主；两者都定不了 → 不推（宁缺勿串），
-        // 返回 false 让发布方（ConsoleReviewer）回退到控制台直接打印，审批不丢。
+        // 返回 null/false 让发布方判定无人接收 → 转断点（不再有 stdout 兜底打印）。
         String evtUser = msg.getStringParam("userId", "");
         String targetUser = !evtUser.isEmpty() ? evtUser : owner;
         boolean sent = false;

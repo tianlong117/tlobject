@@ -45,6 +45,14 @@ public class TLApprovalRequest {
     private String ruleId;
     /** 发起用户（消息箱通知定位用；审批请求消息携带） */
     private String userId;
+    /** 是否已转为断点等待（无人在线 / 退出登录 defer）。阻塞态不会置位 */
+    private boolean deferred;
+    /** 转为断点态的时刻（陈旧提示"发起于 X 前"用；0 = 未转） */
+    private long deferredAt;
+    /** TTL 定时任务是否已排期（幂等守卫，防重复排期）；进程内排期状态，不随 toMap/fromMap 序列化。
+     *  守卫是建议性的（普通字段上的 check-then-act）：竞态下重复排期至多多排一个冗余定时器，
+     *  定时器体内的 PENDING 复查使其成为 no-op。 */
+    private boolean ttlArmed;
 
     // ======================== 构造器 ========================
 
@@ -139,6 +147,21 @@ public class TLApprovalRequest {
     public String getUserId() { return userId; }
     public void setUserId(String userId) { this.userId = userId; }
 
+    public boolean isDeferred() { return deferred; }
+    /** 置断点态；重复置位不刷新 deferredAt（保留"最初转入"的时刻） */
+    public void setDeferred(boolean deferred) {
+        this.deferred = deferred;
+        if (deferred) {
+            if (deferredAt == 0) deferredAt = System.currentTimeMillis();
+        } else {
+            deferredAt = 0;
+        }
+    }
+    public long getDeferredAt() { return deferredAt; }
+    public void setDeferredAt(long deferredAt) { this.deferredAt = deferredAt; }
+    public boolean isTtlArmed() { return ttlArmed; }
+    public void setTtlArmed(boolean ttlArmed) { this.ttlArmed = ttlArmed; }
+
     /** 审批是否已超时 */
     public boolean isExpired() {
         return timeoutMs > 0 && (System.currentTimeMillis() - createdAt) > timeoutMs;
@@ -174,6 +197,8 @@ public class TLApprovalRequest {
         map.put("toolCallId", toolCallId);
         map.put("ruleId", ruleId);
         map.put("userId", userId);
+        map.put("deferred", deferred);
+        map.put("deferredAt", deferredAt);
         return map;
     }
 
@@ -201,6 +226,8 @@ public class TLApprovalRequest {
         req.setToolCallId((String) map.get("toolCallId"));
         req.setRuleId((String) map.get("ruleId"));
         req.setUserId((String) map.get("userId"));
+        if (Boolean.TRUE.equals(map.get("deferred"))) req.setDeferred(true);
+        if (map.get("deferredAt") instanceof Number) req.setDeferredAt(((Number) map.get("deferredAt")).longValue());
         return req;
     }
 

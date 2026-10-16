@@ -44,11 +44,12 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
     protected abstract java.util.Map<String, Object> findLatestMeta(String userId);
 
     /**
-     * 查找该用户最近的断点会话（state=checkpoint），返回 null 表示无断点。
+     * 查找该用户最近的未完成断点会话（state=checkpoint 或 pending_approval），返回 null 表示无断点。
      * 注意：断点会话不一定是最新会话（断点后用户可能又聊过其他会话）——
-     * 必须按 state 过滤查最近一条 checkpoint，而不是"最近会话再判状态"。
+     * 必须按 state 过滤查最近一条，而不是"最近会话再判状态"。
+     * sessionId 非空时只在该会话内查找（断点弹框的"放弃该操作"路径按会话精确定位）。
      */
-    protected abstract java.util.Map<String, Object> findIncompleteMeta(String userId);
+    protected abstract java.util.Map<String, Object> findIncompleteMeta(String userId, String sessionId);
 
     /** 删除指定会话的所有数据 */
     protected abstract void deleteSessionData(String sessionId, String userId);
@@ -77,6 +78,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             case "setSessionTitle": return doSetSessionTitle(fromWho, msg);
+            case "discardPendingRound": return doDiscardPendingRound(fromWho, msg);
             default: return null;
         }
     }
@@ -130,20 +132,73 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
 
     // ======================== 控制台/agentService 查询 ========================
 
-    /** 查找最近一个未完成的断点 */
+    /** 查找最近一个未完成的断点（checkpoint 或 pending_approval；可选按 sessionId 限定） */
     private TLMsg doFindIncomplete(Object fromWho, TLMsg msg) {
-        // 查最近的 checkpoint 会话（按 state 过滤，而非"最近会话再判状态"——
+        // 查最近的未完成会话（按 state 过滤，而非"最近会话再判状态"——
         // 断点后用户可能又聊过其他会话，最近会话是 completed 也应能找到断点）
-        java.util.Map<String, Object> meta = findIncompleteMeta(msg.getStringParam("userId", null));
+        String userId = msg.getStringParam("userId", null);
+        String sessionId = msg.getStringParam("sessionId", null);
+        java.util.Map<String, Object> meta = findIncompleteMeta(userId, sessionId);
         if (meta == null) return createMsg().setParam(RESULT, false);
-
+        String state = String.valueOf(meta.getOrDefault("state", ""));
+        // approvalId 统一从轮次明细取（会话汇总表无该列；取该会话最后一个待批轮）
+        if (SESSION_STATE_PENDING_APPROVAL.equals(state)) {
+            java.util.List<java.util.Map<String, Object>> rounds =
+                    loadRoundData(String.valueOf(meta.getOrDefault("sessionId", "")), userId);
+            for (java.util.Map<String, Object> r : rounds) {
+                if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) {
+                    Object aid = r.get(AI_P_APPROVAL_ID);
+                    if (aid != null && !String.valueOf(aid).isEmpty()) meta.put(AI_P_APPROVAL_ID, String.valueOf(aid));
+                }
+            }
+        }
         return createMsg()
                 .setParam(RESULT, true)
                 .setParam("sessionId", meta.getOrDefault("sessionId", ""))
                 .setParam("agentName", meta.getOrDefault("agentName", ""))
                 .setParam("userMessage", meta.getOrDefault("userMessage", ""))
                 .setParam("savedAt", meta.getOrDefault("savedAt", 0L))
-                .setParam("iteration", meta.getOrDefault("roundSeq", 0));
+                .setParam("iteration", meta.getOrDefault("roundSeq", 0))
+                .setParam("state", state)
+                .setParam(AI_P_APPROVAL_ID, meta.getOrDefault(AI_P_APPROVAL_ID, ""));
+    }
+
+    /** 丢弃待批断点：把该会话最后一个 pending_approval 轮改为 completed（放弃该操作后会话可正常继续） */
+    private TLMsg doDiscardPendingRound(Object fromWho, TLMsg msg) {
+        if (!enableCheckpoint) return createMsg().setParam(RESULT, true);
+        String sessionId = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", null);
+        if (sessionId.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", "missing sessionId");
+        java.util.List<java.util.Map<String, Object>> rounds = loadRoundData(sessionId, userId);
+        java.util.Map<String, Object> target = null;
+        for (java.util.Map<String, Object> r : rounds) {
+            if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) target = r;
+        }
+        if (target == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "no pending_approval round");
+        }
+        target.put("state", SESSION_STATE_COMPLETED);
+        // 残留的 pendingToolCall/approvalId 会被恢复路径（assembleSession/doLoadRound）重新暴露——被取消的工具调用不得复活
+        target.remove("pendingToolCall");
+        target.remove(AI_P_APPROVAL_ID);
+        // 新鲜度校验：目标轮必须仍是该会话的待批轮——窗口内会话已继续的话，
+        // 用陈旧快照重存会以 last-wins 覆盖新一轮（历史里终答丢失的故障类）
+        java.util.List<java.util.Map<String, Object>> fresh = loadRoundData(sessionId, userId);
+        java.util.Map<String, Object> freshTarget = null;
+        for (java.util.Map<String, Object> r : fresh) {
+            if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) freshTarget = r;
+        }
+        if (freshTarget == null
+                || !String.valueOf(freshTarget.get("roundId")).equals(String.valueOf(target.get("roundId")))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "断点状态已变化（会话已继续），未执行丢弃");
+        }
+        storeRound(target);
+        // 写后验证：storeRound 静默吞异常，不得在未落盘时谎报成功（假成功一族）
+        java.util.Map<String, Object> after = findIncompleteMeta(userId, sessionId);
+        if (after != null && SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(after.get("state")))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "丢弃未落盘（storeRound 失败），请重试");
+        }
+        return createMsg().setParam(RESULT, true);
     }
 
     /** 列出所有历史会话 */
@@ -342,24 +397,37 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             }
         }
 
+        // 待批轮优先作为"状态载体"：pending_approval 是开态，直到被 resume 收尾——
+        // 其后任何新轮次写入（后台任务注入/其他写入）都不得把断点从恢复入口藏起来
+        java.util.Map<String, Object> stateRound = lastRound;
+        java.util.Map<String, Object> openPending = null;
+        for (java.util.Map<String, Object> r : roundMap.values()) {
+            if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
+            int seq = r.get("roundSeq") instanceof Integer ? (Integer) r.get("roundSeq") : 0;
+            int bestSeq = openPending != null && openPending.get("roundSeq") instanceof Integer
+                    ? (Integer) openPending.get("roundSeq") : -1;
+            if (openPending == null || seq > bestSeq) openPending = r;
+        }
+        if (openPending != null) stateRound = openPending;
+
         TLMsg result = new TLMsg();
         result.setParam(RESULT, true);
-        result.setParam("sessionId", lastRound.getOrDefault("sessionId", ""));
-        result.setParam("state", lastRound.getOrDefault("state", ""));
-        result.setParam("agentName", lastRound.getOrDefault("agentName", ""));
-        result.setParam("userMessage", lastRound.getOrDefault("userMessage", ""));
-        result.setParam("model", lastRound.getOrDefault("model", ""));
-        result.setParam("temperature", lastRound.getOrDefault("temperature", 0.7));
-        result.setParam("maxTokens", lastRound.getOrDefault("maxTokens", 4096));
-        result.setParam("round", lastRound.getOrDefault("roundSeq", 0));
-        result.setParam("roundId", lastRound.getOrDefault("roundId", ""));
-        result.setParam("userId", lastRound.getOrDefault("userId", ""));
+        result.setParam("sessionId", stateRound.getOrDefault("sessionId", ""));
+        result.setParam("state", stateRound.getOrDefault("state", ""));
+        result.setParam("agentName", stateRound.getOrDefault("agentName", ""));
+        result.setParam("userMessage", stateRound.getOrDefault("userMessage", ""));
+        result.setParam("model", stateRound.getOrDefault("model", ""));
+        result.setParam("temperature", stateRound.getOrDefault("temperature", 0.7));
+        result.setParam("maxTokens", stateRound.getOrDefault("maxTokens", 4096));
+        result.setParam("round", stateRound.getOrDefault("roundSeq", 0));
+        result.setParam("roundId", stateRound.getOrDefault("roundId", ""));
+        result.setParam("userId", stateRound.getOrDefault("userId", ""));
         result.setParam("history", history);
         result.setParam("count", history.size());
-        if (lastRound.containsKey("pendingToolCall"))
-            result.setParam("pendingToolCall", lastRound.get("pendingToolCall"));
-        if (lastRound.containsKey(AI_P_APPROVAL_ID))
-            result.setParam(AI_P_APPROVAL_ID, lastRound.get(AI_P_APPROVAL_ID));
+        if (stateRound.containsKey("pendingToolCall"))
+            result.setParam("pendingToolCall", stateRound.get("pendingToolCall"));
+        if (stateRound.containsKey(AI_P_APPROVAL_ID))
+            result.setParam(AI_P_APPROVAL_ID, stateRound.get(AI_P_APPROVAL_ID));
 
         return result;
     }

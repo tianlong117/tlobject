@@ -10,6 +10,8 @@ import cn.tianlong.tlobject.base.TLParamString;
  * {@code /approve session:ID} 或 {@code /approve reject:ID:原因} 命令，
  * 以及 {@code /auto}、{@code /permissions}，将决策发给 TLApprovalModule，后者 countDown 唤醒本审查人。
  *
+ * <p>无订阅者（{@code publishApprovalEvent} 无 ack）时不阻塞、返回 pending 交上层转断点（等人回来再接续）。
+ *
  * <p>与 JLine raw mode 完美兼容——stdin 仍由 TLChatConsole 的 JLine reader 独占。
  *
  * 创建日期：2026/7/25
@@ -48,16 +50,19 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
 
     @Override
     public TLMsg requestApproval(TLApprovalRequest request) {
-        // 1. 输出审批提示
-        printPrompt(request);
+        // 1. 渲染审批框文本（交付给订阅者渲染；控制台/webui 各取所需）
+        String text = renderPromptText(request);
 
-        // 2. 阻塞等 TLApprovalModule 的信号（用户通过 /approve 命令发来）
-        if (owner != null) {
-            return owner.waitForDecision(request);
+        // 2. 投递判据（"人在不在"）：有订阅者 ack（控制台在跑 / webui 该用户的 SSE 在线）
+        //    → 阻塞等决策；没人接收 → 返回 pending 不阻塞，上层落断点等人回来再批。
+        //    原"publish 失败 → stdout 兜底打印"已删除：无 UI 部署打印也没人看。
+        if (owner == null) {
+            return buildResult(request.getApprovalId(), TLApprovalRequest.REJECTED, null, "审查人未就绪");
         }
-
-        // 无 owner 时直接拒绝（不应发生）
-        return buildResult(request.getApprovalId(), TLApprovalRequest.REJECTED, null, "审查人未就绪");
+        if (!owner.publishApprovalEvent(text, request)) {
+            return buildResult(request.getApprovalId(), TLApprovalRequest.PENDING, null, null);
+        }
+        return owner.waitForDecision(request);
     }
 
     // ======================== 内部 ========================
@@ -139,7 +144,8 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
             || c == 0x2014 || c == 0x2015;
     }
 
-    private void printPrompt(TLApprovalRequest request) {
+    /** 模板渲染为展示文本（不发布、不打印；发布与阻塞等决策由 requestApproval 决定） */
+    private String renderPromptText(TLApprovalRequest request) {
         String id = request.getApprovalId() != null ? request.getApprovalId() : "-";
         java.util.Map<String, String> vars = new java.util.LinkedHashMap<>();
         vars.put("toolName", request.getToolName() != null ? request.getToolName() : "-");
@@ -149,13 +155,7 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
         vars.put("id", id);
         vars.put("description", request.getDescription() != null && !request.getDescription().isEmpty()
                 ? request.getDescription() : "需要您的确认");
-        String msg = renderPrompt(promptTemplate, vars);
-        // 经消息总线发布审批事件，由订阅者（控制台）自行渲染审批框+输入提示符；
-        // 无订阅者（无控制台环境）时回退为直接打印
-        if (owner == null || !owner.publishApprovalEvent(msg, request)) {
-            System.out.println(msg);
-            System.out.flush();
-        }
+        return renderPrompt(promptTemplate, vars);
     }
 
     private String formatArgs(java.util.Map<String, Object> args) {

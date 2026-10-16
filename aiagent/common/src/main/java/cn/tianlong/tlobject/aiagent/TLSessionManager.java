@@ -156,26 +156,58 @@ public class TLSessionManager extends TLBaseSessionManager {
 
     @Override
     @SuppressWarnings("unchecked")
-    protected java.util.Map<String, Object> findIncompleteMeta(String userId) {
+    protected java.util.Map<String, Object> findIncompleteMeta(String userId, String sessionId) {
         try {
             java.io.File dir = new java.io.File(getSessionStorePath(userId));
             if (!dir.exists() || !dir.isDirectory()) return null;
             java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
             if (files == null || files.length == 0) return null;
 
-            // 按 state=checkpoint 过滤，取最近活跃的一个（断点会话不一定是最新会话——
-            // 断点后用户可能又聊过其他会话，最近会话是 completed 也应能找到断点）
+            // 可选按会话限定（断点弹框的"放弃该操作"路径按 sessionId 精确定位）
+            java.io.File want = (sessionId != null && !sessionId.isEmpty())
+                    ? findSessionFile(getSessionStorePath(userId), sessionId) : null;
+            if (sessionId != null && !sessionId.isEmpty() && want == null) return null;   // 指定会话无文件 = 该会话无未完成断点
+
+            // 两类候选同时扫描：
+            //  a) 开态待批轮（pending_approval 黏住语义）：文件内按 roundId last-wins 后仍为 pending_approval 的最大 roundSeq——
+            //     待批是开态，直到被 resume 收尾；其后任何新轮次写入（后台任务注入/其他写入）都不得把断点藏起来
+            //  b) 末行 checkpoint/pending_approval（意外中断断点）兜底
+            // 两类各取"最近活跃文件"（断点会话不一定是最新会话——断点后用户可能又聊过其他会话）
+            java.io.File bestPendingFile = null;
+            java.util.Map<String, Object> bestPendingRound = null;
             java.io.File best = null;
             TLMsg bestMeta = null;
             for (java.io.File f : files) {
+                if (want != null && !f.equals(want)) continue;
+                java.util.Map<String, Object> pr = findOpenPendingRound(f);
+                if (pr != null && (bestPendingFile == null || f.lastModified() > bestPendingFile.lastModified())) {
+                    bestPendingFile = f;
+                    bestPendingRound = pr;
+                }
                 TLMsg meta = readLastLineMeta(f);
                 if (meta == null) continue;
-                if (SESSION_STATE_CHECKPOINT.equals(meta.getStringParam("state", ""))) {
+                String st = meta.getStringParam("state", "");
+                if (SESSION_STATE_CHECKPOINT.equals(st) || SESSION_STATE_PENDING_APPROVAL.equals(st)) {
                     if (best == null || f.lastModified() > best.lastModified()) {
                         best = f;
                         bestMeta = meta;
                     }
                 }
+            }
+
+            if (bestPendingRound != null) {
+                java.util.Map<String, Object> result = new java.util.LinkedHashMap<>();
+                String sid = String.valueOf(bestPendingRound.getOrDefault("sessionId", sessionId != null ? sessionId : ""));
+                result.put("sessionId", sid);
+                result.put("state", SESSION_STATE_PENDING_APPROVAL);
+                result.put("agentName", bestPendingRound.getOrDefault("agentName", ""));
+                result.put("userMessage", bestPendingRound.getOrDefault("userMessage", ""));
+                result.put("title", loadTitles(userId).getOrDefault(sid, ""));
+                result.put("roundSeq", bestPendingRound.getOrDefault("roundSeq", 0));
+                result.put("savedAt", bestPendingFile.lastModified());
+                Object aid = bestPendingRound.get(AI_P_APPROVAL_ID);
+                if (aid != null && !String.valueOf(aid).isEmpty()) result.put(AI_P_APPROVAL_ID, String.valueOf(aid));
+                return result;
             }
             if (best == null) return null;
 
@@ -190,6 +222,34 @@ public class TLSessionManager extends TLBaseSessionManager {
             result.put("savedAt", best.lastModified());
             result.put("count", bestMeta.getIntParam("count", 0));
             return result;
+        } catch (Exception e) { return null; }
+    }
+
+    /** 文件里"开态待批轮"：按 roundId last-wins 后状态仍为 pending_approval，取 roundSeq 最大者；无则 null */
+    private java.util.Map<String, Object> findOpenPendingRound(java.io.File f) {
+        try {
+            java.util.LinkedHashMap<String, java.util.Map<String, Object>> byRound = new java.util.LinkedHashMap<>();
+            for (String line : java.nio.file.Files.readAllLines(f.toPath(), java.nio.charset.StandardCharsets.UTF_8)) {
+                if (line.trim().isEmpty()) continue;
+                com.google.gson.JsonObject obj = gson.fromJson(line, com.google.gson.JsonObject.class);
+                if (obj == null) continue;
+                java.util.Map<String, Object> m = new java.util.LinkedHashMap<>();
+                for (String key : obj.keySet()) {
+                    com.google.gson.JsonElement el = obj.get(key);
+                    if (el != null && el.isJsonPrimitive()) m.put(key, el.getAsString());
+                }
+                byRound.put(String.valueOf(m.getOrDefault("roundId", "")), m);
+            }
+            java.util.Map<String, Object> best = null;
+            int bestSeq = -1;
+            for (java.util.Map<String, Object> r : byRound.values()) {
+                if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
+                int seq = 0;
+                try { seq = (int) Double.parseDouble(String.valueOf(r.getOrDefault("roundSeq", "0"))); } catch (Exception ignored) {}
+                if (seq > bestSeq) { bestSeq = seq; best = r; }
+            }
+            if (best != null) best.put("roundSeq", bestSeq);   // 还原为 int，与旧路径 roundSeq 类型一致
+            return best;
         } catch (Exception e) { return null; }
     }
 

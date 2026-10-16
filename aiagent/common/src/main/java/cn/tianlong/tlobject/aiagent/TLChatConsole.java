@@ -164,10 +164,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 break;
             case "approvalEvent": {
                 // 2026-10-13：事件按 userId 过滤——总线是进程级的，其他用户（webui）的审批不得打到
-                // 本控制台（同 taskResult 口径，宁缺勿串）；缺 userId 时不展示，发布方会回退直接打印。
+                // 本控制台（同 taskResult 口径，宁缺勿串）；缺 userId 时不展示，发布方据此判定无人接收。
                 // 审批事件（经 msgBus 订阅）：主循环渲染审批框并重打提示符，无需回车。
                 // ack 只在控制台真的在跑时才给（非 null=已处理），否则事件排进没人消费的队列，
-                // 发布方却以为有人渲染了 —— 返回 null 让它回退到直接打印
+                // 发布方却以为有人渲染了 —— 返回 null 让发布方判定无人接收 → 转断点（不再有 stdout 兜底打印）
                 String evtUser = msg.getStringParam("userId", "");
                 if (!userId.equals(evtUser)) return null;
                 offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
@@ -1423,9 +1423,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         System.out.println("✓ 会话ID切换为: " + sessionId);
                     }
                     break;
-                case "approve":
+                case "approve": {
                     System.out.println("✓ " + message);
+                    // 断点态审批（deferred）：决策已记入审批模块，但原等待线程已释放，不会自动生效——
+                    // 把服务回带的 sessionId 重新挂为待恢复断点，随后的 /resume 才会走"断点恢复"分支
+                    // （chat resume=true 写回决策后续跑），而不是回退成"恢复最近会话"
+                    if (result.parseBoolean(AI_P_APPROVAL_DEFERRED, false)) {
+                        String deferSid = result.getStringParam("sessionId", "");
+                        if (!deferSid.isEmpty()) {
+                            pendingCheckpointSessionId = deferSid;
+                            pendingCheckpointUserMessage = "";   // 留空：服务侧用断点轮原话兜底（TLAgentService.doChat 空 userMessage 回填）
+                            System.out.println("⏳ 该审批处于断点态：输入 /resume 继续执行本轮（会话 " + deferSid + "）");
+                        }
+                    }
                     break;
+                }
                 case "auto": {
                     System.out.println(message);
                     // data{on} 驱动提示符的 [自动] 标记（服务端为唯一事实源，本地只镜像显示）

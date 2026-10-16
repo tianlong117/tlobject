@@ -8,6 +8,9 @@
         <reviewerStrategy value="sync"/>
         <!-- 场景 approvalExpire 需要秒级超时（sleep 后断言 EXPIRED） -->
         <approvalTimeoutMs value="3000"/>
+        <!-- 断点态审批 TTL：场景 approvalPendingTtl 用秒级值；须大于 approvalTimeoutMs(3000)
+             以免抢在"审批超时"路径前面（场景 18 的路径断言会失真） -->
+        <approvalPendingTtlMs value="5000"/>
     </params>
     <rules>
         <rule name="file_operation"

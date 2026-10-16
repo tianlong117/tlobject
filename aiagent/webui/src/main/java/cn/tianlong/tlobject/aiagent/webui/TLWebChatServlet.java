@@ -200,8 +200,9 @@ public class TLWebChatServlet extends HttpServlet {
     private void handleLogout(HttpServletRequest req, HttpServletResponse resp, String userId) throws IOException {
         TLWebChatModule mod = module();
         if (mod != null) mod.closeEventsChannel(userId);
+        if (mod != null) mod.deferPendingApprovals(userId);   // 退出转断点：未决审批保持待批（取代"退出即拒"）
         // 退出登录不停止进行中的任务（与关闭浏览器一致）：agent 继续跑完，结果照常落库；
-        // 期间触发审批会因无人在线而超时自动拒绝（安全默认）
+        // 期间触发审批会因无人在线而转断点（保持待批，重登后处理，超 TTL 失效）
         HttpSession s = req.getSession(false);
         if (s != null) s.invalidate();
         writeJson(resp, 200, json("success", true, "message", "已退出"));

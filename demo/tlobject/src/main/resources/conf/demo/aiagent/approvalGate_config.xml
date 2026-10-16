@@ -15,15 +15,22 @@
     -->
     <params>
         <!-- 审查人实现类（全限定名）
-             ConsoleReviewer: 控制台同步阻塞，System.console().readLine() 等用户输入
-                             输入格式: approve:ID  或  reject:ID:原因 -->
+             ConsoleReviewer: 审批框投递到控制台/webui 后由 latch 阻塞等待决策（不再读 stdin），
+                             决策经 /approve 命令（或 webui 弹框）回传后唤醒
+                             命令格式: /approve approve:ID | round:ID | session:ID | reject:ID:原因 -->
         <reviewerClass value="cn.tianlong.tlobject.aiagent.approval.ConsoleReviewer"/>
 
         <!-- 审查人策略: sync=同步阻塞(控制台), async=异步回调(Web审批) -->
         <reviewerStrategy value="sync"/>
 
-        <!-- 审批超时（毫秒），默认 300000 = 5 分钟 -->
-        <approvalTimeoutMs value="300000"/>
+        <!-- 审批超时（毫秒）：0 = 一直等（默认，等待策略改造后语义）。
+             有人在收（控制台在跑 / webui SSE 在线）→ 阻塞等，回来批了原线程继续；
+             没人收 → 立即转断点，不占线程。断点态兜底看 approvalPendingTtlMs（不会无限期滞留）。 -->
+        <approvalTimeoutMs value="0"/>
+
+        <!-- 断点态审批 TTL（毫秒，默认 24h）：仅作用于转为断点的审批——
+             用户长时间不回来 → EXPIRED + 消息箱告知；阻塞态不受它影响。0 = 不设 TTL。 -->
+        <approvalPendingTtlMs value="86400000"/>
     </params>
 
     <!-- ===== 审批规则（结构化配置） =====

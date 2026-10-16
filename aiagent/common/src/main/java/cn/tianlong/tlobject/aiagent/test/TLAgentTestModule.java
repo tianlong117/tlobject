@@ -466,6 +466,14 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("approvalExpire", new String[]{"18-审批超时收口", null});
         TEST_CASES.put("approvalBlockWakeup", new String[]{"19-审批阻塞唤醒", null});
         TEST_CASES.put("approvalBlockTimeout", new String[]{"20-审批阻塞自超时", null});
+        TEST_CASES.put("approvalInfiniteWait", new String[]{"21-审批无限等待", null});
+        TEST_CASES.put("approvalConsoleDefer", new String[]{"22-无人接收转断点", null});
+        TEST_CASES.put("approvalDeferWakeup", new String[]{"23-审批退出转断点", null});
+        TEST_CASES.put("approvalPendingTtl", new String[]{"24-断点审批TTL", null});
+        TEST_CASES.put("approvalResumeExecute", new String[]{"25-断点恢复批准执行", null});
+        TEST_CASES.put("approvalResumeLost", new String[]{"26-断点恢复失效不执行", null});
+        TEST_CASES.put("approvalCheckpointDiscard", new String[]{"27-待批断点可见与丢弃", null});
+        TEST_CASES.put("approvalPendingCheckpoint", new String[]{"28-待批断点生命周期", null});
     }
 
     /**
@@ -549,6 +557,14 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "approvalexpire": return this::testApprovalExpire;
             case "approvalblockwakeup": return this::testApprovalBlockWakeup;
             case "approvalblocktimeout": return this::testApprovalBlockTimeout;
+            case "approvalinfinitewait": return this::testApprovalInfiniteWait;
+            case "approvalconsoledefer": return this::testApprovalConsoleDefer;
+            case "approvaldeferwakeup": return this::testApprovalDeferWakeup;
+            case "approvalpendingttl": return this::testApprovalPendingTtl;
+            case "approvalresumeexecute": return this::testApprovalResumeExecute;
+            case "approvalresumelost": return this::testApprovalResumeLost;
+            case "approvalcheckpointdiscard": return this::testApprovalCheckpointDiscard;
+            case "approvalpendingcheckpoint": return this::testApprovalPendingCheckpoint;
             default:                return null;
         }
     }
@@ -1653,7 +1669,14 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, true);
     }
 
-    /** 超时收口（定时任务路径）：请求发出后超过 approvalTimeoutMs（aitest 配 3000ms）→ EXPIRED；迟到批准被拒 */
+    /**
+     * 断点态 TTL 收口 + 迟到批准被拒：审查人立即返回 pending（无人接收 → 转断点），
+     * 创建时限随转断点作废，只由 approvalPendingTtlMs（aitest 配 5000ms）收口为 EXPIRED，
+     * reason 为 TTL 文案（"超过5秒未处理"）而非创建时限文案（"审批超时（3秒）"）；
+     * 迟到批准被拒（已失效请求 APPROVE 必须 RESULT=false）。
+     * 注：deferred 后创建时限已取消 → approvalTimeoutMs 路径对断点请求不再可达；
+     * 阻塞等待超时路径由场景 20（latch 探针）与场景 24（TTL）分别覆盖。
+     */
     protected TLMsg testApprovalExpire(Object fromWho, TLMsg msg) {
         cn.tianlong.tlobject.aiagent.test.TLTestApprovalReviewer.reset();
         resetApprovalGrants();
@@ -1662,13 +1685,25 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         if (!"pending".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
             return createMsg().setParam(RESULT, false).setParam("error", "应 pending");
         }
-        try { Thread.sleep(4000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        TLMsg q = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY)
-                .setParam(AI_P_APPROVAL_ID, id));
-        String state = q.getStringParam(AI_P_APPROVAL_STATE, "");
+        // 有界轮询等 TTL（5000ms）收口：每 200ms 查一次，最多 ~10s（不固定睡——转断点后
+        // 创建时限已取消，固定睡 4000ms 会赶在 TTL 前面查询而假失败；查不到才算失败）
+        TLMsg q = null;
+        String state = "";
+        for (int i = 0; i < 50 && !"expired".equals(state); i++) {
+            try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            q = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            state = q.getStringParam(AI_P_APPROVAL_STATE, "");
+        }
         if (!"expired".equals(state)) {
             return createMsg().setParam(RESULT, false)
-                    .setParam("error", "应 expired（定时任务超时路径），实为 " + state);
+                    .setParam("error", "应 expired（断点态 TTL 收口），实为 " + state);
+        }
+        // 断点态只受 TTL 管：reason 必须是 TTL 文案——若仍是"审批超时（3秒）"说明创建时限未被取消
+        String reason = q.getStringParam(AI_P_APPROVAL_REJECTREASON, "");
+        if (!reason.contains("未处理")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "TTL 收口 reason 应含'未处理'，实为 " + reason);
         }
         TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
                 .setParam(AI_P_APPROVAL_ID, id));
@@ -1678,7 +1713,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             return createMsg().setParam(RESULT, false).setParam("error", "已超时的审批不应可再批准");
         }
         resetApprovalGrants();
-        log("[TEST]   审批超时收口: EXPIRED + 拒绝迟到批准 通过");
+        log("[TEST]   审批超时收口: 断点态 TTL 收口 + 拒绝迟到批准 通过");
         return createMsg().setParam(RESULT, true);
     }
 
@@ -1770,9 +1805,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     return createMsg().setParam(RESULT, false).setParam("error", "latch 自超时耗时异常: " + pe + "ms");
                 }
                 String preason = pr.getStringParam(AI_P_APPROVAL_REJECTREASON, "");
-                if (!preason.contains("3秒")) {
+                if (!preason.contains("0.3秒")) {   // 探针 request.timeoutMs=300 → 文案与真实等待一致（原实现错用模块值"3秒"）
                     return createMsg().setParam(RESULT, false)
-                            .setParam("error", "latch 自超时 reason 应含 3秒（approvalTimeoutMs/1000），实为 " + preason);
+                            .setParam("error", "latch 自超时 reason 应含 0.3秒（真实等待 300ms），实为 " + preason);
                 }
             } else {
                 // 探针守卫：gate 换成别的实现时不得静默跳过（否则场景 20 会假绿）
@@ -1787,6 +1822,634 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             resetApprovalGrants();
         }
         log("[TEST]   审批阻塞自超时: latch 自超时收口 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 无限等待：approvalTimeoutMs=0（反射临时置 0）时阻塞路径不超时——
+     * 超过原配置值（3000ms）仍不返回，批准后才以 approved 醒来。
+     */
+    protected TLMsg testApprovalInfiniteWait(Object fromWho, TLMsg msg) {
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        Object gateObj = getModuleInFactory("approvalGate");
+        if (!(gateObj instanceof cn.tianlong.tlobject.aiagent.approval.TLApprovalModule)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 非 TLApprovalModule，探针未执行");
+        }
+        java.lang.reflect.Field timeoutField = null;
+        long savedTimeout = 0;
+        try {
+            timeoutField = gateObj.getClass().getDeclaredField("approvalTimeoutMs");
+            timeoutField.setAccessible(true);
+            savedTimeout = timeoutField.getLong(gateObj);
+            timeoutField.setLong(gateObj, 0L);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "反射设置 approvalTimeoutMs 失败: " + e);
+        }
+        final java.util.concurrent.atomic.AtomicReference<TLMsg> holder = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread t = new Thread(() -> holder.set(
+                requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/inf.txt\"}")));
+        String id = "";
+        try {
+            TLTestApprovalReviewer.setBlockMode(true);
+            t.start();
+            for (int i = 0; i < 50 && id.isEmpty(); i++) {
+                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                List<cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest> reqs =
+                        TLTestApprovalReviewer.snapshot();
+                if (!reqs.isEmpty()) id = reqs.get(reqs.size() - 1).getApprovalId();
+            }
+            if (id.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞请求未登记（超时）");
+            }
+            try { Thread.sleep(4000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            if (holder.get() != null) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "approvalTimeoutMs=0 应一直等，却在 4 秒内返回了");
+            }
+            TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            if (!ap.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "批准失败: " + ap.getStringParam("error", ""));
+            }
+            t.join(5000);
+            TLMsg ret = holder.get();
+            if (ret == null || !"approved".equals(ret.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error", "应醒来返回 approved，实为 "
+                        + (ret == null ? "null" : ret.getStringParam(AI_P_APPROVAL_STATE, "")));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return createMsg().setParam(RESULT, false).setParam("error", "被中断");
+        } finally {
+            // 失败路径兜底：worker 若还挂在无限等待的 latch 上（如提前 return 未走到批准），
+            // 拒绝该审批释放它——否则该线程与 pendingApprovals 条目会存活到进程结束
+            if (!id.isEmpty() && t.isAlive()) {
+                putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+                        .setParam(AI_P_APPROVAL_ID, id)
+                        .setParam(AI_P_APPROVAL_REJECTREASON, "测试收尾"));
+                try { t.join(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            try { if (timeoutField != null) timeoutField.setLong(gateObj, savedTimeout); } catch (Exception ignored) {}
+            TLTestApprovalReviewer.setBlockMode(false);
+            resetApprovalGrants();
+        }
+        log("[TEST]   审批无限等待: approvalTimeoutMs=0 一直等 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 投递判据：ConsoleReviewer 在无订阅者（无控制台/webui SSE）时不阻塞，
+     * 立即返回 pending（上层转断点）——直调探针，不经消息接口。
+     */
+    protected TLMsg testApprovalConsoleDefer(Object fromWho, TLMsg msg) {
+        Object gateObj = getModuleInFactory("approvalGate");
+        if (!(gateObj instanceof cn.tianlong.tlobject.aiagent.approval.TLApprovalModule)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 非 TLApprovalModule，探针未执行");
+        }
+        cn.tianlong.tlobject.aiagent.approval.ConsoleReviewer cr =
+                new cn.tianlong.tlobject.aiagent.approval.ConsoleReviewer();
+        cr.setOwner((cn.tianlong.tlobject.aiagent.approval.TLApprovalModule) gateObj);
+        cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest probe =
+                new cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest(
+                        SID_APPROVAL, "file_operation", new java.util.HashMap<>(), "");
+        // 万一有订阅者 ack（探针被搬到控制台/webui 环境跑），失败要有界：探针自带 1s 超时，
+        // 不至于用模块级值（可能被配成 0）把整套测试挂死
+        probe.setTimeoutMs(1000);
+        long start = System.currentTimeMillis();
+        TLMsg r = cr.requestApproval(probe);
+        long elapsed = System.currentTimeMillis() - start;
+        String st = r != null ? r.getStringParam(AI_P_APPROVAL_STATE, "") : "null";
+        if (!"pending".equals(st)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "无订阅者应返回 pending，实为 " + st);
+        }
+        if (elapsed > 2000) {
+            return createMsg().setParam(RESULT, false).setParam("error", "无订阅者不应阻塞，耗时 " + elapsed + "ms");
+        }
+        log("[TEST]   无人接收转断点: 不阻塞返回 pending（" + elapsed + "ms） 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 退出转断点：阻塞中的请求被 APPROVAL_DEFER 唤醒 → 线程以 pending 返回（非 rejected）；
+     * 审批保持 PENDING 且 deferred=true；迟到的批准仍有效（defer 不是终结）。
+     */
+    protected TLMsg testApprovalDeferWakeup(Object fromWho, TLMsg msg) {
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        TLTestApprovalReviewer.setBlockMode(true);
+        final java.util.concurrent.atomic.AtomicReference<TLMsg> holder = new java.util.concurrent.atomic.AtomicReference<>();
+        Thread t = new Thread(() -> holder.set(
+                requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/defer.txt\"}")));
+        String id = "";
+        try {
+            t.start();
+            for (int i = 0; i < 50 && id.isEmpty(); i++) {
+                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                List<cn.tianlong.tlobject.aiagent.approval.TLApprovalRequest> reqs =
+                        TLTestApprovalReviewer.snapshot();
+                if (!reqs.isEmpty()) id = reqs.get(reqs.size() - 1).getApprovalId();
+            }
+            if (id.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "阻塞请求未登记（超时）");
+            }
+            TLMsg d = putMsg("approvalGate", createMsg().setAction(APPROVAL_DEFER)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            if (!d.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "defer 失败: " + d.getStringParam("error", ""));
+            }
+            t.join(3000);
+            TLMsg ret = holder.get();
+            if (ret == null || !"pending".equals(ret.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error", "defer 唤醒应以 pending 返回，实为 "
+                        + (ret == null ? "null(未返回)" : ret.getStringParam(AI_P_APPROVAL_STATE, "")));
+            }
+            // 审批保持 PENDING 且 deferred=true（QUERY 决策映射）
+            TLMsg q = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, id));
+            if (!"pending".equals(q.getStringParam("decision", ""))
+                    || !q.parseBoolean(AI_P_APPROVAL_DEFERRED, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "defer 后应保持 PENDING+deferred，实为 decision=" + q.getStringParam("decision", ""));
+            }
+            // 迟到的批准仍有效（defer 只是释放等待线程，不是终结）
+            TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            if (!ap.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "defer 后批准应有效: " + ap.getStringParam("error", ""));
+            }
+            // 幂等：已决策后 defer 无副作用且不报错
+            TLMsg d2 = putMsg("approvalGate", createMsg().setAction(APPROVAL_DEFER)
+                    .setParam(AI_P_APPROVAL_ID, id));
+            if (!d2.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "已决策后 defer 应幂等成功");
+            }
+            // 以下 abandon 块关掉阻塞模式：putMsg 在本线程同步执行 action，阻塞模式下请求会挂在
+            // 审查人的 waitForDecision 上（本线程阻塞 → 后续 ABANDON 消息根本发不出去，只能等
+            // 3s 自超时变 expired），断言既慢又非确定。阻塞路径的唤醒覆盖已由本场景前半段完成。
+            TLTestApprovalReviewer.setBlockMode(false);
+            // abandon 语义：撤销待批（decision=rejected + reason 用户放弃该操作），但不记拒绝记忆——
+            // 同参数再次请求应照常弹审批（pending），而不是被自动拒绝
+            TLMsg r2 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/abandon.txt\"}");
+            String id2 = r2.getStringParam(AI_P_APPROVAL_ID, "");
+            TLMsg ab = putMsg("approvalGate", createMsg().setAction(APPROVAL_ABANDON)
+                    .setParam(AI_P_APPROVAL_ID, id2));
+            if (!ab.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false).setParam("error", "abandon 失败: " + ab.getStringParam("error", ""));
+            }
+            TLMsg q2 = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, id2));
+            if (!"rejected".equals(q2.getStringParam("decision", ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "abandon 后应 decision=rejected，实为 " + q2.getStringParam("decision", ""));
+            }
+            if (!q2.getStringParam(AI_P_APPROVAL_REJECTREASON, "").contains("放弃")) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "abandon 原因应含'放弃'，实为 " + q2.getStringParam(AI_P_APPROVAL_REJECTREASON, ""));
+            }
+            // 无拒绝记忆：同参数再请求仍是 pending（弹审批），不是自动拒绝
+            TLMsg r3 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/abandon.txt\"}");
+            if (!"pending".equals(r3.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error",
+                        "abandon 不应记拒绝记忆，同参数应 pending，实为 " + r3.getStringParam(AI_P_APPROVAL_STATE, ""));
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return createMsg().setParam(RESULT, false).setParam("error", "被中断");
+        } finally {
+            // 失败路径兜底：worker 若还挂在无限等待的 latch 上（如提前 return 未走到批准），
+            // 拒绝该审批释放它——否则该线程与 pendingApprovals 条目会存活到进程结束
+            if (!id.isEmpty() && t.isAlive()) {
+                putMsg("approvalGate", createMsg().setAction(APPROVAL_REJECT)
+                        .setParam(AI_P_APPROVAL_ID, id)
+                        .setParam(AI_P_APPROVAL_REJECTREASON, "测试收尾"));
+                try { t.join(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            }
+            TLTestApprovalReviewer.setBlockMode(false);
+            resetApprovalGrants();
+        }
+        log("[TEST]   审批退出转断点: defer 唤醒 pending + 保持待批 + 迟到批准有效 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 断点审批 TTL（aitest 配 5000ms）：超期未处理 → decision=lost + reason 含"未处理" */
+    protected TLMsg testApprovalPendingTtl(Object fromWho, TLMsg msg) {
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        // 隔离"审批超时"路径：临时把 approvalTimeoutMs 置 0（反射，同场景 21 的手法）。
+        // aitest 配的 3000ms 是给场景 18 用的——不隔离的话待批请求会在 3s 被定时任务先收走
+        // （TTL 5000 轮不到，reason 会是"审批超时"）。本场景要验的正是生产默认配置
+        // （approvalTimeoutMs=0：阻塞超时不排期）下，断点态审批由 TTL 收口。
+        Object gateObj = getModuleInFactory("approvalGate");
+        if (!(gateObj instanceof cn.tianlong.tlobject.aiagent.approval.TLApprovalModule)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 非 TLApprovalModule，探针未执行");
+        }
+        java.lang.reflect.Field timeoutField = null;
+        long savedTimeout = 0;
+        try {
+            timeoutField = gateObj.getClass().getDeclaredField("approvalTimeoutMs");
+            timeoutField.setAccessible(true);
+            savedTimeout = timeoutField.getLong(gateObj);
+            timeoutField.setLong(gateObj, 0L);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "反射设置 approvalTimeoutMs 失败: " + e);
+        }
+        try {
+            // 非阻塞请求（审查人立即返回 pending）→ 转断点 → 排期 TTL
+            TLMsg r1 = requestApprovalFor("file_operation", "{\"operation\":\"delete\",\"path\":\"D:/tmp/ttl.txt\"}");
+            String id = r1.getStringParam(AI_P_APPROVAL_ID, "");
+            if (!"pending".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+                return createMsg().setParam(RESULT, false).setParam("error", "应 pending");
+            }
+            TLMsg q1 = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, id));
+            if (!"pending".equals(q1.getStringParam("decision", ""))) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "TTL 未到期应 decision=pending，实为 " + q1.getStringParam("decision", ""));
+            }
+            // 有界轮询等 TTL（5000ms）到期收口：不再固定睡 5500ms（机器慢/调度抖动会假失败），
+            // 每 200ms 查一次，最多 ~8s；查不到才算失败（报最后看到的 decision/reason）
+            TLMsg q2 = null;
+            String decision = "";
+            for (int i = 0; i < 40 && !"lost".equals(decision); i++) {
+                try { Thread.sleep(200); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                q2 = putMsg("approvalGate", createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, id));
+                decision = q2.getStringParam("decision", "");
+            }
+            if (!"lost".equals(decision)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "TTL（5000ms）到期应 decision=lost，实为 " + decision
+                                + " reason=" + (q2 != null ? q2.getStringParam(AI_P_APPROVAL_REJECTREASON, "") : ""));
+            }
+            String reason = q2.getStringParam(AI_P_APPROVAL_REJECTREASON, "");
+            if (!reason.contains("未处理")) {
+                return createMsg().setParam(RESULT, false).setParam("error", "TTL 失效 reason 应含'未处理'，实为 " + reason);
+            }
+        } finally {
+            try { if (timeoutField != null) timeoutField.setLong(gateObj, savedTimeout); } catch (Exception ignored) {}
+            resetApprovalGrants();
+        }
+        log("[TEST]   断点审批TTL: 到期 decision=lost 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 断点恢复测试用的临时文件（相对启动目录；file_operation 默认根 "."） */
+    protected static final String RESUME_PROBE_FILE = "data/aitest_resume_probe.txt";
+
+    private TLMsg buildResumeChat(String approvalId, Object decision, List<TLConversationHistory> history,
+                                  TLToolCall tc, String sessionId) {
+        TLMsg chatMsg = createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, sessionId)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "删除测试文件")
+                .setParam("resume", true)
+                .setParam("history", history)
+                .setParam("resumeState", SESSION_STATE_PENDING_APPROVAL)
+                .setParam(AI_P_APPROVAL_ID, approvalId)
+                .setParam("pendingToolCall", tc);
+        if (decision != null) chatMsg.setParam(AI_P_APPROVAL_DECISION, decision);
+        return chatMsg;
+    }
+
+    /**
+     * 断点恢复（批准）：Agent 向 gate 查回 decision=approved → 真正重执行工具（文件被删），
+     * 且执行器免复批（审查人计数不增）——否则 resume → 再弹框 → 死循环。
+     * 第二遍：decision 由消息参数给出且 approvalId 门禁查不到（lost）——文件被删即证明 msg 决策优先。
+     */
+    protected TLMsg testApprovalResumeExecute(Object fromWho, TLMsg msg) {
+        Object gate = getModuleInFactory("approvalGate");
+        if (!(gate instanceof IObject)) return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 未配置");
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false).setParam("error", "mockProvider 未配置");
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+        TLTestApprovalReviewer.setBlockMode(false);
+
+        java.io.File f = new java.io.File(RESUME_PROBE_FILE);
+        try {
+            f.getParentFile().mkdirs();
+            java.nio.file.Files.write(f.toPath(), "resume-probe".getBytes("UTF-8"));
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "写测试文件失败: " + e);
+        }
+        // 1. 造真实待批请求并批准（scope=once）
+        TLMsg r1 = requestApprovalFor("file_operation",
+                "{\"operation\":\"delete\",\"path\":\"" + RESUME_PROBE_FILE + "\"}");
+        String approvalId = r1.getStringParam(AI_P_APPROVAL_ID, "");
+        if (!"pending".equals(r1.getStringParam(AI_P_APPROVAL_STATE, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "应 pending");
+        }
+        int countBefore = TLTestApprovalReviewer.count();
+        TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                .setParam(AI_P_APPROVAL_ID, approvalId));
+        if (!ap.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "批准失败: " + ap.getStringParam("error", ""));
+        }
+        // 2. resume（不带 decision → Agent 自己查 gate 写回）
+        mp.clearAllResponses();
+        mp.enqueueResponse(mp.textResponse("已删除测试文件。"));
+        TLToolCall tc = new TLToolCall("call_resume_1", "file_operation",
+                new java.util.HashMap<String, Object>() {{
+                    put("operation", "delete"); put("path", RESUME_PROBE_FILE);
+                }});
+        List<TLConversationHistory> history = new java.util.ArrayList<>();
+        history.add(new TLConversationHistory(TLConversationHistory.Role.user, "删除测试文件"));
+        TLMsg response = putMsg(M_AIAGENT, buildResumeChat(approvalId, null, history, tc, "test_approval_resume"));
+        if (!response.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "resume 应成功，实为: " + response.getStringParam(AI_P_RESPONSE, ""));
+        }
+        if (f.exists()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "decison=approved 应重执行删除，文件仍存在");
+        }
+        if (TLTestApprovalReviewer.count() != countBefore) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "断点恢复的已批准执行不应再过门禁（审查人计数 " + countBefore + " → " + TLTestApprovalReviewer.count() + "）");
+        }
+        // 3. 第二遍：decision 只由消息参数给出，且配一个 gate 查不到的 approvalId——
+        //    门禁对它的查询结果必然是 lost（不执行）；用真批过的 id 会"查回来也是 approved"，
+        //    证不了优先级。文件仍被删只可能来自 msg 参数决策（调用方判定）压过 gate 查询
+        try {
+            f.getParentFile().mkdirs();
+            java.nio.file.Files.write(f.toPath(), "resume-probe".getBytes("UTF-8"));
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "重写测试文件失败: " + e);
+        }
+        mp.clearAllResponses();
+        mp.enqueueResponse(mp.textResponse("已删除测试文件。"));
+        TLToolCall tc2 = new TLToolCall("call_resume_2", "file_operation",
+                new java.util.HashMap<String, Object>() {{
+                    put("operation", "delete"); put("path", RESUME_PROBE_FILE);
+                }});
+        TLMsg response2 = putMsg(M_AIAGENT, buildResumeChat("no_such_id_but_decision_param", "approved",
+                history, tc2, "test_approval_resume"));
+        if (!response2.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "第二遍 resume（msg 决策）应成功，实为: " + response2.getStringParam(AI_P_RESPONSE, ""));
+        }
+        if (f.exists()) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "msg 决策=approved 应压过 gate 查询(lost)重执行删除，文件仍存在");
+        }
+        resetApprovalGrants();
+        log("[TEST]   断点恢复批准执行: 真删除 + 免复批 + msg 决策优先 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 断点恢复（pending 仍在等 / lost 已失效）：pending → 返回"仍在等待中"不执行；
+     * lost → 不执行、注入失效说明后继续对话（项目不假装续跑）。
+     */
+    protected TLMsg testApprovalResumeLost(Object fromWho, TLMsg msg) {
+        Object gate = getModuleInFactory("approvalGate");
+        if (!(gate instanceof IObject)) return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 未配置");
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false).setParam("error", "mockProvider 未配置");
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+
+        java.io.File f = new java.io.File(RESUME_PROBE_FILE);
+        try {
+            f.getParentFile().mkdirs();
+            java.nio.file.Files.write(f.toPath(), "resume-probe".getBytes("UTF-8"));
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "写测试文件失败: " + e);
+        }
+        TLToolCall tc = new TLToolCall("call_lost_1", "file_operation",
+                new java.util.HashMap<String, Object>() {{
+                    put("operation", "delete"); put("path", RESUME_PROBE_FILE);
+                }});
+        List<TLConversationHistory> history = new java.util.ArrayList<>();
+        history.add(new TLConversationHistory(TLConversationHistory.Role.user, "删除测试文件"));
+
+        // A. pending：造一个真实的待批请求（不批准）→ resume 应拒绝执行并返回等待文案
+        TLMsg r1 = requestApprovalFor("file_operation",
+                "{\"operation\":\"delete\",\"path\":\"" + RESUME_PROBE_FILE + "\"}");
+        String pendingId = r1.getStringParam(AI_P_APPROVAL_ID, "");
+        TLMsg respA = putMsg(M_AIAGENT, buildResumeChat(pendingId, null, history, tc, "test_approval_lost"));
+        if (f.exists() == false) {
+            return createMsg().setParam(RESULT, false).setParam("error", "pending 恢复不应执行删除");
+        }
+        String respAText = respA.getStringParam(AI_P_RESPONSE, "");
+        if (!respAText.contains("等待")) {
+            return createMsg().setParam(RESULT, false).setParam("error", "pending 恢复应提示仍在等待，实为: " + respAText);
+        }
+        // B. lost：不存在的 approvalId（进程重启语义）→ 不执行，注入失效说明后正常回答
+        mp.clearAllResponses();
+        mp.enqueueResponse(mp.textResponse("已跳过该操作，请问还需要什么？"));
+        TLMsg respB = putMsg(M_AIAGENT, buildResumeChat("no_such_approval_id", null, history, tc, "test_approval_lost"));
+        if (f.exists() == false) {
+            return createMsg().setParam(RESULT, false).setParam("error", "lost 恢复不应执行删除");
+        }
+        if (!respB.parseBoolean(RESULT, false) || !respB.getStringParam(AI_P_RESPONSE, "").contains("还需要什么")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "lost 恢复应注入失效说明并继续对话，实为: " + respB.getStringParam(AI_P_RESPONSE, ""));
+        }
+        // 收尾：清理探针文件与遗留待批（A 部分的 pending 请求不撤销的话，TTL 到期事件会污染本套件后续场景）
+        try { java.nio.file.Files.deleteIfExists(f.toPath()); } catch (Exception ignored) {}
+        try {
+            putMsg("approvalGate", createMsg().setAction(APPROVAL_ABANDON)
+                    .setParam(AI_P_APPROVAL_ID, pendingId));
+        } catch (Exception ignored) {}
+        resetApprovalGrants();
+        log("[TEST]   断点恢复失效不执行: pending 等待文案 + lost 继续对话 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 待批断点：findIncomplete 覆盖 pending_approval（含 state/approvalId、支持 sessionId 过滤）；
+     * discardPendingRound 后不再可见（放弃该操作 → 会话可正常继续）。
+     */
+    protected TLMsg testApprovalCheckpointDiscard(Object fromWho, TLMsg msg) {
+        Object sm = getModuleInFactory("sessionManager");
+        if (!(sm instanceof IObject)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionManager 未配置");
+        }
+        String sid = "test_approval_discard";
+        // 1. 造一个 pending_approval 轮（带 pendingToolCall + approvalId）
+        TLToolCall tc = new TLToolCall("call_discard_1", "file_operation",
+                new java.util.HashMap<String, Object>() {{ put("operation", "delete"); put("path", "D:/tmp/never.txt"); }});
+        TLMsg upd = createMsg().setAction("sessionUpdated")
+                .setParam("sessionId", sid)
+                .setParam("userId", TEST_USER_ID)
+                .setParam("agentName", "aiagent")
+                .setParam("roundId", "r_discard_1")
+                .setParam("messages", new java.util.ArrayList<>(java.util.Arrays.asList(
+                        new TLConversationHistory(TLConversationHistory.Role.user, "删除一个不存在的文件"))))
+                .setParam("userMessage", "删除一个不存在的文件")
+                .setParam("model", "mock")
+                .setParam("temperature", 0.7)
+                .setParam("maxTokens", 1024)
+                .setParam("pendingToolCall", tc)
+                .setParam(AI_P_APPROVAL_ID, "probe_discard_1");
+        putMsg((IObject) sm, upd);
+        // 2. findIncomplete（带 sessionId）应命中且带 state/approvalId
+        TLMsg q = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
+                .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
+        if (!q.parseBoolean(RESULT, false)
+                || !SESSION_STATE_PENDING_APPROVAL.equals(q.getStringParam("state", ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "findIncomplete 应命中 pending_approval，实为 state=" + q.getStringParam("state", ""));
+        }
+        if (!"probe_discard_1".equals(q.getStringParam(AI_P_APPROVAL_ID, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "应带回 approvalId，实为 " + q.getStringParam(AI_P_APPROVAL_ID, ""));
+        }
+        // 3. 丢弃后不再可见
+        TLMsg d = putMsg((IObject) sm, createMsg().setAction("discardPendingRound")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        if (!d.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "discardPendingRound 失败: " + d.getStringParam("error", ""));
+        }
+        TLMsg q2 = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
+                .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
+        // 允许查到同会话其它断点（本场景没有）；但若查到还是 pending_approval 则失败
+        if (q2.parseBoolean(RESULT, false)
+                && SESSION_STATE_PENDING_APPROVAL.equals(q2.getStringParam("state", ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "丢弃后不应再命中 pending_approval");
+        }
+        log("[TEST]   待批断点可见与丢弃: findIncomplete + discardPendingRound 通过");
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /** 场景 28 待批断点探针文件（相对启动目录；file_operation 默认根 "."） */
+    protected static final String PENDING_PROBE_FILE = "data/aitest_pending_probe.txt";
+
+    /**
+     * 待批断点生命周期（端到端）：真工具（file_operation delete）触发审批 → 无人接收转断点：
+     * 回合正常返回等待文案、文件未删；findIncomplete 能查到 pending_approval（轮次没被 chatFinished
+     * 覆盖成 completed——此前两处缺陷使该断言恒失败，链路"转断点 → 重登 → 恢复"因此断死）；
+     * 批准后按 service 语义 resume（loadSession → resumeRoundId 继承）→ 工具真执行（文件被删）、
+     * 断点收口（findIncomplete 不再命中）——roundId 继承生效，resume 的 chatFinished 收掉待批轮。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg testApprovalPendingCheckpoint(Object fromWho, TLMsg msg) {
+        Object gate = getModuleInFactory("approvalGate");
+        if (!(gate instanceof IObject)) return createMsg().setParam(RESULT, false).setParam("error", "approvalGate 未配置");
+        Object sm = getModuleInFactory("sessionManager");
+        if (!(sm instanceof IObject)) return createMsg().setParam(RESULT, false).setParam("error", "sessionManager 未配置");
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false).setParam("error", "mockProvider 未配置");
+        TLTestApprovalReviewer.reset();
+        resetApprovalGrants();
+
+        String sid = "test_approval_pending";
+        // 自清场：黏住语义下（pending 是开态，直到 resume/discard 收尾）上一次跑剩的待批行会一直可见——
+        // 历史残留（含红跑/中断跑）会打挂 step-7"resume 后不再命中"；场景必须可反复运行
+        try {
+            putMsg((IObject) sm, createMsg().setAction("deleteSession")
+                    .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        } catch (Exception ignored) {}
+        java.io.File f = new java.io.File(PENDING_PROBE_FILE);
+        try {
+            f.getParentFile().mkdirs();
+            java.nio.file.Files.write(f.toPath(), "pending-probe".getBytes("UTF-8"));
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "写测试文件失败: " + e);
+        }
+        // 1. 回合：LLM 返回 file_operation(delete) 的 tool_call → 执行器过审批门禁 → 测试审查人
+        //    不阻塞直接返回 pending = 无人接收（转断点）；第二响应给 resume 后继续对话的终答
+        mp.clearAllResponses();
+        TLToolCall tc1 = TLMockProvider.createToolCall("call_pending_1", "file_operation",
+                new java.util.HashMap<String, Object>() {{
+                    put("operation", "delete"); put("path", PENDING_PROBE_FILE);
+                }});
+        mp.enqueueResponse(mp.toolCallResponse(tc1));
+        mp.enqueueResponse(mp.textResponse("已删除测试文件。"));
+
+        TLMsg r1 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, sid)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "删除测试文件"));
+        // 2. 回合成功返回等待文案，且工具确实未执行（文件仍在）
+        String text1 = r1.getStringParam(AI_P_RESPONSE, "");
+        if (!r1.parseBoolean(RESULT, false) || !text1.contains("等待")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "待批回合应返回等待文案，实为 ok=" + r1.parseBoolean(RESULT, false) + " resp=" + text1);
+        }
+        if (!f.exists()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "待批时工具不应执行，文件已被删");
+        }
+        // 3. 核心断言：断点可见——轮次必须仍是 pending_approval 且带 approvalId
+        TLMsg q = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
+                .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
+        if (!q.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "findIncomplete 应命中待批断点（轮次被 chatFinished 覆盖成 completed？）");
+        }
+        if (!SESSION_STATE_PENDING_APPROVAL.equals(q.getStringParam("state", ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "findIncomplete 应命中 pending_approval，实为 state=" + q.getStringParam("state", ""));
+        }
+        String approvalId = q.getStringParam(AI_P_APPROVAL_ID, "");
+        if (approvalId.isEmpty()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "待批断点应带 approvalId");
+        }
+        // 3b. 干扰轮：待批期间又有新轮次写入（模拟后台任务注入/其他写入）→ 断点必须仍然可见（黏住语义）
+        putMsg((IObject) sm, createMsg().setAction("sessionUpdated")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID).setParam("agentName", "aiagent")
+                .setParam("roundId", "r_decoy_inject").setParam("messages", new java.util.ArrayList<>())
+                .setParam("userMessage", "（系统注入）").setParam("model", "mock")
+                .setParam("temperature", 0.7).setParam("maxTokens", 1024));
+        putMsg((IObject) sm, createMsg().setAction("chatFinished")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID).setParam("agentName", "aiagent")
+                .setParam("roundId", "r_decoy_inject").setParam("messages", new java.util.ArrayList<>())
+                .setParam("userMessage", "（系统注入）"));
+        TLMsg q2 = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
+                .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
+        if (!q2.parseBoolean(RESULT, false)
+                || !SESSION_STATE_PENDING_APPROVAL.equals(q2.getStringParam("state", ""))
+                || !approvalId.equals(q2.getStringParam(AI_P_APPROVAL_ID, ""))) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "干扰轮后待批断点应仍可见（黏住语义），实为 state=" + q2.getStringParam("state", "")
+                            + " id=" + q2.getStringParam(AI_P_APPROVAL_ID, ""));
+        }
+        TLMsg loaded2 = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        if (!loaded2.parseBoolean(RESULT, false)
+                || !SESSION_STATE_PENDING_APPROVAL.equals(loaded2.getStringParam("state", ""))
+                || loaded2.getParam("pendingToolCall") == null) {
+            return createMsg().setParam(RESULT, false).setParam("error",
+                    "干扰轮后 loadSession 应仍暴露待批轮（state/pendingToolCall），实为 state="
+                            + loaded2.getStringParam("state", ""));
+        }
+        // 4. 批准
+        TLMsg ap = putMsg("approvalGate", createMsg().setAction(APPROVAL_APPROVE)
+                .setParam(AI_P_APPROVAL_ID, approvalId));
+        if (!ap.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "批准失败: " + ap.getStringParam("error", ""));
+        }
+        // 5. 按 service 语义 resume：loadSession 取历史/待批工具/roundId，再发 resume chat
+        //    （resumeRoundId 继承是收口的另一半：resume 的 chatFinished 必须落回待批轮同一行）
+        TLMsg loaded = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        if (!loaded.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "loadSession 失败: " + loaded.getStringParam("error", ""));
+        }
+        List<TLConversationHistory> loadedHistory = (List<TLConversationHistory>) loaded.getParam("history");
+        TLToolCall loadedTc = (TLToolCall) loaded.getParam("pendingToolCall");
+        if (loadedTc == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "loadSession 应带回 pendingToolCall");
+        }
+        TLMsg resumeMsg = buildResumeChat(approvalId, null, loadedHistory, loadedTc, sid)
+                .setParam("resumeRoundId", loaded.getStringParam("roundId", ""));
+        TLMsg r2 = putMsg(M_AIAGENT, resumeMsg);
+        // 6. 批准后 resume：工具真执行（文件被删）
+        if (!r2.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "resume 应成功，实为: " + r2.getStringParam(AI_P_RESPONSE, ""));
+        }
+        if (f.exists()) {
+            return createMsg().setParam(RESULT, false).setParam("error", "批准恢复应执行删除，文件仍存在");
+        }
+        // 7. 断点收口：resume 的 chatFinished（同 roundId）应把待批轮收成 completed
+        TLMsg q3 = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
+                .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
+        if (q3.parseBoolean(RESULT, false)
+                && SESSION_STATE_PENDING_APPROVAL.equals(q3.getStringParam("state", ""))) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "resume 完成后不应再命中 pending_approval（roundId 继承没生效？）");
+        }
+        resetApprovalGrants();
+        log("[TEST]   待批断点生命周期: 转断点可见 + 批准恢复执行 + 断点收口 通过");
         return createMsg().setParam(RESULT, true);
     }
 

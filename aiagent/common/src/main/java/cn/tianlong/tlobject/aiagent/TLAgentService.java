@@ -59,6 +59,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("approve", "审批操作（批准/拒绝）");
         ACTION_REGISTRY.put("permissions", "审批授权管理（list|-a|revoke|grant|clear）");
         ACTION_REGISTRY.put("auto", "自动运行开关（on|off，本会话工具免审批）");
+        ACTION_REGISTRY.put("abandonApproval", "放弃待批操作（撤销审批 + 丢弃断点）");
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
@@ -136,6 +137,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
+            case "abandonApproval": return doAbandonApproval(fromWho, msg);
             case "permissions":     return doPermissions(fromWho, msg);
             case "auto":            return doAuto(fromWho, msg);
 
@@ -303,6 +305,12 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 chatMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
                 chatMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
                 chatMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+                // resume 调用方没带用户消息（如批准触发的自动续跑）→ 用断点轮里的原话兜底，
+                // 否则断点轮 userMessage 被写空：重登视图丢问题、记忆条目退化
+                if (chatMsg.getStringParam(AI_P_USERMESSAGE, "").isEmpty()) {
+                    String loadedUm = loaded.getStringParam("userMessage", "");
+                    if (!loadedUm.isEmpty()) chatMsg.setParam(AI_P_USERMESSAGE, loadedUm);
+                }
                 // 透传审批信息（若存在）
                 if (loaded.containsParam("pendingToolCall")) {
                     chatMsg.setParam("pendingToolCall", loaded.getParam("pendingToolCall"));
@@ -384,6 +392,19 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 streamMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
                 streamMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
                 streamMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+                // resume 调用方没带用户消息（如批准触发的自动续跑）→ 用断点轮里的原话兜底（非流式同款）
+                if (streamMsg.getStringParam(AI_P_USERMESSAGE, "").isEmpty()) {
+                    String loadedUm = loaded.getStringParam("userMessage", "");
+                    if (!loadedUm.isEmpty()) streamMsg.setParam(AI_P_USERMESSAGE, loadedUm);
+                }
+                // 透传审批信息（若存在）——非流式 doChat 同款；此前流式漏了这两行，
+                // 断点恢复在流式路径直接落入"仍在等待中"（找不到 pendingToolCall）
+                if (loaded.containsParam("pendingToolCall")) {
+                    streamMsg.setParam("pendingToolCall", loaded.getParam("pendingToolCall"));
+                }
+                if (loaded.containsParam(AI_P_APPROVAL_ID)) {
+                    streamMsg.setParam(AI_P_APPROVAL_ID, loaded.getStringParam(AI_P_APPROVAL_ID, ""));
+                }
             }
         }
         if (msg.containsParam(AI_P_REASONING_MODE)) streamMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
@@ -854,7 +875,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private TLMsg doResume(Object fromWho, TLMsg msg) {
         TLMsg incompleteResult = putMsg(targetSessionManager(msg), createMsg()
                 .setAction("findIncomplete")
-                .setParam("userId", msg.getStringParam("userId", null)));
+                .setParam("userId", msg.getStringParam("userId", null))
+                // 会话级定位：webui 批准后的自动续跑按目标会话恢复（空串 = 不限定，保持旧行为）
+                .setParam("sessionId", msg.getStringParam("sessionId", "")));
         if (incompleteResult == null || !incompleteResult.parseBoolean(RESULT, false)) {
             return fail("没有可恢复的断点会话");
         }
@@ -865,6 +888,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         data.put("userMessage", incompleteResult.getStringParam("userMessage", ""));
         data.put("savedAt", incompleteResult.getLongParam("savedAt", 0L));
         data.put("iteration", incompleteResult.getIntParam("round", 0));
+        // 断点态（前端据此显示「放弃该操作」并区分待批语义）
+        data.put("state", incompleteResult.getStringParam("state", ""));
+        data.put("approvalId", incompleteResult.getStringParam(AI_P_APPROVAL_ID, ""));
         return ok("找到断点会话", data);
     }
 
@@ -976,7 +1002,13 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 if (r != null && r.parseBoolean("approvalEnded", false)) f.setParam("approvalEnded", true);
                 return f;
             }
-            return ok("已批准: " + approvalId);
+            // 断点审批（deferred）：回带 deferred + sessionId，前端据此自动续跑原会话
+            TLMsg okMsg = ok("已批准: " + approvalId);
+            if (r.parseBoolean(AI_P_APPROVAL_DEFERRED, false)) {
+                okMsg.setParam(AI_P_APPROVAL_DEFERRED, true);
+                okMsg.setParam("sessionId", r.getStringParam("sessionId", ""));
+            }
+            return okMsg;
         } else if ("reject".equals(subAction)) {
             String reason = msg.getStringParam("reason", msg.getStringParam("approvalRejectReason", "用户拒绝"));
             TLMsg rejectMsg = createMsg().setAction(APPROVAL_REJECT)
@@ -989,10 +1021,75 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 if (r != null && r.parseBoolean("approvalEnded", false)) f.setParam("approvalEnded", true);
                 return f;
             }
-            return ok("已拒绝: " + approvalId + " (" + reason + ")");
+            // 拒绝同样回带（与批准分支同口径）：前端拒绝后也可自动续跑原会话
+            TLMsg okMsg = ok("已拒绝: " + approvalId + " (" + reason + ")");
+            if (r.parseBoolean(AI_P_APPROVAL_DEFERRED, false)) {
+                okMsg.setParam(AI_P_APPROVAL_DEFERRED, true);
+                okMsg.setParam("sessionId", r.getStringParam("sessionId", ""));
+            }
+            return okMsg;
         } else {
             return fail("未知审批子操作: " + subAction + "，可用: approve, reject");
         }
+    }
+
+    /**
+     * 放弃该操作（断点弹框入口）：撤销该会话的待批审批（不记拒绝记忆）+ 丢弃 pending_approval 断点。
+     * approvalId 缺省时按 sessionId 从 gate 的未决清单补齐（前端断点弹框只有 sessionId）。
+     */
+    private TLMsg doAbandonApproval(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        String approvalId = msg.getStringParam("approvalId", "");
+        if (sessionId.isEmpty() && approvalId.isEmpty()) {
+            return fail("缺少参数: sessionId 或 approvalId");
+        }
+        String ownErr = checkSessionOwnership(msg, sessionId);
+        if (ownErr != null) return fail(ownErr);
+
+        List<String> ids = new ArrayList<>();
+        if (!approvalId.isEmpty()) {
+            ids.add(approvalId);
+        } else {
+            TLMsg q = createMsg().setAction(APPROVAL_PENDINGLIST);
+            q.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg("approvalGate", q);
+            Object listObj = r != null ? r.getParam("pendingList") : null;
+            if (listObj instanceof List) {
+                for (Object o : (List<?>) listObj) {
+                    if (!(o instanceof Map)) continue;
+                    Map<?, ?> m = (Map<?, ?>) o;
+                    if (sessionId.equals(String.valueOf(m.get("sessionId")))) {
+                        ids.add(String.valueOf(m.get("approvalId")));
+                    }
+                }
+            }
+        }
+        int abandoned = 0;
+        for (String id : ids) {
+            TLMsg ab = createMsg().setAction(APPROVAL_ABANDON).setParam(AI_P_APPROVAL_ID, id);
+            ab.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg r = putMsg("approvalGate", ab);
+            if (r != null && r.parseBoolean(RESULT, false)) abandoned++;
+        }
+        // 丢弃断点（把该会话的 pending_approval 轮改为 completed）
+        // 断点丢弃失败（会话已继续/落盘失败）不得被当成功——前端需要知道卡片还在
+        boolean checkpointDiscarded = true;
+        String checkpointError = "";
+        if (!sessionId.isEmpty()) {
+            TLMsg d = createMsg().setAction("discardPendingRound")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", resolveUid(msg));
+            d.setSystemParam(IGNOREMODULEISNULL, true);
+            TLMsg dr = putMsg(targetSessionManager(msg), d);
+            if (dr != null && !dr.parseBoolean(RESULT, false)) {
+                checkpointDiscarded = false;
+                checkpointError = dr.getStringParam("error", "");
+            }
+        }
+        TLMsg okMsg = ok("已放弃该操作" + (abandoned > 0 ? "（撤销 " + abandoned + " 条待批审批）" : ""));
+        okMsg.setParam("checkpointDiscarded", checkpointDiscarded);
+        if (!checkpointDiscarded) okMsg.setParam("checkpointError", checkpointError);
+        return okMsg;
     }
 
     /** 会话 ID：args 优先，systemArgs 兜底（同 doCreateBackgroundTask 的通道约定） */
