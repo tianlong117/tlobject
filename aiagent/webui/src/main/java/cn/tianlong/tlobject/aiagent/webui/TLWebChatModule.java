@@ -1064,7 +1064,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     /**
      * 审批已结束（决策/超时后 approvalGate 发布）：给该用户所有打开的页面推关框指令，
-     * 命中的弹框立即自行关闭——此前审批被别处解决（另一窗口/退出即拒）或超时后，
+     * 命中的弹框立即自行关闭——此前审批被别处解决（另一窗口已决策/已被放弃）或超时失效后，
      * 弹框残留在屏幕上，再点任何按钮都报 already/not found，只能刷新页面。
      *
      * @return 是否真的推给了至少一条打开的连接（供调用方决定要不要返回 ack）

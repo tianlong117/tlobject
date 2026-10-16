@@ -1121,6 +1121,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 .setParam(AI_P_TOOLCALLS, singleTc));
                         List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
                                 frResolveMsg.getListParam("tasks", new ArrayList<>());
+                        if (singleTask.size() > 1) {
+                            putLog("Approval resume resolved to " + singleTask.size()
+                                    + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
+                        }
                         String execId2 = sessionId + "_resume_" + System.nanoTime();
                         TLMsg singleExecResult = singleTask.isEmpty() ? null
                                 : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
@@ -1916,6 +1920,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 .setParam(AI_P_TOOLCALLS, singleTc));
                         List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
                                 frResolveMsg.getListParam("tasks", new ArrayList<>());
+                        if (singleTask.size() > 1) {
+                            putLog("Approval resume resolved to " + singleTask.size()
+                                    + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
+                        }
                         String execId2 = sessionId + "_resume_" + System.nanoTime();
                         TLMsg singleExecResult = singleTask.isEmpty() ? null
                                 : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
@@ -1969,6 +1977,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     } else {
                         putLog("Approval still pending on stream resume: approvalId="
                                 + msg.getStringParam(AI_P_APPROVAL_ID, ""), LogLevel.WARN);
+                        // 与其它提前返回一致：推终帧（否则前端/控制台无输出、busy 不释放）。
+                        // 注意不发 chatFinished——轮次必须保持 pending_approval 等批准
+                        forwardStreamFinal(resultFor, resultAction, sessionId,
+                                "审批请求仍在等待中，approvalId=" + msg.getStringParam(AI_P_APPROVAL_ID, ""));
                         cleanupStreamState(sessionId);
                         return null;
                     }

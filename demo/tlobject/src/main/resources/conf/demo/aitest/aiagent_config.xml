@@ -68,7 +68,8 @@
         <defaultMemoryStore value="longTermMemory"/>
 
         <!-- ===== HITL 审批机制 =====
-             审批由共享执行器全局配置启用（本测试应用未配置 toolExecutor_config.xml，不启用）。
+             审批由共享执行器全局配置启用（本测试应用已配置 toolExecutor_config.xml，
+             其 approvalModule=approvalGate，与生产同款接线——场景 approvalResumeExecute 依赖它）。
              规则和审查人配置见 approvalGate_config.xml
         -->
     </params>

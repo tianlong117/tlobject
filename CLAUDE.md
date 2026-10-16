@@ -161,8 +161,10 @@ Built-in modules extending `TLBaseModule`:
 - **拒绝是结构化标志**：`doChat` 返回 `rejected`/`rejectReason` → `ToolExecutor` 识别子模块拒绝 → 父 agent 回滚 + 停止循环（不靠 LLM 读文案）
 - **会话级拒绝记忆**：同会话同参数被拒后自动拒绝，不再重复弹框
 - 审批框经 `msgBus` topic `approvalEvent` 发布，控制台 `registBus` 订阅渲染（零直接依赖）；注意 `TLMsgBus.onBus` 路由后必须清 `msg.destination` 防二次路由
-- **等待策略（阶段二，2026-10-17）**：`approvalTimeoutMs=0` = 一直等（默认）——**有人收**（控制台在跑 / webui 该用户 SSE 在线，判据 = `publishApprovalEvent` 的 ack）→ 阻塞等，回来批了原线程继续；**没人收** → 审查人返回 pending 不阻塞，上层落 `pending_approval` 断点（轮次带 roundId，**跳过 chatFinished**——否则断点被覆盖成 completed 查不到）+ 消息箱告知。退出登录 = defer 转断点（非拒绝；`APPROVAL_DEFER` 取消创建定时器、保持 PENDING）；deferred 审批由 `approvalPendingTtlMs`（默认 24h）兜底失效。**待批断点黏住**：`findIncomplete`/`loadSession` 按"最新开态 pending_approval 轮"作答，其后任何新轮次写入（后台任务注入等）都不会把它藏起来
+- **等待策略（阶段二，2026-10-17）**：`approvalTimeoutMs=0` = 一直等（默认）——**有人收**（控制台在跑 / webui 该用户 SSE 在线，判据 = `publishApprovalEvent` 的 ack）→ 阻塞等，回来批了原线程继续；**没人收** → 审查人返回 pending 不阻塞，上层落 `pending_approval` 断点（轮次带 roundId，**跳过 chatFinished**——否则断点被覆盖成 completed 查不到）+ 断点由登录重放接续；消息箱告知发生在退出登录与超期失效时。退出登录 = defer 转断点（非拒绝；`APPROVAL_DEFER` 取消创建定时器、保持 PENDING）；deferred 审批由 `approvalPendingTtlMs`（默认 24h）兜底失效。**待批断点黏住**：`findIncomplete`/`loadSession` 按"最新开态 pending_approval 轮"作答，其后任何新轮次写入（后台任务注入等）都不会把它藏起来
 - **决策写回与续跑**：resume 时 Agent 向 gate 查 `decision`（approved/rejected/pending/lost）→ `approved` 重执行被审工具并带**免复批标志**（`AI_P_APPROVAL_DECISION="approved"` 走系统参数，仅单任务批次生效，LLM 参数无法伪造）；webui 批准/拒绝 deferred 审批后前端自动续跑（流式 resume，继承断点轮 roundId 收尾）；控制台提示 `/resume`；进程重启后审批内存态丢失 → resume 如实报"审批已失效"不假装续跑
+- **webui 待批会话拦新消息**：「批准 / 拒绝 / 放弃后才能继续」，放弃 = 撤销审批 + 丢弃断点（不记拒绝记忆）
+- **已知行为（终审 2026-10-17）**：同一轮 LLM 发出多个受审工具调用时，断点只保存最后一个（`pickPendingToolCall`）——多审批场景 UI 一次只展示一个框，批准前一个后自动续跑会被"仍有待批"拦（需处理或放弃）；审批超期只改 gate 状态、**不关闭会话轮次**——黏住语义下过期待批断点会持续压过更新的普通断点，直到被 resume（按 lost 收口）或放弃
 - **配置约定**：带审批的技能 `timeout` 必须配 0（审批等待算在工具执行时间内，工具超时会把"一直等"打断成"审批被中断"——2026-10-14 弹框卡死同族故障）；执行器 `staleStateTimeoutMs` 清理跳过正等审批的执行（`approvalWaiters` 守卫）；执行器门禁 fail-closed（审批模块配置了但不可用 → 拒绝执行）
 - **已知边界**：子 agent 委托路径的 pending 不上浮（fileAgent/codeAgent `enableCheckpoint=false` + `executeAsTool` 只转发输出文本）→ 委托类危险工具的"离线转断点"不成立，现阶段只在 master 自有 gated 工具上生效
 
