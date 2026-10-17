@@ -824,8 +824,12 @@ function openEvents() {
       // 决策/超时/中断后服务端推送：命中的弹框立即关闭（根治"请求已死弹框还在，点任何按钮都报已处理"）
       if (currentApproval && currentApproval.approvalId === evt.approvalId) {
         const mine = pendingDecision === evt.approvalId;   // 自己刚点的决策：关框即可，别再提示"其他窗口"
-        closeApprovalModal();
+        closeApprovalModal(evt.approvalId);
         if (!mine) toast(approvalEndedText(evt.state, evt.reason), 'err');
+      } else {
+        // 还在队列里、没轮到展示的审批被别处处理/超时：直接出队（不提示，避免 N 条重复 toast）
+        const qi = approvalQueue.findIndex(a => a.approvalId === evt.approvalId);
+        if (qi >= 0) { approvalQueue.splice(qi, 1); flushPendingAutoResume(); }
       }
       return;
     }
@@ -1704,11 +1708,36 @@ async function resumeCheckpoint() {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+// 同会话还有未处置的审批时，自动续跑先挂起（见 maybeAutoResume/flushPendingAutoResume）
+const pendingAutoResume = new Set();
+
+/** 该会话是否还有未处置的审批（当前弹框或排队中） */
+function hasPendingApprovalFor(sid) {
+  return (currentApproval && currentApproval.sessionId === sid)
+      || approvalQueue.some(a => a.sessionId === sid);
+}
+
+/** 队列前进后统一放行延迟续跑：同会话已无任何待批弹框/排队项的，才真正 resume。
+ *  resume 本身不会再产生审批，不会递归回这里（只做简单检查） */
+function flushPendingAutoResume() {
+  if (!pendingAutoResume.size) return;
+  for (const sid of [...pendingAutoResume]) {
+    if (hasPendingApprovalFor(sid)) continue;
+    pendingAutoResume.delete(sid);
+    autoResumeSession(sid);
+  }
+}
+
 /** 断点态审批（deferred）决策后自动续跑：approve/reject/关框三处共用；非 deferred 不动 */
 function maybeAutoResume(r, evt) {
   if (!r || !r.deferred) return;              // 缺席=非 deferred，勿测 ===false
   const sid = r.sessionId || (evt && evt.sessionId);
-  if (sid) autoResumeSession(sid);
+  if (!sid) return;
+  // 同批多个审批：本单决策后同会话还有待批，此刻 resume 会被服务端"待批操作"守卫拦下
+  // （整批工具仍在等其余决策）→ 先记账，等该会话最后一单处理完再续跑，避免会话卡 thinking
+  if (hasPendingApprovalFor(sid)) { pendingAutoResume.add(sid); return; }
+  pendingAutoResume.delete(sid);              // 已直跑：清掉可能的挂起记录，防 flush 二次续跑
+  autoResumeSession(sid);
 }
 
 /** 断点态审批决策后自动续跑：查该会话断点 → 按「继续会话」同链路清屏渲染历史 → 流式 resume */
@@ -2221,9 +2250,21 @@ async function doStatsAgent() {
 }
 
 // ======================== 审批弹框 ========================
+// 同一批工具调用可能同时产生多条审批（如 4 个 file_operation 一起到达）。弹框只有一套 DOM：
+// 后到的事件若直接覆盖 currentApproval，前面的审批就"看不见"，其工具一直等不到决策 →
+// 整批工具卡死、会话长时间 thinking。必须排队、逐个展示（弹框一次只显示一单）。
 let currentApproval = null;
-let pendingDecision = null;   // 正在提交决策的 approvalId：resolved 推送对自己刚点的决策不重复提示
+const approvalQueue = [];      // 已到达但还没轮到展示的审批事件（FIFO）
+let pendingDecision = null;    // 正在提交决策的 approvalId：resolved 推送对自己刚点的决策不重复提示
 function showApprovalModal(evt) {
+  // 去重：SSE 重连会重放全部 pending 审批，同一 approvalId 不得重复入队/重渲染
+  const dup = (currentApproval && currentApproval.approvalId === evt.approvalId)
+      || approvalQueue.some(a => a.approvalId === evt.approvalId);
+  if (dup) return;
+  if (currentApproval) { approvalQueue.push(evt); return; }   // 已有弹框：排队等当前这单结束
+  renderApprovalModal(evt);
+}
+function renderApprovalModal(evt) {
   currentApproval = evt;
   const stale = $('#approvalModal .ap-source');
   if (stale) stale.remove();                        // 上一次审批可能带来源行 → 先清，防叠加
@@ -2254,10 +2295,19 @@ function showApprovalModal(evt) {
   $('#apMsg').classList.add('hidden');
   $('#approvalModal').classList.remove('hidden');
 }
-// 关框统一出口：同时清 currentApproval，防关闭后残留点击再提交（resolved 事件也据此不重复提示）
-function closeApprovalModal() {
+// 关框统一出口：同时清 currentApproval，防关闭后残留点击再提交（resolved 事件也据此不重复提示）。
+// expectedId：只关指定的那一单——决策 HTTP 响应与 approvalResolved 推送可能乱序，若 resolved 已
+// 先关框并弹出了下一单，后到的响应不能再把下一单误关掉。
+// 关框后队列前进放到 setTimeout 0：避免在触发本次关闭的点击处理（及其后的 maybeAutoResume）
+// 还没跑完时就重入渲染下一单。
+function closeApprovalModal(expectedId) {
+  if (expectedId && currentApproval && currentApproval.approvalId !== expectedId) return;
   $('#approvalModal').classList.add('hidden');
   currentApproval = null;
+  setTimeout(() => {
+    if (!currentApproval && approvalQueue.length) renderApprovalModal(approvalQueue.shift());
+    flushPendingAutoResume();     // 队列前进后再放行该会话的延迟续跑
+  }, 0);
 }
 // 审批已结束时给用户的说明（后端 state：approved/rejected/expired + 结束原因 reason；
 // reason 优先——如"审批被中断"（工具超时）比笼统的"其他窗口拒绝"准确）
@@ -2287,11 +2337,11 @@ async function approveAction(scope) {
     pendingDecision = evt.approvalId;      // 自己正在决策：resolved 推送先到也别提示"其他窗口"
     const r = await apiCommand('approve', payload);
     if (r.success) {
-      closeApprovalModal();
+      closeApprovalModal(evt.approvalId);
       toast(r.message, 'ok');
       maybeAutoResume(r, evt);   // 断点态审批（deferred）：决策后自动续跑原会话
     }
-    else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }  // 请求已死：自愈关框
+    else if (r.approvalEnded) { closeApprovalModal(evt.approvalId); toast(approvalEndedText(), 'err'); }  // 请求已死：自愈关框
     else toast(r.message || r.error, 'err');                                                // 参数校验类失败：留框可改后重试
   } catch (e) { toast(e.message, 'err'); }
   finally { if (pendingDecision === evt.approvalId) pendingDecision = null; }
@@ -2304,11 +2354,11 @@ async function rejectAction() {
     pendingDecision = evt.approvalId;
     const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason });
     if (r.success) {
-      closeApprovalModal();
+      closeApprovalModal(evt.approvalId);
       toast(r.message, 'ok');
       maybeAutoResume(r, evt);   // 断点态拒绝后也自动续跑（继续执行 = 让 agent 收下拒绝并收尾）
     }
-    else if (r.approvalEnded) { closeApprovalModal(); toast(approvalEndedText(), 'err'); }
+    else if (r.approvalEnded) { closeApprovalModal(evt.approvalId); toast(approvalEndedText(), 'err'); }
     else toast(r.message || r.error, 'err');
   } catch (e) { toast(e.message, 'err'); }
   finally { if (pendingDecision === evt.approvalId) pendingDecision = null; }
@@ -2318,7 +2368,7 @@ async function rejectAction() {
 // 请求可能仍未决，重连重放会再次弹出（自纠正）
 async function closeApproval() {
   const evt = currentApproval;
-  closeApprovalModal();
+  closeApprovalModal(evt && evt.approvalId);
   if (!evt) return;
   try {
     const r = await apiCommand('approve', { subAction: 'reject', approvalId: evt.approvalId, reason: '用户关闭审批弹框' });
