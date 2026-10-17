@@ -1696,7 +1696,13 @@ async function deleteSessionBtn(sid) {
 async function resumeCheckpoint() {
   try {
     const r = await apiCommand('resume', { userId: state.userId });
-    if (!r.success) { toast(r.error || r.message, 'err'); return; }
+    if (!r.success) {
+      // 没断点：多半是"提示期间该轮已经跑完"（审批后继续执行完成、断点已被正常收口）——
+      // 不当成失败：刷新当前会话，让用户看到已保存的结果（2026-10-17 实测场景）
+      toast(r.error || r.message || '没有可恢复的断点', 'info');
+      if (state.sessionId) { try { await continueSession(state.sessionId, true); } catch (e) { /* 忽略刷新失败 */ } }
+      return;
+    }
     const d = r.data || {};
     // 切到断点会话（恢复以断点时的用户消息重新发起，走流式管道）
     switchSessionView(d.sessionId || state.sessionId);
@@ -1744,7 +1750,13 @@ function maybeAutoResume(r, evt) {
 async function autoResumeSession(sid) {
   try {
     const r = await apiCommand('resume', { sessionId: sid });
-    if (!r.success) { toast('已处理审批；续跑失败：' + (r.error || '未找到断点'), 'err'); return; }
+    if (!r.success) {
+      // 审批已处理但已无断点：通常是被另一处/上一轮先收口（该轮已完成）——
+      // 如实提示并刷新会话，让用户看到已保存的结果，而不是停在旧画面
+      toast(r.error || '未找到断点', 'err');
+      try { await continueSession(sid, true); } catch (e) { /* 忽略刷新失败 */ }
+      return;
+    }
     const d = r.data || {};
     const target = d.sessionId || sid;
     // 先渲染目标会话历史再续跑（清屏重放 + 占用声明，与「继续会话」同一链路）：
