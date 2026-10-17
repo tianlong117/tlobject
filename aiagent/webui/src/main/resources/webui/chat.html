@@ -33,7 +33,8 @@
     <button id="autoBtn" class="ghost" title="自动运行：本会话内工具调用免审批">🔒 自动运行</button>
     <button id="permBtn" class="ghost" title="审批授权管理（查看/撤销）">🛡 授权</button>
     <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
-    <button id="panelBtn" class="ghost" title="设置/调试面板（Agent/Skill、MCP、评测、追踪）">⚙ 设置/调试</button>
+    <button id="debugBtn" class="ghost" title="调试面板（评测/测试、追踪）">🐞 调试</button>
+    <button id="settingsBtn" class="ghost" title="设置面板（Agent/Skill、MCP）">⚙ 设置</button>
     <button id="logoutBtn" class="ghost">退出</button>
   </header>
   <main>
@@ -74,14 +75,14 @@
       </div>
     </section>
 
-    <!-- 命令面板（调试/测试用，默认隐藏：顶栏「⚙ 设置/调试」开关；左边缘拖宽，双击复位 420） -->
+    <!-- 命令面板（默认隐藏：顶栏「⚙ 设置」「🐞 调试」两个入口，Tab 栏只显示对应功能组；左边缘拖宽，双击复位 420） -->
     <aside id="panelPane" class="hidden">
       <div id="panelResizer" title="拖动调整宽度（双击复位）"></div>
       <nav id="tabBar">
-        <button data-tab="tab-agents" class="active">Agent/Skill</button>
-        <button data-tab="tab-mcp">MCP</button>
-        <button data-tab="tab-eval">评测/测试</button>
-        <button data-tab="tab-trace">追踪</button>
+        <button data-tab="tab-agents" data-group="settings" class="active">Agent/Skill</button>
+        <button data-tab="tab-mcp" data-group="settings">MCP</button>
+        <button data-tab="tab-trace" data-group="debug">追踪</button>
+        <button data-tab="tab-eval" data-group="debug">评测/测试</button>
       </nav>
 
       <section id="tab-agents" class="tab-panel active">
@@ -210,9 +211,12 @@
 <div id="inboxModal" class="modal hidden">
   <div class="modal-box wide">
     <h3>🔔 消息箱</h3>
+    <div id="inboxCats" class="inbox-cats"></div>
     <div class="btn-row">
       <button class="primary" onclick="loadInbox()">刷新</button>
       <button onclick="readAllInbox()">全部已读</button>
+      <button onclick="deleteReadInbox()">删除已读</button>
+      <button class="inbox-clear" onclick="clearInbox()">清空</button>
     </div>
     <div id="inboxBox" style="max-height:60vh;overflow:auto;"></div>
     <div class="btn-row">

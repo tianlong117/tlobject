@@ -193,6 +193,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return onInboxList(msg);
             case "inboxRead":
                 return onInboxRead(msg);
+            case "inboxDelete":
+                return onInboxDelete(msg);
         }
         return null;
     }
@@ -278,19 +280,25 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         // 离线消息箱（webui 自身逻辑，不转发 agentService）；
         // getUserStatus 亦为技能端在线判定入口（技能直接 putMsg 本模块，不经此处）
-        if ("inboxList".equals(action) || "inboxRead".equals(action) || "getUserStatus".equals(action)) {
+        if ("inboxList".equals(action) || "inboxRead".equals(action)
+                || "inboxDelete".equals(action) || "getUserStatus".equals(action)) {
             if (userId == null) return failMap("未登录");
             TLMsg r;
             if ("inboxList".equals(action)) {
-                r = onInboxList(createMsg().setParam("userId", userId));
+                r = onInboxList(createMsg().setParam("userId", userId)
+                        .setParam("category", params != null ? params.get("category") : "all"));
             } else if ("inboxRead".equals(action)) {
                 r = onInboxRead(createMsg().setParam("userId", userId)
                         .setParam("id", params != null ? params.get("id") : null));
+            } else if ("inboxDelete".equals(action)) {
+                r = onInboxDelete(createMsg().setParam("userId", userId)
+                        .setParam("id", params != null ? params.get("id") : null)
+                        .setParam("scope", params != null ? params.get("scope") : ""));
             } else {
                 r = onGetUserStatus(createMsg().setParam("userId", userId));
             }
             Map<String, Object> out = new LinkedHashMap<>();
-            out.put("success", true);
+            out.put("success", r.parseBoolean(RESULT, false));
             out.put("message", r.getStringParam("message", "ok"));
             Object data = r.getParam("data");
             if (data != null) out.put("data", toJsonable(data));
@@ -1243,13 +1251,19 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return createMsg().setParam(RESULT, true);
     }
 
-    /** 消息箱列表（含未读数）；id 为空则列出全部（可取 limit） */
-    @SuppressWarnings("unchecked")
+    /** 消息箱列表（含未读数 + 各类别计数）；category 为空/all = 全部，task/approval/system 按类别筛选 */
     private TLMsg onInboxList(TLMsg msg) {
         String userId = msg.getStringParam("userId", "");
+        String category = msg.getStringParam("category", "all");
+        Map<String, Map<String, Object>> counts = inboxStore.categoryCounts(userId);
+        int total = 0;
+        for (Map<String, Object> c : counts.values()) total += num(c.get("total"));
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("unread", inboxStore.unreadCount(userId));
-        data.put("list", inboxStore.list(userId, 50));
+        data.put("category", category);
+        data.put("total", total);
+        data.put("counts", counts);
+        data.put("list", inboxStore.list(userId, category, 50));
         return createMsg().setParam(RESULT, true).setParam("data", data);
     }
 
@@ -1262,6 +1276,22 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         data.put("unread", inboxStore.unreadCount(userId));
         return createMsg().setParam(RESULT, true).setParam("data", data);
     }
+
+    /** 删除消息：id 非空 = 删单条；scope=read = 删全部已读；scope=all = 清空（必须显式指定，防误删） */
+    private TLMsg onInboxDelete(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        Object id = msg.getParam("id");
+        String scope = msg.getStringParam("scope", "");
+        boolean ok = inboxStore.delete(userId, id, scope);
+        if (ok) pushInboxEvent(userId, inboxStore.unreadCount(userId));   // 删未读时角标立即回落
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("unread", inboxStore.unreadCount(userId));
+        return createMsg().setParam(RESULT, ok)
+                .setParam("message", ok ? "ok" : "缺少 id 或 scope")
+                .setParam("data", data);
+    }
+
+    private static int num(Object o) { return o instanceof Number ? ((Number) o).intValue() : 0; }
 
     /** 推 inbox 事件给该用户全部 SSE 连接（复用 eventChannels，与 taskResult 同路） */
     private void pushInboxEvent(String userId, int unread) {
@@ -1331,17 +1361,18 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             return 0;
         }
 
-        java.util.List<Map<String, Object>> list(String userId, int limit) {
+        java.util.List<Map<String, Object>> list(String userId, String category, int limit) {
             java.util.List<Map<String, Object>> out = new java.util.ArrayList<>();
             TLBaseModule t = tbl();
             if (t == null || userId == null || userId.isEmpty()) return out;
             LinkedHashMap<String, Object> p = new LinkedHashMap<>();
             p.put("__uid", userId);
+            String where = categoryWhere(category, p);
             TLMsg r = owner.putMsg(t, owner.createMsg()
                     .setAction(cn.tianlong.tlobject.base.TLParamString.DB_QUERY)
                     .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
                             "select `id`, `source`, `task_id`, `text`, `is_read`, `created_at` from [table] "
-                                    + "where user_id=? order by created_at desc limit " + Math.max(1, limit))
+                                    + "where user_id=?" + where + " order by created_at desc limit " + Math.max(1, limit))
                     .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
             if (r != null && r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT) instanceof java.util.List) {
                 for (Object o : (java.util.List<?>) r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT)) {
@@ -1349,6 +1380,80 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 }
             }
             return out;
+        }
+
+        /** 类别 → SQL 片段。类别是固定枚举，不拼接用户输入（unknown 一律当全部）。 */
+        private static String categoryWhere(String category, LinkedHashMap<String, Object> p) {
+            if ("task".equals(category) || "approval".equals(category)) {
+                p.put("__cat", category);
+                return " and source=?";
+            }
+            if ("system".equals(category)) return " and (source is null or source not in ('task','approval'))";
+            return "";
+        }
+
+        /**
+         * 各类别消息数：source → 类别（task/approval，其余归 system）。
+         * 返回 {task:{total,unread}, approval:{...}, system:{...}}，三类恒存在（前端无需兜底）。
+         */
+        Map<String, Map<String, Object>> categoryCounts(String userId) {
+            Map<String, Map<String, Object>> out = new LinkedHashMap<>();
+            for (String c : new String[]{"task", "approval", "system"}) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("total", 0);
+                m.put("unread", 0);
+                out.put(c, m);
+            }
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return out;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            TLMsg r = owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_QUERY)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "select source, count(*) as cnt, sum(case when is_read=0 then 1 else 0 end) as unread "
+                                    + "from [table] where user_id=? group by source")
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            if (r != null && r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT) instanceof java.util.List) {
+                for (Object o : (java.util.List<?>) r.getParam(cn.tianlong.tlobject.base.TLParamString.DB_R_RESULT)) {
+                    if (!(o instanceof Map)) continue;
+                    Map<?, ?> row = (Map<?, ?>) o;
+                    String cat = categoryOf(row.get("source"));
+                    Map<String, Object> m = out.get(cat);
+                    m.put("total", num(m.get("total")) + num(row.get("cnt")));
+                    m.put("unread", num(m.get("unread")) + num(row.get("unread")));
+                }
+            }
+            return out;
+        }
+
+        private static String categoryOf(Object source) {
+            String s = source == null ? "" : String.valueOf(source);
+            return "task".equals(s) || "approval".equals(s) ? s : "system";
+        }
+
+        /** 删除：单条 / 已读 / 全部。返回是否已发起删除（id 与 scope 都缺省 = 不删，防误清空）。 */
+        boolean delete(String userId, Object id, String scope) {
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return false;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            String sql;
+            if (id != null && !String.valueOf(id).isEmpty()) {
+                p.put("__id", id);
+                sql = "delete from [table] where user_id=? and id=?";
+            } else if ("read".equals(scope)) {
+                sql = "delete from [table] where user_id=? and is_read=1";
+            } else if ("all".equals(scope)) {
+                sql = "delete from [table] where user_id=?";
+            } else {
+                return false;
+            }
+            owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_DELETE)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL, sql)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            return true;
         }
 
         void markRead(String userId, Object id) {

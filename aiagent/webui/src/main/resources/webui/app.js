@@ -1003,8 +1003,10 @@ async function restoreTaskCards(sid) {
 }
 
 // ======================== 右侧设置/调试面板（默认隐藏 + 可拖宽） ========================
+// 顶栏两个入口：⚙ 设置（Agent/Skill、MCP）/ 🐞 调试（评测/测试、追踪）；Tab 栏只显示当前组的 Tab
+let panelGroup = 'settings';                                            // 当前分组（settings | debug）
 const PANEL_W_DEFAULT = 420;                                            // 默认宽度（双击把手复位到此值）
-const PANEL_W_MIN = 280;                                                // 最小宽度（四个 Tab 标签排得下）
+const PANEL_W_MIN = 280;                                                // 最小宽度（两个 Tab 标签排得下）
 const PANEL_W_KEY = 'tlweb_panelw';                                     // localStorage 键
 function panelWMax() { return Math.round(window.innerWidth * 0.7); }    // 上限动态算：保证聊天区不被压没
 
@@ -1020,14 +1022,40 @@ function setPanelWidth(w) {
   $('#panelPane').style.flexBasis = w + 'px';
   localStorage.setItem(PANEL_W_KEY, String(w));
 }
-/** 顶栏 ⚙ 开关：切换 hidden + 按钮高亮；打开时应用记忆宽度（此刻夹取，兜住"窗口变小了"） */
-function togglePanel() {
+/** 激活指定 Tab：Tab 栏高亮 + 对应 section 显示 */
+function showTab(tabId) {
+  document.querySelectorAll('#tabBar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
+}
+/** 切换功能组：Tab 栏只显示该组的 Tab，并回到该组第一个 Tab（设置=Agent/Skill，调试=追踪） */
+function setPanelGroup(group) {
+  const tabs = [...document.querySelectorAll('#tabBar button')];
+  const first = tabs.find(b => b.dataset.group === group) || tabs[0];
+  panelGroup = first.dataset.group;                                    // 非法 group 回退到首个 Tab 所在组
+  tabs.forEach(b => b.classList.toggle('hidden', b.dataset.group !== panelGroup));
+  showTab(first.dataset.tab);
+}
+/** 顶栏入口高亮：面板关时两个都不亮；开时只亮当前组的入口 */
+function syncPanelButtons() {
+  const open = !$('#panelPane').classList.contains('hidden');
+  $('#settingsBtn').classList.toggle('on', open && panelGroup === 'settings');
+  $('#debugBtn').classList.toggle('on', open && panelGroup === 'debug');
+}
+/** 关闭面板：隐藏面板 + 收回聊天区右侧让位 + 熄灭两个入口 */
+function closePanel() {
+  $('#panelPane').classList.add('hidden');
+  $('#chatView').classList.remove('panel-open');
+  syncPanelButtons();
+}
+/** 顶栏开关：点同组入口 = 开/关；面板已开时点另一组 = 切换分组（不关） */
+function togglePanel(group) {
   const pane = $('#panelPane');
-  const willOpen = pane.classList.contains('hidden');
-  pane.classList.toggle('hidden', !willOpen);
-  $('#panelBtn').classList.toggle('on', willOpen);
-  $('#chatView').classList.toggle('panel-open', willOpen);   // 会话列右侧空栏让位（见 style.css）
-  if (willOpen) setPanelWidth(localStorage.getItem(PANEL_W_KEY));
+  if (!pane.classList.contains('hidden') && panelGroup === group) { closePanel(); return; }
+  pane.classList.remove('hidden');
+  setPanelGroup(group);
+  $('#chatView').classList.add('panel-open');               // 会话列右侧空栏让位（见 style.css）
+  setPanelWidth(localStorage.getItem(PANEL_W_KEY));         // 打开时应用记忆宽度（此刻夹取，兜住"窗口变小了"）
+  syncPanelButtons();
 }
 
 // ======================== 事件绑定 ========================
@@ -1073,12 +1101,11 @@ function bindEvents() {
   };
   $('#tabBar').addEventListener('click', e => {
     const btn = e.target.closest('button[data-tab]');
-    if (!btn) return;
-    document.querySelectorAll('#tabBar button').forEach(b => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === btn.dataset.tab));
+    if (btn) showTab(btn.dataset.tab);
   });
-  // 右侧设置/调试面板：顶栏开关 + 左边缘拖拽调宽 + 双击复位
-  $('#panelBtn').onclick = togglePanel;
+  // 右侧设置/调试面板：顶栏两个入口（设置/调试各一组 Tab）+ 左边缘拖拽调宽 + 双击复位
+  $('#settingsBtn').onclick = () => togglePanel('settings');
+  $('#debugBtn').onclick = () => togglePanel('debug');
   const resizer = $('#panelResizer');
   resizer.addEventListener('mousedown', e => {
     e.preventDefault();   // 阻止选中文本等默认行为；mousedown 的 preventDefault 不影响 dblclick
@@ -1105,6 +1132,11 @@ function bindEvents() {
   $('#tasksBtn').onclick = openTasks;
   $('#bgTasksBtn').onclick = openBgTasks;
   $('#inboxBtn').onclick = openInbox;
+  // 消息箱单条删除（列表动态渲染 → 容器级委托）
+  $('#inboxBox').addEventListener('click', e => {
+    const btn = e.target.closest('.inbox-del');
+    if (btn) deleteInbox({ id: btn.dataset.id });
+  });
   // 自动运行开关 + 授权面板（顶栏）
   $('#autoBtn').onclick = toggleAuto;
   $('#permBtn').onclick = openPermissions;
@@ -1126,7 +1158,7 @@ function bindEvents() {
     if (!$('#permModal').classList.contains('hidden')) { closePermissions(); return; }
     if (!$('#checkpointModal').classList.contains('hidden')) { $('#checkpointModal').classList.add('hidden'); return; }
     if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); return; }
-    if (!$('#panelPane').classList.contains('hidden')) { togglePanel(); }
+    if (!$('#panelPane').classList.contains('hidden')) { closePanel(); }
   });
   // 通用确认弹框
   $('#cfOkBtn').onclick = () => closeConfirm(true);
@@ -1188,26 +1220,78 @@ async function refreshInboxBadge() {
   } catch (e) { /* 未登录等场景静默 */ }
 }
 
-/** 消息箱面板：列表 + 标记已读 + 清角标 */
+// 消息类别：复用消息的 source 字段（task/approval），其余归 system——无需改表
+const INBOX_CATS = [['all', '全部'], ['task', '任务'], ['approval', '审批'], ['system', '系统']];
+let inboxCategory = 'all';
+function inboxCatOf(source) { return source === 'task' || source === 'approval' ? source : 'system'; }
+function inboxCatLabel(cat) { return { task: '任务', approval: '审批', system: '系统' }[cat] || '系统'; }
+
+/** 类别筛选条：类别 + 总数（未读数），当前类别高亮 */
+function renderInboxCats(d) {
+  const el = $('#inboxCats');
+  const counts = d.counts || {};
+  el.innerHTML = '';
+  INBOX_CATS.forEach(([key, label]) => {
+    const c = key === 'all' ? { total: d.total || 0, unread: d.unread || 0 } : (counts[key] || {});
+    const b = document.createElement('button');
+    b.className = key === inboxCategory ? 'on' : '';
+    b.dataset.cat = key;
+    b.textContent = label + ' ' + (c.total || 0) + ((c.unread || 0) > 0 ? ' · ' + c.unread + '未读' : '');
+    b.onclick = () => { inboxCategory = key; loadInbox(); };
+    el.appendChild(b);
+  });
+}
+
+/** 单条消息：类别标签 + 来源/时间 + 正文 + 删除 */
+function renderInboxRow(m) {
+  const cat = inboxCatOf(m.source);
+  const row = document.createElement('div');
+  row.className = 'inbox-row' + (m.is_read ? ' read' : '');
+  const main = document.createElement('div');
+  main.className = 'inbox-main';
+  const meta = document.createElement('div');
+  meta.className = 'inbox-meta';
+  const tag = document.createElement('span');
+  tag.className = 'inbox-cat ' + cat;
+  tag.textContent = inboxCatLabel(cat);
+  meta.appendChild(tag);
+  const src = cat === 'task' ? '⏰ ' + (m.task_id || '定时任务')
+            : cat === 'approval' ? '审批 ' + (m.task_id || '通知')
+            : '系统通知';
+  const info = document.createElement('span');
+  info.textContent = src + (m.created_at ? ' · ' + fmtTs(Number(m.created_at)) : '');
+  meta.appendChild(info);
+  main.appendChild(meta);
+  const text = document.createElement('div');
+  text.className = 'inbox-text';
+  text.textContent = String(m.text || '');
+  main.appendChild(text);
+  row.appendChild(main);
+  const del = document.createElement('button');
+  del.className = 'inbox-del';
+  del.dataset.id = m.id;
+  del.title = '删除这条消息';
+  del.textContent = '删除';
+  row.appendChild(del);
+  return row;
+}
+
+/** 消息箱面板：类别筛选 + 列表 + 标记已读/删除 */
 async function loadInbox() {
   const box = $('#inboxBox');
   try {
-    const r = await apiCommand('inboxList', {});
-    if (!r.success) { box.innerHTML = '<div class="muted">加载失败: ' + esc(r.error || '') + '</div>'; return; }
+    const r = await apiCommand('inboxList', { category: inboxCategory });
+    if (!r.success) { box.innerHTML = '<div class="muted">加载失败: ' + esc(r.error || r.message || '') + '</div>'; return; }
     const d = r.data || {};
     const list = d.list || [];
     updateInboxBadge(d.unread || 0);
-    if (!list.length) { box.innerHTML = '<div class="muted">消息箱为空</div>'; return; }
+    renderInboxCats(d);
+    if (!list.length) {
+      box.innerHTML = '<div class="muted">' + (inboxCategory === 'all' ? '消息箱为空' : '该类别暂无消息') + '</div>';
+      return;
+    }
     const wrap = document.createElement('div');
-    list.forEach(m => {
-      const row = document.createElement('div');
-      row.style.cssText = 'border-bottom:1px solid #2a2f3d;padding:8px 4px;' + (m.is_read ? 'opacity:.55;' : '');
-      const ts = m.created_at ? fmtTs(Number(m.created_at)) : '';
-      const src = m.source === 'task' ? '⏰ ' + (m.task_id || '定时任务') : (m.source || '');
-      row.innerHTML = '<div style="font-size:12px;color:#93c5fd">' + esc(src) + ' · ' + esc(ts) + '</div>'
-                    + '<div style="white-space:pre-wrap;word-break:break-all">' + esc(String(m.text || '')) + '</div>';
-      wrap.appendChild(row);
-    });
+    list.forEach(m => wrap.appendChild(renderInboxRow(m)));
     box.innerHTML = '';
     box.appendChild(wrap);
   } catch (e) {
@@ -1221,6 +1305,27 @@ async function readAllInbox() {
     await apiCommand('inboxRead', {});
     loadInbox();
   } catch (e) { toast('操作失败: ' + e.message, 'err'); }
+}
+
+/** 删除消息（单条 / 已读 / 全部）；成功后刷新列表与角标 */
+async function deleteInbox(params, okText) {
+  try {
+    const r = await apiCommand('inboxDelete', params);
+    if (!r.success) { toast(r.error || r.message || '删除失败', 'err'); return; }
+    updateInboxBadge((r.data || {}).unread || 0);
+    loadInbox();
+    if (okText) toast(okText, 'ok');
+  } catch (e) { toast('删除失败: ' + e.message, 'err'); }
+}
+
+async function deleteReadInbox() {
+  const ok = await confirmDialog('删除全部已读消息？', '已读消息删除后不可恢复（未读消息保留）。', '删 除');
+  if (ok) deleteInbox({ scope: 'read' }, '已删除全部已读消息');
+}
+
+async function clearInbox() {
+  const ok = await confirmDialog('清空消息箱？', '全部消息（含未读）删除后不可恢复。', '清 空');
+  if (ok) deleteInbox({ scope: 'all' }, '消息箱已清空');
 }
 
 /** 定时任务面板：列表 + 行内 暂停/恢复/删除（与控制台 /tasks 同语义）。

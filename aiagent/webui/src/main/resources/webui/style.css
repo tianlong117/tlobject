@@ -159,16 +159,14 @@ main { display: flex; flex: 1; min-height: 0; }
 #uploadBar button.ub-clear:hover { border-color: #f87171; }
 
 /* ===== 命令面板 ===== */
-/* 命令面板：默认隐藏（顶栏 ⚙ 开关）；宽度走 flex-basis（JS 拖动改写），flex 不涨不缩防被压 */
+/* 命令面板：默认隐藏（顶栏 ⚙ 设置 / 🐞 调试 两个入口）；宽度走 flex-basis（JS 拖动改写），flex 不涨不缩防被压 */
 #panelPane { flex: 0 0 420px; position: relative; display: flex; flex-direction: column; min-height: 0; }
 /* 拖拽把手：贴左边缘（±居中在边界上），col-resize；悬停/拖动中高亮 */
 #panelResizer { position: absolute; left: -2px; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 5; touch-action: none; }
 #panelResizer:hover, body.dragging #panelResizer { background: #3b82f6; }
 /* 拖动中：禁选中文本 + 全局 col-resize 光标 */
 body.dragging { user-select: none; cursor: col-resize; }
-/* 顶栏「设置/调试」按钮：面板打开时高亮 */
-#panelBtn.on { color: #93c5fd; border-color: #3b82f6; }
-/* 顶栏 ghost 按钮的开启态（#autoBtn 自动运行）：与 #panelBtn.on 同一视觉语言。
+/* 顶栏 ghost 按钮的开启态（#autoBtn 自动运行、#settingsBtn/#debugBtn 面板入口）：同一视觉语言。
    规则放在 header button.ghost:hover 之后——同为 0,2,2 特异度，靠源序保证开启态在悬停时不掉色 */
 header button.ghost.on { color: #93c5fd; border-color: #3b82f6; }
 #tabBar { display: flex; border-bottom: 1px solid #2a2f3d; background: #1b1e27; }
@@ -236,6 +234,25 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .modal-box input { background: #12141a; border: 1px solid #2a2f3d; color: #d8dde6; border-radius: 6px; padding: 8px; }
 .modal-box button.ok { background: #16a34a; color: #fff; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; }
 .modal-box button.no { background: #dc2626; color: #fff; padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; }
+
+/* ===== 消息箱（类别筛选条 + 单条消息） ===== */
+.inbox-cats { display: flex; flex-wrap: wrap; gap: 6px; }
+.inbox-cats button { padding: 4px 10px; border-radius: 999px; border: 1px solid #2a2f3d; background: #232838; color: #9aa3b2; font-size: 12px; cursor: pointer; }
+.inbox-cats button:hover { background: #2d3345; }
+.inbox-cats button.on { color: #93c5fd; border-color: #3b82f6; background: #1a2138; }
+.inbox-row { display: flex; align-items: flex-start; gap: 10px; border-bottom: 1px solid #2a2f3d; padding: 8px 4px; }
+.inbox-row.read { opacity: .55; }
+.inbox-main { flex: 1; min-width: 0; }
+.inbox-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: #8b93a5; }
+.inbox-cat { border: 1px solid #2a2f3d; border-radius: 999px; padding: 0 8px; font-size: 11px; line-height: 18px; }
+.inbox-cat.task { color: #93c5fd; border-color: #3b82f6; }
+.inbox-cat.approval { color: #fbbf24; border-color: #b45309; }
+.inbox-cat.system { color: #c4b5fd; border-color: #7c3aed; }
+.inbox-text { white-space: pre-wrap; word-break: break-all; margin-top: 3px; }
+.inbox-del { flex: none; background: none; border: 1px solid #2a2f3d; color: #9aa3b2; border-radius: 6px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.inbox-del:hover { color: #f87171; border-color: #f87171; background: #3f1d1d; }
+.btn-row button.inbox-clear { color: #f87171; border-color: #7f1d1d; }
+.btn-row button.inbox-clear:hover { background: #3f1d1d; }
 
 /* ===== Toast ===== */
 #toastBox { position: fixed; top: 14px; right: 14px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
