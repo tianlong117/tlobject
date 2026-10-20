@@ -36,14 +36,10 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
  * <p>职责：登录校验、命令分发（JSON → TLMsg → agentService）、流式聊天转发（SSE writer）、
  * 审批事件经 msgBus 订阅后按 sessionId 定位属主推送给对应 SSE 连接。</p>
  *
- * <p>双入口：</p>
- * <ul>
- *   <li>框架路由（TLServletDispatch → TLWUrlMap → checkMsgAction 的
- *       session/login/logout/command/chat/stopChat/upload/chatStream/events action，
- *       输出经 sseClient/jsonClient → out-interface）</li>
- *   <li>servlet 直连（TLWebChatServlet 调用 login/handleCommand/chat/beginChatStream 等方法，
- *       回退路径，保留不动）</li>
- * </ul>
+ * <p>入口：框架路由（TLServletDispatch → TLWUrlMap → checkMsgAction 的
+ * session/login/logout/command/chat/stopChat/upload/chatStream/events action，
+ * 输出经 sseClient/jsonClient → out-interface）。静态页（/、/webui/*）由
+ * TLWebChatServlet 直接服务，不经过本模块。</p>
  *
  * <p>配置参数 (XML params):</p>
  * <ul>
@@ -455,7 +451,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     // ======================== 框架路由（TLServletDispatch → TLWUrlMap）=======================
 
-    /** 当前登录用户：HttpSession attribute "userId"（与 TLWebChatServlet 同一会话约定） */
+    /** 当前登录用户：HttpSession attribute "userId"（登录 action 写入，与前端会话共用） */
     private String currentUserId() {
         HttpServletRequest req = getRequest();
         if (req == null) return null;

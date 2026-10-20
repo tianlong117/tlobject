@@ -1752,7 +1752,7 @@ Open `http://localhost:8080/webui/chat.html` in a browser (change the port in th
   - Tracing: /trace, /stats, /stats all, /stats agent
 - Approval: approval requests are pushed to a browser dialog via SSE; you can edit the parameters before approving or rejecting
 - User isolation: the login identity is passed through to agentService, and sessions and memory under data/{uid}/ are isolated per user
-- Implementation: TLWebChatModule (business logic) + TLWebChatServlet (IO adapter, mounted via TLJettyServer extraServlets), with static pages embedded in the jar classpath
+- Implementation: TLWebChatModule (business logic; API routed via TLServletDispatch + urlMap) + TLWebChatServlet (only `/` redirect and `/webui/*` static resources, mounted via TLJettyServer extraServlets), with static pages embedded in the jar classpath
 
 
 ### Background Tasks and Parallel Sessions
