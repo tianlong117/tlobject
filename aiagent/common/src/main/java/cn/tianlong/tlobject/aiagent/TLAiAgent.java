@@ -134,31 +134,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 当前 chat 的 userId（供 sessionUpdated 等消息传给 SessionManager，实现用户隔离） */
     private final ThreadLocal<String> currentChatUserId = new ThreadLocal<>();
 
-    /** 流式回调转发目标: sessionId → [forwardTarget, forwardAction]（供 onStreamResult 查表转发 chunk/结果给最终调用方） */
-    private final Map<String, String[]> streamForwardMap = new ConcurrentHashMap<>();
+    /** 会话 → 本轮流句柄（同一会话互斥，一次只有一个活跃流）。回调线程据此转发/唤醒。 */
+    private final Map<String, StreamHandle> streamHandles = new ConcurrentHashMap<>();
 
-    /** 流式转发的目标实例（私有子模块按名够不着；chatStream 消息带 AI_P_STREAMFORWARDINSTANCE 时记录；
-     *  key 为 systemArgs 键，调用方须 setSystemParam——读取侧只查 systemArgs，用 setParam 会静默退化为按名转发） */
-    private final Map<String, IObject> streamForwardInstances = new ConcurrentHashMap<>();
+    /** 流式等待总上限（秒）：Provider 的 readTimeout 只约束单次 read，不约束整条流的总时长。 */
+    private static final long STREAM_TIMEOUT_SECONDS = 600L;
 
-    /** 会话级 roundId: sessionId → 当前 doChat 的 roundId（供 onStreamResult 使用） */
-    private final Map<String, String> sessionRoundIds = new ConcurrentHashMap<>();
-
-    /** 会话级 msgStartIdx: sessionId → 本轮消息起始位置（供 onStreamResult 使用） */
-    private final Map<String, Integer> sessionMsgStartIdx = new ConcurrentHashMap<>();
-
-    /** 会话级 userId: sessionId → userId（供 onStreamResult 回调线程查表；doChat/chatStream 入口写入） */
-    private final Map<String, String> sessionUserIds = new ConcurrentHashMap<>();
-    /** 会话级 userMessage: sessionId → 本轮用户消息（供 onStreamResult 收尾 chatFinished 使用，与 sessionUserIds 对称） */
-    private final Map<String, String> sessionUserMessages = new ConcurrentHashMap<>();
-    /** 会话级 reasoningMode: sessionId → 本轮生效的推理模式（供流式续跑轮透传；流式链路此前两处都不传该参数） */
-    private final Map<String, String> sessionReasoningModes = new ConcurrentHashMap<>();
-    /** 会话级 rootSessionId: sessionId → 根会话 ID（供 onStreamResult 回调线程查表；chatStream 入口写入，cleanupStreamState 清除） */
-    private final Map<String, String> sessionRootIds = new ConcurrentHashMap<>();
-    /** 会话级 coverSeq: sessionId → 本会话最新摘要段的 coverSeq（组装视图衔接；0=无摘要） */
-    private final Map<String, Long> sessionCoverSeq = new ConcurrentHashMap<>();
-    /** 会话级 memoryContext: sessionId → 本轮记忆召回注入文本（供 onStreamResult 续跑轮注入，与入口一致） */
-    private final Map<String, String> sessionMemoryContext = new ConcurrentHashMap<>();
+    /** 工具迭代轮是否也流式：保持当前产品行为（首轮流式、后续非流式）。 */
+    private static final boolean STREAM_TOOL_ROUNDS = false;
 
     /**
      * 会话运行轮次计数（doChat + chatStream 统一登记；0=空闲）。多会话并行/后台任务注入排队的基础。
@@ -323,6 +306,301 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** JSON 序列化（复用 Gson，aiagent 已依赖） */
     protected com.google.gson.Gson gson;
+
+    // ======================== 编排上下文 ========================
+
+    /** 一轮聊天的编排上下文：跨阶段状态集中存放；回调线程不直接访问。 */
+    private static final class ChatRunContext {
+        final Object fromWho;
+        final TLMsg msg;
+        final String sessionId;
+        final String rootSid;
+        final String roundId;
+        final String userId;
+        String userMessage;   // prepareChat 会前置配置的 task 指令
+
+        String model;
+        double temperature;
+        int maxTokens;
+        String reasoningMode;
+        boolean reasoningVisible;
+
+        boolean resume;
+        boolean resumedFromCheckpoint;
+        boolean noHistory;
+
+        List<TLConversationHistory> history;
+        int msgStartIdx;
+        long coverSeq;
+        String memoryContext;
+        List<TLFunctionDefinition> toolDefs;
+
+        // 生命周期标志：cleanup 只清理本上下文真正建立过的资源
+        boolean lockAcquired;
+        boolean monitorRegistered;
+        boolean roundBegan;
+        java.util.concurrent.atomic.AtomicBoolean cancelled;
+
+        // 流式（Task 4 使用；非流式路径为 NullStreamSink）
+        final StreamSink sink;
+        final boolean preBegan;   // true = 入口已同步 sessionRoundBegin，prepareChat 不得重复 begin
+        boolean streamFinished;
+        boolean finalAnswerStreamed;
+
+        // 预处理提前返回
+        TLMsg terminalResult;
+        boolean terminalAsFinal;
+
+        boolean cancelled() {
+            return cancelled != null && cancelled.get();
+        }
+
+        ChatRunContext(Object fromWho, TLMsg msg, String sessionId, String rootSid,
+                       String roundId, StreamSink sink, boolean preBegan) {
+            this.fromWho = fromWho;
+            this.msg = msg;
+            this.sessionId = sessionId;
+            this.rootSid = rootSid;
+            this.roundId = roundId;
+            this.userId = String.valueOf(msg.getSystemParam("userId", sessionId));
+            this.userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
+            this.sink = sink;
+            this.preBegan = preBegan;
+            this.roundBegan = preBegan;
+        }
+    }
+
+    /** LLM 调用抽象：同步/流式只在这里分叉，编排层无感知。 */
+    private interface LlmCall {
+        TLMsg invoke(ChatRunContext ctx, TLMsg llmMsg, int iteration);
+        boolean isStreaming(int iteration);
+    }
+
+    /** 同步实现。非静态内部类：要访问实例的 llmProvider/putMsg。 */
+    private final class SyncLlmCall implements LlmCall {
+        public boolean isStreaming(int iteration) { return false; }
+        public TLMsg invoke(ChatRunContext ctx, TLMsg llmMsg, int iteration) {
+            return putMsg(llmProvider, llmMsg);
+        }
+    }
+
+    /** 流式事件出口：chunk 在回调线程调用，final/done/error 在编排线程调用。 */
+    private interface StreamSink {
+        default boolean isNull() { return false; }
+        void onChunk(String text);
+        void onToolEvent(String toolName, String output);
+        void onFinalText(String answer, boolean alreadyStreamed);
+        void onDone();
+        void onError(String message);
+    }
+
+    private static final class NullStreamSink implements StreamSink {
+        static final NullStreamSink INSTANCE = new NullStreamSink();
+        public boolean isNull() { return true; }
+        public void onChunk(String text) { }
+        public void onToolEvent(String toolName, String output) { }
+        public void onFinalText(String answer, boolean alreadyStreamed) { }
+        public void onDone() { }
+        public void onError(String message) { }
+    }
+
+    /** 一次流式调用的等待句柄：回调线程 complete/fail，编排线程 await。 */
+    private final class StreamHandle {
+        final String sessionId;
+        final String roundId;
+        final StreamSink sink;
+        private final java.util.concurrent.CountDownLatch latch =
+                new java.util.concurrent.CountDownLatch(1);
+        private volatile TLMsg doneMsg;
+        private volatile String error;
+        private volatile boolean completed;
+
+        StreamHandle(String sessionId, String roundId, StreamSink sink) {
+            this.sessionId = sessionId;
+            this.roundId = roundId;
+            this.sink = sink;
+        }
+
+        boolean isCompleted() { return completed; }
+
+        void complete(TLMsg msg) {
+            if (completed) return;
+            // done 消息本身不一定带 RESULT；这里显式置 true，
+            // 保证 StreamLlmCall 能识别为成功。
+            msg.setParam(RESULT, true);
+            doneMsg = msg;
+            completed = true;
+            latch.countDown();
+        }
+
+        void fail(String message) {
+            if (completed) return;
+            error = message;
+            completed = true;
+            latch.countDown();
+        }
+
+        TLMsg await() throws InterruptedException {
+            try {
+                if (!latch.await(STREAM_TIMEOUT_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) {
+                    // 超时后 worker 已按错误收尾；置 completed 挡住迟到的 complete/fail 改写状态
+                    completed = true;
+                    return createMsg().setParam(RESULT, false).setParam("timedOut", true)
+                            .setParam(AI_P_RESPONSE, "流式超时/未完成");
+                }
+            } catch (InterruptedException e) {
+                // 中断（/stop）也标记终态：防迟到的 done 把 doneMsg 写进已放弃的 handle
+                completed = true;
+                throw e;
+            }
+            if (error != null) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_RESPONSE, "流式中断: " + error);
+            }
+            return doneMsg;
+        }
+    }
+
+    /** 流式 LLM 实现：首轮 SSE + 等 per-call 句柄；工具轮保持非流式。 */
+    private final class StreamLlmCall implements LlmCall {
+        private final StreamSink sink;
+
+        StreamLlmCall(StreamSink sink) { this.sink = sink; }
+
+        public boolean isStreaming(int iteration) {
+            return iteration == 1 || STREAM_TOOL_ROUNDS;
+        }
+
+        public TLMsg invoke(ChatRunContext ctx, TLMsg llmMsg, int iteration) {
+            if (!isStreaming(iteration)) {
+                return putMsg(llmProvider, llmMsg);   // 工具轮走非流式（当前行为）
+            }
+            StreamHandle handle = new StreamHandle(ctx.sessionId, ctx.roundId, sink);
+            streamHandles.put(ctx.sessionId, handle);
+            llmMsg.setAction(LLM_COMPLETIONSTREAM)
+                    .setParam(RESULTFOR, getName())
+                    .setParam(RESULTACTION, "onStreamResult")
+                    .setParam(AI_P_ROUNDID, ctx.roundId);
+            putMsg(llmProvider, llmMsg);
+            try {
+                TLMsg done = handle.await();
+                if (done != null && done.parseBoolean("timedOut", false)) {
+                    // 总超时：取消在途 HTTP，避免连接/回调线程泄漏；随后走 LLM 错误收尾
+                    putMsg(llmProvider, createMsg().setAction(LLM_CANCEL)
+                            .setParam(AI_P_SESSIONID, ctx.sessionId));
+                }
+                // 不在引擎侧记录"已推文本"：ForwardStreamSink 自己累积
+                return done;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_CANCELLED, true)
+                        .setParam(AI_P_RESPONSE, "⏹ 已中断");
+            }
+        }
+    }
+
+    /** 把流事件转发给最终调用方：私有实例优先，否则按名投递。 */
+    private final class ForwardStreamSink implements StreamSink {
+        private final IObject forwardInstance;
+        private final String resultFor;
+        private final String resultAction;
+        private final String sessionId;
+        /** 帧必须自带 userId：webui 按 userId+sessionId 找 SSE 通道，不能依赖 sessionOwner 旁路状态 */
+        private final String userId;
+        /**
+         * UI 实际收到的流式文本（chunk 累积）。不能依赖 Provider 的 done 消息是否带完整响应。
+         * 前提：onChunk 之间串行（SSE 是串行字节流，Provider 在同一回调线程顺序 putMsg）；
+         * 所有 onChunk 完成 → handle.complete → latch → worker 才读 buffer/发 onDone（happens-before）。
+         * StringBuffer 只保证单次 append 原子，不保证跨 chunk 的 forward/append 顺序；
+         * 若未来 Provider 改成并发回调，需把 forward + append 包进 synchronized(this)。
+         */
+        private final StringBuffer streamedBuffer = new StringBuffer();
+
+        ForwardStreamSink(IObject forwardInstance, String resultFor,
+                          String resultAction, String sessionId, String userId) {
+            this.forwardInstance = forwardInstance;
+            this.resultFor = resultFor;
+            this.resultAction = resultAction;
+            this.sessionId = sessionId;
+            this.userId = userId;
+        }
+
+        /**
+         * @return true = putMsg 调用未抛异常（目标模块内部静默失败无法感知；
+         *         那种情况下 UI 已不可用，补发也无意义）
+         */
+        private boolean forward(TLMsg evt) {
+            evt.setAction(resultAction);
+            // 流式 UI 目标不可达属于可降级场景：静默丢弃，不能让 putMsg 关停整个应用
+            evt.setSystemParam(IGNOREMODULEISNULL, true);
+            if (userId != null && !userId.isEmpty()) {
+                evt.setParam(AI_P_USERID, userId);
+            }
+            try {
+                if (forwardInstance != null) putMsg(forwardInstance, evt);
+                else putMsg(resultFor, evt);
+                return true;
+            } catch (Throwable t) {
+                // UI 目标/路由异常不能杀死流式回调线程，更不能冒泡进框架异常链。
+                // 用 System.err：putLog 本身走 putMsg，出错路径上再调用它可能二次抛。
+                System.err.println("[ForwardStreamSink] forward failed: " + t);
+                return false;
+            }
+        }
+
+        public void onChunk(String text) {
+            if (text == null || text.isEmpty()) return;
+            // 顺序依赖 onChunk 串行前提（见 streamedBuffer 注释）：forward 与 append 必须同序
+            boolean delivered = forward(createMsg().setParam(AI_P_CHUNK, text)
+                    .setParam(AI_P_SESSIONID, sessionId));
+            // 只有 putMsg 未抛异常才计入"UI 已收到"；失败时不记，让 onFinalText 补发
+            //（宁重复勿缺失——失败却记下来会让 UI 永久少一段）。
+            if (delivered) {
+                streamedBuffer.append(text);
+            }
+        }
+
+        public void onToolEvent(String toolName, String output) {
+            if (output == null) return;
+            forward(createMsg().setParam("toolEvent", true)
+                    .setParam("toolName", toolName != null ? toolName : "tool")
+                    .setParam("toolOutput", output)
+                    .setParam(AI_P_SESSIONID, sessionId));
+        }
+
+        public void onFinalText(String answer, boolean alreadyStreamed) {
+            if (answer == null || answer.isEmpty()) return;
+            if (!alreadyStreamed) {
+                forward(createMsg().setParam(AI_P_CHUNK, answer)
+                        .setParam(AI_P_SESSIONID, sessionId));
+                return;
+            }
+            // 用自身累积，而不是 Provider done 消息里的正文：
+            // 流式终答的增量判断应该以"UI 到底收到了什么"为准。
+            String seen = streamedBuffer.toString();
+            if (answer.startsWith(seen)) {
+                if (answer.length() == seen.length()) return;
+                forward(createMsg().setParam(AI_P_CHUNK, answer.substring(seen.length()))
+                        .setParam(AI_P_SESSIONID, sessionId));
+                return;
+            }
+            // guardOutput 替换/截断/追加导致前缀关系不成立：
+            // 不能按长度差做增量（会静默丢弃净化文本），发 replace 让 UI 用净化后的全文替换。
+            forward(createMsg().setParam(AI_P_STREAMREPLACE, answer)
+                    .setParam(AI_P_SESSIONID, sessionId));
+        }
+
+        public void onDone() {
+            forward(createMsg().setParam(AI_P_STREAMDONE, true)
+                    .setParam(AI_P_SESSIONID, sessionId));
+        }
+
+        public void onError(String message) {
+            forward(createMsg().setParam(AI_P_STREAMERROR, message)
+                    .setParam(AI_P_SESSIONID, sessionId));
+        }
+    }
 
     // ======================== 构造函数 ========================
 
@@ -756,9 +1034,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "injectTaskResult":
                 returnMsg = injectTaskResult(fromWho, msg);
                 break;
-            case "chatStreamSync":
-                returnMsg = doChat(fromWho, msg, true);
-                break;
             case AGENT_HOTLOADSKILL:
             case AGENT_HOTUNLOADSKILL:
             case AGENT_RELOADSKILL:
@@ -822,6 +1097,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 break;
             case "onStreamResult":
                 returnMsg = onStreamResult(fromWho, msg);
+                break;
+            case "runChatEngineAsync":
+                returnMsg = runChatEngineAsync(fromWho, msg);
                 break;
             case SKILL_EXECUTE:
                 // agent 作为工具被调用：提取 task → 内部 chat → 结果放入 AI_P_SKILLOUTPUT
@@ -947,298 +1225,447 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      */
     @SuppressWarnings("unchecked")
     protected TLMsg chat(Object fromWho, TLMsg msg) {
-        return doChat(fromWho, msg, false);
+        return doChat(fromWho, msg);
+    }
+
+    /** 一轮聊天的上下文工厂：ID 一次算定（上游透传 > resumeRoundId > 新生成）。 */
+    private ChatRunContext newContext(Object fromWho, TLMsg msg,
+                                      StreamSink sink, boolean preBegan) {
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
+        Object upstreamObj = msg.getSystemParam(AI_P_ROUNDID, null);
+        String upstreamRoundId = upstreamObj != null ? String.valueOf(upstreamObj) : "";
+        String roundId = !upstreamRoundId.isEmpty() ? upstreamRoundId
+                : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
+        ChatRunContext ctx = new ChatRunContext(fromWho, msg, sessionId, rootSid, roundId,
+                sink, preBegan);
+        ctx.noHistory = noHistory;
+        return ctx;
     }
 
     /**
-     * 统一chat实现。stream=true时LLM请求走流式(无tool-call循环)，
-     * stream=false时走非流式(支持tool-call多轮迭代)。
-     * 记忆召回、上下文、长期记忆保存等生命周期处理完全相同。
+     * 预处理：会话/锁/监控/记忆召回/断点恢复/模板替换/toolDefs/推理 prompt。
+     * 流式与非流式共用；只把结果写进 ctx，不执行 LLM 循环。
      */
-    @SuppressWarnings("unchecked")
-    protected TLMsg doChat(Object fromWho, TLMsg msg, boolean stream) {
-        // 最优先检查 Provider 可用性
+    private void prepareChat(ChatRunContext ctx) {
+        TLMsg msg = ctx.msg;
+        String sessionId = ctx.sessionId;
+
         if (llmProvider == null) {
-            return createMsg().setParam(RESULT, false)
+            ctx.terminalResult = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "LLM Provider 未就绪，请检查 API Key 和余额后重启");
+            return;
         }
-        // 框架系统参数区：会话/用户/轮次 ID 由上游经 systemArgs 透传（未设置即上游没传——约定一致）
-        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
-        // 根会话 ID：控制台会话标识，在 spawn 子 agent 时透传，供监控模块级联停止
-        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
-        currentRootSessionId.set(rootSid);
-        currentChatUserId.set(String.valueOf(msg.getSystemParam("userId", sessionId)));
-        sessionUserIds.put(sessionId, currentChatUserId.get());
-        String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
-        sessionUserMessages.put(sessionId, userMessage);
-        // 注：附件归一化（AI_P_ATTACHMENTS → ref 列表）推迟到"正常分支真正构建用户条目"时再做——
-        // 提前做会让空消息/会话占用/resume/LLM 直入等提前返回的轮次白白解码 base64 并落盘
-        // 固定任务前缀（配置的 task 参数）：普通 agent 配置后每次收到的消息都前置该任务指令；
-        // 工作流下游节点同样经此生效（user 层指令权重最高，systemMessage 管人设，task 管本次工作）
+        // 固定任务前缀：普通 agent / 工作流下游节点都经此生效
         if (params != null && params.get("task") != null && !params.get("task").trim().isEmpty()) {
-            userMessage = params.get("task").trim() + "\n\n" + userMessage;
+            ctx.userMessage = params.get("task").trim() + "\n\n" + ctx.userMessage;
         }
-        String model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
-        double temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
-        int maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
-
-        // 推理模式：请求级覆盖 > 全局默认
-        String effectiveReasoningMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
-        boolean effectiveReasoningVisible = msg.parseBoolean(AI_P_REASONING_VISIBLE, reasoningVisible);
-        if ("auto".equals(effectiveReasoningMode)) {
-            effectiveReasoningMode = resolveAutoMode(model);
+        ctx.model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
+        ctx.temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
+        ctx.maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
+        ctx.reasoningMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
+        ctx.reasoningVisible = msg.parseBoolean(AI_P_REASONING_VISIBLE, reasoningVisible);
+        if ("auto".equals(ctx.reasoningMode)) {
+            ctx.reasoningMode = resolveAutoMode(ctx.model);
         }
-
-        if (userMessage.isEmpty()) {
-            return createMsg().setParam(RESULT, false)
+        if (ctx.userMessage.isEmpty()) {
+            ctx.terminalResult = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Error: missing userMessage");
+            return;
         }
 
-        putLog("Chat start: sessionId=" + sessionId + " stream=" + stream
-                + " reasoningMode=" + effectiveReasoningMode, LogLevel.DEBUG);
-        // 取消标志：每次 chat 开始复位；/stop 经 stopChat() 置 true
-        final java.util.concurrent.atomic.AtomicBoolean cancelled =
-                cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean());
-        cancelled.set(false);
-        // 同会话并发锁：同一 sessionId 同时只允许一个 chat 执行（多浏览器/多入口防串台）。
-        // 锁按 sessionId 隔离——不同用户不同 sessionId 互不影响；isAlive 兜底死亡残留线程。
+        putLog("Chat start: sessionId=" + sessionId
+                + " reasoningMode=" + ctx.reasoningMode, LogLevel.DEBUG);
+        // 取消标志：复位在入口（doChat / chatStream），这里只取引用
+        ctx.cancelled = cancelFlags.computeIfAbsent(sessionId,
+                k -> new java.util.concurrent.atomic.AtomicBoolean());
+
+        // 同会话锁：先拿锁，再写任何会话状态（防止锁失败的并发方覆盖活跃方）
         Thread existing = chatThreads.putIfAbsent(sessionId, Thread.currentThread());
         if (existing != null && existing.isAlive()) {
-            return createMsg().setParam(RESULT, false)
+            ctx.terminalResult = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "会话使用中：该会话已有对话正在进行，请等待其完成")
                     .setParam(AI_P_SESSIONID, sessionId);
+            return;
         }
         if (existing != null) {
             // 死亡残留线程：putIfAbsent 不更新 map——覆盖登记，保证 stopChat 拿到正确 worker
             chatThreads.put(sessionId, Thread.currentThread());
         }
-        // 登记 worker 线程，供 stopChat 中断 + 杀其派生进程
-        // 向监控模块登记本执行实例（放在 try 内，finally 负责注销，避免空消息提前 return 泄漏）
+        ctx.lockAcquired = true;
+
+        currentRootSessionId.set(ctx.rootSid);
+        currentChatUserId.set(ctx.userId);
+
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, sessionId)
-                .setParam("rootSessionId", rootSid)
-                .setParam(AI_P_USERID, currentChatUserId.get())
+                .setParam("rootSessionId", ctx.rootSid)
+                .setParam(AI_P_USERID, ctx.userId)
                 .setParam("agentName", getName()));
-        // 声明在 try 外：catch 收尾需访问；history 构建前异常时为 null，notifyChatError 内部判空
-        List<TLConversationHistory> history = null;
-        int msgStartIdx = 0;
-        // 本会话最新摘要段 coverSeq（发送视图衔接；0=无摘要）——声明在分支外，发送点共用
-        long coverSeq = 0L;
-        // 一轮 = 控制台发起对话到返回结果：上游（主 agent/工作流/组）传入的 roundId 沿用，
-        // 断点恢复用 resumeRoundId 继承，只有源头（控制台）才生成新的。
-        // 注意用 Object 判断存在性：String.valueOf(null) 会得到字面量 "null"
-        Object upstreamObj = msg.getSystemParam(AI_P_ROUNDID, null);
-        String upstreamRoundId = upstreamObj != null ? String.valueOf(upstreamObj) : "";
-        String roundId = !upstreamRoundId.isEmpty()
-                ? upstreamRoundId
-                : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
-        sessionRoundIds.put(sessionId, roundId);
-        // 全链追踪：轮次开始打点（payload = 本轮用户输入全文）
-        traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0, userMessage, null);
-        try {
-            sessionRoundBegin(sessionId);   // 与 finally 的 sessionRoundEnd 配对
-            // ==== 预处理: 记忆召回 + 上下文 ====
-            TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
-            String memoryContext = null;
-            if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
-                List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
-                        beforeResult.getListParam(AI_P_MEMORYRESULT, null);
-                if (entries != null && !entries.isEmpty()) {
-                    StringBuilder ctx = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
-                    for (TLMemoryEntry e : entries) ctx.append("- ").append(e.getValue()).append("\n");
-                    memoryContext = ctx.toString();
+        ctx.monitorRegistered = true;
+
+        traceStage(sessionId, ctx.rootSid, ctx.roundId, "roundStart",
+                ctx.userMessage, 0, ctx.userMessage, null);
+        if (!ctx.preBegan) {
+            sessionRoundBegin(sessionId);   // preBegan=true 时由入口（chatStream）已登记
+        }
+        ctx.roundBegan = true;
+
+        // ==== 记忆召回 ====
+        TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
+        if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
+            List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
+                    beforeResult.getListParam(AI_P_MEMORYRESULT, null);
+            if (entries != null && !entries.isEmpty()) {
+                StringBuilder mc = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
+                for (TLMemoryEntry e : entries) mc.append("- ").append(e.getValue()).append("\n");
+                ctx.memoryContext = mc.toString();
+            }
+        }
+
+        prepareHistory(ctx, beforeResult);
+        if (ctx.terminalResult != null) return;
+
+        // 对话开始即保存 checkpoint 轮（含用户消息）
+        notifySessionManager(createMsg()
+                .setAction("sessionUpdated")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", ctx.userId)
+                .setParam("agentName", name)
+                .setParam("roundId", ctx.roundId)
+                .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
+                .setParam("model", ctx.model)
+                .setParam("temperature", ctx.temperature)
+                .setParam("maxTokens", ctx.maxTokens)
+                .setParam("userMessage", ctx.userMessage));
+
+        // 模板变量替换（LLMINPUT 分支也覆盖）
+        java.text.SimpleDateFormat dateFmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        String nowStr = dateFmt.format(new java.util.Date());
+        java.util.regex.Pattern varPattern = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\}\\}");
+        for (TLConversationHistory h : ctx.history) {
+            if (h.getContent() == null || h.getContent().isEmpty()) continue;
+            java.util.regex.Matcher m = varPattern.matcher(h.getContent());
+            StringBuffer sb = new StringBuffer();
+            while (m.find()) {
+                String value = resolveVar(m.group(1), msg, sessionId, nowStr);
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+            }
+            m.appendTail(sb);
+            h.setContent(sb.toString());
+        }
+
+        // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
+        TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
+        ctx.toolDefs = (List<TLFunctionDefinition>)
+                frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
+
+        // ==== prompt 模式：注入 💭 推理引导到 system prompt ====
+        if ("prompt".equals(ctx.reasoningMode) && ctx.toolDefs != null && !ctx.toolDefs.isEmpty()) {
+            String reasoningPrompt = "\n\n## 推理规则\n"
+                    + "当需要调用工具时，请先用 💭 开头写一行简短推理，说明你为什么要调用这个工具。\n"
+                    + "格式: 💭 <一句话推理>\n"
+                    + "然后正常调用工具。不需要在最终回复中保留 💭 内容。";
+            boolean injected = false;
+            for (TLConversationHistory h : ctx.history) {
+                if (h.getRole() == TLConversationHistory.Role.system && h.getContent() != null) {
+                    h.setContent(h.getContent() + reasoningPrompt);
+                    injected = true;
+                    break;
                 }
             }
+            if (!injected) {
+                ctx.history.add(0, new TLConversationHistory(TLConversationHistory.Role.system, reasoningPrompt));
+            }
+        }
+    }
 
-            // ==== 断点恢复检查 ====
-            // 历史数据由调用方（agentService）从 SessionManager 加载好，通过 msg 参数传入。
-            // Agent 不直接操作会话文件——只接收已加载的数据。
-            boolean resume = msg.parseBoolean("resume", false);
-            int iteration = 0;
-            boolean resumedFromCheckpoint = false;
-            long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
-            long[] cacheTurn = {0, 0, 0}; // 本次 chat 的缓存统计 {cacheCreation, cacheHit, cacheMiss}
-            boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
-            boolean aborted = false;   // 是否被 /stop 协作式中断
-            boolean clarified = false; // 是否调用了 request_clarification 工具
-            boolean pendingApproval = false; // 是否需要人工审批
-            boolean rejected = false;       // 审批是否被拒绝
-            boolean finalDirect = false;    // 工具直出短路（下游 finalAnswer → 本层不再 LLM 加工）
-            String rejectedReason = null;   // 拒绝原因（随返回消息传播给上游，供 ToolExecutor 识别）
-            // 存储到 map 供 onStreamResult 使用，finally 中清理
-            sessionMsgStartIdx.remove(sessionId);
+    /**
+     * 构建本轮 history：断点恢复 / LLM 直入 / 正常三分支。
+     * 审批恢复的重工具执行仍在这里（与非流式语义一致）。
+     */
+    private void prepareHistory(ChatRunContext ctx, TLMsg beforeResult) {
+        TLMsg msg = ctx.msg;
+        String sessionId = ctx.sessionId;
+        List<TLConversationHistory> history;
+        int msgStartIdx = 0;
+        long coverSeq = 0L;
+        boolean resumedFromCheckpoint = false;
+        String model = ctx.model;
+        double temperature = ctx.temperature;
+        int maxTokens = ctx.maxTokens;
 
-            if (resume && msg.containsParam("history")) {
-                // resume=true 且调用方已传入 history → 从断点/历史会话恢复
-                @SuppressWarnings("unchecked")
-                List<TLConversationHistory> loadedHistory =
-                        (List<TLConversationHistory>) msg.getParam("history");
-                String resumeState = msg.getStringParam("resumeState", SESSION_STATE_CHECKPOINT);
+        boolean resume = msg.parseBoolean("resume", false);
+        ctx.resume = resume;
 
-                if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
-                    // ==== pending_approval 断点恢复 ====
-                    // context system 置顶（DB 历史不含，恢复必须显式补）
-                    history = withContextSystem(loadedHistory);
-                    msgStartIdx = history.size();
-                    sessionMsgStartIdx.put(sessionId, msgStartIdx);
-                    model = msg.getStringParam("resumeModel", model);
-                    temperature = msg.getDoubleParam("resumeTemperature", temperature);
-                    maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
-                    resumedFromCheckpoint = true;
+        if (resume && msg.containsParam("history")) {
+            // resume=true 且调用方已传入 history → 从断点/历史会话恢复
+            @SuppressWarnings("unchecked")
+            List<TLConversationHistory> loadedHistory =
+                    (List<TLConversationHistory>) msg.getParam("history");
+            String resumeState = msg.getStringParam("resumeState", SESSION_STATE_CHECKPOINT);
+            if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
+                // ==== pending_approval 断点恢复 ====
+                history = withContextSystem(loadedHistory);
+                msgStartIdx = history.size();
+                model = msg.getStringParam("resumeModel", model);
+                temperature = msg.getDoubleParam("resumeTemperature", temperature);
+                maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
+                resumedFromCheckpoint = true;
 
-                    TLToolCall savedTc = msg.containsParam("pendingToolCall")
-                            ? (TLToolCall) msg.getParam("pendingToolCall") : null;
-                    String savedApprovalId = msg.getStringParam(AI_P_APPROVAL_ID, "");
+                TLToolCall savedTc = msg.containsParam("pendingToolCall")
+                        ? (TLToolCall) msg.getParam("pendingToolCall") : null;
+                String savedApprovalId = msg.getStringParam(AI_P_APPROVAL_ID, "");
 
-                    // 决策写回：调用方带了 decision（外部驱动）直接用；否则向审批模块查终态
-                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
-                    TLMsg approvalState = null;
-                    if (decision.isEmpty()) {
-                        approvalState = queryApproval(savedApprovalId);
-                        decision = approvalState != null
-                                ? approvalState.getStringParam("decision", "pending") : "pending";
-                    }
-                    if ("approved".equals(decision) && savedTc != null) {
-                        @SuppressWarnings("unchecked")
-                        java.util.Map<String, Object> modifiedArgs =
-                                msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS,
-                                        approvalState != null
-                                                ? approvalState.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null) : null);
-                        if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
-                            savedTc.setArguments(modifiedArgs);
-                        }
-                        java.util.List<TLToolCall> singleTc = new java.util.ArrayList<>();
-                        singleTc.add(savedTc);
-                        history.add(new TLConversationHistory(
-                                TLConversationHistory.Role.assistant, singleTc));
-                        // 解析并委托 ToolExecutor 执行单个恢复的 tool
-                        @SuppressWarnings("unchecked")
-                        java.util.Map<String, Object> savedArgs = savedTc.getArguments() instanceof java.util.Map
-                                ? new java.util.LinkedHashMap<>((java.util.Map<String, Object>) savedTc.getArguments())
-                                : new java.util.LinkedHashMap<>();
-                        // 黑盒消息接口之二：tool_calls 交工具模块解析为可执行 ToolTask 列表
-                        TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
-                                .setParam(AI_P_TOOLCALLS, singleTc));
-                        List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
-                                frResolveMsg.getListParam("tasks", new ArrayList<>());
-                        if (singleTask.size() > 1) {
-                            putLog("Approval resume resolved to " + singleTask.size()
-                                    + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
-                        }
-                        String execId2 = sessionId + "_resume_" + System.nanoTime();
-                        TLMsg singleExecResult = singleTask.isEmpty() ? null
-                                : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
-                                        .setParam("tasks", singleTask)
-                                        .setSystemParam("executionId", execId2)
-                                        .setSystemParam(AI_P_SESSIONID, sessionId)
-                                        .setSystemParam("userId", msg.getSystemParam("userId", "default"))
-                                        .setSystemParam("rootSessionId", rootSid)
-                                        .setSystemParam(AI_P_ROUNDID, roundId)
-                                        .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批：本次调用已获人工批准
-                        // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
-                        //（审批后执行的工具同样可能声明投图；直接 history.add 会丢掉声明的那张图）
-                        List<TLAttachmentRef> pendingImages = new ArrayList<>();
-                        TLToolExecutor.ToolResult singleResult = null;
-                        if (singleExecResult != null) {
-                            @SuppressWarnings("unchecked")
-                            List<TLToolExecutor.ToolResult> singleResults =
-                                    (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
-                            if (singleResults != null && !singleResults.isEmpty())
-                                singleResult = singleResults.get(0);
-                        }
-                        appendToolResult(history,
-                                singleResult != null ? singleResult
-                                        : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
-                                sessionId, pendingImages);
-                        flushToolImages(history, pendingImages);
-                        putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
-                                LogLevel.INFO);
-                    } else if ("approved".equals(decision)) {
-                        // 批准但断点缺 pendingToolCall（畸形断点）：无法重放——如实告知并继续，不假装仍在等待
-                        putLog("Approval resumed but pendingToolCall missing: approvalId=" + savedApprovalId, LogLevel.ERROR);
-                        history.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作无法恢复：审批已通过但断点工具调用缺失。如需执行请重新发起。）"));
-                    } else if ("rejected".equals(decision)) {
-                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON,
-                                approvalState != null
-                                        ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝") : "用户拒绝");
-                        history.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
-                        putLog("Approval resumed: rejected → reason=" + reason, LogLevel.INFO);
-                    } else if ("lost".equals(decision)) {
-                        String reason = approvalState != null
-                                ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "审批已失效") : "审批已失效";
-                        history.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作未执行：审批已失效——" + reason + "。如需执行请重新发起。）"));
-                        putLog("Approval resumed: lost → reason=" + reason, LogLevel.WARN);
-                    } else {
-                        putLog("Approval still pending on resume: approvalId=" + savedApprovalId, LogLevel.WARN);
-                        return createMsg().setParam(RESULT, false)
-                                .setParam(AI_P_RESPONSE, "审批请求仍在等待中，approvalId=" + savedApprovalId);
-                    }
-                } else {
-                    // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
-                    // context system 置顶（DB/checkpoint 增量不含，恢复必须显式补）
-                    history = withContextSystem(loadedHistory);
-                    msgStartIdx = history.size();
-                    sessionMsgStartIdx.put(sessionId, msgStartIdx);
-                    // 恢复会话：摘要段在记忆库持久化，召回自动带回 → coverSeq 衔接视图，无空窗
-                    coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
-                    sessionCoverSeq.put(sessionId, coverSeq);
-                    if (memoryContext != null && !memoryContext.isEmpty()) {
-                        sessionMemoryContext.put(sessionId, memoryContext);
-                    }
-                    model = msg.getStringParam("resumeModel", model);
-                    temperature = msg.getDoubleParam("resumeTemperature", temperature);
-                    maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
-                    resumedFromCheckpoint = true;
-                    putLog("Resumed from checkpoint: sessionId=" + sessionId + " iter=" + iteration
-                            + " historySize=" + (history != null ? history.size() : 0), LogLevel.INFO);
+                // 决策写回：调用方带了 decision（外部驱动）直接用；否则向审批模块查终态
+                String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
+                TLMsg approvalState = null;
+                if (decision.isEmpty()) {
+                    approvalState = queryApproval(savedApprovalId);
+                    decision = approvalState != null
+                            ? approvalState.getStringParam("decision", "pending") : "pending";
                 }
-            } else if (msg.containsParam(AI_P_LLMINPUT)) {
-                // LLM 消息直入：调用方已提供完整 messages（如 trace 定点重放），
-                // 不再追加用户消息——以注入 messages 为历史直接进入迭代循环
-                @SuppressWarnings("unchecked")
-                List<TLConversationHistory> input =
-                        (List<TLConversationHistory>) msg.getParam(AI_P_LLMINPUT);
-                history = withContextSystem(input);   // 补 index0 system（会话增量不含）
-                msgStartIdx = 0;                      // 通知落盘全量（新 roundId 新行，无覆盖）
-                sessionMsgStartIdx.put(sessionId, 0);
-                // 与正常分支一致：摘要衔接 + 记忆注入（只进发送视图）
-                coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
-                sessionCoverSeq.put(sessionId, coverSeq);
-                if (memoryContext != null && !memoryContext.isEmpty()) {
-                    sessionMemoryContext.put(sessionId, memoryContext);
+                if ("approved".equals(decision) && savedTc != null) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> modifiedArgs =
+                            msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS,
+                                    approvalState != null
+                                            ? approvalState.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null) : null);
+                    if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
+                        savedTc.setArguments(modifiedArgs);
+                    }
+                    java.util.List<TLToolCall> singleTc = new java.util.ArrayList<>();
+                    singleTc.add(savedTc);
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.assistant, singleTc));
+                    TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
+                            .setParam(AI_P_TOOLCALLS, singleTc));
+                    List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
+                            frResolveMsg.getListParam("tasks", new ArrayList<>());
+                    if (singleTask.size() > 1) {
+                        putLog("Approval resume resolved to " + singleTask.size()
+                                + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
+                    }
+                    String execId2 = sessionId + "_resume_" + System.nanoTime();
+                    TLMsg singleExecResult = singleTask.isEmpty() ? null
+                            : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
+                                    .setParam("tasks", singleTask)
+                                    .setSystemParam("executionId", execId2)
+                                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                                    .setSystemParam("userId", ctx.userId)
+                                    .setSystemParam("rootSessionId", ctx.rootSid)
+                                    .setSystemParam(AI_P_ROUNDID, ctx.roundId)
+                                    .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批
+                    List<TLAttachmentRef> pendingImages = new ArrayList<>();
+                    TLToolExecutor.ToolResult singleResult = null;
+                    if (singleExecResult != null) {
+                        @SuppressWarnings("unchecked")
+                        List<TLToolExecutor.ToolResult> singleResults =
+                                (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
+                        if (singleResults != null && !singleResults.isEmpty())
+                            singleResult = singleResults.get(0);
+                    }
+                    appendToolResult(history,
+                            singleResult != null ? singleResult
+                                    : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
+                            sessionId, ctx.userId, pendingImages);
+                    flushToolImages(history, pendingImages);
+                    putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
+                            LogLevel.INFO);
+                } else if ("approved".equals(decision)) {
+                    putLog("Approval resumed but pendingToolCall missing: approvalId=" + savedApprovalId, LogLevel.ERROR);
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.user,
+                            "（上一操作无法恢复：审批已通过但断点工具调用缺失。如需执行请重新发起。）"));
+                } else if ("rejected".equals(decision)) {
+                    String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON,
+                            approvalState != null
+                                    ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝") : "用户拒绝");
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.user,
+                            "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
+                    putLog("Approval resumed: rejected → reason=" + reason, LogLevel.INFO);
+                } else if ("lost".equals(decision)) {
+                    String reason = approvalState != null
+                            ? approvalState.getStringParam(AI_P_APPROVAL_REJECTREASON, "审批已失效") : "审批已失效";
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.user,
+                            "（上一操作未执行：审批已失效——" + reason + "。如需执行请重新发起。）"));
+                    putLog("Approval resumed: lost → reason=" + reason, LogLevel.WARN);
+                } else {
+                    putLog("Approval still pending on resume: approvalId=" + savedApprovalId, LogLevel.WARN);
+                    ctx.terminalResult = createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_RESPONSE, "审批请求仍在等待中，approvalId=" + savedApprovalId);
+                    ctx.terminalAsFinal = true;
+                    return;
                 }
             } else {
-                // 正常流程：从 context 构建历史（全量，摘要模式不 trim）。
-                // noHistory 模式：不载入历史（每次白纸）——子 agent 无记忆召回时
-                // 跨轮历史只膨胀提示词、拖慢响应，会话链（sid/stopByRoot）保持完整
-                history = noHistory ? new ArrayList<>() : getContextHistory(sessionId);
+                // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
+                history = withContextSystem(loadedHistory);
                 msgStartIdx = history.size();
-                sessionMsgStartIdx.put(sessionId, msgStartIdx);
-                // 记忆召回注入（原始设计）：上下文完整时 LLM 能区分历史记忆与当前指令
-                //（"写诗被算进下一轮"的根因是流式直出跳过 saveContextHistory，非记忆注入本身）
-                // 记忆 system 只进发送视图（buildSendList 注入），不写回 context——
-                // 摘要模式全量保留下避免每轮记忆 system 在 context 累积污染
                 coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
-                sessionCoverSeq.put(sessionId, coverSeq);
-                if (memoryContext != null && !memoryContext.isEmpty()) {
-                    sessionMemoryContext.put(sessionId, memoryContext);
-                }
-                // 附件归一化只在此处做：只有本分支才真正构建用户条目
-                List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId);
-                history.add(buildUserEntry(userMessage, roundAttachments));
+                model = msg.getStringParam("resumeModel", model);
+                temperature = msg.getDoubleParam("resumeTemperature", temperature);
+                maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
+                resumedFromCheckpoint = true;
+                putLog("Resumed from checkpoint: sessionId=" + sessionId
+                        + " iter=0 historySize=" + history.size(), LogLevel.INFO);
             }
-            // 对话开始即保存 checkpoint 轮（含用户消息）：进程意外死亡时轮次残留，重启可恢复；
-            // 正常完成/人为停止由 chatFinished/chatAborted 同 roundId 覆盖为 completed
+        } else if (msg.containsParam(AI_P_LLMINPUT)) {
+            // LLM 消息直入：调用方已提供完整 messages（如 trace 定点重放）
+            @SuppressWarnings("unchecked")
+            List<TLConversationHistory> input =
+                    (List<TLConversationHistory>) msg.getParam(AI_P_LLMINPUT);
+            history = withContextSystem(input);
+            msgStartIdx = 0;
+            coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+        } else {
+            // 正常流程：从 context 构建历史（全量，摘要模式不 trim）。
+            // noHistory 模式：不载入历史（每次白纸）
+            history = ctx.noHistory ? new ArrayList<>() : getContextHistory(sessionId);
+            msgStartIdx = history.size();
+            coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+            // 附件归一化只在此处做：只有本分支才真正构建用户条目
+            List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId, ctx.userId);
+            history.add(buildUserEntry(ctx.userMessage, roundAttachments));
+        }
+
+        ctx.history = history;
+        ctx.msgStartIdx = msgStartIdx;
+        ctx.coverSeq = coverSeq;
+        ctx.model = model;
+        ctx.temperature = temperature;
+        ctx.maxTokens = maxTokens;
+        ctx.resumedFromCheckpoint = resumedFromCheckpoint;
+    }
+
+    /** 生命周期收尾：只清理本上下文真正建立过的资源。 */
+    private void cleanupChatRun(ChatRunContext ctx) {
+        if (ctx.lockAcquired) {
+            chatThreads.remove(ctx.sessionId);
+            // 只有拿到锁的 worker 才拥有这些会话状态；锁失败的并发方不能删活跃方的 map
+            // 放锁守卫内：块外会让锁失败的并发方删掉活跃方的 handle，直接打断对方的流
+            streamHandles.remove(ctx.sessionId);
+        }
+        if (ctx.monitorRegistered) {
+            putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
+                    .setParam(AI_P_SESSIONID, ctx.sessionId));
+        }
+        currentRootSessionId.remove();
+        currentChatUserId.remove();
+        while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
+        if (ctx.roundBegan) sessionRoundEnd(ctx.sessionId);
+    }
+
+    /** 上下文版错误收尾（旧 7 参重载保留给尚未迁移的流式路径）。 */
+    private void notifyChatError(ChatRunContext ctx, String errMsg) {
+        if (ctx.history == null) return;
+        notifySessionManager(createMsg()
+                .setAction("chatFinished")
+                .setParam("sessionId", ctx.sessionId)
+                .setParam("userId", ctx.userId)
+                .setParam("agentName", name)
+                .setParam("roundId", ctx.roundId)
+                .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
+                .setParam("userMessage", ctx.userMessage)
+                .setParam("response", errMsg));
+        traceStage(ctx.sessionId, ctx.rootSid, ctx.roundId, "roundEnd", "error", 0);
+    }
+
+    /**
+     * 统一chat实现：非流式 tool-call 多轮迭代。
+     * 记忆召回、上下文、长期记忆保存等生命周期处理在 chatStream 中复用（见 runChat）。
+     */
+    protected TLMsg doChat(Object fromWho, TLMsg msg) {
+        // 取消标志只在同步入口复位；异步入口在 chatStream 提交 worker 前复位。
+        // runChat 里绝不能再复位：worker 启动会晚于 chatStream 返回，
+        // 二次复位会抹掉这期间到达的 /stop（interrupt 因 chatThreads 尚未登记而落空）。
+        String sid = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        cancelFlags.computeIfAbsent(sid,
+                k -> new java.util.concurrent.atomic.AtomicBoolean()).set(false);
+        return runChat(fromWho, msg, new SyncLlmCall(), NullStreamSink.INSTANCE, false);
+    }
+
+    /** 一轮聊天的唯一生命周期外壳：准备 → 循环 → 收尾。 */
+    private TLMsg runChat(Object fromWho, TLMsg msg, LlmCall llmCall,
+                          StreamSink sink, boolean preBegan) {
+        ChatRunContext ctx = newContext(fromWho, msg, sink, preBegan);
+        try {
+            prepareChat(ctx);
+            if (ctx.terminalResult != null) {
+                if (ctx.terminalAsFinal)
+                    streamFinal(ctx, ctx.terminalResult.getStringParam(AI_P_RESPONSE, ""));
+                else
+                    streamError(ctx, ctx.terminalResult.getStringParam(AI_P_RESPONSE, "Agent error"));
+                return ctx.terminalResult;
+            }
+            return runChatLoop(ctx, llmCall);
+        } catch (Exception e) {
+            if (ctx.cancelled() || e instanceof InterruptedException) {
+                Thread.interrupted();
+                putLog("Chat aborted (exception path): sessionId=" + ctx.sessionId, LogLevel.INFO);
+                streamFinal(ctx, "⏹ 已中断");
+                return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
+                        .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, ctx.sessionId);
+            }
+            putLog("Chat error: " + e.toString(), LogLevel.ERROR);
+            handleRunError(ctx, "Agent error: " + e.getMessage());
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
+        } finally {
+            cleanupChatRun(ctx);
+        }
+    }
+
+    /** 唯一的工具迭代 + 收尾循环。同步/流式都走这里。 */
+    @SuppressWarnings("unchecked")
+    private TLMsg runChatLoop(ChatRunContext ctx, LlmCall llmCall) {
+        TLMsg msg = ctx.msg;
+        Object fromWho = ctx.fromWho;
+        String sessionId = ctx.sessionId;
+        String rootSid = ctx.rootSid;
+        String roundId = ctx.roundId;
+        String userMessage = ctx.userMessage;
+        String model = ctx.model;
+        double temperature = ctx.temperature;
+        int maxTokens = ctx.maxTokens;
+        String effectiveReasoningMode = ctx.reasoningMode;
+        boolean effectiveReasoningVisible = ctx.reasoningVisible;
+        List<TLConversationHistory> history = ctx.history;
+        int msgStartIdx = ctx.msgStartIdx;
+        long coverSeq = ctx.coverSeq;
+        String memoryContext = ctx.memoryContext;
+        List<TLFunctionDefinition> toolDefs = ctx.toolDefs;
+        boolean resume = ctx.resume;
+        boolean resumedFromCheckpoint = ctx.resumedFromCheckpoint;
+        boolean noHistory = ctx.noHistory;
+        final java.util.concurrent.atomic.AtomicBoolean cancelled = ctx.cancelled;
+
+        int iteration = 0;
+        long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
+        long[] cacheTurn = {0, 0, 0}; // 本次 chat 的缓存统计 {cacheCreation, cacheHit, cacheMiss}
+        boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
+        boolean aborted = false;   // 是否被 /stop 协作式中断
+        boolean clarified = false; // 是否调用了 request_clarification 工具
+        boolean pendingApproval = false; // 是否需要人工审批
+        boolean rejected = false;       // 审批是否被拒绝
+        boolean finalDirect = false;    // 工具直出短路（下游 finalAnswer → 本层不再 LLM 加工）
+        String rejectedReason = null;   // 拒绝原因（随返回消息传播给上游，供 ToolExecutor 识别）
+        StringBuilder allReasoning = new StringBuilder();
+
+        // ==== LLM请求 ====
+        String finalResponse = null;
+
+        // 非流式: tool-call循环（流式入口由 chatStream 独立处理）
+        while (iteration < maxToolCallIterations) {
+            ThreadTask.checkPauseHere();
+            if (cancelled.get()) { aborted = true; break; }
+            iteration++;
+            // L2 checkpoint: 每次迭代前通知 SessionManager
             notifySessionManager(createMsg()
                     .setAction("sessionUpdated")
                     .setParam("sessionId", sessionId)
-                    .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
+                    .setParam("userId", ctx.userId)
                     .setParam("agentName", name)
                     .setParam("roundId", roundId)
                     .setParam("messages", deltaMessages(history, msgStartIdx))
@@ -1246,1322 +1673,524 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("temperature", temperature)
                     .setParam("maxTokens", maxTokens)
                     .setParam("userMessage", userMessage));
-            // 模板变量替换：{{key}} 占位符，查找规则：msg 参数 → agent params → 内置值
-            java.text.SimpleDateFormat dateFmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-            String nowStr = dateFmt.format(new java.util.Date());
-            java.util.regex.Pattern varPattern = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\}\\}");
-            for (TLConversationHistory h : history) {
-                if (h.getContent() == null || h.getContent().isEmpty()) continue;
-                String c = h.getContent();
-                java.util.regex.Matcher m = varPattern.matcher(c);
-                StringBuffer sb = new StringBuffer();
-                while (m.find()) {
-                    String key = m.group(1);
-                    String value = resolveVar(key, msg, sessionId, nowStr);
-                    m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
-                }
-                m.appendTail(sb);
-                h.setContent(sb.toString());
+            TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
+                    .setParam(AI_P_MESSAGEHISTORY, buildSendList(history, coverSeq, memoryContext))
+                    .setParam(AI_P_MODEL, model)
+                    .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens)
+                    .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_ROUNDID, roundId);
+            // per-agent 缓存开关：本 agent 不走意图缓存时在请求上带标志（provider 透传）
+            if (!intentCacheEnabled) llmMsg.setParam(AI_P_NOCACHE, true);
+            if (toolDefs != null && !toolDefs.isEmpty()) {
+                llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
             }
-            // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
-            TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
-            List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
-                    frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
-
-            // ==== prompt 模式：注入 💭 推理引导到 system prompt ====
-            if ("prompt".equals(effectiveReasoningMode) && toolDefs != null && !toolDefs.isEmpty()) {
-                String reasoningPrompt = "\n\n## 推理规则\n"
-                        + "当需要调用工具时，请先用 💭 开头写一行简短推理，说明你为什么要调用这个工具。\n"
-                        + "格式: 💭 <一句话推理>\n"
-                        + "然后正常调用工具。不需要在最终回复中保留 💭 内容。";
-                boolean injected = false;
-                for (TLConversationHistory h : history) {
-                    if (h.getRole() == TLConversationHistory.Role.system && h.getContent() != null) {
-                        h.setContent(h.getContent() + reasoningPrompt);
-                        injected = true;
-                        break;
-                    }
-                }
-                if (!injected) {
-                    history.add(0, new TLConversationHistory(TLConversationHistory.Role.system, reasoningPrompt));
-                }
+            // 结构化输出：透传 response_format（json_object / json_schema）
+            if (msg.containsParam(AI_P_RESPONSEFORMAT)) {
+                llmMsg.setParam(AI_P_RESPONSEFORMAT, msg.getParam(AI_P_RESPONSEFORMAT));
+            }
+            // 推理参数透传给 Provider
+            if (!"off".equals(effectiveReasoningMode)) {
+                llmMsg.setParam(AI_P_REASONING_MODE, effectiveReasoningMode);
+                llmMsg.setParam(AI_P_THINKING_BUDGET, msg.getIntParam(AI_P_THINKING_BUDGET, thinkingBudget));
             }
 
-            // ==== reasoning 累积（供最终返回） ====
-            StringBuilder allReasoning = new StringBuilder();
-
-            // ==== LLM请求 ====
-            String finalResponse = null; // 流式分支仅成功路径赋值；错误路径提前 return
-
-            if (stream) {
-                // 流式: 单次请求，无tool-call循环
-                // 推理参数透传（此前是空壳 if——参数只写在注释里没真注入，函数体并不接收）
-                TLMsg streamResult = doStreamCall(buildSendList(history, coverSeq, memoryContext),
-                        toolDefs, sessionId, model, effectiveReasoningMode, maxTokens);
-                if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
-                    aborted = true;
-                } else if (streamResult == null || !streamResult.parseBoolean(RESULT, false)) {
-                    // 流式失败（Provider 中断/超时/回调未注册）：按错误返回，不提交空回合
-                    String streamErr = streamResult != null
-                            ? streamResult.getStringParam(AI_P_RESPONSE, "流式请求失败")
-                            : "流式请求失败";
-                    putLog("Stream failed: " + streamErr, LogLevel.ERROR);
-                    notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage, streamErr);
-                    return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, streamErr);
-                } else {
-                    String syncFinish = streamResult.getStringParam(AI_P_FINISH_REASON, "");
-                    finalResponse = streamResult.getStringParam(AI_P_RESPONSE, "");
-                    // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）；
-                    // 截断轮（length）占位/终答都如实说明——同步流式入口此前收不到该信息
-                    history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                            finalResponse.isEmpty() ? emptyHistoryPlaceholder(syncFinish) : finalResponse));
-                    finalResponse = withTruncationNotice(finalResponse, syncFinish);
+            // 全链追踪：LLM 请求/响应打点（payload = 实际发送给 LLM 的 messages）
+            traceStage(sessionId, rootSid, roundId, "llmRequest",
+                    "iter=" + iteration + " model=" + model, 0,
+                    formatHistoryForTrace(history), null);
+            long llmStartTs = System.currentTimeMillis();
+            TLMsg llmResponse = llmCall.invoke(ctx, llmMsg, iteration);
+            // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
+            if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
+                aborted = true;
+                break;
+            }
+            if (!llmResponse.parseBoolean(RESULT, false)) {
+                String errMsg = llmResponse.getStringParam(AI_P_RESPONSE, null);
+                if (errMsg == null || errMsg.isEmpty()) {
+                    errMsg = "LLM 返回错误：HTTP " + llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
                 }
-                // 收集流式推理内容
-                TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
-                        ? (TLBaseModule) getModule("streamCallback") : null;
-                if (cb != null) {
-                    String streamReasoning = ((TLStreamCallback) cb).getReasoning();
-                    if (streamReasoning != null && !streamReasoning.isEmpty()) {
-                        allReasoning.append(streamReasoning);
+                // 收尾 SessionManager，避免已发 sessionUpdated 的 checkpoint 轮次残留
+                handleRunError(ctx, errMsg);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_RESPONSE, errMsg);
+            }
+            // Token 用量累加（Provider parseResponse 已解析 usage）+ 进程级上报（每次 LLM 调用恰一次）
+            long p = llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
+            long c = llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
+            long t = llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
+            turn[0] += p; turn[1] += c; turn[2] += t;
+
+            // 缓存统计累加
+            long cc = llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
+            long ch = llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
+            long cm = llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
+            cacheTurn[0] += cc; cacheTurn[1] += ch; cacheTurn[2] += cm;
+            reportProcessTokenUsage(new long[]{p, c, t}, new long[]{cc, ch, cm},
+                    sessionId, rootSid, ctx.userId);
+            traceStage(sessionId, rootSid, roundId, "llmResponse",
+                    "tokens=" + turn[1] + "/" + turn[2]
+                            + " cache=" + cacheTurn[1] + "/" + cacheTurn[0],
+                    System.currentTimeMillis() - llmStartTs,
+                    formatResponseForTrace(
+                            llmResponse.getStringParam(AI_P_RESPONSE, ""),
+                            llmResponse.parseBoolean("hasToolCalls", false)
+                                    ? (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null) : null,
+                            llmResponse.getStringParam(AI_P_REASONING, "")),
+                    null);
+
+            // ==== 提取推理内容 ====
+            String reasoningText = null;
+            if (!"off".equals(effectiveReasoningMode)) {
+                // 路线 B：原生 reasoning（Provider 已解析）
+                if (llmResponse.containsParam(AI_P_REASONING)) {
+                    reasoningText = llmResponse.getStringParam(AI_P_REASONING, "");
+                }
+                // 路线 A：解析 💭 前缀（prompt 模式）
+                if ("prompt".equals(effectiveReasoningMode) && reasoningText == null) {
+                    String respText = llmResponse.getStringParam(AI_P_RESPONSE, "");
+                    if (respText != null && respText.startsWith("💭")) {
+                        int endIdx = respText.indexOf('\n');
+                        if (endIdx > 0) {
+                            reasoningText = respText.substring(0, endIdx).trim();
+                            // 移除 💭 前缀，保留纯净回复
+                            String cleanResponse = respText.substring(endIdx).trim();
+                            llmResponse.setParam(AI_P_RESPONSE, cleanResponse);
+                        }
                     }
                 }
-            } else {
-                // 非流式: tool-call循环
-                finalResponse = null;
-                while (iteration < maxToolCallIterations) {
-                    ThreadTask.checkPauseHere();
-                    if (cancelled.get()) { aborted = true; break; }
-                    iteration++;
-                    // L2 checkpoint: 每次迭代前通知 SessionManager
-                    notifySessionManager(createMsg()
-                            .setAction("sessionUpdated")
-                            .setParam("sessionId", sessionId)
-                            .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
-                            .setParam("roundId", roundId)
-                            .setParam("messages", deltaMessages(history, msgStartIdx))
-                            .setParam("model", model)
-                            .setParam("temperature", temperature)
-                            .setParam("maxTokens", maxTokens)
-                            .setParam("userMessage", userMessage));
-                    TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
-                            .setParam(AI_P_MESSAGEHISTORY, buildSendList(history, coverSeq, memoryContext))
-                            .setParam(AI_P_MODEL, model)
-                            .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens)
-                            .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_ROUNDID, roundId);
-                    // per-agent 缓存开关：本 agent 不走意图缓存时在请求上带标志（provider 透传）
-                    if (!intentCacheEnabled) llmMsg.setParam(AI_P_NOCACHE, true);
-                    if (toolDefs != null && !toolDefs.isEmpty()) {
-                        llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
-                    }
-                    // 结构化输出：透传 response_format（json_object / json_schema）
-                    if (msg.containsParam(AI_P_RESPONSEFORMAT)) {
-                        llmMsg.setParam(AI_P_RESPONSEFORMAT, msg.getParam(AI_P_RESPONSEFORMAT));
-                    }
-                    // 推理参数透传给 Provider
-                    if (!"off".equals(effectiveReasoningMode)) {
-                        llmMsg.setParam(AI_P_REASONING_MODE, effectiveReasoningMode);
-                        llmMsg.setParam(AI_P_THINKING_BUDGET, msg.getIntParam(AI_P_THINKING_BUDGET, thinkingBudget));
-                    }
-
-                    // 全链追踪：LLM 请求/响应打点（payload = 实际发送给 LLM 的 messages）
-                    traceStage(sessionId, rootSid, roundId, "llmRequest",
-                            "iter=" + iteration + " model=" + model, 0,
-                            formatHistoryForTrace(history), null);
-                    long llmStartTs = System.currentTimeMillis();
-                    TLMsg llmResponse = putMsg(llmProvider, llmMsg);
-                    // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
-                    if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
-                        aborted = true;
-                        break;
-                    }
-                    if (!llmResponse.parseBoolean(RESULT, false)) {
-                        String errMsg = llmResponse.getStringParam(AI_P_RESPONSE, null);
-                        if (errMsg == null || errMsg.isEmpty()) {
-                            errMsg = "LLM 返回错误：HTTP " + llmResponse.getIntParam(AI_P_HTTPSTATUS, 0);
-                        }
-                        // 收尾 SessionManager，避免已发 sessionUpdated 的 checkpoint 轮次残留
-                        notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage, errMsg);
-                        return createMsg().setParam(RESULT, false)
-                                .setParam(AI_P_RESPONSE, errMsg);
-                    }
-                    // Token 用量累加（Provider parseResponse 已解析 usage）+ 进程级上报（每次 LLM 调用恰一次）
-                    long p = llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
-                    long c = llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
-                    long t = llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
-                    turn[0] += p; turn[1] += c; turn[2] += t;
-
-                    // 缓存统计累加
-                    long cc = llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L);
-                    long ch = llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L);
-                    long cm = llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L);
-                    cacheTurn[0] += cc; cacheTurn[1] += ch; cacheTurn[2] += cm;
-                    reportProcessTokenUsage(new long[]{p, c, t}, new long[]{cc, ch, cm},
-                            sessionId, rootSid, currentChatUserId.get());
-                    traceStage(sessionId, rootSid, roundId, "llmResponse",
-                            "tokens=" + turn[1] + "/" + turn[2]
-                                    + " cache=" + cacheTurn[1] + "/" + cacheTurn[0],
-                            System.currentTimeMillis() - llmStartTs,
-                            formatResponseForTrace(
-                                    llmResponse.getStringParam(AI_P_RESPONSE, ""),
-                                    llmResponse.parseBoolean("hasToolCalls", false)
-                                            ? (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null) : null,
-                                    llmResponse.getStringParam(AI_P_REASONING, "")),
-                            null);
-
-                    // ==== 提取推理内容 ====
-                    String reasoningText = null;
-                    if (!"off".equals(effectiveReasoningMode)) {
-                        // 路线 B：原生 reasoning（Provider 已解析）
-                        if (llmResponse.containsParam(AI_P_REASONING)) {
-                            reasoningText = llmResponse.getStringParam(AI_P_REASONING, "");
-                        }
-                        // 路线 A：解析 💭 前缀（prompt 模式）
-                        if ("prompt".equals(effectiveReasoningMode) && reasoningText == null) {
-                            String respText = llmResponse.getStringParam(AI_P_RESPONSE, "");
-                            if (respText != null && respText.startsWith("💭")) {
-                                int endIdx = respText.indexOf('\n');
-                                if (endIdx > 0) {
-                                    reasoningText = respText.substring(0, endIdx).trim();
-                                    // 移除 💭 前缀，保留纯净回复
-                                    String cleanResponse = respText.substring(endIdx).trim();
-                                    llmResponse.setParam(AI_P_RESPONSE, cleanResponse);
-                                }
-                            }
-                        }
-                        if (reasoningText != null && !reasoningText.isEmpty()) {
-                            history.add(TLConversationHistory.createReasoning(reasoningText));
-                            allReasoning.append(reasoningText).append("\n");
-                            putLog("Reasoning captured: " + reasoningText.substring(0, Math.min(80, reasoningText.length())),
-                                    LogLevel.DEBUG);
-                        }
-                    }
-
-                    boolean hasToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
-                    List<TLToolCall> toolCalls = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
-
-                    if (!hasToolCalls || toolCalls == null || toolCalls.isEmpty()) {
-                        String turnFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
-                        finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
-                        // 空响应：历史里放占位符（空 assistant 消息会被 DeepSeek 拒绝，
-                        // 且会随上下文存续污染后续回合）；截断轮（length）占位/终答都如实说明
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                finalResponse.isEmpty() ? emptyHistoryPlaceholder(turnFinish) : finalResponse));
-                        finalResponse = withTruncationNotice(finalResponse, turnFinish);
-                        break;
-                    }
-
-                    putLog("Tool calls: " + toolCalls.size() + " (iter " + iteration + ")", LogLevel.DEBUG);
-                    TLConversationHistory aMsg = new TLConversationHistory(
-                            TLConversationHistory.Role.assistant, new ArrayList<>(toolCalls));
-                    if (llmResponse.containsParam(AI_P_RESPONSE))
-                        aMsg.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
-                    history.add(aMsg);
-                    int aMsgIdx = history.size() - 1; // 记录位置，审批/拒绝时精确回滚
-
-                    // ── 解析 + 委托工具执行 ──
-                    // 黑盒消息接口之二：tool_calls 交工具模块解析为可执行 ToolTask 列表
-                    TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
-                            .setParam(AI_P_TOOLCALLS, toolCalls));
-                    List<TLToolExecutor.ToolTask> tasks = (List<TLToolExecutor.ToolTask>)
-                            frResolveMsg.getListParam("tasks", new ArrayList<>());
-                    if (tasks.isEmpty()) {
-                        // 全部工具被跳过（校验失败等），回滚 assistant 消息直接 break
-                        history.remove(aMsgIdx);
-                        break;
-                    }
-
-                    String execId = sessionId + "_" + System.nanoTime();
-                    String usrId = String.valueOf(msg.getSystemParam("userId", "default"));
-                    TLMsg execResult = putMsg(toolExecutor,
-                            createMsg().setAction(TODOOLEXECUTE)
-                                    .setParam("tasks", tasks)
-                                    .setSystemParam("executionId", execId)
-                                    .setSystemParam(AI_P_SESSIONID, sessionId)
-                                    .setSystemParam("rootSessionId", rootSid)
-                                    .setSystemParam("userId", usrId)
-                                    .setSystemParam(AI_P_ROUNDID, roundId));
-
-                    if (execResult == null) {
-                        putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
-                        break;
-                    }
-                    boolean execAborted = execResult.parseBoolean("aborted", false);
-                    boolean execRejected = execResult.parseBoolean("rejected", false);
-                    boolean execPending = execResult.parseBoolean("pendingApproval", false);
-                    boolean execClarified = execResult.parseBoolean("clarified", false);
-                    boolean execTimeout = execResult.parseBoolean("hasTimeout", false);
-                    boolean execFinal = execResult.parseBoolean(AI_P_FINALANSWER, false);
-
-                    if (execAborted || cancelled.get()) { aborted = true; break; }
-                    if (execRejected || execPending || execClarified || execTimeout) {
-                        history.remove(aMsgIdx); // 精确回滚 assistant 消息
-                    }
-                    if (execRejected) {
-                        rejectedReason = execResult.getStringParam("rejectReason", "");
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
-                                "（操作已被用户拒绝：" + rejectedReason
-                                        + "。不要重试此操作。）"));
-                        rejected = true;
-                        finalResponse = execResult.getStringParam("finalResponse", "");
-                        break;
-                    }
-                    if (execPending) {
-                        pendingApproval = true;
-                        finalResponse = execResult.getStringParam("finalResponse", "");
-                        // roundId 必带：断点必须落在本轮的同一行上——此前缺 roundId 会另起一条
-                        // roundId="" 的行，本轮的 chatFinished 又把原行覆盖成 completed，
-                        // findIncomplete 永远看不到待批态（"转断点 → 重登 → 恢复"链路因此断死）
-                        notifySessionManager(createMsg()
-                                .setAction("sessionUpdated")
-                                .setParam("sessionId", sessionId)
-                                .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
-                                .setParam("roundId", roundId)
-                                .setParam("messages", deltaMessages(history, msgStartIdx))
-                                .setParam("model", model)
-                                .setParam("temperature", temperature)
-                                .setParam("maxTokens", maxTokens)
-                                .setParam("userMessage", userMessage)
-                                // 审批可能拦的是批次里任意一个 tool（执行器按 toolCallId 回报），
-                                // 不能拿 toolCalls.get(0) 顶替——批准恢复会用错工具重放
-                                .setParam("pendingToolCall", pickPendingToolCall(toolCalls, execResult))
-                                .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
-                        break;
-                    }
-                    if (execClarified) {
-                        clarified = true;
-                        finalResponse = execResult.getStringParam("finalResponse", "");
-                        break;
-                    }
-                    if (execTimeout) {
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
-                                "（工具执行超时：" + execResult.getStringParam("finalResponse", "")
-                                        + "，请根据已有信息继续或重试。）"));
-                        finalResponse = execResult.getStringParam("finalResponse", "");
-                        break;
-                    }
-                    // 直出短路：工具结果带 finalAnswer（下游 agent 配置 directOutput）——
-                    // 仅单工具轮生效（多工具并行轮维持正常汇总，不丢其他结果）；
-                    // 工具结果照常写 history + 直出文本作为本轮 assistant 最终消息（会话恢复/下轮上下文完整性），
-                    // 不再调 LLM 加工
-                    if (execFinal && toolCalls.size() == 1) {
-                        @SuppressWarnings("unchecked")
-                        List<TLToolExecutor.ToolResult> execResultsF =
-                                (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
-                        List<TLAttachmentRef> pendingImages = new ArrayList<>();
-                        if (execResultsF != null) {
-                            for (TLToolExecutor.ToolResult r : execResultsF) {
-                                appendToolResult(history, r, sessionId, pendingImages);
-                            }
-                        }
-                        flushToolImages(history, pendingImages);
-                        finalResponse = execResult.getStringParam("finalResponse", "");
-                        // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
-                        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                finalResponse.isEmpty() ? "（无输出）" : finalResponse));
-                        finalDirect = true;
-                        break;
-                    }
-                    // 全部正常：按顺序写入 history
-                    @SuppressWarnings("unchecked")
-                    List<TLToolExecutor.ToolResult> execResults =
-                            (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
-                    List<TLAttachmentRef> pendingImages = new ArrayList<>();
-                    if (execResults != null) {
-                        for (TLToolExecutor.ToolResult r : execResults) {
-                            appendToolResult(history, r, sessionId, pendingImages);
-                        }
-                    }
-                    flushToolImages(history, pendingImages);
-                    if (aborted || clarified || pendingApproval || rejected || execTimeout) break;
-                    // L2 checkpoint: 每轮工具调用后通知 SessionManager
-                    notifySessionManager(createMsg()
-                            .setAction("sessionUpdated")
-                            .setParam("sessionId", sessionId)
-                            .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
-                            .setParam("roundId", roundId)
-                            .setParam("messages", deltaMessages(history, msgStartIdx))
-                            .setParam("model", model)
-                            .setParam("temperature", temperature)
-                            .setParam("maxTokens", maxTokens)
-                            .setParam("userMessage", userMessage));
-                }
-                if (finalResponse == null) {
-                    truncated = true;
-                    finalResponse = "（已达最大迭代次数 " + maxToolCallIterations + "，可能未完成）";
+                if (reasoningText != null && !reasoningText.isEmpty()) {
+                    history.add(TLConversationHistory.createReasoning(reasoningText));
+                    allReasoning.append(reasoningText).append("\n");
+                    putLog("Reasoning captured: " + reasoningText.substring(0, Math.min(80, reasoningText.length())),
+                            LogLevel.DEBUG);
                 }
             }
 
-            // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
-            if (aborted) {
-                // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
-                Thread.interrupted();
-                // 通知 SessionManager 会话中断，存为 completed 避免残留 checkpoint
+            boolean hasToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
+            List<TLToolCall> toolCalls = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
+
+            if (!hasToolCalls || toolCalls == null || toolCalls.isEmpty()) {
+                // 终答是否已由本轮流式 chunk 推给 UI（决定终帧只补差值还是推全文）。
+                // 只有"首轮流式且无 tool_calls"时为 true；工具轮 / aborted / rejected /
+                // pendingApproval / clarified / timeout / truncated 等终态都为 false，走推全文。
+                ctx.finalAnswerStreamed = llmCall.isStreaming(iteration);
+                String turnFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
+                String rawResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
+                // 截断如实告知：返回/UI 的终答补提示
+                finalResponse = withTruncationNotice(rawResponse, turnFinish);
+                // 历史存哪份：流式与旧 onStreamResult 对齐（存带提示的终答，重登可见）；
+                // 非流式保持原 doChat 的原始文本，避免无关行为变化。
+                boolean streamRun = ctx.sink != null && !ctx.sink.isNull();
+                String stored = streamRun ? finalResponse : rawResponse;
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                        stored.isEmpty() ? emptyHistoryPlaceholder(turnFinish) : stored));
+                break;
+            }
+
+            putLog("Tool calls: " + toolCalls.size() + " (iter " + iteration + ")", LogLevel.DEBUG);
+            TLConversationHistory aMsg = new TLConversationHistory(
+                    TLConversationHistory.Role.assistant, new ArrayList<>(toolCalls));
+            if (llmResponse.containsParam(AI_P_RESPONSE))
+                aMsg.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
+            history.add(aMsg);
+            int aMsgIdx = history.size() - 1; // 记录位置，审批/拒绝时精确回滚
+
+            // ── 解析 + 委托工具执行 ──
+            // 黑盒消息接口之二：tool_calls 交工具模块解析为可执行 ToolTask 列表
+            TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
+                    .setParam(AI_P_TOOLCALLS, toolCalls));
+            List<TLToolExecutor.ToolTask> tasks = (List<TLToolExecutor.ToolTask>)
+                    frResolveMsg.getListParam("tasks", new ArrayList<>());
+            if (tasks.isEmpty()) {
+                // 全部工具被跳过（校验失败等），回滚 assistant 消息直接 break
+                history.remove(aMsgIdx);
+                break;
+            }
+
+            String execId = sessionId + "_" + System.nanoTime();
+            String usrId = ctx.userId;
+            TLMsg execResult = putMsg(toolExecutor,
+                    createMsg().setAction(TODOOLEXECUTE)
+                            .setParam("tasks", tasks)
+                            .setSystemParam("executionId", execId)
+                            .setSystemParam(AI_P_SESSIONID, sessionId)
+                            .setSystemParam("rootSessionId", rootSid)
+                            .setSystemParam("userId", usrId)
+                            .setSystemParam(AI_P_ROUNDID, roundId));
+
+            if (execResult == null) {
+                putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
+                break;
+            }
+            boolean execAborted = execResult.parseBoolean("aborted", false);
+            boolean execRejected = execResult.parseBoolean("rejected", false);
+            boolean execPending = execResult.parseBoolean("pendingApproval", false);
+            boolean execClarified = execResult.parseBoolean("clarified", false);
+            boolean execTimeout = execResult.parseBoolean("hasTimeout", false);
+            boolean execFinal = execResult.parseBoolean(AI_P_FINALANSWER, false);
+
+            if (execAborted || cancelled.get()) { aborted = true; break; }
+            if (execRejected || execPending || execClarified || execTimeout) {
+                history.remove(aMsgIdx); // 精确回滚 assistant 消息
+            }
+            if (execRejected) {
+                rejectedReason = execResult.getStringParam("rejectReason", "");
+                history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                        "（操作已被用户拒绝：" + rejectedReason
+                                + "。不要重试此操作。）"));
+                rejected = true;
+                finalResponse = execResult.getStringParam("finalResponse", "");
+                break;
+            }
+            if (execPending) {
+                pendingApproval = true;
+                finalResponse = execResult.getStringParam("finalResponse", "");
+                // roundId 必带：断点必须落在本轮的同一行上——此前缺 roundId 会另起一条
+                // roundId="" 的行，本轮的 chatFinished 又把原行覆盖成 completed，
+                // findIncomplete 永远看不到待批态（"转断点 → 重登 → 恢复"链路因此断死）
                 notifySessionManager(createMsg()
-                        .setAction("chatAborted")
+                        .setAction("sessionUpdated")
                         .setParam("sessionId", sessionId)
-                        .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                            .setParam("agentName", name)
+                        .setParam("userId", ctx.userId)
+                    .setParam("agentName", name)
                         .setParam("roundId", roundId)
                         .setParam("messages", deltaMessages(history, msgStartIdx))
-                        .setParam("userMessage", userMessage));
-                putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
-                traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted", 0);
-                long[] accCancel = accumulateTokenUsage(sessionId, turn);
-                return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
-                        .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
-                        .setParam("iterations", iteration)
-                        .setParam(AI_P_TOTALTOKENS, (int) turn[2])
-                        .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);
-            }
-
-            // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
-            if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
-            // pending：轮次必须保持 pending_approval（等待批准后经 resume 收尾）——
-            // 发 chatFinished 会把断点覆盖成 completed，findIncomplete 再也找不到它；
-            // 记忆保存同理（"等待人工审批"不是可记忆的回复）
-            if (!pendingApproval) {
-                notifySessionManager(createMsg()
-                        .setAction("chatFinished")
-                        .setParam("sessionId", sessionId)
-                        .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                                .setParam("agentName", name)
-                        .setParam("roundId", roundId)
-                        .setParam("messages", deltaMessages(history, msgStartIdx))
+                        .setParam("model", model)
+                        .setParam("temperature", temperature)
+                        .setParam("maxTokens", maxTokens)
                         .setParam("userMessage", userMessage)
-                        .setParam("response", finalResponse));
+                        // 审批可能拦的是批次里任意一个 tool（执行器按 toolCallId 回报），
+                        // 不能拿 toolCalls.get(0) 顶替——批准恢复会用错工具重放
+                        .setParam("pendingToolCall", pickPendingToolCall(toolCalls, execResult))
+                        .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
+                break;
             }
-            // 全链追踪：轮次结束打点
-            String roundOutcome = "completed";
-            if (rejected) roundOutcome = "rejected";
-            else if (pendingApproval) roundOutcome = "pendingApproval";
-            else if (clarified) roundOutcome = "clarified";
-            else if (truncated) roundOutcome = "truncated";
-            // payload = agent 最终输出（finalResponse 各分支恒赋值；guardOutput 在打点之后，此处为原始值）
-            traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0,
-                    finalResponse != null ? finalResponse : "", null);
-            if (!pendingApproval) {
-                try {
-                    TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                            .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                            .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                                .setParam("agentName", name)
-                            .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                            .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
-                            .setParam(AI_P_MEMORYTAG, "chat_history")
-                            .setParam("maxSeq", getMaxSeq(sessionId));
-                    saveAgentMemory(fromWho, saveMsg);
-                } catch (Exception e) {
-                    putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
-                }
+            if (execClarified) {
+                clarified = true;
+                finalResponse = execResult.getStringParam("finalResponse", "");
+                break;
             }
-
-            putLog("Chat completed: sessionId=" + sessionId, LogLevel.DEBUG);
-            // 输出护栏：检查并净化回复
-            finalResponse = guardOutput(finalResponse);
-            long[] acc = accumulateTokenUsage(sessionId, turn);
-            TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
-                    .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration)
-                    .setParam(AI_P_NEEDSCLARIFICATION, clarified)
-                    // 拒绝标志：供 ToolExecutor/父 agent 结构化识别，不依赖 LLM 读懂文案
-                    .setParam("rejected", rejected)
-                    .setParam("rejectReason", rejectedReason != null ? rejectedReason : "")
-                    .setParam(AI_P_PROMPTTOKENS, (int) turn[0])
-                    .setParam(AI_P_COMPLETIONTOKENS, (int) turn[1])
-                    .setParam(AI_P_TOTALTOKENS, (int) turn[2])
-                    .setParam(AI_P_PROMPTTOKENS_TOTAL, (int) acc[0])
-                    .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) acc[1])
-                    .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2])
-                    // 缓存统计（本次 chat）
-                    .setParam(AI_P_CACHECREATIONTOKENS, (int) cacheTurn[0])
-                    .setParam(AI_P_CACHEHITTOKENS, (int) cacheTurn[1])
-                    .setParam(AI_P_CACHEMISSTOKENS, (int) cacheTurn[2])
-                    .setParam(AI_P_ROUNDID, roundId);
-            // 会话累计缓存统计（从 Provider 读取快照）
-            if (llmProvider != null) {
-                long[] sessionCache = llmProvider.getSessionCacheStats(sessionId);
-                ret.setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) sessionCache[0]);
-                ret.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) sessionCache[1]);
-                ret.setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) sessionCache[2]);
+            if (execTimeout) {
+                history.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                        "（工具执行超时：" + execResult.getStringParam("finalResponse", "")
+                                + "，请根据已有信息继续或重试。）"));
+                finalResponse = execResult.getStringParam("finalResponse", "");
+                break;
             }
-            if (truncated) ret.setParam(AI_P_TRUNCATED, true);
-            // 直出短路轮：返回消息重打标志，把下游直出意图沿委托链向上传播（executeAsTool 透传）
-            if (finalDirect) ret.setParam(AI_P_FINALANSWER, true);
-            // 推理内容：仅当开启且 visible 时暴露
-            if (!"off".equals(effectiveReasoningMode) && effectiveReasoningVisible
-                    && allReasoning.length() > 0) {
-                ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
-            }
-            // 会话首轮完成后异步起名（userId 必须在调用线程内取好——起名线程是异步的，ThreadLocal 取不到）
-            maybeGenerateSessionTitle(sessionId, sessionUserIds.getOrDefault(sessionId, "default"),
-                    !resumedFromCheckpoint && msgStartIdx <= 1);
-            return ret;
-
-        } catch (Exception e) {
-            // 中断/取消路径（如工具被 interrupt 后异常上抛）→ 当作中断，干净收尾
-            if (cancelled.get() || e instanceof InterruptedException) {
-                // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
-                Thread.interrupted();
-                putLog("Chat aborted (exception path): sessionId=" + sessionId, LogLevel.INFO);
-                return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
-                        .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId);
-            }
-            putLog("Chat error: " + e.toString(), LogLevel.ERROR);
-            // 收尾 SessionManager，避免已发 sessionUpdated 的 checkpoint 轮次残留
-            notifyChatError(sessionId, msg, history, msgStartIdx, roundId, userMessage,
-                    "Agent error: " + e.getMessage());
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
-        } finally {
-            chatThreads.remove(sessionId);
-            // 从监控模块注销
-            putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
-                    .setParam(AI_P_SESSIONID, sessionId));
-            currentRootSessionId.remove();
-            currentChatUserId.remove();
-            sessionRoundIds.remove(sessionId);
-            sessionUserIds.remove(sessionId);
-            // 这三个原来只在流式路径的 cleanupStreamState 里清，非流式 doChat 走 finally 时会漏：
-            // 每个 sessionId 永久留下一条用户消息原文（可能很长）与一段记忆召回文本，长期运行累积
-            sessionUserMessages.remove(sessionId);
-            sessionCoverSeq.remove(sessionId);
-            sessionMemoryContext.remove(sessionId);
-            // 清除中断标志（可能来自 worker.interrupt() 或 provider 回调），
-            // 防止返回 ThreadTask 后继续传播导致后续模块误抛 InterruptedException
-            while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
-            sessionRoundEnd(sessionId);
-        }
-    }
-
-    /** 流式LLM调用——使用配置文件中注册的streamCallback模块。返回 RESULT=false + 错误文案表示失败 */
-    private TLMsg doStreamCall(List<TLConversationHistory> history,
-                               List<TLFunctionDefinition> toolDefs,
-                               String sessionId, String model,
-                               String reasoningMode, int maxTokens) {
-        TLBaseModule cb = getModule("streamCallback") instanceof TLBaseModule
-                ? (TLBaseModule) getModule("streamCallback") : null;
-        if (cb == null) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "流式回调模块未注册（streamCallback）");
-        }
-
-        putMsg(cb, createMsg().setAction(STREAM_RESET));
-        TLMsg sm = createMsg().setAction(LLM_COMPLETIONSTREAM)
-                .setParam(AI_P_MESSAGEHISTORY, history).setParam(AI_P_FUNCTIONDEFS, toolDefs)
-                .setParam(AI_P_MODEL, model).setParam(AI_P_SESSIONID, sessionId)
-                .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
-                .setParam(AI_P_MAXTOKENS, maxTokens)
-                .setParam(RESULTFOR, "streamCallback").setParam(RESULTACTION, STREAM_ONCHUNK);
-        // 与 doChat 同语义：off = 什么都不传（模型默认）；disabled/native 显式透传
-        if (reasoningMode != null && !"off".equals(reasoningMode)) {
-            sm.setParam(AI_P_REASONING_MODE, reasoningMode);
-        }
-        // 全链追踪：流式 LLM 请求打点（本方法跑在 doChat 线程，ThreadLocal 有效；payload = 实际发送的 messages）
-        traceStage(sessionId, currentRootSessionId.get() != null ? currentRootSessionId.get() : sessionId,
-                sessionRoundIds.getOrDefault(sessionId, ""), "llmRequest",
-                "stream model=" + model, 0, formatHistoryForTrace(history), null);
-        putMsg(llmProvider, sm);
-
-        TLMsg wr = putMsg(cb, createMsg().setAction(STREAM_WAITFORSTREAM).setParam("timeout", 120));
-        if (wr == null) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "流式回调无响应");
-        }
-        // Provider 中途出错：waitForStream 的 streamError 携带错误信息
-        String streamErr = wr.getStringParam(AI_P_STREAMERROR, "");
-        if (!streamErr.isEmpty()) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "流式中断: " + streamErr);
-        }
-        // 等待超时或未收到 done 信号
-        if (wr.parseBoolean("timedOut", false) || !wr.parseBoolean("streamDone", false)) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_RESPONSE, "流式超时/未完成");
-        }
-        // 提取流式 reasoning 内容
-        if (wr.containsParam(AI_P_REASONING)) {
-            String streamReasoning = wr.getStringParam(AI_P_REASONING, "");
-            if (!streamReasoning.isEmpty()) {
-                history.add(TLConversationHistory.createReasoning(streamReasoning));
-            }
-        }
-        // 全链追踪：流式 LLM 响应打点
-        traceStage(sessionId, currentRootSessionId.get() != null ? currentRootSessionId.get() : sessionId,
-                sessionRoundIds.getOrDefault(sessionId, ""), "llmResponse",
-                "stream done", 0,
-                formatResponseForTrace(wr.getStringParam("content", ""), null,
-                        wr.containsParam(AI_P_REASONING) ? wr.getStringParam(AI_P_REASONING, "") : null),
-                null);
-        return createMsg().setParam(RESULT, true)
-                .setParam(AI_P_RESPONSE, wr.getStringParam("content", ""))
-                // finish_reason 透传（stop/tool_calls/length）：调用方据此如实告知"被截断"
-                .setParam(AI_P_FINISH_REASON, wr.getStringParam(AI_P_FINISH_REASON, ""));
-    }
-
-    /**
-     * 流式chat（异步，通过回调发送chunks）。
-     * 直接将调用者的回调目标传给Provider，避免中间转发。
-     */
-    @SuppressWarnings("unchecked")
-    protected TLMsg chatStream(Object fromWho, TLMsg msg) {
-        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
-        // 取消标志复位（与 doChat 同语义）：/stop 经 stopChat() 置 true，onStreamResult 回调线程读取；
-        // 不复位的话，上次停止的残留 true 会把后续正常对话误判为已停止
-        cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean()).set(false);
-        // 根会话 ID：与 doChat 同语义（上游透传，默认=sessionId）；回调线程打点经 sessionRootIds 查表
-        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
-        String userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
-        // 最终回调目标（显示层）
-        String resultFor = msg.getStringParam(RESULTFOR,
-                fromWho instanceof String ? (String) fromWho : "caller");
-        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
-        // 流式转发目标：onStreamResult 将 chunk/完成信号转发到此
-        String fwdTarget = msg.getStringParam("_streamResultFor", resultFor);
-        String fwdAction = msg.getStringParam("_streamResultAction", resultAction);
-
-        // 生成 roundId + 保存转发目标，供 onStreamResult 使用。
-        // 断点恢复用 resumeRoundId 继承（与 doChat 同规则）：否则 resume 轮生成新 id，
-        // 收尾 chatFinished 覆盖不到待批行，findIncomplete 永远清不掉断点
-        String roundId = sessionId + "_" + System.currentTimeMillis();
-        if (msg.parseBoolean("resume", false)) {
-            String resumeRoundId = msg.getStringParam("resumeRoundId", "");
-            if (!resumeRoundId.isEmpty()) roundId = resumeRoundId;
-        }
-        sessionRoundIds.put(sessionId, roundId);
-        // 会话运行登记：本流是"会话在跑一轮"（供注入排队/侧栏状态/停止定位）；
-        // 终态经 cleanupStreamState 统一注销（含提前返回与错误路径）；与 sessionRoundIds 同生，
-        // 故 begin 之后的同步异常全部由下方 catch 里的 cleanupStreamState 兜底归零
-        sessionRoundBegin(sessionId);
-        try {
-            // userId 入会话表（onStreamResult 跑在 provider 回调线程，ThreadLocal 不可用）
-            sessionUserIds.put(sessionId, String.valueOf(msg.getSystemParam(AI_P_USERID,
-                    msg.getStringParam(AI_P_USERID, "default"))));
-            // 本轮用户消息入会话表（收尾 chatFinished 保存会话时用）
-            sessionUserMessages.put(sessionId, userMessage);
-            // 注：附件归一化推迟到"真正构建用户条目"处（见下方 !resume 分支）——
-            // 提前做会让 Provider 缺失/resume/审批未决等提前返回的轮次白白解码落盘
-            sessionRootIds.put(sessionId, rootSid);
-            // 全链追踪：流式轮次开始打点（payload = 用户输入全文；回调线程打点需显式 userId）
-            traceStage(sessionId, rootSid, roundId, "roundStart", userMessage, 0,
-                    userMessage, sessionUserIds.get(sessionId));
-            // 注意：不能用 AI_P_TARGETINSTANCE——checkMsgAction 的实例直投分支会在 action 分发前
-            // 拦截任何带该键的消息（消息被弹回子模块，chatStream 根本不执行）。转发实例用独立键。
-            Object fwdInst = msg.getSystemParam(AI_P_STREAMFORWARDINSTANCE, null);
-            if (fwdInst instanceof IObject) {
-                // 私有子模块（如任务技能）作转发目标：记实例，转发直投；同时仍存 map
-                // （onStreamResult 按 sessionId 取 resultFor/resultAction 用）
-                streamForwardInstances.put(sessionId, (IObject) fwdInst);
-                streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
-            } else {
-                // 按名流显式接管：防上一轮未正常收尾时残留的实例把本轮事件抢走（实例优先级高于名字）
-                streamForwardInstances.remove(sessionId);
-                if (!fwdTarget.equals(getName())) {
-                    streamForwardMap.put(sessionId, new String[]{fwdTarget, fwdAction});
-                }
-            }
-
-            if (llmProvider == null) {
-                // 先转发再清理：清理会摘掉 streamForwardInstances，私有子模块目标需在清理前投递
-                forwardStream(fwdTarget, fwdAction, sessionId, createMsg()
-                        .setParam(AI_P_STREAMERROR, "No LLM provider configured")
-                        .setParam(AI_P_SESSIONID, sessionId));
-                cleanupStreamState(sessionId);
-                return null;
-            }
-
-            // ==== 断点恢复检查（与 doChat 同语义；resume 参数由 agentService 透传） ====
-            // 历史数据由调用方（agentService）从 SessionManager 加载好，通过 msg 参数传入。
-            // 流式入口此前不支持 resume：恢复请求实际从空/残留 context 起聊，等于没有断点续传。
-            boolean resume = msg.parseBoolean("resume", false);
-            List<TLConversationHistory> fullHistory;
-            if (resume && msg.containsParam("history")) {
+            // 直出短路：工具结果带 finalAnswer（下游 agent 配置 directOutput）——
+            // 仅单工具轮生效（多工具并行轮维持正常汇总，不丢其他结果）；
+            // 工具结果照常写 history + 直出文本作为本轮 assistant 最终消息（会话恢复/下轮上下文完整性），
+            // 不再调 LLM 加工
+            if (execFinal && toolCalls.size() == 1) {
                 @SuppressWarnings("unchecked")
-                List<TLConversationHistory> loadedHistory =
-                        (List<TLConversationHistory>) msg.getParam("history");
-                String resumeState = msg.getStringParam("resumeState", SESSION_STATE_CHECKPOINT);
-                if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
-                    // ==== 审批断点恢复（流式）：context system 置顶（DB 历史不含，恢复必须显式补） ====
-                    fullHistory = withContextSystem(loadedHistory);
-                    // 本轮增量起点必须在 resume 注入（assistant(tool_calls)/工具结果/拒绝提示）之前记录——
-                    // 否则这些消息不进本轮 delta，收尾 chatFinished 落库时丢失（与非流式 doChat 同语义）
-                    sessionMsgStartIdx.put(sessionId, fullHistory.size());
-                    TLToolCall savedTc = msg.containsParam("pendingToolCall")
-                            ? (TLToolCall) msg.getParam("pendingToolCall") : null;
-                    String savedApprovalId2 = msg.getStringParam(AI_P_APPROVAL_ID, "");
-                    // 决策写回：调用方带了 decision 直接用；否则向审批模块查终态（与非流式 doChat 同构）
-                    String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
-                    TLMsg approvalState2 = null;
-                    if (decision.isEmpty()) {
-                        approvalState2 = queryApproval(savedApprovalId2);
-                        decision = approvalState2 != null
-                                ? approvalState2.getStringParam("decision", "pending") : "pending";
-                    }
-                    if ("approved".equals(decision) && savedTc != null) {
-                        @SuppressWarnings("unchecked")
-                        java.util.Map<String, Object> modifiedArgs =
-                                msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS,
-                                        approvalState2 != null
-                                                ? approvalState2.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null) : null);
-                        if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
-                            savedTc.setArguments(modifiedArgs);
-                        }
-                        // 断点保存时该 assistant(tool_calls) 消息被刻意回滚（doChat 的 history.remove(aMsgIdx)），
-                        // loadedHistory 里没有工具结果的父消息——不补则 sanitizeToolPairs 会把结果当孤儿删掉，
-                        // 模型永远不知道已批准的工具执行过（与 doChat 批准分支对齐）
-                        java.util.List<TLToolCall> singleTc = new java.util.ArrayList<>();
-                        singleTc.add(savedTc);
-                        fullHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.assistant, singleTc));
-                        // 批准：重新执行被审批的工具，结果入历史（与 doChat 审批恢复一致）
-                        TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
-                                .setParam(AI_P_TOOLCALLS, singleTc));
-                        List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
-                                frResolveMsg.getListParam("tasks", new ArrayList<>());
-                        if (singleTask.size() > 1) {
-                            putLog("Approval resume resolved to " + singleTask.size()
-                                    + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
-                        }
-                        String execId2 = sessionId + "_resume_" + System.nanoTime();
-                        TLMsg singleExecResult = singleTask.isEmpty() ? null
-                                : putMsg(toolExecutor, createMsg().setAction(TODOOLEXECUTE)
-                                        .setParam("tasks", singleTask)
-                                        .setSystemParam("executionId", execId2)
-                                        .setSystemParam(AI_P_SESSIONID, sessionId)
-                                        .setSystemParam("userId", msg.getSystemParam("userId", "default"))
-                                        .setSystemParam("rootSessionId", rootSid)
-                                        .setSystemParam(AI_P_ROUNDID, roundId)
-                                        .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批：本次调用已获人工批准
-                        // 与其它工具结果写点一致：经 appendToolResult/flushToolImages 走产图管线
-                        //（审批后执行的工具同样可能声明投图；直接 fullHistory.add 会丢掉声明的那张图）
-                        List<TLAttachmentRef> pendingImages = new ArrayList<>();
-                        TLToolExecutor.ToolResult singleResult = null;
-                        // 执行器只带 RESULT/"result"，没有 "success"——旧门禁恒 false，结果永远丢成空占位
-                        if (singleExecResult != null) {
-                            @SuppressWarnings("unchecked")
-                            List<TLToolExecutor.ToolResult> singleResults =
-                                    (List<TLToolExecutor.ToolResult>) singleExecResult.getListParam("results", null);
-                            if (singleResults != null && !singleResults.isEmpty())
-                                singleResult = singleResults.get(0);
-                        }
-                        appendToolResult(fullHistory,
-                                singleResult != null ? singleResult
-                                        : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
-                                sessionId, pendingImages);
-                        flushToolImages(fullHistory, pendingImages);
-                        putLog("Approval resumed (stream): approved → tool executed: " + savedTc.getFunctionName(),
-                                LogLevel.INFO);
-                    } else if ("approved".equals(decision)) {
-                        // 批准但断点缺 pendingToolCall（畸形断点）：无法重放——如实告知并继续，不假装仍在等待
-                        putLog("Approval resumed but pendingToolCall missing: approvalId=" + savedApprovalId2, LogLevel.ERROR);
-                        fullHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作无法恢复：审批已通过但断点工具调用缺失。如需执行请重新发起。）"));
-                    } else if ("rejected".equals(decision)) {
-                        String reason = msg.getStringParam(AI_P_APPROVAL_REJECTREASON,
-                                approvalState2 != null
-                                        ? approvalState2.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝") : "用户拒绝");
-                        fullHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作已被拒绝：" + reason + "。请寻找替代方案。）"));
-                        putLog("Approval resumed (stream): rejected → reason=" + reason, LogLevel.INFO);
-                    } else if ("lost".equals(decision)) {
-                        String reason = approvalState2 != null
-                                ? approvalState2.getStringParam(AI_P_APPROVAL_REJECTREASON, "审批已失效") : "审批已失效";
-                        fullHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.user,
-                                "（上一操作未执行：审批已失效——" + reason + "。如需执行请重新发起。）"));
-                        putLog("Approval resumed (stream): lost → reason=" + reason, LogLevel.WARN);
-                    } else {
-                        putLog("Approval still pending on stream resume: approvalId="
-                                + msg.getStringParam(AI_P_APPROVAL_ID, ""), LogLevel.WARN);
-                        // 与其它提前返回一致：推终帧（否则前端/控制台无输出、busy 不释放）。
-                        // 注意不发 chatFinished——轮次必须保持 pending_approval 等批准
-                        forwardStreamFinal(resultFor, resultAction, sessionId,
-                                "审批请求仍在等待中，approvalId=" + msg.getStringParam(AI_P_APPROVAL_ID, ""));
-                        cleanupStreamState(sessionId);
-                        return null;
-                    }
-                } else {
-                    // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
-                    // context system 置顶（DB/checkpoint 增量不含，恢复必须显式补）
-                    fullHistory = withContextSystem(loadedHistory);
-                    // 本轮增量起点 = 加载历史大小（本分支无注入，等价于加载即记录）
-                    sessionMsgStartIdx.put(sessionId, fullHistory.size());
-                }
-                putLog("Stream resumed from checkpoint: sessionId=" + sessionId
-                        + " historySize=" + fullHistory.size(), LogLevel.INFO);
-            } else {
-                // 正常流程：从 context 构建历史（全量；摘要模式不 trim）
-                fullHistory = getContextHistory(sessionId);
-                // 记录本轮增量起点（chatFinished 的 messages 只存本轮新增，避免全量累积导致恢复重复）
-                sessionMsgStartIdx.put(sessionId, fullHistory.size());
+                List<TLToolExecutor.ToolResult> execResultsF =
+                        (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+                appendToolResults(ctx, tasks, execResultsF);
+                finalResponse = execResult.getStringParam("finalResponse", "");
+                // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                        finalResponse.isEmpty() ? "（无输出）" : finalResponse));
+                finalDirect = true;
+                break;
             }
-            // ==== 记忆召回注入（流式路径；非流式在 doChat 同逻辑） ====
-            // beforeMsgTable 钩子（chatStream → recallAgentMemory）的返回经 PRERESULT 进入 systemArgs
-            // 记忆每轮注入（原始设计，同 doChat）；"写诗被算进下一轮"的根因是直出跳过上下文保存，已单独修复
-            // 记忆 system 只进发送视图（buildSendList 注入），不写回 context——全量保留下避免累积污染
-            TLMsg beforeResult = (TLMsg) msg.getSystemParam(PRERESULT);
-            String memoryContext = null;
-            if (beforeResult != null && beforeResult.containsParam(AI_P_MEMORYRESULT)) {
-                List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
-                        beforeResult.getListParam(AI_P_MEMORYRESULT, null);
-                if (entries != null && !entries.isEmpty()) {
-                    StringBuilder ctx = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
-                    for (TLMemoryEntry e : entries) ctx.append("- ").append(e.getValue()).append("\n");
-                    memoryContext = ctx.toString();
-                }
-            }
-            long coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
-            sessionCoverSeq.put(sessionId, coverSeq);
-            if (memoryContext != null && !memoryContext.isEmpty()) {
-                sessionMemoryContext.put(sessionId, memoryContext);
-            }
-            // 发送视图 = 摘要 coverSeq 衔接的原始视图 + 记忆 system；保存列表 = 全量 + user
-            List<TLConversationHistory> history = buildSendList(fullHistory, coverSeq, memoryContext);
-            // 立即保存全量+用户消息的上下文（msgTool 如 getTurnCount 读当前会话；恢复/续轮不丢全量）
-            List<TLConversationHistory> saved = new ArrayList<>(fullHistory);
-            // 恢复场景：断点历史已含断点用户消息（loadSession 返回），不重复添加
-            if (!resume) {
-                // 附件归一化只在此处做（resume 轮不重建用户消息，不做解码落盘）
-                List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId);
-                // 发送视图单独拼清单：首请求（无 tool 轮次则唯一请求）走的是这份 history，
-                // 而 buildSendList 已在本轮用户消息入列之前执行——不显式拼，模型首请求看不到清单
-                TLConversationHistory sendEntry = buildUserEntry(userMessage, roundAttachments);
-                applyManifestToEntry(sendEntry);
-                history.add(sendEntry);
-                // 存储侧不带清单：清单是发送时视图，下一轮 buildSendList 会按附件重新生成
-                saved.add(buildUserEntry(userMessage, roundAttachments));
-            }
-            saveContextHistory(sessionId, saved);
-            // 对话开始即保存 checkpoint 轮（含用户消息）：进程意外死亡时轮次残留，
-            // 重启后可恢复本会话历史（纯文本/首响应阶段被杀不再丢失最后一条消息）；
-            // 正常完成/人为停止由 chatFinished/chatAborted 同 roundId 覆盖为 completed
+            // 全部正常：按顺序写入 history
+            @SuppressWarnings("unchecked")
+            List<TLToolExecutor.ToolResult> execResults =
+                    (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
+            appendToolResults(ctx, tasks, execResults);
+            if (aborted || clarified || pendingApproval || rejected || execTimeout) break;
+            // L2 checkpoint: 每轮工具调用后通知 SessionManager
             notifySessionManager(createMsg()
                     .setAction("sessionUpdated")
                     .setParam("sessionId", sessionId)
-                    .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
+                    .setParam("userId", ctx.userId)
                     .setParam("agentName", name)
-                    .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                    .setParam("messages", deltaMessages(saved, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                    .setParam("model", msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
-                    .setParam("temperature", defaultTemperature)
-                    .setParam("maxTokens", defaultMaxTokens)
-                    .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-            // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
-            TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
-            List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
-                    frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
+                    .setParam("roundId", roundId)
+                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("model", model)
+                    .setParam("temperature", temperature)
+                    .setParam("maxTokens", maxTokens)
+                    .setParam("userMessage", userMessage));
+        }
+        if (finalResponse == null) {
+            truncated = true;
+            finalResponse = "（已达最大迭代次数 " + maxToolCallIterations + "，可能未完成）";
+        }
 
-            // 推理模式/长度预算：请求级覆盖 > agent 配置默认。
-            // 此前流式链路两处都不传：配 reasoningMode=disabled 关不掉思考（模型照常推理，
-            // 推理吃光预算），defaultMaxTokens 也不生效——会话级留存供续跑轮透传
-            String streamMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
-            if ("auto".equals(streamMode)) {
-                streamMode = resolveAutoMode(msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()));
-            }
-            sessionReasoningModes.put(sessionId, streamMode);
+        // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
+        if (aborted) {
+            // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
+            Thread.interrupted();
+            // 通知 SessionManager 会话中断，存为 completed 避免残留 checkpoint
+            notifySessionManager(createMsg()
+                    .setAction("chatAborted")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", ctx.userId)
+                        .setParam("agentName", name)
+                    .setParam("roundId", roundId)
+                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("userMessage", userMessage));
+            putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
+            traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted", 0);
+            long[] accCancel = accumulateTokenUsage(sessionId, turn);
+            streamFinal(ctx, "⏹ 已中断");
+            return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
+                    .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("iterations", iteration)
+                    .setParam(AI_P_TOTALTOKENS, (int) turn[2])
+                    .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);
+        }
 
-            // 回调目标设为本 agent（走 onStreamResult），最终调用方通过 _streamResultFor 指定
-            TLMsg streamMsg = createMsg()
-                    .setAction(LLM_COMPLETIONSTREAM)
-                    .setParam(AI_P_MESSAGEHISTORY, history)
-                    .setParam(AI_P_FUNCTIONDEFS, toolDefs)
-                    .setParam(AI_P_SESSIONID, sessionId)
-                    .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""))
-                    .setParam(RESULTFOR, getName())
-                    .setParam(RESULTACTION, "onStreamResult");
-
-            if (msg.containsParam(AI_P_MODEL))
-                streamMsg.setParam(AI_P_MODEL, msg.getParam(AI_P_MODEL));
-            if (msg.containsParam(AI_P_TEMPERATURE))
-                streamMsg.setParam(AI_P_TEMPERATURE, msg.getParam(AI_P_TEMPERATURE));
-            // 与 doChat 同语义：off = 什么都不传（模型默认行为）；其余值显式透传
-            if (!"off".equals(streamMode)) streamMsg.setParam(AI_P_REASONING_MODE, streamMode);
-            streamMsg.setParam(AI_P_MAXTOKENS, msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens));
-            // 断点恢复参数（agentService loadSession 透传）：resumeModel/resumeTemperature 优先于默认值
-            if (resume && msg.containsParam("resumeModel"))
-                streamMsg.setParam(AI_P_MODEL, msg.getStringParam("resumeModel", ""));
-            if (resume && msg.containsParam("resumeTemperature"))
-                streamMsg.setParam(AI_P_TEMPERATURE, msg.getDoubleParam("resumeTemperature", 0.7));
-
-            // 全链追踪：流式 LLM 请求打点（payload = 实际发送给 LLM 的 messages，含记忆注入与用户消息）
-            traceStage(sessionId, rootSid, roundId, "llmRequest",
-                    "stream model=" + (msg.containsParam(AI_P_MODEL)
-                            ? msg.getStringParam(AI_P_MODEL, "") : llmProvider.getDefaultModel()),
-                    0, formatHistoryForTrace(history), sessionUserIds.get(sessionId));
+        // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
+        if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
+        // pending：轮次必须保持 pending_approval（等待批准后经 resume 收尾）——
+        // 发 chatFinished 会把断点覆盖成 completed，findIncomplete 再也找不到它；
+        // 记忆保存同理（"等待人工审批"不是可记忆的回复）
+        if (!pendingApproval) {
+            notifySessionManager(createMsg()
+                    .setAction("chatFinished")
+                    .setParam("sessionId", sessionId)
+                    .setParam("userId", ctx.userId)
+                            .setParam("agentName", name)
+                    .setParam("roundId", roundId)
+                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("userMessage", userMessage)
+                    .setParam("response", finalResponse));
+        }
+        // 全链追踪：轮次结束打点
+        String roundOutcome = "completed";
+        if (rejected) roundOutcome = "rejected";
+        else if (pendingApproval) roundOutcome = "pendingApproval";
+        else if (clarified) roundOutcome = "clarified";
+        else if (truncated) roundOutcome = "truncated";
+        // payload = agent 最终输出（finalResponse 各分支恒赋值；guardOutput 在打点之后，此处为原始值）
+        traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0,
+                finalResponse != null ? finalResponse : "", null);
+        if (!pendingApproval) {
             try {
-                putMsg(llmProvider, streamMsg);
+                TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
+                        .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
+                        .setParam("userId", ctx.userId)
+                            .setParam("agentName", name)
+                        .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
+                        .setParam(AI_P_MEMORYVALUE, userMessage + " → " + finalResponse)
+                        .setParam(AI_P_MEMORYTAG, "chat_history")
+                        .setParam("maxSeq", getMaxSeq(sessionId));
+                saveAgentMemory(fromWho, saveMsg);
             } catch (Exception e) {
-                // 流启动失败：转发错误并清理状态（与 Provider 错误路径一致，避免泄漏）；
-                // 转发在清理前（清理会摘掉 streamForwardInstances，私有子模块目标需在清理前投递）
-                try {
-                    forwardStream(fwdTarget, fwdAction, sessionId, createMsg()
-                            .setParam(AI_P_STREAMERROR, "Stream start failed: " + e.getMessage())
-                            .setParam(AI_P_SESSIONID, sessionId));
-                } catch (Exception ignored) {
-                    // 转发失败不再抛出，调用方通过无回调获知
-                } finally {
-                    // 无论转发成败都清理，避免状态/实例表泄漏
-                    cleanupStreamState(sessionId);
-                }
+                putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
             }
-            return null; // 异步
-        } catch (RuntimeException e) {
-            // 同步前缀异常：与流终态一致地清理（计数/转发表不泄漏）；保持既有异常语义（getMsg → exception()）
-            cleanupStreamState(sessionId);
-            throw e;
+        }
+
+        putLog("Chat completed: sessionId=" + sessionId, LogLevel.DEBUG);
+        // 输出护栏：检查并净化回复
+        finalResponse = guardOutput(finalResponse);
+        long[] acc = accumulateTokenUsage(sessionId, turn);
+        TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
+                .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration)
+                .setParam(AI_P_NEEDSCLARIFICATION, clarified)
+                // 拒绝标志：供 ToolExecutor/父 agent 结构化识别，不依赖 LLM 读懂文案
+                .setParam("rejected", rejected)
+                .setParam("rejectReason", rejectedReason != null ? rejectedReason : "")
+                .setParam(AI_P_PROMPTTOKENS, (int) turn[0])
+                .setParam(AI_P_COMPLETIONTOKENS, (int) turn[1])
+                .setParam(AI_P_TOTALTOKENS, (int) turn[2])
+                .setParam(AI_P_PROMPTTOKENS_TOTAL, (int) acc[0])
+                .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) acc[1])
+                .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2])
+                // 缓存统计（本次 chat）
+                .setParam(AI_P_CACHECREATIONTOKENS, (int) cacheTurn[0])
+                .setParam(AI_P_CACHEHITTOKENS, (int) cacheTurn[1])
+                .setParam(AI_P_CACHEMISSTOKENS, (int) cacheTurn[2])
+                .setParam(AI_P_ROUNDID, roundId);
+        // 会话累计缓存统计（从 Provider 读取快照）
+        if (llmProvider != null) {
+            long[] sessionCache = llmProvider.getSessionCacheStats(sessionId);
+            ret.setParam(AI_P_CACHECREATIONTOKENS_TOTAL, (int) sessionCache[0]);
+            ret.setParam(AI_P_CACHEHITTOKENS_TOTAL, (int) sessionCache[1]);
+            ret.setParam(AI_P_CACHEMISSTOKENS_TOTAL, (int) sessionCache[2]);
+        }
+        if (truncated) ret.setParam(AI_P_TRUNCATED, true);
+        // 直出短路轮：返回消息重打标志，把下游直出意图沿委托链向上传播（executeAsTool 透传）
+        if (finalDirect) ret.setParam(AI_P_FINALANSWER, true);
+        // 推理内容：仅当开启且 visible 时暴露
+        if (!"off".equals(effectiveReasoningMode) && effectiveReasoningVisible
+                && allReasoning.length() > 0) {
+            ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
+        }
+        // 会话首轮完成后异步起名（userId 必须在调用线程内取好——起名线程是异步的，ThreadLocal 取不到）
+        maybeGenerateSessionTitle(sessionId, ctx.userId, userMessage,
+                !resumedFromCheckpoint && msgStartIdx <= 1);
+        streamFinal(ctx, finalResponse);
+        return ret;
+    }
+
+    /** 成功/待批/拒绝/直出/中断的统一终帧：文本增量 + done。幂等。 */
+    private void streamFinal(ChatRunContext ctx, String answer) {
+        if (ctx.sink == null || ctx.streamFinished) return;
+        ctx.streamFinished = true;   // 先置位：onFinalText 抛异常也不会被重入/双发
+        try {
+            ctx.sink.onFinalText(answer, ctx.finalAnswerStreamed);
+        } finally {
+            // 终帧必须发：onFinalText 抛异常时前端 busy 指示也要能结束
+            ctx.sink.onDone();
         }
     }
 
-    /** 统一清理流式会话状态（streamForwardMap/sessionRoundIds/sessionMsgStartIdx/sessionUserIds），异常路径也不泄漏 */
-    private void cleanupStreamState(String sessionId) {
-        streamForwardMap.remove(sessionId);
-        streamForwardInstances.remove(sessionId);
-        boolean roundActive = sessionRoundIds.remove(sessionId) != null;
-        sessionMsgStartIdx.remove(sessionId);
-        sessionUserIds.remove(sessionId);
-        sessionUserMessages.remove(sessionId);
-        sessionReasoningModes.remove(sessionId);
-        sessionRootIds.remove(sessionId);
-        sessionCoverSeq.remove(sessionId);
-        sessionMemoryContext.remove(sessionId);
-        // 流式轮收尾：注销即触发 monitor 端该会话的 DB flush（chatStream 不 register，不影响 runningAgents 语义）
-        putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
-                .setParam(AI_P_SESSIONID, sessionId));
-        if (roundActive) sessionRoundEnd(sessionId);   // 幂等：一次 begin 只配对一次 end
+    /** 错误终帧：只发 error，不发 done（与当前流式语义一致）。幂等。 */
+    private void streamError(ChatRunContext ctx, String message) {
+        if (ctx.sink == null || ctx.streamFinished) return;
+        ctx.streamFinished = true;
+        ctx.sink.onError(message);
+    }
+
+    /** LLM 错误收尾：人为停止不留断点；流式非人为错误保 checkpoint；非流式按原 doChat 收口。 */
+    private void handleRunError(ChatRunContext ctx, String errMsg) {
+        if (ctx.cancelled()) {
+            // 防御性短路：正常路径在 LLM 错误分支之前已检查 cancelled
+            if (ctx.history != null) {
+                notifySessionManager(createMsg()
+                        .setAction("chatAborted")
+                        .setParam("sessionId", ctx.sessionId)
+                        .setParam("userId", ctx.userId)
+                        .setParam("agentName", name)
+                        .setParam("roundId", ctx.roundId)
+                        .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
+                        .setParam("userMessage", ctx.userMessage));
+            }
+            streamFinal(ctx, "⏹ 已中断");
+            return;
+        }
+        boolean streamRun = ctx.sink != null && !ctx.sink.isNull();
+        if (streamRun) {
+            // 与旧 onStreamResult 的 STREAMERROR 分支一致：非人为错误保持 checkpoint
+            putLog("LLM error kept as checkpoint: sessionId=" + ctx.sessionId
+                    + " err=" + errMsg, LogLevel.WARN);
+        } else {
+            notifyChatError(ctx, errMsg);
+        }
+        streamError(ctx, errMsg);
+    }
+
+    /** 按序写工具结果 + 推实时工具事件（流式 UI 渲染卡片/截图）。 */
+    private void appendToolResults(ChatRunContext ctx,
+                                   List<TLToolExecutor.ToolTask> tasks,
+                                   List<TLToolExecutor.ToolResult> results) {
+        if (results == null) return;
+        List<TLAttachmentRef> pendingImages = new ArrayList<>();
+        for (int i = 0; i < results.size(); i++) {
+            TLToolExecutor.ToolResult r = results.get(i);
+            appendToolResult(ctx.history, r, ctx.sessionId, ctx.userId, pendingImages);
+            // 必须喂原始 output（webui 渲染路径要从里面取 base64），不能喂 stripImageKeys 后的文本
+            ctx.sink.onToolEvent(i < tasks.size() ? tasks.get(i).functionName : r.toolCallId, r.output);
+        }
+        flushToolImages(ctx.history, pendingImages);
     }
 
     /**
-     * 处理流式LLM响应结果（回调）。
-     * 当流式响应包含tool_calls时，自动执行skills并继续chat循环，
-     * 最终将完整的文本响应转发给原始调用者。
+     * 异步流式入口：创建转发 sink → 把统一的 runChat 丢到工作线程 → 立即返回 null。
+     * 编排、审批、断点、保存全部在 runChat 里；本方法不再做预处理。
      */
-    @SuppressWarnings("unchecked")
-    protected TLMsg onStreamResult(Object fromWho, TLMsg msg) {
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        // 人为停止标志（stopChat 置 true；与 doChat 的 cancelled 同一引用，回调线程读取）
-        java.util.concurrent.atomic.AtomicBoolean cancelled =
-                cancelFlags.computeIfAbsent(sessionId, k -> new java.util.concurrent.atomic.AtomicBoolean());
-        // 查表获取转发目标（chatStream 存、此处取；若调用方未设则 fallback 到 msg 参数）
-        String[] fwd = streamForwardMap.get(sessionId);
-        String resultFor = fwd != null ? fwd[0]
-                : msg.getStringParam("_streamResultFor", "caller");
-        String resultAction = fwd != null ? fwd[1]
-                : msg.getStringParam("_streamResultAction", "onStreamChunk");
-        // userId 来源：sessionUserIds 表（chatStream/doChat 入口写入；本方法跑在 provider 回调线程，ThreadLocal 不可用）
-        String streamUserId = sessionUserIds.getOrDefault(sessionId,
-                msg.getStringParam(AI_P_USERID, "default"));
+    protected TLMsg chatStream(Object fromWho, TLMsg msg) {
+        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        // 与 doChat 同语义：复位取消标志，避免上次 /stop 的残留 true 影响本轮
+        cancelFlags.computeIfAbsent(sessionId,
+                k -> new java.util.concurrent.atomic.AtomicBoolean()).set(false);
 
-        // 转发chunk或完成信号给最终调用方（TLChatConsole 等）
-        if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
-            String streamedText = msg.getStringParam(AI_P_RESPONSE, "");
-            boolean hasToolCalls = msg.parseBoolean("hasToolCalls", false);
-            List<TLToolCall> toolCalls = (List<TLToolCall>) msg.getListParam(AI_P_TOOLCALLS, null);
+        // 兜底目标 "caller"：同名模块不存在时由 ForwardStreamSink.forward 的
+        // IGNOREMODULEISNULL 静默丢弃事件（调用方配置错误，不应关停应用）
+        String resultFor = msg.getStringParam(RESULTFOR,
+                fromWho instanceof String ? (String) fromWho : "caller");
+        String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
+        String fwdTarget = msg.getStringParam("_streamResultFor", resultFor);
+        String fwdAction = msg.getStringParam("_streamResultAction", resultAction);
+        Object fwdInst = msg.getSystemParam(AI_P_STREAMFORWARDINSTANCE, null);
+        IObject forwardInstance = fwdInst instanceof IObject ? (IObject) fwdInst : null;
 
-            // 全链追踪：流式 LLM 响应打点（回调线程：rootSid/roundId 查表，userId 显式传）
-            String rootSid = sessionRootIds.getOrDefault(sessionId, sessionId);
-            String roundId = sessionRoundIds.getOrDefault(sessionId, "");
-            traceStage(sessionId, rootSid, roundId, "llmResponse", "stream done", 0,
-                    formatResponseForTrace(streamedText, hasToolCalls ? toolCalls : null,
-                            msg.containsParam(AI_P_REASONING) ? msg.getStringParam(AI_P_REASONING, "") : null),
-                    streamUserId);
-
-            try {
-                if (hasToolCalls && toolCalls != null && !toolCalls.isEmpty()) {
-                    // 人为停止检查：停止后不执行工具，收尾为 completed（断点只用于意外死机）
-                    if (cancelled.get()) {
-                        notifySessionManager(createMsg()
-                                .setAction("chatAborted")
-                                .setParam("sessionId", sessionId)
-                                .setParam("userId", streamUserId)
-                                .setParam("agentName", name)
-                                .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                .setParam("messages", deltaMessages(getContextHistory(sessionId),
-                                        sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-                        forwardStreamFinal(resultFor, resultAction, sessionId, "⏹ 已中断");
-                        return null;
-                    }
-                    // 流式响应包含tool calls: 执行skills并继续chat循环
-                    try {
-                        List<TLConversationHistory> history = getContextHistory(sessionId);
-
-                        // 添加assistant消息（流式文本 + tool calls）
-                        TLConversationHistory aMsg = new TLConversationHistory(
-                                TLConversationHistory.Role.assistant, new ArrayList<>(toolCalls));
-                        if (streamedText != null && !streamedText.isEmpty()) {
-                            aMsg.setContent(streamedText);
-                        }
-                        // pending 转断点的回滚点：assistant(tool_calls) 及其后由 execToolsViaExecutor
-                        // 追加的兄弟工具结果（若有）都不能进断点——resume 会按 pendingToolCall 自己重建
-                        int pendingRollbackTo = history.size();
-                        history.add(aMsg);
-
-                        // 并行执行tool calls（含拒绝标志：被拒则停止续跑并转发拒绝文案）
-                        TLMsg execResult = execToolsViaExecutor(toolCalls, fromWho, sessionId,
-                                history, streamUserId);
-                        if (handleStreamRejected(execResult, history, sessionId)) {
-                            // 拒绝收尾：保存上下文，避免本轮 tool 结果丢失导致下一轮上下文不完整
-                            saveContextHistory(sessionId, history);
-                            // 全链追踪：拒绝轮收尾（payload = 拒绝文案）
-                            traceStage(sessionId, rootSid, roundId, "roundEnd", "rejected", 0,
-                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"), streamUserId);
-                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
-                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
-                            forwardStreamFinal(resultFor, resultAction, sessionId,
-                                    execResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
-                            return null;
-                        }
-                        // 审批待批（转断点）：与非流式 doChat 对称——回滚 assistant(tool_calls)
-                        // （待批工具未执行）、存 pending_approval 断点（必带 roundId：否则成独立
-                        // roundId="" 行，resume 的 chatFinished 覆盖不到）、收尾本轮但【不发 chatFinished】：
-                        // 轮次必须保持待批，由批准后的 resume 完成
-                        if (execResult != null && execResult.parseBoolean("pendingApproval", false)) {
-                            while (history.size() > pendingRollbackTo) history.remove(history.size() - 1);
-                            String pendingText = execResult.getStringParam("finalResponse", "=== 等待人工审批 ===");
-                            notifySessionManager(createMsg()
-                                    .setAction("sessionUpdated")
-                                    .setParam("sessionId", sessionId)
-                                    .setParam("userId", streamUserId)
-                                    .setParam("agentName", name)
-                                    .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                    .setParam("messages", deltaMessages(history,
-                                            sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                    .setParam("model", msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
-                                    .setParam("temperature", defaultTemperature)
-                                    .setParam("maxTokens", defaultMaxTokens)
-                                    .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
-                                    // 同非流式：被审批拦截的 tool 按 id 定位（多工具批次不能拿首个顶替）
-                                    .setParam("pendingToolCall", pickPendingToolCall(toolCalls, execResult))
-                                    .setParam(AI_P_APPROVAL_ID, execResult.getStringParam(AI_P_APPROVAL_ID, "")));
-                            saveContextHistory(sessionId, history);
-                            traceStage(sessionId, rootSid, roundId, "roundEnd", "pendingApproval", 0,
-                                    pendingText, streamUserId);
-                            forwardStreamFinal(resultFor, resultAction, sessionId, pendingText);
-                            return null;
-                        }
-                        // L2 checkpoint: 首个工具执行后通知 SessionManager（与续跑循环内对称）——
-                        // 单工具轮是常见场景：kill 时若无此轮残留，断点无法恢复
-                        notifySessionManager(createMsg()
-                                .setAction("sessionUpdated")
-                                .setParam("sessionId", sessionId)
-                                .setParam("userId", streamUserId)
-                                .setParam("agentName", name)
-                                .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                .setParam("messages", deltaMessages(history,
-                                        sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                .setParam("model", msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
-                                .setParam("temperature", defaultTemperature)
-                                .setParam("maxTokens", defaultMaxTokens)
-                                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-                        // 直出短路（流式路径）：单工具轮且带 finalAnswer → 全文直达，不再续跑 LLM
-                        if (execResult != null && execResult.parseBoolean(AI_P_FINALANSWER, false)
-                                && (toolCalls == null || toolCalls.size() == 1)) {
-                            String directText = execResult.getStringParam("finalResponse", "");
-                            // 直出文本作为本轮 assistant 最终消息入 history（与非流式直出对称）——
-                            // 此前只 forwardStreamFinal 推前端不落 history：恢复会话时终答消失，
-                            // 用户只见开场白 + 工具卡片（"诗没有了"）；空响应放占位符（空 assistant 会被 API 400）
-                            history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                    directText.isEmpty() ? "（无输出）" : directText));
-                            // 直出前保存上下文（此前缺失：直出直接 return 跳过保存，
-                            // 导致下一轮 getContextHistory 拿不到本轮完整 history——LLM 只能靠记忆，
-                            // 把上轮任务（如写诗）误当新指令）
-                            saveContextHistory(sessionId, history);
-                            // 全链追踪：直出轮收尾（payload = 直出全文）
-                            traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                                    directText, streamUserId);
-                            // 收尾通知 SessionManager + 记忆（直出路径此前缺 chatFinished → 恢复会话时该轮缺失）
-                            notifyStreamChatFinished(fromWho, sessionId, history, streamUserId, directText);
-                            forwardStreamFinal(resultFor, resultAction, sessionId, directText);
-                            return null;
-                        }
-
-                        // 非流式继续LLM循环（支持后续tool calls）
-                        String finalResponse = null;
-                        int iteration = 1;
-                        while (iteration < maxToolCallIterations) {
-                            iteration++;
-                            // 人为停止检查：stopChat 后不再续跑，收尾为 completed
-                            //（断点恢复只针对意外死机；人为停止本轮视为结束，不留断点）
-                            if (cancelled.get()) {
-                                notifySessionManager(createMsg()
-                                        .setAction("chatAborted")
-                                        .setParam("sessionId", sessionId)
-                                        .setParam("userId", streamUserId)
-                                        .setParam("agentName", name)
-                                        .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                        .setParam("messages", deltaMessages(history,
-                                                sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                        .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-                                traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted", 0,
-                                        "⏹ 已中断", streamUserId);
-                                forwardStreamFinal(resultFor, resultAction, sessionId, "⏹ 已中断");
-                                return null;
-                            }
-                            // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
-            TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
-            List<TLFunctionDefinition> toolDefs = (List<TLFunctionDefinition>)
-                    frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
-                            TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
-                                    .setParam(AI_P_MESSAGEHISTORY, buildSendList(history,
-                                            sessionCoverSeq.getOrDefault(sessionId, 0L),
-                                            sessionMemoryContext.get(sessionId)))
-                                    .setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
-                                    .setParam(AI_P_TEMPERATURE, defaultTemperature)
-                                    .setParam(AI_P_MAXTOKENS, defaultMaxTokens)
-                                    // 会话参数必带：provider 的 debug trace 用它命名文件，缺了会落
-                                    // "default"——所有会话的续跑调用全追加进同一个 .trace（176MB 事故）
-                                    .setParam(AI_P_SESSIONID, sessionId)
-                                    .setParam(AI_P_ROUNDID, sessionRoundIds.getOrDefault(sessionId, ""));
-                            // 推理模式与流式首包同源透传：否则首包按配置关了思考、续跑又"照常思考"
-                            String contMode = sessionReasoningModes.get(sessionId);
-                            if (contMode != null && !"off".equals(contMode)) {
-                                llmMsg.setParam(AI_P_REASONING_MODE, contMode);
-                            }
-                            if (toolDefs != null && !toolDefs.isEmpty()) {
-                                llmMsg.setParam(AI_P_FUNCTIONDEFS, new ArrayList<>(toolDefs));
-                            }
-
-                            // 全链追踪：流式续跑循环的 LLM 请求打点（payload = 含工具结果的 messages）
-                            traceStage(sessionId, rootSid, roundId, "llmRequest",
-                                    "iter=" + iteration + " model=" + msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()),
-                                    0, formatHistoryForTrace(history), streamUserId);
-                            TLMsg llmResponse = putMsg(llmProvider, llmMsg);
-                            if (!llmResponse.parseBoolean(RESULT, false)) break;
-                            // Token 累加（流式后续的非流式循环；首个流式响应的 usage 需 include_usage，暂不覆盖）
-                            long sp = llmResponse.getIntParam(AI_P_PROMPTTOKENS, 0);
-                            long sc = llmResponse.getIntParam(AI_P_COMPLETIONTOKENS, 0);
-                            long st = llmResponse.getIntParam(AI_P_TOTALTOKENS, 0);
-                            accumulateTokenUsage(sessionId, new long[]{sp, sc, st});
-                            reportProcessTokenUsage(new long[]{sp, sc, st},
-                                    new long[]{llmResponse.getLongParam(AI_P_CACHECREATIONTOKENS, 0L),
-                                            llmResponse.getLongParam(AI_P_CACHEHITTOKENS, 0L),
-                                            llmResponse.getLongParam(AI_P_CACHEMISSTOKENS, 0L)},
-                                    sessionId, sessionId,
-                                    sessionUserIds.getOrDefault(sessionId,
-                                            msg.getStringParam(AI_P_USERID, "default")));
-
-                            boolean moreToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
-                            List<TLToolCall> moreTCs = (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null);
-
-                            // 全链追踪：流式续跑循环的 LLM 响应打点
-                            traceStage(sessionId, rootSid, roundId, "llmResponse",
-                                    "tokens=" + sc + "/" + st, 0,
-                                    formatResponseForTrace(
-                                            llmResponse.getStringParam(AI_P_RESPONSE, ""),
-                                            moreToolCalls ? moreTCs : null,
-                                            llmResponse.getStringParam(AI_P_REASONING, "")),
-                                    streamUserId);
-
-                            if (!moreToolCalls || moreTCs == null || moreTCs.isEmpty()) {
-                                String contFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
-                                finalResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
-                                // 空响应：历史里放占位符（与 doChat 流式/非流式分支一致——空 assistant
-                                // 消息会被 DeepSeek 400 拒绝，且随上下文存续污染后续回合）；
-                                // 截断轮（length）占位/终答都如实说明（终答随后会作为 chunk 推给前端）
-                                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                        finalResponse.isEmpty() ? emptyHistoryPlaceholder(contFinish) : finalResponse));
-                                finalResponse = withTruncationNotice(finalResponse, contFinish);
-                                break;
-                            }
-
-                            TLConversationHistory aMsg2 = new TLConversationHistory(
-                                    TLConversationHistory.Role.assistant, new ArrayList<>(moreTCs));
-                            if (llmResponse.containsParam(AI_P_RESPONSE))
-                                aMsg2.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
-                            history.add(aMsg2);
-
-                            TLMsg moreExecResult = execToolsViaExecutor(moreTCs, fromWho, sessionId,
-                                    history, streamUserId);
-                            // L2 checkpoint: 流式续跑每轮工具执行后通知 SessionManager
-                            //（意外死机时 checkpoint 轮残留 → 重启可断点恢复；
-                            //  人为停止由后续 chatAborted 覆盖为 completed）
-                            notifySessionManager(createMsg()
-                                    .setAction("sessionUpdated")
-                                    .setParam("sessionId", sessionId)
-                                    .setParam("userId", streamUserId)
-                                    .setParam("agentName", name)
-                                    .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                    .setParam("messages", deltaMessages(history,
-                                            sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                    .setParam("model", msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel()))
-                                    .setParam("temperature", defaultTemperature)
-                                    .setParam("maxTokens", defaultMaxTokens)
-                                    .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-                            if (handleStreamRejected(moreExecResult, history, sessionId)) {
-                                saveContextHistory(sessionId, history);
-                                // 全链追踪：续跑循环拒绝收尾
-                                traceStage(sessionId, rootSid, roundId, "roundEnd", "rejected", 0,
-                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"), streamUserId);
-                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId,
-                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
-                                forwardStreamFinal(resultFor, resultAction, sessionId,
-                                        moreExecResult.getStringParam("finalResponse", "⚠️ 操作已被用户拒绝。"));
-                                return null;
-                            }
-                            // 直出短路（流式续跑循环）：单工具轮且带 finalAnswer → 全文直达
-                            if (moreExecResult != null && moreExecResult.parseBoolean(AI_P_FINALANSWER, false)
-                                    && (moreTCs == null || moreTCs.size() == 1)) {
-                                String directText2 = moreExecResult.getStringParam("finalResponse", "");
-                                // 与非流式直出对称：终答作为 assistant 消息入 history 再落库（恢复会话可见性）
-                                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                                        directText2.isEmpty() ? "（无输出）" : directText2));
-                                saveContextHistory(sessionId, history);
-                                // 全链追踪：续跑循环直出收尾
-                                traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                                        directText2, streamUserId);
-                                notifyStreamChatFinished(fromWho, sessionId, history, streamUserId, directText2);
-                                forwardStreamFinal(resultFor, resultAction, sessionId, directText2);
-                                return null;
-                            }
-                        }
-                        if (finalResponse == null) finalResponse =
-                                "（已达最大迭代次数 " + maxToolCallIterations + "，任务可能未完成——可以回复“继续”让我接着做）";
-
-                        // 保存上下文 + 通知 SessionManager + 长期记忆
-                        saveContextHistory(sessionId, history);
-                        notifySessionManager(createMsg()
-                                .setAction("chatFinished")
-                                .setParam("sessionId", sessionId)
-                                .setParam("userId", streamUserId)
-                                .setParam("agentName", name)
-                                .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                                .setParam("messages", deltaMessages(history, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
-                                .setParam("response", finalResponse != null ? finalResponse : streamedText));
-                        try {
-                            TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                                    .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                                    .setParam("userId", streamUserId)
-                                .setParam("agentName", name)
-                                    .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                                    .setParam(AI_P_MEMORYVALUE, streamedText + " → " + finalResponse)
-                                    .setParam(AI_P_MEMORYTAG, "chat_history")
-                                    .setParam("maxSeq", getMaxSeq(sessionId));
-                            saveAgentMemory(fromWho, saveMsg);
-                        } catch (Exception e) {
-                            putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
-                        }
-
-                        // 先发送非流式续段的文本 chunk（流式部分已在之前逐块转发）
-                        if (finalResponse != null && !finalResponse.isEmpty()) {
-                            forwardStream(resultFor, resultAction, sessionId, createMsg()
-                                    .setParam(AI_P_CHUNK, finalResponse)
-                                    .setParam(AI_P_SESSIONID, sessionId));
-                        }
-                        // 全链追踪：流式工具轮收尾（payload = 最终输出，优先续跑循环结果）
-                        traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                                finalResponse != null && !finalResponse.isEmpty() ? finalResponse : streamedText,
-                                streamUserId);
-                        // 会话首轮完成后异步起名（在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
-                        Integer titleIdx = sessionMsgStartIdx.get(sessionId);
-                        maybeGenerateSessionTitle(sessionId, streamUserId, titleIdx != null && titleIdx <= 1);
-                        // 再发送完成信号
-                        forwardStream(resultFor, resultAction, sessionId, createMsg()
-                                .setParam(AI_P_STREAMDONE, true)
-                                .setParam(AI_P_SESSIONID, sessionId));
-
-                    } catch (Exception e) {
-                        putLog("Stream tool call continuation error: " + e.toString(), LogLevel.ERROR);
-                        forwardStream(resultFor, resultAction, sessionId, createMsg()
-                                .setParam(AI_P_STREAMERROR, "Tool call processing error: " + e.getMessage())
-                                .setParam(AI_P_SESSIONID, sessionId));
-                    }
-                } else {
-                    // 无tool calls: 保存assistant回复到上下文，再转发完成信号
-                    List<TLConversationHistory> currentHistory = getContextHistory(sessionId);
-                    // 截断如实告知：finish_reason=length 的终答补提示（入史+补推前端；正文 chunks 已随流推过，只补差值）
-                    String noToolFinish = msg.getStringParam(AI_P_FINISH_REASON, "");
-                    String answerText = withTruncationNotice(streamedText, noToolFinish);
-                    if (answerText != null && !answerText.isEmpty()) {
-                        currentHistory.add(new TLConversationHistory(
-                                TLConversationHistory.Role.assistant, answerText));
-                        saveContextHistory(sessionId, currentHistory);
-                        String streamed = streamedText == null ? "" : streamedText;
-                        if (answerText.length() > streamed.length()) {
-                            forwardStream(resultFor, resultAction, sessionId, createMsg()
-                                    .setParam(AI_P_CHUNK, answerText.substring(streamed.length()))
-                                    .setParam(AI_P_SESSIONID, sessionId));
-                        }
-                    }
-                    // 收尾：通知 SessionManager 保存会话（与 tool call 路径对称）+ 保存长期记忆
-                    notifySessionManager(createMsg()
-                            .setAction("chatFinished")
-                            .setParam("sessionId", sessionId)
-                            .setParam("userId", streamUserId)
-                            .setParam("agentName", name)
-                            .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                            .setParam("messages", deltaMessages(currentHistory,
-                                    sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                            .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
-                            .setParam("response", answerText));
-                    try {
-                        TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                                .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                                .setParam("userId", streamUserId)
-                                .setParam("agentName", name)
-                                .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                                .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + answerText)
-                                .setParam(AI_P_MEMORYTAG, "chat_history")
-                                .setParam("maxSeq", getMaxSeq(sessionId));
-                        saveAgentMemory(fromWho, saveMsg);
-                    } catch (Exception e) {
-                        putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
-                    }
-                    // 全链追踪：流式无工具轮收尾（payload = 最终输出）
-                    traceStage(sessionId, rootSid, roundId, "roundEnd", "completed", 0,
-                            answerText, streamUserId);
-                    // 会话首轮完成后异步起名（在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
-                    Integer titleIdx = sessionMsgStartIdx.get(sessionId);
-                    maybeGenerateSessionTitle(sessionId, streamUserId, titleIdx != null && titleIdx <= 1);
-                    forwardStream(resultFor, resultAction, sessionId, createMsg()
-                            .setParam(AI_P_STREAMDONE, true)
-                            .setParam(AI_P_SESSIONID, sessionId));
-                }
-            } finally {
-                // 统一清理流式会话状态，确保异常路径也不泄漏
-                cleanupStreamState(sessionId);
-            }
-        } else if (msg.containsParam(AI_P_STREAMERROR)) {
-            // Provider 流式错误。人为停止（stopChat 置 cancelFlags）时 LLM 流被 cancel
-            // 触发此分支：收尾为 completed 不留断点（主动停止=放弃执行，重新进入不再提示
-            // 恢复）；非人为错误（网络故障/Provider 报错）保持 checkpoint，供恢复。
-            // 非人为错误必须留痕：此前该分支静默转发，排障时前端只有一句"流式错误 HTTP 400"、日志无痕
-            if (!cancelled.get()) {
-                putLog("Stream error (not user-cancel): sessionId=" + sessionId
-                        + " err=" + msg.getParam(AI_P_STREAMERROR) + " (round kept as checkpoint)", LogLevel.WARN);
-            }
-            if (cancelled.get()) {
-                notifySessionManager(createMsg()
-                        .setAction("chatAborted")
-                        .setParam("sessionId", sessionId)
-                        .setParam("userId", streamUserId)
-                        .setParam("agentName", name)
-                        .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                        .setParam("messages", deltaMessages(getContextHistory(sessionId),
-                                sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                        .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, "")));
-                putLog("Chat aborted by user (stream cancel): sessionId=" + sessionId, LogLevel.INFO);
-            }
-            // 先转发再清理（清理会摘掉 streamForwardInstances，私有子模块目标需在清理前投递）；
-            // finally 保证即便转发抛异常，状态也不泄漏
-            try {
-                forwardStream(resultFor, resultAction, sessionId, createMsg()
-                        .setParam(AI_P_STREAMERROR, msg.getParam(AI_P_STREAMERROR))
-                        .setParam(AI_P_SESSIONID, sessionId));
-            } finally {
-                cleanupStreamState(sessionId);
-            }
-        } else if (msg.containsParam(AI_P_CHUNK)) {
-            // 转发chunk（中间事件，无生命周期状态需清理）
-            forwardStream(resultFor, resultAction, sessionId, createMsg()
-                    .setParam(AI_P_CHUNK, msg.getParam(AI_P_CHUNK))
-                    .setParam(AI_P_SESSIONID, sessionId));
+        // 防自转发死循环：目标就是本 agent 且没有显式实例时，丢弃事件（调用方配置错误）
+        if (forwardInstance == null && getName().equals(fwdTarget)) {
+            putLog("chatStream: forward target is the agent itself, events dropped", LogLevel.WARN);
+            return null;
         }
 
+        // sink 不依赖轮次状态，先构造：这样 begin 之后的任何异常都能用它通知 UI。
+        // userId 随每一帧下发：webui 按 userId+sessionId 定位 SSE 通道，不依赖 sessionOwner 旁路状态。
+        String userId = String.valueOf(msg.getSystemParam("userId", sessionId));
+        StreamSink sink = new ForwardStreamSink(forwardInstance, fwdTarget, fwdAction, sessionId, userId);
+
+        // P0-1：同步登记轮次，关闭 "chatStream 已返回、worker 尚未 begin" 的窗口。
+        // 否则 injectTaskResult 会看到 count==0 立即写入 context，而 worker 随后
+        // 读快照 + save 会把注入覆盖掉（后台任务结果永久丢失）。
+        //
+        // 边界：putMsgNoWait 内部 Thread.start() 成功、但返回前 createMsg() 抛 OOM 级异常时，
+        // worker 已启动 + 入口 catch 会双重 end；后果仅是 count 短暂为负，
+        // sessionRoundEnd 的 remove/flush 都幂等，可忽略。
+        sessionRoundBegin(sessionId);
+        try {
+            TLMsg task = createMsg().setAction("runChatEngineAsync")
+                    // 注意：_chatRequest 是调用时的快照引用；调用方在本方法返回后不得再改 msg
+                    .setParam("_chatRequest", msg)
+                    .setParam("_chatFromWho", fromWho)   // 保留原调用方：saveAgentMemory/委托链语义一致
+                    .setParam("_streamSink", sink)
+                    .setParam("_preBegan", true);
+            TLMsg submitted = putMsgNoWait(this, task);
+            if (submitted == null || submitted.getParam(THREADPOOL_TASK) == null) {
+                // P0-6：线程池拒绝/未配置/提交失败——worker 根本没启动，必须自己收尾并通知 UI
+                putLog("chatStream: failed to submit worker task", LogLevel.ERROR);
+                sessionRoundEnd(sessionId);
+                sink.onError("Agent error: worker submit failed");
+            }
+        } catch (Throwable t) {
+            putLog("chatStream: worker submit exception: " + t, LogLevel.ERROR);
+            sessionRoundEnd(sessionId);
+            sink.onError("Agent error: worker submit failed: " + t.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * 工作线程上的统一编排入口。所有终帧由 runChat 内部的 streamFinal/streamError 负责；
+     * 这里只兜底 runChat 之外的意外 Throwable。
+     */
+    protected TLMsg runChatEngineAsync(Object fromWho, TLMsg msg) {
+        TLMsg chatMsg = (TLMsg) msg.getParam("_chatRequest");
+        StreamSink sink = (StreamSink) msg.getParam("_streamSink");
+        Object chatFromWho = msg.getParam("_chatFromWho");
+        if (chatFromWho == null) chatFromWho = fromWho;
+        boolean preBegan = msg.parseBoolean("_preBegan", false);
+        try {
+            return runChat(chatFromWho, chatMsg, new StreamLlmCall(sink), sink, preBegan);
+        } catch (Throwable t) {
+            // 兜底路径本身不能再抛：否则异常逃出 worker，回到框架的 exception()/shutdown 链
+            try { putLog("Async chat engine failed: " + t, LogLevel.ERROR); }
+            catch (Throwable ignored) { System.err.println("[runChatEngineAsync] " + t); }
+            if (sink != null) {
+                try { sink.onError("Agent error: " + t.getMessage()); }
+                catch (Throwable ignored) { /* sink 自己的 forward 已有兜底 */ }
+            }
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "Agent error: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Provider 流式回调入口（跑在 OkHttp 回调线程）：
+     * 只做三件事——chunk 转发给 sink、done 唤醒等待线程、error 唤醒并带错误。
+     * 不再执行任何工具循环/审批/保存逻辑。
+     */
+    protected TLMsg onStreamResult(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
+        StreamHandle handle = streamHandles.get(sessionId);
+        if (handle == null) return null;   // 已收尾/迟到事件：丢弃
+        if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
+            handle.complete(msg);
+        } else if (msg.containsParam(AI_P_STREAMERROR)) {
+            handle.fail(msg.getStringParam(AI_P_STREAMERROR, "流式错误"));
+        } else if (msg.containsParam(AI_P_CHUNK) && !handle.isCompleted()) {
+            // done 之后、streamHandles.remove 之前的迟到 chunk 不能推给 UI
+            handle.sink.onChunk(msg.getStringParam(AI_P_CHUNK, ""));
+        }
+        // reasoning chunk 保持现状：不推 UI；推理内容随 done 消息进入 history/trace
         return null;
     }
 
@@ -2851,67 +2480,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return null;
     }
 
-    /**
-     * 流式直出/拒绝路径的收尾：通知 SessionManager 保存本轮 + 保存长期记忆。
-     * 正常收尾在 onStreamResult 主流程；直出/拒绝直接 return 会跳过，导致该轮不入 rounds
-     * （恢复会话时历史缺失）。
-     */
-    private void notifyStreamChatFinished(Object fromWho, String sessionId,
-                                          List<TLConversationHistory> history,
-                                          String streamUserId, String response) {
-        notifySessionManager(createMsg()
-                .setAction("chatFinished")
-                .setParam("sessionId", sessionId)
-                .setParam("userId", streamUserId)
-                .setParam("agentName", name)
-                .setParam("roundId", sessionRoundIds.getOrDefault(sessionId, ""))
-                .setParam("messages", deltaMessages(history, sessionMsgStartIdx.getOrDefault(sessionId, 0)))
-                .setParam("userMessage", sessionUserMessages.getOrDefault(sessionId, ""))
-                .setParam("response", response));
-        try {
-            TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
-                    .setParam(AI_P_SESSIONID, sessionId).setParam("storeName", defaultMemoryStore)
-                    .setParam("userId", streamUserId)
-                    .setParam("agentName", name)
-                    .setParam(AI_P_MEMORYKEY, "chat_" + System.currentTimeMillis())
-                    .setParam(AI_P_MEMORYVALUE, sessionUserMessages.getOrDefault(sessionId, "") + " → " + response)
-                    .setParam(AI_P_MEMORYTAG, "chat_history")
-                    .setParam("maxSeq", getMaxSeq(sessionId));
-            saveAgentMemory(fromWho, saveMsg);
-        } catch (Exception e) {
-            putLog("Save memory failed: " + e.toString(), LogLevel.ERROR);
-        }
-        // 会话首轮完成后异步起名（本方法各调用点都在 cleanupStreamState 之前，sessionMsgStartIdx 尚在）
-        Integer idx = sessionMsgStartIdx.get(sessionId);
-        maybeGenerateSessionTitle(sessionId, streamUserId, idx != null && idx <= 1);
-    }
-
-    /** LLM 失败/异常路径收尾：把本轮存为 completed（含错误文案），避免已发 sessionUpdated 的 checkpoint 轮次残留 */
-    private void notifyChatError(String sessionId, TLMsg msg, List<TLConversationHistory> history,
-                                 int msgStartIdx, String roundId, String userMessage, String errMsg) {
-        if (history == null) return; // 异常发生在 history 构建前：无 checkpoint 可残留，无需收尾
-        notifySessionManager(createMsg()
-                .setAction("chatFinished")
-                .setParam("sessionId", sessionId)
-                .setParam("userId", sessionUserIds.getOrDefault(sessionId, "default"))
-                .setParam("agentName", name)
-                .setParam("roundId", roundId)
-                .setParam("messages", deltaMessages(history, msgStartIdx))
-                .setParam("userMessage", userMessage)
-                .setParam("response", errMsg));
-        traceStage(sessionId, currentRootSessionId.get(), roundId, "roundEnd", "error", 0);
-    }
-
     // ======================== 会话标题 ========================
 
     /** 会话标题：首轮完成后异步请 LLM 起名（失败静默、不阻塞收尾）；结果落库 + 事件推前端 */
-    private void maybeGenerateSessionTitle(String sessionId, String userId, boolean firstRound) {
+    private void maybeGenerateSessionTitle(String sessionId, String userId,
+                                           String userMessage, boolean firstRound) {
         if (!autoSessionTitle || !firstRound) return;
         // 与落库通道同门禁：子 agent（executeAsTool 共享父 sid，会用子任务文案给父会话起名）/
         // 工作流节点/group 成员默认 enableCheckpoint=false，天然豁免；noHistory 节点也不会每轮空转
         if (!enableCheckpoint) return;
         if (sessionId == null || sessionId.startsWith("task_")) return;   // 任务执行会话不参与
-        String userMessage = sessionUserMessages.get(sessionId);
         if (userMessage == null || userMessage.trim().isEmpty()) return;
         final String um = userMessage;
         final String uid = userId == null ? "default" : userId;
@@ -3367,13 +2945,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return sb.toString();
     }
 
+    /** 兼容旧调用：userId 缺省按 sessionId（框架约定）。 */
+    protected List<TLAttachmentRef> normalizeAttachments(TLMsg msg, String sessionId) {
+        return normalizeAttachments(msg, sessionId, null);
+    }
+
     /** 把调用方传的 AI_P_ATTACHMENTS（List<Map> 四形态）归一化成 ref 列表；解析失败逐条忽略 */
     @SuppressWarnings("unchecked")
-    protected List<TLAttachmentRef> normalizeAttachments(TLMsg msg, String sessionId) {
+    protected List<TLAttachmentRef> normalizeAttachments(TLMsg msg, String sessionId, String userId) {
         List<TLAttachmentRef> out = new ArrayList<>();
         Object raw = msg.getParam(AI_P_ATTACHMENTS);
         if (!(raw instanceof List)) return out;
-        String userId = sessionUserIds.getOrDefault(sessionId, "default");
+        String uid = userId != null ? userId : sessionId;
         for (Object o : (List<Object>) raw) {
             if (!(o instanceof Map)) continue;
             // 配额只算"已接受"的条目（out）：被校验拒绝的畸形条目不应挤掉其后的有效附件
@@ -3404,14 +2987,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_STOREBASE64)
                             .setParam("base64", b64).setParam("mime", strOf(m.get("mime")))
                             .setParam("name", name.isEmpty() ? "image" : name)
-                            .setParam("origin", origin).setParam(AI_P_USERID, userId)
+                            .setParam("origin", origin).setParam(AI_P_USERID, uid)
                             .setSystemParam(IGNOREMODULEISNULL, true));
                     if (r != null && r.getParam("ref") != null)
                         out.add((TLAttachmentRef) r.getParam("ref"));
                     else putLog("[VISION] 附件落盘失败（base64）", LogLevel.WARN);
                 } else if (!path.isEmpty()) {
                     TLMsg r = putMsg(M_ATTACHMENTSTORE, createMsg().setAction(ATTACH_REGISTER)
-                            .setParam("config", m).setParam(AI_P_USERID, userId)
+                            .setParam("config", m).setParam(AI_P_USERID, uid)
                             .setSystemParam(IGNOREMODULEISNULL, true));
                     if (r != null && r.getParam("ref") != null)
                         out.add((TLAttachmentRef) r.getParam("ref"));
@@ -3756,9 +3339,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      *  批次结束后由 flushToolImages 统一注入一条 user 消息。 */
     private void appendToolResult(List<TLConversationHistory> history,
                                   TLToolExecutor.ToolResult r, String sessionId,
-                                  List<TLAttachmentRef> pendingImages) {
-        String userId = sessionUserIds.getOrDefault(sessionId, "default");
-        List<TLAttachmentRef> imgs = extractDeclaredImages(r.output, userId, history);
+                                  String userId, List<TLAttachmentRef> pendingImages) {
+        String uid = userId != null ? userId : sessionId;
+        List<TLAttachmentRef> imgs = extractDeclaredImages(r.output, uid, history);
         history.add(new TLConversationHistory(r.toolCallId, r.toolCallId,
                 imgs != null ? stripImageKeys(r.output) : r.output));
         if (imgs != null && !imgs.isEmpty()) pendingImages.addAll(imgs);
@@ -3774,104 +3357,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         m.setImages(new ArrayList<>(pendingImages));
         history.add(m);
         pendingImages.clear();
-    }
-
-    /**
-     * 委托 ToolExecutor 批量执行工具，结果直接写入 history（供 onStreamResult 等简单场景）。
-     * @return ToolExecutor 的执行结果消息（rejected 等标志供调用方处理），无执行时为 null
-     */
-    @SuppressWarnings("unchecked")
-    private TLMsg execToolsViaExecutor(List<TLToolCall> toolCalls, Object fromWho,
-                                       String sessionId, List<TLConversationHistory> history, String userId) {
-        if (toolCalls == null || toolCalls.isEmpty()) return null;
-        // 黑盒消息接口之二：tool_calls 交工具模块解析为可执行 ToolTask 列表
-        TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
-                .setParam(AI_P_TOOLCALLS, toolCalls));
-        List<TLToolExecutor.ToolTask> tasks = (List<TLToolExecutor.ToolTask>)
-                frResolveMsg.getListParam("tasks", new ArrayList<>());
-        if (tasks.isEmpty()) return null;
-
-        String execId = sessionId + "_" + System.nanoTime();
-        TLMsg execResult = putMsg(toolExecutor,
-                createMsg().setAction(TODOOLEXECUTE)
-                        .setParam("tasks", tasks)
-                        .setSystemParam("executionId", execId)
-                        .setSystemParam(AI_P_SESSIONID, sessionId)
-                        .setSystemParam("userId", userId != null ? userId : "default")
-                        // rootSid 查表优先：流式路径跑在回调线程，ThreadLocal 为 null 会导致工具打点被 monitor 丢弃
-                        .setSystemParam("rootSessionId", sessionRootIds.getOrDefault(sessionId, sessionId))
-                        .setSystemParam(AI_P_ROUNDID, sessionRoundIds.get(sessionId)));
-        if (execResult == null) return null;
-
-        List<TLToolExecutor.ToolResult> results =
-                (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
-        List<TLAttachmentRef> pendingImages = new ArrayList<>();
-        if (results != null) {
-            for (int i = 0; i < results.size(); i++) {
-                TLToolExecutor.ToolResult r = results.get(i);
-                appendToolResult(history, r, sessionId, pendingImages);
-                // 实时工具事件：流式调用方（webui）据此渲染工具结果/截图；tasks 与 results 按序对齐
-                // ⚠ 这里必须喂原始 output（webui 渲染路径要从里面取 base64），不能喂 stripImageKeys 后的文本
-                pushStreamToolEvent(sessionId,
-                        i < tasks.size() ? tasks.get(i).functionName : r.toolCallId, r.output);
-            }
-        }
-        flushToolImages(history, pendingImages);
-        return execResult;
-    }
-
-    /** 向流式调用方推送工具完成事件（webui 渲染工具结果卡/截图；非流式调用方无转发表则静默跳过） */
-    private void pushStreamToolEvent(String sessionId, String toolName, String output) {
-        String[] fwd = streamForwardMap.get(sessionId);
-        if (fwd == null || output == null) return;
-        try {
-            TLMsg evt = createMsg()
-                    .setParam("toolEvent", true)
-                    .setParam("toolName", toolName != null ? toolName : "tool")
-                    .setParam("toolOutput", output)
-                    .setParam(AI_P_SESSIONID, sessionId);
-            forwardStream(fwd[0], fwd[1], sessionId, evt);
-        } catch (Exception e) {
-            putLog("pushStreamToolEvent error: " + e.toString(), LogLevel.WARN);
-        }
-    }
-
-    /**
-     * 流式路径的拒绝处理：工具执行结果含 rejected 标志 → 回滚刚写入的
-     * assistant(tool_calls) 与 tool 结果消息，注入"不要重试"提示。
-     * @return true = 已处理拒绝（调用方应停止续跑并转发拒绝文案）
-     */
-    private boolean handleStreamRejected(TLMsg execResult, List<TLConversationHistory> history, String sessionId) {
-        if (execResult == null || !execResult.parseBoolean("rejected", false)) return false;
-        String reason = execResult.getStringParam("rejectReason", "");
-        // 回滚：本次写入的 tool 结果（results 列表条数）+ 1 个 assistant(tool_calls) 消息
-        int written = execResult.getListParam("results", java.util.List.of()).size();
-        for (int i = 0; i < written + 1 && !history.isEmpty(); i++) {
-            history.remove(history.size() - 1);
-        }
-        history.add(new TLConversationHistory(TLConversationHistory.Role.user,
-                "（操作已被用户拒绝：" + reason + "。不要重试此操作。）"));
-        saveContextHistory(sessionId, history);
-        return true;
-    }
-
-    /**
-     * 流式事件统一转发：有目标实例（私有子模块，如任务技能）→ 直投实例；
-     * 否则按名投递（webui/控制台等工厂可达模块）。
-     */
-    private void forwardStream(String resultFor, String resultAction, String sessionId, TLMsg evt) {
-        evt.setAction(resultAction);
-        IObject inst = streamForwardInstances.get(sessionId);
-        if (inst != null) putMsg(inst, evt);
-        else putMsg(resultFor, evt);
-    }
-
-    /** 转发流式最终结果给调用方：先发文本 chunk 再发完成信号 */
-    private void forwardStreamFinal(String resultFor, String resultAction, String sessionId, String text) {
-        forwardStream(resultFor, resultAction, sessionId, createMsg()
-                .setParam(AI_P_CHUNK, text).setParam(AI_P_SESSIONID, sessionId));
-        forwardStream(resultFor, resultAction, sessionId, createMsg()
-                .setParam(AI_P_STREAMDONE, true).setParam(AI_P_SESSIONID, sessionId));
     }
 
     /** 解析模板变量 {{key}}：msg 参数 → agent params → 内置值 → 原样保留 */

@@ -2155,6 +2155,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             String piece = msg.getStringParam(AI_P_CHUNK, "");
             if (!piece.isEmpty()) offer(new ConsoleEvent(EventType.CHUNK, piece, null));
         }
+        if (msg.containsParam(AI_P_STREAMREPLACE)) {
+            // 控制台无法原位擦除已打印的流式文本，用"提示 + 净化全文"追加
+            offer(new ConsoleEvent(EventType.CHUNK,
+                    "\n[输出护栏已修正]\n" + msg.getStringParam(AI_P_STREAMREPLACE, ""), null));
+        }
         boolean done = msg.parseBoolean(AI_P_STREAMDONE, false);
         boolean hasErr = msg.containsParam(AI_P_STREAMERROR);
         if (done || hasErr) {

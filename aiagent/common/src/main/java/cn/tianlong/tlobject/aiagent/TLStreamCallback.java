@@ -74,6 +74,12 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
             if (msg.containsParam(AI_P_REASONING_CHUNK)) {
                 reasoningBuffer.append(msg.getStringParam(AI_P_REASONING_CHUNK, ""));
             }
+            // 输出护栏改写：整段替换已累积文本（不是追加）。
+            // ForwardStreamSink 在终答前缀不成立时发此帧；测试/外部集成若把它当 sink，
+            // 也必须认同这个协议，否则会保留未净化的原文。
+            if (msg.containsParam(AI_P_STREAMREPLACE)) {
+                streamBuffer = new StringBuilder(msg.getStringParam(AI_P_STREAMREPLACE, ""));
+            }
             if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
                 onStreamDone(fromWho, msg);
             }
@@ -87,7 +93,7 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     protected TLMsg onStreamDone(Object fromWho, TLMsg msg) {
         synchronized (bufferLock) {
             streamDone = true;
-            // 保存 finish_reason：同步流式入口（chatStreamSync）靠它判断"被截断"
+            // 保存 finish_reason：流式收集端（测试 sink / 外部集成）靠它判断"被截断"
             if (msg.containsParam(AI_P_FINISH_REASON)) {
                 finishReason = msg.getStringParam(AI_P_FINISH_REASON, "");
             }

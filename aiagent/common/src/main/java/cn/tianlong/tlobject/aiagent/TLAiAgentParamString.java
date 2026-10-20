@@ -293,6 +293,8 @@ public interface TLAiAgentParamString extends TLParamString {
 
     // 流式
     String AI_P_CHUNK = "chunk";
+    /** 流式终答被输出护栏改写：UI 用该全文替换已显示的流式文本（不是追加） */
+    String AI_P_STREAMREPLACE = "streamReplace";
     String AI_P_STREAMDONE = "streamDone";
     String AI_P_STREAMERROR = "streamError";
     /** chat 被 /stop 中断的标志 */

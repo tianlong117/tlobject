@@ -232,8 +232,13 @@ async function initSession() {
     const r = await fetch('/api/session').then(x => x.json());
     if (r.loggedIn) {
       state.userId = r.userId;
-      // 刷新页面：恢复本地保存的会话与登录标识（同用户继续之前的会话，不触发"新会话"）
-      state.sessionId = localStorage.getItem('tlweb_session');
+      const prevUser = localStorage.getItem('tlweb_userid');
+      const prevSid = localStorage.getItem('tlweb_session');
+      // 刷新页面：同用户才恢复上次会话（公共设备切换用户时不把上一用户的会话ID带进来）
+      state.sessionId = (prevUser === r.userId) ? prevSid : null;
+      if (prevUser && prevUser !== r.userId) {
+        localStorage.removeItem('tlweb_session');
+      }
       state.loginId = localStorage.getItem('tlweb_loginid');
       enterChat();
     } else {
@@ -254,7 +259,9 @@ async function doLogin() {
     // 同用户登录：保留上次会话（localStorage 里的 tlweb_session），继续之前的会话
     const prevUser = localStorage.getItem('tlweb_userid');
     const prevSid = localStorage.getItem('tlweb_session');
-    if (prevUser && prevUser !== userId) {
+    // 归属不一致（含 prevUser 为空但 localStorage 残留 session 的情况）一律重置，
+    // 与 initSession 的 `prevUser === r.userId` 语义对齐
+    if (prevUser !== userId) {
       state.sessionId = null;
       localStorage.removeItem('tlweb_session');
       renderUploadBar();     // sessionId 已清 → 附件条隐藏（各会话 uploads 随下方视图表重置）
@@ -270,7 +277,7 @@ async function doLogin() {
     // 登录实例标识（会话占用互斥用）：同浏览器刷新/重登保留；没有则生成（首次登录/登出后再登/旧版升级）
     // 换用户时必须生成新的（旧 loginId 属于上一用户）
     state.loginId = localStorage.getItem('tlweb_loginid');
-    if (!state.loginId || (prevUser && prevUser !== userId)) {
+    if (!state.loginId || prevUser !== userId) {
       state.loginId = 'login_' + userId + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       localStorage.setItem('tlweb_loginid', state.loginId);
     }
@@ -557,18 +564,43 @@ async function plainChat(msg) {
 }
 async function streamChat(msg, opts) {
   opts = opts || {};
-  const sid = state.sessionId;   // 发送时总是当前会话（opts.sessionId 是 resume 目标，调用前已切过来）
+  // 目标会话优先 opts.sessionId（resume 目标）；busy/abort/uploads 都必须记在真正收流的会话上
+  const sid = opts.sessionId || state.sessionId;
+  // 防御：opts 指定了会话但当前视图不一致时先切过去，否则 holder.el 会落进错误的 box
+  if (opts.sessionId && opts.sessionId !== state.sessionId) switchSessionView(opts.sessionId);
   const holder = startAssistantMsg();
   setBusy(true, sid);
   const ctrl = new AbortController();
   viewOf(sid).abort = ctrl;
+  // 空闲检测：长时间无 chunk（LLM 思考 / 工具调用循环）时显示"⏳ 思考中"。
+  // 放在 try 外：catch/finally 才能 clearIdle，避免用户停止后"思考中"残留。
+  let idleTimer = null;
+  let idleSpan = null;
+  const showIdle = () => {
+    // 判 parentNode 而非 isConnected：box 脱离 DOM 的后台会话也要能挂"思考中"（切回来能看到）
+    if (!idleSpan && holder.el.parentNode) {
+      idleSpan = document.createElement('span');
+      idleSpan.className = 'thinking';
+      idleSpan.textContent = ' ⏳ 思考中';
+      holder.el.appendChild(idleSpan);
+      scrollChat(holder.box);
+    }
+  };
+  const clearIdle = () => {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    if (idleSpan) { idleSpan.remove(); idleSpan = null; }
+  };
+  const armIdle = () => {
+    clearIdle();
+    idleTimer = setTimeout(showIdle, 4000);
+  };
   try {
     const resp = await fetch('/api/chatStream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: msg,
-        sessionId: opts.sessionId || sid,
+        sessionId: sid,
         loginId: state.loginId || '',
         resume: !!opts.resume,   // 断点恢复：以断点时的用户消息继续执行（流式）
         attachments: viewOf(sid).uploads.map(u => ({ path: 'uploads/' + u.saved, name: u.name, origin: 'user' }))
@@ -597,27 +629,6 @@ async function streamChat(msg, opts) {
     let buf = '';
     let reasoningBuf = '';
     let t0 = Date.now();
-    // 空闲检测：长时间无 chunk（LLM 思考 / 工具调用循环）时显示"⏳ 思考中"
-    let idleTimer = null;
-    let idleSpan = null;
-    const showIdle = () => {
-      // 判 parentNode 而非 isConnected：box 脱离 DOM 的后台会话也要能挂"思考中"（切回来能看到）
-      if (!idleSpan && holder.el.parentNode) {
-        idleSpan = document.createElement('span');
-        idleSpan.className = 'thinking';
-        idleSpan.textContent = ' ⏳ 思考中';
-        holder.el.appendChild(idleSpan);
-        scrollChat(holder.box);
-      }
-    };
-    const clearIdle = () => {
-      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
-      if (idleSpan) { idleSpan.remove(); idleSpan = null; }
-    };
-    const armIdle = () => {
-      clearIdle();
-      idleTimer = setTimeout(showIdle, 4000);
-    };
     // 提交后立即显示"思考中"（不等 4 秒），chunk 到来时消失；长等待（>4s 无 chunk）再次出现
     showIdle();
     armIdle();
@@ -634,7 +645,15 @@ async function streamChat(msg, opts) {
           let evt;
           try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
           if (evt.hb) continue;
-          if (evt.chunk) {
+          // 输出护栏改写：用净化后的全文替换当前气泡（不是追加）
+          if (evt.replace) {
+            clearIdle();
+            if (holder.cursor.parentNode) holder.cursor.remove();
+            holder.el.textContent = evt.replace;
+            scrollChat(holder.box);
+            armIdle();
+          } else if (evt.chunk) {
+            // 与 replace 互斥：replace 是整段覆盖，chunk 是追加（同帧时 replace 优先）
             clearIdle();
             if (holder.cursor.parentNode) holder.cursor.remove();
             holder.el.textContent = (holder.el.textContent || '') + evt.chunk;
@@ -672,6 +691,7 @@ async function streamChat(msg, opts) {
       appendMsg('system', '[错误] ' + e.message, holder.box);
     }
   } finally {
+    clearIdle();   // AbortError/异常路径也要清"思考中"，否则停止后残留
     setBusy(false, sid);
     viewOf(sid).abort = null;
   }

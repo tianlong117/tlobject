@@ -673,7 +673,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String key = streamKey(userId, sessionId);
         TLMsg reg = openSseChannel(getName(), key, "stream");
         if (reg == null || !reg.parseBoolean(RESULT, false)) {
-            return outJson(failMap("SSE 通道注册失败"), null);
+            String err = reg != null ? reg.getStringParam("error", "SSE 通道注册失败") : "SSE 通道注册失败";
+            return outJson(failMap(err), null);
         }
         TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
         sessionOwner.put(sessionId, userId);
@@ -870,7 +871,17 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if ("event".equals(type)) {
             eventChannels.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(channel);
         } else {
-            streamWriters.put(key, channel);
+            // 同 key 已有 open 的流通道 → 拒绝新通道（覆盖会让旧请求的 awaitClosed 挂死到超时）
+            TLWebChannel existing = streamWriters.putIfAbsent(key, channel);
+            if (existing != null && existing.isOpen()) {
+                channel.close();
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "该会话已有进行中的对话，请先停止");
+            }
+            if (existing != null) {
+                // 旧通道已关闭：putIfAbsent 不会替换，显式覆盖
+                streamWriters.put(key, channel);
+            }
         }
         return createMsg().setParam(RESULT, true).setParam("channel", channel);
     }
@@ -997,14 +1008,31 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     /** 流式 chunk 回调（agent 线程）：查 writer 写 SSE 帧；结束/错误时带 token 汇总收尾 */
     private void onStreamChunk(TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        String userId = msg.getStringParam(AI_P_USERID, sessionOwner.getOrDefault(sessionId, ""));
-        TLWebChannel channel = streamWriters.get(streamKey(userId, sessionId));
-        if (channel == null || !channel.isOpen()) return;
+        // 帧自带 userId 优先（ForwardStreamSink 每帧都带）；旧路径 fallback 到 sessionOwner
+        String userId = msg.getStringParam(AI_P_USERID, null);
+        if (userId == null || userId.isEmpty()) {
+            userId = sessionOwner.getOrDefault(sessionId, "");
+        }
+        String key = streamKey(userId, sessionId);
+        TLWebChannel channel = streamWriters.get(key);
+        if (channel == null) return;
+        if (!channel.isOpen()) {
+            // 浏览器已断开：清掉死通道，避免 streamWriters/sessionOwner 泄漏、awaitClosed 挂死
+            if (streamWriters.remove(key, channel)) {
+                sessionOwner.remove(sessionId, userId);
+                channel.close();
+            }
+            return;
+        }
 
         boolean done = msg.parseBoolean(AI_P_STREAMDONE, false);
         boolean hasErr = msg.containsParam(AI_P_STREAMERROR);
         Map<String, Object> evt = new LinkedHashMap<>();
+        // chunk 与 replace 互斥：replace 是整段覆盖，chunk 是追加；同帧同时携带时前端 replace 优先
         if (msg.containsParam(AI_P_CHUNK)) evt.put("chunk", msg.getStringParam(AI_P_CHUNK, ""));
+        // 输出护栏改写：前端用该全文替换当前 assistant 气泡（不是追加）
+        if (msg.containsParam(AI_P_STREAMREPLACE))
+            evt.put("replace", msg.getStringParam(AI_P_STREAMREPLACE, ""));
         // 工具完成事件（TLAiAgent pushStreamToolEvent 推来）：前端渲染工具结果/截图
         if (msg.containsParam("toolEvent")) {
             evt.put("toolEvent", true);
@@ -1019,10 +1047,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             tokens.put("sessionTotal", querySessionTokenTotal(sessionId));
             tokens.put("processTotal", queryProcessTokenTotal());
             evt.put("tokens", tokens);
-            channel.write(GSON.toJson(evt));
-            streamWriters.remove(streamKey(userId, sessionId));
-            sessionOwner.remove(sessionId);
-            channel.close();
+            try {
+                channel.write(GSON.toJson(evt));
+            } finally {
+                // write 抛异常也要清理并唤醒 awaitClosed，否则请求线程挂到超时
+                streamWriters.remove(key, channel);
+                sessionOwner.remove(sessionId, userId);
+                channel.close();
+            }
             return;
         }
         if (!evt.isEmpty()) channel.write(GSON.toJson(evt));

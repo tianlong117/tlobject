@@ -110,13 +110,12 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_STREAMDIRECT = "test_mock_streamdirect";
     private static final String SID_TRUNC        = "test_mock_truncation";
     private static final String SID_PLUMP        = "test_mock_streamparams";
-    private static final String SID_SYNCTRUNC    = "test_mock_streamsynctrunc";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_SYNCTRUNC);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP);
 
     // ======================== 构造器 ========================
 
@@ -458,7 +457,6 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("streamDirect",     new String[]{"12-流式直出短路落历史", "test_echo 未注册"});
         TEST_CASES.put("truncNotice",      new String[]{"13-截断如实告知", null});
         TEST_CASES.put("streamParams",     new String[]{"14-流式推理传参", "test_echo 未注册"});
-        TEST_CASES.put("streamSyncTrunc",  new String[]{"15-同步流式截断告知", null});
         TEST_CASES.put("approvalSessionGrant", new String[]{"16-审批会话免审", null});
         TEST_CASES.put("approvalGrantAdmin", new String[]{"17-审批授权管理", null});
         // 18/19/20 第二槽（测试 Skill 未注册时的跳过原因）为 null：审批场景直发 approvalGate，不走 Skill——
@@ -551,7 +549,6 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "streamdirect":    return this::testStreamDirect;
             case "truncnotice":     return this::testTruncNotice;
             case "streamparams":    return this::testStreamParams;
-            case "streamsynctrunc": return this::testStreamSyncTrunc;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -1027,14 +1024,67 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             boolean streamDone = waitResult.parseBoolean("streamDone", false);
             String content = waitResult.getStringParam("content", "");
 
-            if (streamDone && !content.isEmpty()) {
-                log("[TEST]   流式: content=" + content);
-                return createMsg().setParam(RESULT, true);
+            if (!streamDone || content.isEmpty()) {
+                boolean timedOut = waitResult.parseBoolean("timedOut", false);
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", String.format("streamDone=%s, timedOut=%s, content=%s",
+                                streamDone, timedOut, content));
             }
-            boolean timedOut = waitResult.parseBoolean("timedOut", false);
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", String.format("streamDone=%s, timedOut=%s, content=%s",
-                            streamDone, timedOut, content));
+
+            // 契约 1：done 正文与 chunk 不一致 → sink 自己累积，UI 收到补的差值（不是停在 "A"）
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                    mp.streamChunk("A"),
+                    mp.streamDone("AB")));
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_USERMESSAGE, "sink 累积契约")
+                    .setParam(RESULTFOR, "streamCallback")
+                    .setParam(RESULTACTION, "onStreamChunk"));
+            TLMsg wr2 = putMsg("streamCallback",
+                    createMsg().setAction("waitForStream").setParam("timeout", 30));
+            String c2 = wr2.getStringParam("content", "");
+            if (!"AB".equals(c2)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "sink 累积契约失败: expected AB, got " + c2);
+            }
+
+            // 契约 2：只有 reasoning chunk、无 content chunk（提升为正文）→ 终答必须补推一次
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            mp.enqueueStreamResponses(sessionId, Arrays.asList(
+                    createMsg().setAction(STREAM_ONCHUNK).setParam(AI_P_REASONING_CHUNK, "思考"),
+                    mp.streamDone("提升后的终答").setParam(AI_P_CONTENT_FROM_REASONING, true)));
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_USERMESSAGE, "reasoning 提升契约")
+                    .setParam(RESULTFOR, "streamCallback")
+                    .setParam(RESULTACTION, "onStreamChunk"));
+            TLMsg wr3 = putMsg("streamCallback",
+                    createMsg().setAction("waitForStream").setParam("timeout", 30));
+            String c3 = wr3.getStringParam("content", "");
+            if (!"提升后的终答".equals(c3)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "reasoning 提升契约失败: got " + c3);
+            }
+
+            // 契约 3：测试/外部 sink（TLStreamCallback）也要支持 AI_P_STREAMREPLACE（整体替换）
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            putMsg("streamCallback", createMsg().setAction(STREAM_ONCHUNK)
+                    .setParam(AI_P_CHUNK, "A"));
+            putMsg("streamCallback", createMsg().setAction(STREAM_ONCHUNK)
+                    .setParam(AI_P_STREAMREPLACE, "AB"));
+            putMsg("streamCallback", createMsg().setAction(STREAM_ONCHUNK)
+                    .setParam(AI_P_STREAMDONE, true));
+            TLMsg wr4 = putMsg("streamCallback",
+                    createMsg().setAction("waitForStream").setParam("timeout", 5));
+            String c4 = wr4.getStringParam("content", "");
+            if (!"AB".equals(c4)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "测试 sink replace 契约失败: got " + c4);
+            }
+
+            log("[TEST]   流式: content=" + content + "；sink 累积/提升/replace 契约通过");
+            return createMsg().setParam(RESULT, true);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam("error", "stream exception: " + e);
         }
@@ -1471,39 +1521,6 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             return createMsg().setParam(RESULT, true);
         } catch (Exception e) {
             return createMsg().setParam(RESULT, false).setParam("error", "stream params exception: " + e);
-        }
-    }
-
-    // ======================== 场景 15: 同步流式截断告知 ========================
-
-    /**
-     * chatStreamSync（同步流式入口，外部集成用）的流式文本经 streamCallback 缓冲，
-     * 此前回调不存 finish_reason → 这条路径收不到"被截断"提示。断言：length 截断时终答带提示。
-     */
-    protected TLMsg testStreamSyncTrunc(Object fromWho, TLMsg msg) {
-        TLMockProvider mp = getMockProvider();
-        mp.clearAllResponses();
-
-        String sessionId = SID_SYNCTRUNC;
-        mp.enqueueStreamResponses(sessionId, Arrays.asList(
-                mp.streamChunk("同步流前半段"),
-                mp.streamDone("同步流前半段").setParam(AI_P_FINISH_REASON, "length")));
-
-        try {
-            putMsg("streamCallback", createMsg().setAction("resetStream"));
-            TLMsg r = putMsg(M_AIAGENT, createMsg().setAction("chatStreamSync")
-                    .setSystemParam(AI_P_SESSIONID, sessionId)
-                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
-                    .setParam(AI_P_USERMESSAGE, "同步流式截断测试"));
-            String resp = r != null ? r.getStringParam(AI_P_RESPONSE, "") : "";
-            if (!resp.contains("被截断")) {
-                return createMsg().setParam(RESULT, false)
-                        .setParam("error", "chatStreamSync 截断未告知: " + resp);
-            }
-            log("[TEST]   同步流式截断: 终答已带截断提示");
-            return createMsg().setParam(RESULT, true);
-        } catch (Exception e) {
-            return createMsg().setParam(RESULT, false).setParam("error", "streamsync trunc exception: " + e);
         }
     }
 

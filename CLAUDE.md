@@ -112,8 +112,12 @@ Built-in modules extending `TLBaseModule`:
 - `ChatDemo` / `AIStart`（aistart.bat，config `conf/demo/aiagent/`）— 交互式对话，支持 `/stream` `/thinking` `/clear` `/exit` `/test` `/eval` `/mcp` `/approve` `/sessions` `/continue` `/resume`
 
 **关键实现要点:**
-- `doChat(msg, stream)` — 流/非流统一入口，预处理(记忆召回+上下文)和後処理(保存上下文+長期記憶)完全共享
-- 直出（`directOutput`/finalAnswer）：终答必须作为 assistant 消息写入 history 再收尾才算完整——非流式（doChat）与流式（chatStream 两个短路点）三处必须对称；只 `forwardStreamFinal` 推前端不落 history 的后果是恢复/重登会话终答消失（只剩开场白+工具卡片，"诗没有了"），`/test streamDirect` 场景守此契约
+- **流式/非流式统一编排**：`runChat → prepareChat → runChatLoop` 唯一一份；流式差异只在 `LlmCall`（`StreamLlmCall` 发起 SSE + 等 per-call `StreamHandle`）和 `StreamSink`（`ForwardStreamSink` 推 UI / `NullStreamSink` 丢弃）。`chatStream` 把同一 `runChat` 丢到工作线程后立即返回 null；`onStreamResult` 只做 chunk 转发与句柄唤醒，**不再承载工具循环**。工具迭代轮默认非流式（`STREAM_TOOL_ROUNDS=false`）。`chatStreamSync` 已删除（原仅测试调用且无工具循环）。
+- **流式入口的轮次登记**：`chatStream` 在提交 worker **之前**同步 `sessionRoundBegin`（关闭 `injectTaskResult` 的空闲窗口），worker 用 `preBegan=true` 跳过重复 begin；提交失败由入口 `sessionRoundEnd` 收尾。
+- **错误语义**：流式非人为错误保持 checkpoint（不发 chatFinished）；人为停止走 `chatAborted` + `streamFinal`；`handleRunError` 按 `ctx.cancelled()` / `sink.isNull()` 分流。
+- **输出护栏与流式增量**：`guardOutput` 可能替换/截断正文，导致终答不再是流式文本的前缀；此时发 `AI_P_STREAMREPLACE`，webui 整体替换气泡文本，控制台打印"已修正 + 全文"。不要用长度差做增量；`TLStreamCallback`（测试/外部 sink）也按 replace 帧整体替换缓冲（场景 6 有契约断言）。
+- **`TLStreamCallback` 不再被产品路径使用**：保留为测试/外部集成 sink；新代码做流式收集请实现 `StreamSink`。`_streamResultFor` 不能等于 agent 自身的 name（入口会 WARN 并丢弃，避免自转发死循环）。
+- 直出（`directOutput`/finalAnswer）：终答必须作为 assistant 消息写入 history 再收尾才算完整——`runChatLoop` 的直出分支统一处理；只推前端不落 history 的后果是恢复/重登会话终答消失（只剩开场白+工具卡片，"诗没有了"），`/test streamDirect` 场景守此契约
 - 推理（reasoning）三条铁律（都是实测踩过的坑）：① `TLOpenAiProvider` "空正文把推理提升为正文"兜底只在**正常收尾 stop + 未调工具**时成立——工具回合载荷在 tool_calls（正文可空，API 接受有先例）、截断回合（length）的推理是烧完预算的独白而非答案，提升会把英文思考当正文入库（重登可见、每轮回传）甚至当点评返回；② 终答 `finish_reason=length` 必须如实告知（agent 层补"被截断"提示 + 空正文占位说明），不再静默腰斩；③ 流式链路（chatStream 首包 + 续跑循环）与 doChat 一样要透传 reasoningMode/maxTokens——此前两处都不传，配 `disabled` 关不掉思考、maxTokens 不生效（`off` 对推理模型=照常推理，推理与正文抢同一份 max_tokens）。守护：`/test` 场景 12/13/14 + provider-openai `PromotionGuardSelfTest`（runnable main）；诗歌节点已配 `reasoningMode="disabled"`
 - `beforeMsgTable` 的 `beforeResult` 在 `msg.systemArgs["beforeResult"]` 中，需在業務方法主動讀取。`afterMsgTable` 會覆蓋返回值，記憶保存改為內部調用
 - Tool call 的 `arguments` 必須是 JSON 字符串（`gson.toJson()`），不能用 JSON 對象（`gson.toJsonTree()`）
