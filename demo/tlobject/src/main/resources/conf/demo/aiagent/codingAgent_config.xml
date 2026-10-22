@@ -15,7 +15,9 @@
     </params>
     <skills>
         <!-- timeout=0：见 fileAgent_config 同名注释——审批可无限期（approvalTimeoutMs=0），
-             工具级超时会中断审批等待成"审批被中断"；挂死兜底归 toolExecutor 的 staleStateTimeoutMs -->
+             工具级超时会中断审批等待成"审批被中断"。单次工具时长上限请用 toolExecutor 的
+             executionTimeoutMs；staleStateTimeoutMs 只清理等待线程已消失的泄漏状态，
+             不会按年龄误杀调用线程仍存活的长任务（2026-10-22 委派子 agent 601s 误杀事故）。 -->
         <skill name="fileOperationSkill"
                sameClassAs="fileOperationSkill"
                statup="true"

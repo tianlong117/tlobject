@@ -1645,7 +1645,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
         long[] cacheTurn = {0, 0, 0}; // 本次 chat 的缓存统计 {cacheCreation, cacheHit, cacheMiss}
         boolean truncated = false; // 是否因到达 maxToolCallIterations 而截断
-        boolean aborted = false;   // 是否被 /stop 协作式中断
+        boolean aborted = false;   // 是否被 /stop 或工具执行器中断
+        boolean userStop = false;  // aborted 是否由用户/会话取消标志触发（区别于执行器清理/超时）
+        String abortDetail = null; // 非用户中断的具体原因（toolExecutor 回传的 abortReason）
         boolean clarified = false; // 是否调用了 request_clarification 工具
         boolean pendingApproval = false; // 是否需要人工审批
         boolean rejected = false;       // 审批是否被拒绝
@@ -1659,7 +1661,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 非流式: tool-call循环（流式入口由 chatStream 独立处理）
         while (iteration < maxToolCallIterations) {
             ThreadTask.checkPauseHere();
-            if (cancelled.get()) { aborted = true; break; }
+            // cancelled = /stop；isCurrentCancelled = 执行器 cancelTask（stale 清理/取消/超时）。
+            // 后者此前只置 isThreadOver、无人检查，导致被取消的委派任务继续跑成僵尸。
+            if (cancelled.get() || ThreadTask.isCurrentCancelled()) {
+                aborted = true;
+                userStop = cancelled.get();
+                if (!userStop) abortDetail = "threadTaskCancelled";
+                break;
+            }
             iteration++;
             // L2 checkpoint: 每次迭代前通知 SessionManager
             notifySessionManager(createMsg()
@@ -1702,6 +1711,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
             if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
                 aborted = true;
+                userStop = cancelled.get();
+                if (!userStop) abortDetail = "llmCancelled";
                 break;
             }
             if (!llmResponse.parseBoolean(RESULT, false)) {
@@ -1828,8 +1839,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             boolean execClarified = execResult.parseBoolean("clarified", false);
             boolean execTimeout = execResult.parseBoolean("hasTimeout", false);
             boolean execFinal = execResult.parseBoolean(AI_P_FINALANSWER, false);
+            String execAbortReason = execResult.getStringParam("abortReason", null);
 
-            if (execAborted || cancelled.get()) { aborted = true; break; }
+            if (execAborted || cancelled.get()) {
+                aborted = true;
+                userStop = cancelled.get();
+                if (!userStop) abortDetail = execAbortReason != null && !execAbortReason.isEmpty()
+                        ? execAbortReason : "toolExecutorAborted";
+                break;
+            }
             if (execRejected || execPending || execClarified || execTimeout) {
                 history.remove(aMsgIdx); // 精确回滚 assistant 消息
             }
@@ -1930,12 +1948,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("roundId", roundId)
                     .setParam("messages", deltaMessages(history, msgStartIdx))
                     .setParam("userMessage", userMessage));
-            putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
-            traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted", 0);
+            // 只有用户/会话取消才叫 "by user"；执行器清理/超时/任务取消必须如实记录原因
+            String abortReason = userStop ? "user"
+                    : (abortDetail != null && !abortDetail.isEmpty() ? abortDetail : "cancelled");
+            if (userStop)
+                putLog("Chat aborted by user: sessionId=" + sessionId, LogLevel.INFO);
+            else
+                putLog("Chat aborted (" + abortReason + "): sessionId=" + sessionId, LogLevel.WARN);
+            traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted: " + abortReason, 0);
             long[] accCancel = accumulateTokenUsage(sessionId, turn);
             streamFinal(ctx, "⏹ 已中断");
             return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
                     .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
+                    .setParam("abortReason", abortReason)
                     .setParam("iterations", iteration)
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
                     .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);

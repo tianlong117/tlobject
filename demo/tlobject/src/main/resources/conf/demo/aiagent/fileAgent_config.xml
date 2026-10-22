@@ -47,10 +47,10 @@
         <!-- timeout=0：工具不限时。审批等待算在工具执行时间内，而等待策略改造后
              审批可无限期（approvalTimeoutMs=0，"一直等"）——工具级超时会把它打断成
              "审批被中断"（2026-10-14 弹框卡死修复的同一故障类，只是时限不同）。
-             file_operation 是本地文件操作，无真实挂死风险；挂死兜底靠 toolExecutor 的
-             staleStateTimeoutMs 清扫——注意它是"下次工具执行入口"时扫描，不是看门狗
-             （没有后续执行就不动），且正等审批的执行会被跳过；真被卡住的一轮可随时
-             用 ESC / /stop 释放（控制台）或 webui 的停止按钮中断。 -->
+             file_operation 是本地文件操作，无真实挂死风险；真被卡住的一轮可随时
+             用 ESC / /stop 释放（控制台）或 webui 的停止按钮中断。
+             注：toolExecutor 的 staleStateTimeoutMs 只清理"等待线程已消失"的泄漏状态，
+             不会按年龄清理调用线程仍存活的长任务（2026-10-22 误杀事故后修正语义）。 -->
         <skill name="fileOperationSkill"
                sameClassAs="fileOperationSkill"
                statup="true"

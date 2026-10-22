@@ -6,13 +6,14 @@
                  注意：LLM 的 tool-call 循环另有 maxToolCallIterations 限制，此参数只限单次工具执行。
 
              staleStateTimeoutMs: 残留状态清理阈值（毫秒），0 = 禁用。
-                 超过此时间的工具执行状态视为"孤儿"（等待线程已消失/工具挂死），在下次
-                 工具执行入口扫描时被强制终止（abort + 中断执行线程 + 释放等待者）。
-                 默认 600000（10分钟）：清理"孤儿执行状态"（调用线程异常消失的残留）。
-                 注意：正等人工审批的执行不会被它清理（approvalWaiters 守卫，2026-10-16），
+                 只清理"等待线程已消失"的泄漏状态：超过此时间且调用 executeTools 的线程
+                 已结束，才在下次工具执行入口扫描时强制终止（abort + 释放等待者）。
+                 调用线程仍存活 = 正在合法等待，不会被清理——委派子 agent 等长任务可以
+                 超过 10 分钟（2026-10-22 codingAgent 委派 601s 被按年龄误杀后改为按存活判定）。
+                 注意：正等人工审批的执行仍不会被它清理（approvalWaiters 守卫，2026-10-16），
                  审批等待是设计语义内的合法长跑（approvalTimeoutMs=0 可无限）。
                  带审批的技能应配 timeout=0（不再用工具超时兜审批窗口）。
-                 若确有超长时间工具（>10分钟），请调大此值；不需要兜底则设为 0 禁用。 -->
+                 单次工具执行的时长上限请用 executionTimeoutMs（0 = 不限）。 -->
         <executionTimeoutMs value="0"/>
         <staleStateTimeoutMs value="600000"/>
         <!-- 审批门禁：共享执行器的全局配置。规则按工具名匹配（file_operation:delete/write 等

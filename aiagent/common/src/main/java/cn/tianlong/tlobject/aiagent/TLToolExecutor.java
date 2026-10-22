@@ -33,10 +33,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     /** 单次工具执行超时（毫秒），0 = 一直等待。可通过 XML params 的 executionTimeoutMs 配置 */
     private long executionTimeoutMs = 0;
     /**
-     * 残留状态清理阈值（毫秒），0 = 禁用。超过此时间的 ExecutionState 视为孤儿，在下次
-     * executeTools 入口扫描时强制终止（abort + latch 排空 + 取消/中断执行线程）。
-     * 默认 10 分钟：远大于框架内正常工具执行上限（skill maxExecutionTime ≤ 120s、provider
-     * readTimeOut ≤ 120s），只兜底"等待线程已消失"的真孤儿/挂死工具。可通过 XML params
+     * 残留状态清理阈值（毫秒），0 = 禁用。只清理"等待线程已消失"的泄漏状态：超过此时间
+     * 且调用 executeTools 的线程已结束（调用方线程被异常终止、finally 未执行等），才在
+     * 下次 executeTools 入口扫描时强制终止（abort + latch 排空 + 取消执行任务）。
+     * 调用线程仍存活 = 正在合法等待，绝不清理——委派子 agent 的长任务可以远超 10 分钟
+     * （2026-10-22：codingAgent 委派 601s 被按年龄误杀，主 agent 误判为"用户中断"）。
+     * 单次工具执行时长上限由 executionTimeoutMs 控制（0 = 不限）。可通过 XML params
      * 的 staleStateTimeoutMs 覆盖（0 = 禁用）。
      */
     private long staleStateTimeoutMs = 600000;
@@ -100,6 +102,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         final CountDownLatch latch;
         final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
         volatile boolean aborted;
+        /** 中断原因（staleStateCleanup / executionTimeout / callerInterrupted / sessionCancel），
+         *  随结果带回 Agent——不能只靠布尔 aborted 让上层一律记成"用户中断" */
+        volatile String abortReason;
         // add 在 executeTools 的 fire 循环里（worker 线程），遍历在 cancelSession（用户按停止的线程）
         // 与 cleanupStaleStates（别的会话线程）—— 普通 ArrayList 会 CME 或静默丢元素
         final List<ThreadTask> activeTasks = new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -107,12 +112,15 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         /** 正在等人工审批的任务数（>0 = 合法长跑，cleanupStaleStates 不得按超龄强杀）。原子计数：
          *  同批次多个任务并发进门禁时，++/-- 丢更新会让本已非零的计数瞬时归零 */
         final java.util.concurrent.atomic.AtomicInteger approvalWaiters = new java.util.concurrent.atomic.AtomicInteger();
+        /** 创建本状态、正阻塞在 latch 上的调用线程。存活 = 合法等待（不是孤儿）。 */
+        final Thread callerThread;
 
         ExecutionState(String executionId, String sessionId, CountDownLatch latch) {
             this.executionId = executionId;
             this.sessionId = sessionId;
             this.latch = latch;
             this.createdAt = System.currentTimeMillis();
+            this.callerThread = Thread.currentThread();
         }
     }
 
@@ -231,6 +239,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             + "s, executionId=" + executionId + ", aborting " + latch.getCount()
                             + " remaining task(s)", LogLevel.WARN);
                     state.aborted = true;
+                    state.abortReason = "executionTimeout(" + (executionTimeoutMs / 1000) + "s)";
                     while (state.latch.getCount() > 0) state.latch.countDown();
                     for (ThreadTask t : state.activeTasks) {
                         t.cancelTask();
@@ -292,6 +301,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
             response.setParam("results", results);
             response.setParam("aborted", state.aborted);
+            if (state.abortReason != null) response.setParam("abortReason", state.abortReason);
             response.setParam("pendingApproval", hasPending);
             response.setParam("rejected", hasRejected);
             response.setParam("clarified", hasClarified);
@@ -310,6 +320,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             Thread.currentThread().interrupt();
             // 确保 latch 被释放，防止活跃任务永远等待
             state.aborted = true;
+            state.abortReason = "callerInterrupted";
             while (state.latch.getCount() > 0) state.latch.countDown();
             for (ThreadTask t : state.activeTasks) { t.cancelTask(); t.interrupt(); }
             return createMsg().setParam(RESULT, false).setParam("aborted", true)
@@ -581,6 +592,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         for (Map.Entry<String, ExecutionState> entry : states.entrySet()) {
             ExecutionState s = entry.getValue();
             if (now - s.createdAt > staleStateTimeoutMs) {
+                // 调用线程仍活着 = 正在合法等待本次执行，不是孤儿。长工具/委派子 agent 没有
+                // 框架内的时长上限（executionTimeoutMs=0 时本就不限时），按年龄强杀会误中断
+                // 正在正常工作的一轮（2026-10-22 codingAgent 委派 601s 被误杀事故）。
+                // 真要限制单次工具时长，配 executionTimeoutMs，而不是靠残留清理。
+                if (s.callerThread != null && s.callerThread.isAlive()) continue;
                 // 有人正等人工审批：审批等待是设计语义内的合法长跑（approvalTimeoutMs=0 可无限），
                 // 按超龄强杀会把"一直等"变成 600 秒后"审批被中断"（与 2026-10-14 修复同一故障类）
                 if (s.approvalWaiters.get() > 0) continue;
@@ -591,6 +607,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             ExecutionState s = states.remove(id);
             if (s != null) {
                 s.aborted = true;
+                s.abortReason = "staleStateCleanup(age=" + ((now - s.createdAt) / 1000) + "s)";
                 while (s.latch.getCount() > 0) s.latch.countDown();
                 for (ThreadTask t : s.activeTasks) { t.cancelTask(); t.interrupt(); }
                 putLog("Cleaned up stale ExecutionState: " + id + " (age="
@@ -613,6 +630,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             ExecutionState state = entry.getValue();
             if (sid.equals(state.sessionId)) {
                 state.aborted = true;
+                state.abortReason = "sessionCancel";
                 while (state.latch.getCount() > 0) state.latch.countDown();
                 for (ThreadTask t : state.activeTasks) { t.cancelTask(); t.interrupt(); }
                 toRemove.add(entry.getKey());

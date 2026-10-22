@@ -5,7 +5,8 @@
              场景 approvalResumeExecute 依赖"执行器真的会问审批"来验证免复批。
              未启用时该场景会假绿（门禁根本不会被问到）。 -->
         <approvalModule value="approvalGate"/>
-        <!-- 与生产默认一致：0=不限时；staleState 清理阈值保持默认 600000（含 approvalWaiters 跳过守卫） -->
+        <!-- 与生产默认一致：0=不限时；staleState 清理阈值保持默认 600000（含 approvalWaiters
+             与"调用线程存活"两道跳过守卫） -->
         <executionTimeoutMs value="0"/>
         <staleStateTimeoutMs value="600000"/>
     </params>

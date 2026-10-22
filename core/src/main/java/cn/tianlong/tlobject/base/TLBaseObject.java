@@ -105,6 +105,11 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         volatile boolean paused = false;
         /** 暂停等待锁 */
         final Object pauseLock = new Object();
+        /** 实际执行 run() 的线程：直接 start() 时是 this；线程池路径（run() 被池 worker 调用）是池 worker。
+         *  interrupt() 必须转发到这里——否则打断的是从未 start() 的 ThreadTask 空壳（2026-10-22 僵尸续跑根因） */
+        private volatile Thread executingThread;
+        /** run() 开始前收到的中断请求（池任务排队/启动竞态），由 run() 转交给实际 worker */
+        private volatile boolean interruptRequested;
         /** 当前线程正在执行的 ThreadTask，供模块内部检查暂停状态 */
         static final ThreadLocal<ThreadTask> currentTask = new ThreadLocal<>();
         public ThreadTask(IObject toWho ,TLMsg msg,IObject fromWho){
@@ -132,6 +137,11 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
 
        public void run() {
            currentTask.set(this);
+           executingThread = Thread.currentThread();
+           if (interruptRequested) {           // run() 之前到达的 interrupt()：转交给实际 worker
+               interruptRequested = false;
+               executingThread.interrupt();
+           }
            Object timeoutObj = msg.getAndRemoveSystemParam(TASKTIMEOUT);
            int timeout = timeoutObj instanceof Number ? ((Number) timeoutObj).intValue() : 0;
            try{
@@ -186,9 +196,36 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                    fromWho.getMsg(this,exceptionMsg.setParam("exception",e));
            } finally {
                currentTask.remove();
+               executingThread = null;
                if (doneSignal != null)
                    doneSignal.countDown();
            }
+       }
+
+       /**
+        * 线程池路径下 run() 跑在池 worker 上，ThreadTask 自身从未 start()——默认 interrupt()
+        * 只会打断空壳对象，池 worker 收不到任何信号。有实际执行线程时转发给它；尚未开始
+        * 执行则记下请求，由 run() 开始处转交。
+        */
+       @Override
+       public void interrupt() {
+           Thread runner = executingThread;
+           if (runner != null && runner != this) {
+               runner.interrupt();
+               return;
+           }
+           if (runner == null && !isThreadOver)
+               interruptRequested = true;
+           super.interrupt();
+       }
+
+       /** 与 interrupt() 对称：查询实际执行线程的中断状态 */
+       @Override
+       public boolean isInterrupted() {
+           Thread runner = executingThread;
+           if (runner != null && runner != this)
+               return runner.isInterrupted();
+           return super.isInterrupted();
        }
 
        private TLMsg doExecute(int timeoutMs) throws InterruptedException {

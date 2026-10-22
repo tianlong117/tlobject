@@ -169,7 +169,7 @@ Built-in modules extending `TLBaseModule`:
 - **决策写回与续跑**：resume 时 Agent 向 gate 查 `decision`（approved/rejected/pending/lost）→ `approved` 重执行被审工具并带**免复批标志**（`AI_P_APPROVAL_DECISION="approved"` 走系统参数，仅单任务批次生效，LLM 参数无法伪造）；webui 批准/拒绝 deferred 审批后前端自动续跑（流式 resume，继承断点轮 roundId 收尾）；控制台提示 `/resume`；进程重启后审批内存态丢失 → resume 如实报"审批已失效"不假装续跑
 - **webui 待批会话拦新消息**：「批准 / 拒绝 / 放弃后才能继续」，放弃 = 撤销审批 + 丢弃断点（不记拒绝记忆）
 - **已知行为（终审 2026-10-17）**：同一轮 LLM 发出多个受审工具调用时——**在线（阻塞）场景**前端审批弹框**排队逐个展示**（2026-10-17 事故修复：此前后到事件直接覆盖，只会看到一个框、其余工具无限等 → 会话 40 分钟 thinking；同会话多审批的自动续跑会等最后一单处理完再触发）；**离线转断点**仍只保存最后一个 `pendingToolCall`（`pickPendingToolCall`），恢复只重执行那一个；审批超期只改 gate 状态、**不关闭会话轮次**——黏住语义下过期待批断点会持续压过更新的普通断点，直到被 resume（按 lost 收口）或放弃
-- **配置约定**：带审批的技能 `timeout` 必须配 0（审批等待算在工具执行时间内，工具超时会把"一直等"打断成"审批被中断"——2026-10-14 弹框卡死同族故障）；执行器 `staleStateTimeoutMs` 清理跳过正等审批的执行（`approvalWaiters` 守卫）；执行器门禁 fail-closed（审批模块配置了但不可用 → 拒绝执行）
+- **配置约定**：带审批的技能 `timeout` 必须配 0（审批等待算在工具执行时间内，工具超时会把"一直等"打断成"审批被中断"——2026-10-14 弹框卡死同族故障）；执行器 `staleStateTimeoutMs` 只清理**等待线程已消失**的泄漏状态，跳过正等审批的执行（`approvalWaiters` 守卫）与调用线程仍存活的长任务（2026-10-22 委派 codingAgent 601s 被按年龄误杀事故；单次工具时长上限用 `executionTimeoutMs`）；执行器门禁 fail-closed（审批模块配置了但不可用 → 拒绝执行）
 - **已知边界**：子 agent 委托路径的 pending 不上浮（fileAgent/codeAgent `enableCheckpoint=false` + `executeAsTool` 只转发输出文本）→ 委托类危险工具的"离线转断点"不成立，现阶段只在 master 自有 gated 工具上生效
 
 **单元测试 (`/test` 命令):**
