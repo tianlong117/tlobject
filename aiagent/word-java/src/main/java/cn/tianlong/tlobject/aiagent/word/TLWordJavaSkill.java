@@ -211,8 +211,9 @@ public class TLWordJavaSkill extends TLBaseSkill {
         return null;
     }
 
-    /** 每用户独立工作目录。userId 三通道取：args → systemArgs → sessionId 兜底
-     *  （与 TLScheduleTaskSkill 同款约定：执行器把 userId 放在 systemArgs，只读 args 会漏）。
+    /** 每用户独立工作目录。userId 只信 systemArgs（执行器注入），args 仅作命令/测试路径兜底，
+     *  sessionId 最后兜底。工具执行器已用 sanitizeIdentityArgs 净化 LLM 参数；这里再保证
+     *  "模型可控参数不能覆盖执行身份"（2026-10-22 越权评估）。
      *  backup 同理：XML 配默认值，单次调用显式传 backup 时以调用为准（传了就用传的，含 false）。
      *  chineseLayout 由 execute 解析后传入（不在本方法内解析）：校验要能在主 try 之前抛出、
      *  被局部 catch 转成干净 JSON 回执，见 execute。 */
@@ -220,12 +221,11 @@ public class TLWordJavaSkill extends TLBaseSkill {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
         cfg.allowedRoot = Paths.get(allowedRootPath);
         cfg.chineseLayout = chineseLayout;
-        String userId = msg.getStringParam(AI_P_USERID, null);
+        Object sysUser = msg.getSystemParam(AI_P_USERID, null);
+        String userId = (sysUser != null && !String.valueOf(sysUser).isEmpty())
+                ? String.valueOf(sysUser) : msg.getStringParam(AI_P_USERID, null);
         if (userId == null || userId.isEmpty()) {
-            Object u = msg.getSystemParam(AI_P_USERID, null);
-            userId = (u == null || String.valueOf(u).isEmpty())
-                    ? String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"))
-                    : String.valueOf(u);
+            userId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         }
         cfg.workDir = Paths.get(workDir).resolve(userId);
         cfg.backup = (input != null && input.containsKey("backup"))

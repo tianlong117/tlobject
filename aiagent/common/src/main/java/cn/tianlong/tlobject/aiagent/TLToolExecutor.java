@@ -331,6 +331,34 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     }
 
     /**
+     * 工具参数的身份字段净化：userId/sessionId/rootSessionId 只允许来自执行器注入的
+     * systemArgs，LLM 工具参数里的同名字段一律覆盖（systemArgs 缺失则剔除）。
+     *
+     * <p>背景（2026-10-22）：LLM 的 function arguments 原样透传给技能；schedule_task 等
+     * 技能又优先读 args 里的 userId。用户只要让模型在参数里带上别人的 userId，就能越权
+     * list/create/remove 对方任务（confused deputy）。身份必须只信框架注入的通道。
+     *
+     * <p>只处理调用方确实带了的身份字段：覆盖为可信值或剔除，不凭空注入——避免改变
+     * 普通业务参数/MCP 工具参数的形状（MCP 的 userId 是工具自己的业务参数，不在此列）。
+     *
+     * @return 防御性副本（不改 LLM 原始 args，便于日志/追踪保留原文）
+     */
+    static Map<String, Object> sanitizeIdentityArgs(Map<String, Object> args, TLMsg execMsg) {
+        Map<String, Object> safe = args == null ? new LinkedHashMap<>() : new LinkedHashMap<>(args);
+        scrubIdentity(safe, AI_P_USERID, execMsg.getSystemParam("userId", null));
+        scrubIdentity(safe, AI_P_SESSIONID, execMsg.getSystemParam(AI_P_SESSIONID, null));
+        scrubIdentity(safe, "rootSessionId", execMsg.getSystemParam("rootSessionId", null));
+        return safe;
+    }
+
+    /** 仅当 args 里存在该身份字段时才处理：有可信值则覆盖，无可信值则剔除；不凭空注入 */
+    private static void scrubIdentity(Map<String, Object> args, String key, Object trusted) {
+        if (!args.containsKey(key)) return;
+        if (trusted == null || String.valueOf(trusted).isEmpty()) args.remove(key);
+        else args.put(key, trusted);
+    }
+
+    /**
      * 单个工具执行回调（ThreadTask 上运行）。
      */
     private TLMsg doToolExec(Object fromWho, TLMsg msg) {
@@ -341,6 +369,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         if (state == null || task == null) {
             if (state == null) return null; // 已被 cancel 清理
             return null;
+        }
+
+        // 身份字段只信 systemArgs：净化后再走审批/执行，避免审批展示与执行双重口径。
+        // MCP 工具的 userId 等是工具自己的业务参数（服务端 schema 可能严格），不在此改。
+        if (!MCP_CALLTOOL.equals(task.action)) {
+            task.args = sanitizeIdentityArgs(task.args, msg);
         }
 
         // 已被取消/超时 → 快速失败，不执行

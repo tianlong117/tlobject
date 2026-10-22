@@ -390,14 +390,17 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         String op = str(input, "op", null);
         if (op == null) return fail("missing required parameter: op");
 
-        // 身份（系统参数区；与 TLAiAgent.doChat 同款的 userId 回退 sessionId 规则）
-        String sessionId = str(input, "sessionId", null);
-        if (sessionId == null) sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
-        String userId = str(input, "userId", null);
-        if (userId == null) {
-            Object u = msg.getSystemParam("userId", null);
-            userId = (u != null && !String.valueOf(u).isEmpty()) ? String.valueOf(u) : sessionId;
-        }
+        // 身份只信 systemArgs（执行器注入）；input 里的 userId/sessionId 仅作命令路径兜底。
+        // 第二道防线：工具执行器已用 sanitizeIdentityArgs 净化 LLM 参数，这里再保证
+        // "任何调用方都不能用模型可控的参数覆盖执行身份"（2026-10-22 越权评估）。
+        Object sysSid = msg.getSystemParam(AI_P_SESSIONID, null);
+        String sessionId = (sysSid != null && !String.valueOf(sysSid).isEmpty())
+                ? String.valueOf(sysSid) : str(input, "sessionId", "");
+        if (sessionId.isEmpty()) sessionId = "default";
+        Object sysUid = msg.getSystemParam("userId", null);
+        String userId = (sysUid != null && !String.valueOf(sysUid).isEmpty())
+                ? String.valueOf(sysUid) : str(input, "userId", null);
+        if (userId == null || userId.isEmpty()) userId = sessionId;
 
         switch (op) {
             case "create": return createTask(input, sessionId, userId,
