@@ -61,6 +61,23 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     private String serviceModule = "agentService";
     private String userModule = "demoUserModule";
+    /** 是否订阅工具实时进度（false = 不注册总线订阅） */
+    private boolean subscribeToolProgress = true;
+
+    /**
+     * 进度写 SSE 的专用单线程 writer：
+     * 工具线程只入队，慢浏览器不会阻塞工具执行；队列满丢最旧（进度是易失数据）。
+     */
+    private final java.util.concurrent.ThreadPoolExecutor toolProgressWriter =
+            new java.util.concurrent.ThreadPoolExecutor(
+                    1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(256),
+                    r -> {
+                        Thread t = new Thread(r, "webui-tool-progress");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy());
     /** 上传大小上限（MB），请求参数覆盖 uploadFile 模块的 fileSizeMax 配置 */
     private int uploadSizeMaxMB = 50;
     /** uid:pwd 表（配置了才做密码校验） */
@@ -107,6 +124,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     protected void setModuleParams() {
         super.setModuleParams();
         if (params == null) return;
+        if (params.get("subscribeToolProgress") != null)
+            subscribeToolProgress = "true".equals(params.get("subscribeToolProgress"));
         if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
         if (params.get("userModule") != null) userModule = params.get("userModule");
         if (params.get("uploadSizeMaxMB") != null) {
@@ -125,6 +144,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         switch (msg.getAction()) {
             case "startWeb":
                 subscribeApprovalEvents();
+                subscribeToolProgressBus();
                 break;
             case STREAM_ONCHUNK:
                 onStreamChunk(msg);
@@ -152,6 +172,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             // ===== 任务清单变更（TLTodoSkill 每次 write 发布；前端输入区上方清单条实时刷新）=====
             case "todoEvent":
                 return onTodoEvent(msg) ? createMsg().setParam(RESULT, true) : null;
+            // ===== 工具实时进度（执行器 → Agent → msgBus；只要状态，不含 output）=====
+            case TOOL_PROGRESS_TOPIC:
+                return onToolProgress(msg);
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -912,9 +935,12 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("destination", "todoEvent").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", "approvalResolved").setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
+        toolProgressWriter.shutdownNow();
         for (TLWebChannel c : streamWriters.values()) {
             try { c.close(); } catch (Exception ignored) {}
         }
@@ -1152,6 +1178,53 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             sessionOwner.remove(execSession);
         }
         return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 工具进度（msgBus 回调，跑在工具 worker 线程）：
+     * 只做组包 + 入队，绝不在这里写 SSE——慢客户端不能拖住工具执行。
+     */
+    private TLMsg onToolProgress(TLMsg msg) {
+        if (!subscribeToolProgress) return null;
+        String userId = msg.getStringParam("userId", "");
+        if (userId.isEmpty()) return null;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list == null || list.isEmpty()) return null;
+
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", TOOL_PROGRESS_TOPIC);
+        evt.put("agentName", msg.getStringParam("agentName", ""));
+        evt.put("agentFamilyName", msg.getStringParam("agentFamilyName", ""));
+        evt.put("executionId", msg.getStringParam("executionId", ""));
+        evt.put("roundId", msg.getStringParam("roundId", ""));
+        evt.put("sessionId", msg.getStringParam("sessionId", ""));
+        evt.put("userId", userId);
+        evt.put("toolCallId", msg.getStringParam("toolCallId", ""));
+        evt.put("toolName", msg.getStringParam("toolName", ""));
+        evt.put("moduleName", msg.getStringParam("moduleName", ""));
+        evt.put("index", msg.getIntParam("index", 0));
+        evt.put("total", msg.getIntParam("total", 0));
+        evt.put("status", msg.getStringParam("status", ""));
+        evt.put("durationMs", msg.getLongParam("durationMs", 0L));
+        evt.put("message", msg.getStringParam("message", ""));
+        String json = GSON.toJson(evt);
+        try {
+            toolProgressWriter.execute(() -> writeToEventChannels(userId, json));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            return null;
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    private void writeToEventChannels(String userId, String json) {
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list == null) return;
+        for (TLWebChannel c : list) {
+            try {
+                if (c.isOpen()) c.write(json);
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /**
@@ -1508,6 +1581,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             if (res instanceof java.util.List && !((java.util.List<?>) res).isEmpty())
                 return ((java.util.List<?>) res).get(0);
             return null;
+        }
+    }
+
+    private void subscribeToolProgressBus() {
+        if (!subscribeToolProgress) return;
+        try {
+            TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+            if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT)))
+                putLog("webui 订阅工具进度事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅工具进度事件（msgBus toolProgress）", LogLevel.INFO);
+        } catch (Exception e) {
+            putLog("webui 订阅工具进度事件失败: " + e, LogLevel.WARN);
         }
     }
 

@@ -85,6 +85,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     /** 逐用例结果，用于生成报告并与上一次运行对比（每次运行前清空） */
     private final List<TLEvalRunResult> runResults = new ArrayList<>();
 
+    /** toolProgress 场景捕获的事件（msgBus 回调写入） */
+    private final List<Map<String, Object>> toolProgressEvents =
+            java.util.Collections.synchronizedList(new ArrayList<>());
+
     /** 测试报告输出目录（与 trace 同属 data/aitest/ 命名空间） */
     private String reportOutputDir = "data/aitest/reports/";
 
@@ -110,12 +114,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_STREAMDIRECT = "test_mock_streamdirect";
     private static final String SID_TRUNC        = "test_mock_truncation";
     private static final String SID_PLUMP        = "test_mock_streamparams";
+    private static final String SID_TOOLPROGRESS = "test_mock_toolprogress";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS);
 
     // ======================== 构造器 ========================
 
@@ -198,6 +203,21 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "testIntentCache":
                 returnMsg = testIntentCache(fromWho, msg);
                 break;
+            case TOOL_PROGRESS_TOPIC: {
+                Map<String, Object> evt = new LinkedHashMap<>();
+                evt.put("toolCallId", msg.getStringParam("toolCallId", ""));
+                evt.put("toolName", msg.getStringParam("toolName", ""));
+                evt.put("status", msg.getStringParam("status", ""));
+                evt.put("index", msg.getIntParam("index", -1));
+                evt.put("total", msg.getIntParam("total", -1));
+                evt.put("executionId", msg.getStringParam("executionId", ""));
+                evt.put("sessionId", msg.getStringParam("sessionId", ""));
+                evt.put("agentName", msg.getStringParam("agentName", ""));
+                evt.put("hasOutput", msg.containsParam("output") || msg.containsParam("toolOutput"));
+                toolProgressEvents.add(evt);
+                returnMsg = createMsg().setParam(RESULT, true);
+                break;
+            }
             case "runCaseFile":
                 returnMsg = runCaseFile(fromWho, msg);
                 break;
@@ -457,6 +477,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("streamDirect",     new String[]{"12-流式直出短路落历史", "test_echo 未注册"});
         TEST_CASES.put("truncNotice",      new String[]{"13-截断如实告知", null});
         TEST_CASES.put("streamParams",     new String[]{"14-流式推理传参", "test_echo 未注册"});
+        TEST_CASES.put("toolProgress",     new String[]{"15-工具实时进度", "test_echo 未注册"});
         TEST_CASES.put("approvalSessionGrant", new String[]{"16-审批会话免审", null});
         TEST_CASES.put("approvalGrantAdmin", new String[]{"17-审批授权管理", null});
         // 18/19/20 第二槽（测试 Skill 未注册时的跳过原因）为 null：审批场景直发 approvalGate，不走 Skill——
@@ -549,6 +570,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "streamdirect":    return this::testStreamDirect;
             case "truncnotice":     return this::testTruncNotice;
             case "streamparams":    return this::testStreamParams;
+            case "toolprogress":    return this::testToolProgress;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -943,6 +965,76 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, false)
                 .setParam("error", String.format("ok=%s, iterations=%d, toolCount=%d, allCollected=%s",
                         ok, iterations, toolCount, allCollected));
+    }
+
+    // ======================== 场景 15: 工具实时进度 ========================
+
+    /**
+     * 断言：执行器经 Agent 发布到 msgBus 的进度事件——
+     * 两个工具各有 starting + done；带 toolCallId/index/total/agentName；不含 output。
+     */
+    protected TLMsg testToolProgress(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+        toolProgressEvents.clear();
+        TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+        if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT))) {
+            return createMsg().setParam(RESULT, false).setParam("error", "订阅 toolProgress 失败");
+        }
+        try {
+            List<TLToolCall> toolCalls = Arrays.asList(
+                    TLMockProvider.createToolCall("call_tp_1", FN_ECHO,
+                            new HashMap<String, Object>() {{ put("message", "progress-A"); }}),
+                    TLMockProvider.createToolCall("call_tp_2", FN_ECHO,
+                            new HashMap<String, Object>() {{ put("message", "progress-B"); }}));
+            mp.enqueueResponse(mp.toolCallResponse(toolCalls));
+            mp.enqueueResponse(mp.textResponse("两个 echo 已执行。"));
+
+            TLMsg response = putMsg(M_AIAGENT, createMsg()
+                    .setAction(AGENT_CHAT)
+                    .setSystemParam(AI_P_SESSIONID, SID_TOOLPROGRESS)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "请并行执行两个 echo 任务"));
+
+            boolean ok = response != null && response.parseBoolean(RESULT, false);
+            List<Map<String, Object>> events;
+            synchronized (toolProgressEvents) {
+                events = new ArrayList<>(toolProgressEvents);
+            }
+            boolean start1 = false, start2 = false, done1 = false, done2 = false, noOutput = true;
+            List<Map<String, Object>> relevant = new ArrayList<>();
+            for (Map<String, Object> e : events) {
+                // 同进程其他 agent/后台任务的 toolProgress 可能混入，只认本场景会话
+                if (!SID_TOOLPROGRESS.equals(String.valueOf(e.get("sessionId")))) continue;
+                relevant.add(e);
+                String id = String.valueOf(e.get("toolCallId"));
+                String st = String.valueOf(e.get("status"));
+                if ("call_tp_1".equals(id) && TOOL_STATUS_STARTING.equals(st)) start1 = true;
+                if ("call_tp_2".equals(id) && TOOL_STATUS_STARTING.equals(st)) start2 = true;
+                if ("call_tp_1".equals(id) && TOOL_STATUS_DONE.equals(st)) done1 = true;
+                if ("call_tp_2".equals(id) && TOOL_STATUS_DONE.equals(st)) done2 = true;
+                if (Boolean.TRUE.equals(e.get("hasOutput"))) noOutput = false;
+            }
+            boolean agentName = relevant.stream().anyMatch(e -> {
+                Object a = e.get("agentName");
+                return a != null && !String.valueOf(a).isEmpty();
+            });
+            boolean fields = !relevant.isEmpty() && relevant.stream().allMatch(e ->
+                    ((Integer) e.get("index")) >= 0 && ((Integer) e.get("total")) == 2);
+
+            if (ok && start1 && start2 && done1 && done2 && noOutput && agentName && fields) {
+                log("[TEST]   工具进度: events=" + events.size() + "，starting/done 齐全，无 output");
+                return createMsg().setParam(RESULT, true);
+            }
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", String.format(
+                            "ok=%s start=%s/%s done=%s/%s noOutput=%s agentName=%s fields=%s events=%s",
+                            ok, start1, start2, done1, done2, noOutput, agentName, fields, events));
+        } finally {
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+        }
     }
 
     // ======================== 场景 5: Tool 执行超时 ========================

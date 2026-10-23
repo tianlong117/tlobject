@@ -8,6 +8,9 @@
         <!-- maxToolCallIterations: LLM tool-call最大迭代轮次，防止无限循环 -->
         <maxToolCallIterations value="10"/>
 
+        <!-- 工具实时进度：测试 agent 打开源开关，供 /test toolProgress 断言 msgBus 事件 -->
+        <toolProgressToBus value="true"/>
+
         <!-- enableCheckpoint: 会话断点通知开关。true=Agent向SessionManager发送sessionUpdated/chatFinished/chatAborted。
              主Agent设true，子Agent默认false（不配即不通知）。SessionManager另有enableCheckpoint控制是否落盘。 -->
         <enableCheckpoint value="true"/>

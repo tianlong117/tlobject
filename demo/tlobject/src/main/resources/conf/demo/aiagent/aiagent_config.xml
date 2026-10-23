@@ -13,6 +13,8 @@
         <!-- 测试 Agent 关闭自动起名：Mock Provider 响应队列是脚本化的，起名调用会偷吃队列响应 -->
         <autoSessionTitle value="false"/>
         <maxToolCallIterations value="10"/>
+        <!-- 工具实时进度：测试 agent 打开源开关，供 /test toolProgress 断言 msgBus 事件 -->
+        <toolProgressToBus value="true"/>
         <defaultTemperature value="0.7"/>
         <defaultMaxTokens value="4096"/>
         <!-- 不配 defaultLlmProvider：无默认 Provider，测试运行时切换到 mockProvider -->

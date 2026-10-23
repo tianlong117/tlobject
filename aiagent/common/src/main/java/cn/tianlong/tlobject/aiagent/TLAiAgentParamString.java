@@ -105,6 +105,22 @@ public interface TLAiAgentParamString extends TLParamString {
     /** 取消指定 session 的所有进行中工具执行 */
     String TODOOLECANCEL = "toolExecCancel";
 
+    // ======================== 工具实时进度 ========================
+    /** 执行器 → Agent：单个工具的进度状态回调 */
+    String TOOL_PROGRESS = "onToolProgress";
+    /** Agent → msgBus：工具进度事件 topic（UI 订阅） */
+    String TOOL_PROGRESS_TOPIC = "toolProgress";
+
+    String TOOL_STATUS_STARTING = "starting";
+    String TOOL_STATUS_DONE = "done";
+    String TOOL_STATUS_REJECTED = "rejected";
+    String TOOL_STATUS_PENDING = "pending";
+    String TOOL_STATUS_TIMEOUT = "timeout";
+    String TOOL_STATUS_ABORTED = "aborted";
+    String TOOL_STATUS_ERROR = "error";
+    String TOOL_STATUS_SKIPPED = "skipped";
+    String TOOL_STATUS_CLARIFIED = "clarified";
+
     // ======================== LLM Provider动作 ========================
     /** 发送completion请求（非流式） */
     String LLM_COMPLETION = "completion";

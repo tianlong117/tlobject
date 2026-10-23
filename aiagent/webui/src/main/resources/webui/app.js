@@ -379,6 +379,92 @@ function showLightbox(src) {
 }
 /** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏）。
  *  box 可选：后台会话的流式工具卡片要落回它自己的盒子，缺省 = 当前视图 */
+const TOOL_PROGRESS_TEXT = {
+  starting: '运行中…', done: '完成', rejected: '已拒绝', pending: '等待审批',
+  timeout: '超时', aborted: '已中断', error: '失败', skipped: '未执行', clarified: '需要澄清'
+};
+const TOOL_PROGRESS_ICON = {
+  starting: '⚙', done: '✓', rejected: '✗', pending: '⏸',
+  timeout: '✗', aborted: '⏹', error: '✗', skipped: '⏭', clarified: '❓'
+};
+const TOOL_PROGRESS_TERMINAL = new Set([
+  'done', 'rejected', 'pending', 'timeout', 'aborted', 'error', 'skipped', 'clarified'
+]);
+
+/** 工具实时进度：按 executionId 分组、按 toolCallId upsert 的瞬时清单（不显示工具输出） */
+function applyToolProgress(evt) {
+  const sid = evt.sessionId;
+  if (!sid) return;
+  // 只渲染已知会话：当前会话或本标签页已打开的视图。不为侧栏/后台任务创建视图——
+  // 否则空 box 里先塞进进度清单会让 switchSession 误判"已有内容"而跳过历史加载。
+  const known = sid === state.sessionId
+      || !!(state.sessions && state.sessions[sid]);
+  if (!known) return;
+  const v = viewOf(sid);
+  // 只渲染本标签页正在运行的会话：/stop 的迟到 aborted、其他标签页、后台注入轮都不重建清单。
+  if (!v.box || !v.busy) return;
+
+  let panel = v.toolProgressEl;
+  if (!panel || !panel.parentNode) {   // 不能用 isConnected：后台会话 box 本来就脱离 DOM
+    panel = document.createElement('div');
+    panel.className = 'tool-progress';
+    v.box.appendChild(panel);
+    v.toolProgressEl = panel;
+    panel._rows = {};
+    panel._done = 0;
+    panel._total = 0;
+    panel._executionId = '';
+  }
+  if (panel._executionId !== (evt.executionId || '')) {
+    panel._executionId = evt.executionId || '';
+    panel.innerHTML = '';
+    panel._rows = {};
+    panel._done = 0;
+    panel._total = evt.total || 0;
+    const head = document.createElement('div');
+    head.className = 'tp-head';
+    panel.appendChild(head);
+    panel._head = head;
+  }
+  panel._total = evt.total || panel._total || 0;
+
+  const id = evt.toolCallId || ((evt.toolName || 'tool') + '_' + evt.index);
+  let row = panel._rows[id];
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'tp-row';
+    panel.appendChild(row);
+    panel._rows[id] = row;
+    row._terminal = false;
+  }
+  const terminal = TOOL_PROGRESS_TERMINAL.has(evt.status);
+  if (row._terminal && !terminal) return;   // 终态优先：迟到的 starting 不降级
+  if (terminal && !row._terminal) { row._terminal = true; panel._done++; }
+
+  const icon = TOOL_PROGRESS_ICON[evt.status] || '·';
+  const text = TOOL_PROGRESS_TEXT[evt.status] || evt.status || '';
+  const dur = evt.durationMs > 0
+      ? (evt.durationMs >= 1000 ? (evt.durationMs / 1000).toFixed(1) + 's' : evt.durationMs + 'ms')
+      : '';
+  const msg = evt.message ? ' · ' + evt.message : '';
+  row.className = 'tp-row ' + (terminal
+      ? ((evt.status === 'done' || evt.status === 'skipped') ? 'tp-done' : 'tp-error')
+      : 'tp-running');
+  row.textContent = icon + ' ' + (evt.toolName || 'tool') + ' ' + text
+      + (dur ? ' ' + dur : '') + msg;
+  if (panel._head) panel._head.textContent = '工具执行 ' + panel._done + '/' + panel._total;
+  scrollChat(v.box);
+}
+
+/** 对话结束（正常/错误/停止）时移除该会话的瞬时清单 */
+function clearToolProgress(sid) {
+  const v = state.sessions && state.sessions[sid];   // 不 viewOf：未知会话不凭空建视图
+  if (v && v.toolProgressEl) {
+    v.toolProgressEl.remove();
+    v.toolProgressEl = null;
+  }
+}
+
 function renderToolResult(toolName, output, box) {
   const d = document.createElement('div');
   d.className = 'msg tool-result';
@@ -559,6 +645,7 @@ async function plainChat(msg) {
     holder.el.remove();
     appendMsg('system', '[错误] ' + e.message, holder.box);
   } finally {
+    clearToolProgress(sid);
     setBusy(false, sid);
   }
 }
@@ -692,6 +779,7 @@ async function streamChat(msg, opts) {
     }
   } finally {
     clearIdle();   // AbortError/异常路径也要清"思考中"，否则停止后残留
+    clearToolProgress(sid);
     setBusy(false, sid);
     viewOf(sid).abort = null;
   }
@@ -878,6 +966,7 @@ function openEvents() {
       handleTaskEvent(evt);
     }
     if (evt.type === 'todo') { applyTodoEvent(evt); }   // 任务清单变更（输入区上方清单条）
+    if (evt.type === 'toolProgress') { applyToolProgress(evt); }   // 工具执行状态（无 output）
     if (evt.type === 'sessionTitle') {
       // 首轮完成后模型自动起名推送：命中缓存行则就地更新标题并节流重渲染。
       // 未命中（新会话首轮刚完成、侧栏缓存里还没有它）→ 拉一次列表让该行出现

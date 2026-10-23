@@ -115,6 +115,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         /** 创建本状态、正阻塞在 latch 上的调用线程。存活 = 合法等待（不是孤儿）。 */
         final Thread callerThread;
 
+        // 进度事件上下文（executeTools 构造后填充；不参与并发控制）
+        Object fromWho;
+        String userId;
+        String rootSessionId;
+        String roundId;
+        int total;
+
         ExecutionState(String executionId, String sessionId, CountDownLatch latch) {
             this.executionId = executionId;
             this.sessionId = sessionId;
@@ -196,6 +203,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         int n = tasks.size();
         CountDownLatch latch = new CountDownLatch(n);
         ExecutionState state = new ExecutionState(executionId, sessionId, latch);
+        state.fromWho = fromWho;
+        state.userId = userId;
+        state.rootSessionId = rootSessionId;
+        state.roundId = roundId;
+        state.total = n;
         states.put(executionId, state);
 
         try {
@@ -359,6 +371,49 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     }
 
     /**
+     * 向调用方 Agent 实例回推一条工具进度。进度是旁路：
+     * 任何异常都必须吞掉，不能影响工具执行结果。
+     */
+    private void notifyProgress(ExecutionState st, ToolTask task, int idx,
+                                String status, long durationMs, String message) {
+        try {
+            if (st == null || st.fromWho == null) return;
+            String toolName = task.functionName != null && !task.functionName.isEmpty()
+                    ? task.functionName
+                    : (task.moduleName != null ? task.moduleName : "");
+            TLMsg evt = createMsg()
+                    .setAction(TOOL_PROGRESS)
+                    .setParam("executionId", st.executionId)
+                    .setParam("roundId", st.roundId)
+                    .setParam("toolCallId", task.toolCallId)
+                    .setParam("toolName", toolName)
+                    .setParam("moduleName", task.moduleName != null ? task.moduleName : "")
+                    .setParam("index", idx)
+                    .setParam("total", st.total)
+                    .setParam("status", status)
+                    .setParam("durationMs", durationMs)
+                    .setParam("message", message != null
+                            ? (message.length() > 200 ? message.substring(0, 200) : message) : "")
+                    .setSystemParam(AI_P_SESSIONID, st.sessionId)
+                    .setSystemParam("userId", st.userId)
+                    .setSystemParam("rootSessionId", st.rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, st.roundId);
+            evt.setSystemParam(IGNOREMODULEISNULL, true);
+            if (st.fromWho instanceof IObject) putMsg((IObject) st.fromWho, evt);
+            else if (st.fromWho instanceof String) putMsg((String) st.fromWho, evt);
+        } catch (Throwable t) {
+            try { putLog("tool progress notify failed: " + t, LogLevel.DEBUG); } catch (Throwable ignored) {}
+        }
+    }
+
+    /** 写结果 + 发终态事件（同一入口，保证不会漏发/重发） */
+    private void finishTask(ExecutionState st, ToolTask task, int idx, ToolResult result,
+                            String status, long durationMs, String message) {
+        st.results.put(idx, result);
+        notifyProgress(st, task, idx, status, durationMs, message);
+    }
+
+    /**
      * 单个工具执行回调（ThreadTask 上运行）。
      */
     private TLMsg doToolExec(Object fromWho, TLMsg msg) {
@@ -367,31 +422,29 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         String executionId = String.valueOf(msg.getSystemParam("executionId", ""));
         ExecutionState state = states.get(executionId);
         if (state == null || task == null) {
-            if (state == null) return null; // 已被 cancel 清理
+            if (state == null) return null;
             return null;
         }
 
-        // 身份字段只信 systemArgs：净化后再走审批/执行，避免审批展示与执行双重口径。
-        // MCP 工具的 userId 等是工具自己的业务参数（服务端 schema 可能严格），不在此改。
         if (!MCP_CALLTOOL.equals(task.action)) {
             task.args = sanitizeIdentityArgs(task.args, msg);
         }
 
-        // 已被取消/超时 → 快速失败，不执行
         if (state.aborted) {
             state.latch.countDown();
             return null;
         }
 
+        boolean started = false;
+        long startTs = System.currentTimeMillis();
         try {
-            // 审批门禁（按 LLM 函数名匹配规则，如 file_operation:delete；无函数名时回退模块名）。
-            // 断点恢复且决策=approved：跳过门禁——否则 resume 重执行会再次弹框/转断点（死循环）
-            boolean preApproved = TLApprovalRequest.APPROVED.equals(msg.getSystemParam(AI_P_APPROVAL_DECISION, ""));
+            boolean preApproved = TLApprovalRequest.APPROVED.equals(
+                    msg.getSystemParam(AI_P_APPROVAL_DECISION, ""));
             String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
                     ? task.functionName : task.moduleName;
             TLMsg approvalResult = null;
             if (!preApproved) {
-                state.approvalWaiters.incrementAndGet();   // 等审批期间禁止 stale 清理按超龄强杀（见 cleanupStaleStates）
+                state.approvalWaiters.incrementAndGet();
                 try {
                     approvalResult = checkApprovalGate(task.toolCallId, task.args, approvalToolName,
                             String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")),
@@ -403,7 +456,6 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     state.approvalWaiters.decrementAndGet();
                 }
             } else {
-                // 审计：免复批绕过门禁（断点恢复的已批准执行）
                 putLog("Approval bypassed (pre-approved resume): " + approvalToolName
                         + " toolCallId=" + task.toolCallId, LogLevel.INFO);
             }
@@ -416,27 +468,39 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     tr.stateExtra = approvalResult.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
                 if ("pending".equals(approvalState))
                     tr.approvalId = approvalResult.getStringParam(AI_P_APPROVAL_ID, "");
-                state.results.put(idx, tr);
+                String status = "pending".equals(approvalState) ? TOOL_STATUS_PENDING
+                        : ("rejected".equals(approvalState) ? TOOL_STATUS_REJECTED : TOOL_STATUS_ERROR);
+                String text = "pending".equals(approvalState) ? "等待审批"
+                        : ("rejected".equals(approvalState) ? tr.stateExtra : approvalState);
+                finishTask(state, task, idx, tr, status, 0L, text);
                 return null;
             }
 
-            // 预计算输出（内建工具、校验失败、函数未找到等）：直接返回，不执行
             if (task.precomputedOutput != null) {
-                state.results.put(idx, new ToolResult(task.toolCallId, task.precomputedOutput));
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId, task.precomputedOutput),
+                        TOOL_STATUS_SKIPPED, 0L, "未执行（预校验）");
                 return null;
             }
 
-            // 无 module 且无预计算输出 → 不应该出现，兜底
             if (task.module == null) {
-                state.results.put(idx, new ToolResult(task.toolCallId, "Internal error: no module for " + task.moduleName));
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId,
+                                "Internal error: no module for " + task.moduleName),
+                        TOOL_STATUS_ERROR, 0L, "无执行模块");
                 return null;
             }
 
-            // 执行工具
             String functionName = task.moduleName;
             String toolName = MCP_CALLTOOL.equals(task.action) && task.nativeName != null
                     ? task.nativeName : functionName;
             putLog(">>> [Function] " + functionName + " → " + task.module.getName(), LogLevel.DEBUG);
+
+            // ==== 真正开始执行：先发 starting ====
+            startTs = System.currentTimeMillis();
+            started = true;
+            notifyProgress(state, task, idx, TOOL_STATUS_STARTING, 0L, "");
+
             TLMsg execMsg = createMsg();
             execMsg.setAction(task.action);
             execMsg.setParam(AI_P_TOOLNAME, toolName);
@@ -444,34 +508,37 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 execMsg.setParam(AI_P_TOOLARGUMENTS, task.args);
             }
             execMsg.setParam(AI_P_SKILLINPUT, task.args).setParam(AI_P_TOOLID, task.toolCallId);
-            // 注入 LLM 参数
             for (Map.Entry<String, Object> entry : task.args.entrySet()) {
                 execMsg.setParam(entry.getKey(), entry.getValue());
             }
             Object toolUserId = msg.getSystemParam("userId", null);
             if (toolUserId != null) execMsg.setSystemParam("userId", toolUserId);
-            // 会话信息透传（工具模块、before/after 钩子、级联停止、全链追踪可用）。
-            // 框架系统参数区：与 LLM 业务参数（args）分层，互不覆盖
             execMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, "default"));
             execMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId",
                     msg.getSystemParam(AI_P_SESSIONID, "default")));
             execMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
+
             TLMsg result = putMsg(task.module, execMsg);
-            // 线程被中断 = Future 超时，即使工具返回了部分结果也标记为超时
+            long elapsed = System.currentTimeMillis() - startTs;
+
             if (Thread.currentThread().isInterrupted()) {
-                Thread.currentThread().interrupt(); // 恢复中断标志，让上游也能感知
-                state.results.put(idx, new ToolResult(task.toolCallId,
-                        "[超时] " + task.moduleName + " 执行超时",
-                        "timeout", "执行超时"));
+                Thread.currentThread().interrupt();
+                String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId,
+                                "[超时] " + task.moduleName + " 执行超时", "timeout", "执行超时"),
+                        st, elapsed, state.aborted ? "已中断" : "执行超时");
                 return null;
             }
-            // 检查执行结果自身是否标记为超时
             if (result != null && Boolean.TRUE.equals(result.getParam(TASKTIMEOUT))) {
-                state.results.put(idx, new ToolResult(task.toolCallId,
-                        "[超时] " + task.moduleName + " 执行超时",
-                        "timeout", "执行超时"));
+                String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId,
+                                "[超时] " + task.moduleName + " 执行超时", "timeout", "执行超时"),
+                        st, elapsed, state.aborted ? "已中断" : "执行超时");
                 return null;
             }
+
             String output;
             if (result == null) {
                 output = "done";
@@ -481,40 +548,54 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 output = result.getStringParam(AI_P_RESPONSE, "");
             }
             if (output.isEmpty()) output = result != null ? TLMsgUtils.msgToSimpleStr(result) : "";
-            // 子模块（如子 agent 的审批被拒）返回拒绝标志 → 标记 rejected，上游 doChat 停止循环
+
             if (result != null && result.parseBoolean("rejected", false)) {
                 String reason = result.getStringParam("rejectReason", "用户拒绝");
                 putLog("<<< [Function] " + functionName + " 返回: REJECTED (" + reason + ")", LogLevel.WARN);
-                state.results.put(idx, new ToolResult(task.toolCallId, output, "rejected", reason));
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId, output, "rejected", reason),
+                        TOOL_STATUS_REJECTED, elapsed, reason);
                 return null;
             }
-            // 直出标志（agent 配置 directOutput）：标记 final，上游 doChat 短路、不再 LLM 加工
             if (result != null && result.parseBoolean(AI_P_FINALANSWER, false)) {
                 putLog("<<< [Function] " + functionName + " 返回: FINAL(直出)", LogLevel.DEBUG);
-                state.results.put(idx, new ToolResult(task.toolCallId, output, "final", null));
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId, output, "final", null),
+                        TOOL_STATUS_DONE, elapsed, "");
                 return null;
             }
+
             putLog("<<< [Function] " + functionName + " 返回 (前200字): "
                     + (output.length() > 200 ? output.substring(0, 200) : output), LogLevel.DEBUG);
-
-            state.results.put(idx, new ToolResult(task.toolCallId, output));
+            finishTask(state, task, idx, new ToolResult(task.toolCallId, output),
+                    TOOL_STATUS_DONE, elapsed, "");
         } catch (Exception e) {
-            // 判断是否因超时中断：InterruptedIOException / InterruptedException / 线程中断标志
             boolean isTimeout = Thread.currentThread().isInterrupted()
                     || e instanceof InterruptedException
                     || e.getClass().getName().contains("Interrupted");
+            long elapsed = System.currentTimeMillis() - startTs;
             if (isTimeout) {
-                Thread.currentThread().interrupt(); // 恢复中断标志
+                Thread.currentThread().interrupt();
                 putLog("Tool execution timeout: " + task.moduleName, LogLevel.WARN);
-                state.results.put(idx, new ToolResult(task.toolCallId,
-                        "[超时] " + task.moduleName + " 执行超时",
-                        "timeout", "执行超时"));
+                String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId,
+                                "[超时] " + task.moduleName + " 执行超时", "timeout", "执行超时"),
+                        st, elapsed, state.aborted ? "已中断" : "执行超时");
             } else {
                 putLog("Tool execution error: " + task.moduleName + " -> " + e.toString(), LogLevel.ERROR);
-                state.results.put(idx, new ToolResult(task.toolCallId,
-                        "Error executing " + task.moduleName + ": " + e.getMessage()));
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId,
+                                "Error executing " + task.moduleName + ": " + e.getMessage()),
+                        TOOL_STATUS_ERROR, elapsed, e.getMessage());
             }
         } finally {
+            if (started && !state.results.containsKey(idx)) {
+                notifyProgress(state, task, idx,
+                        state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_ERROR,
+                        System.currentTimeMillis() - startTs,
+                        state.aborted ? "已中断" : "执行异常结束");
+            }
             state.latch.countDown();
         }
         return null;

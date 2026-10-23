@@ -261,6 +261,14 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .toast.err { background: #dc2626; }
 .toast.info { background: #2563eb; }
 
+/* ===== 工具实时进度（瞬时清单，不含工具输出） ===== */
+.tool-progress { align-self: stretch; margin: 6px 0; padding: 8px 10px; border-radius: 8px;
+  background: #1b1f27; border: 1px solid #2a2f3a; font-size: 12px; color: #c9d1d9; }
+.tool-progress .tp-head { color: #8b93a5; margin-bottom: 4px; }
+.tool-progress .tp-row { line-height: 1.7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool-progress .tp-running { color: #79c0ff; }
+.tool-progress .tp-done { color: #56d364; }
+.tool-progress .tp-error { color: #ff7b72; }
 /* ===== 后台任务卡片（会话 box 内）+ 详情抽屉（body 级） ===== */
 .task-card { align-self: flex-start; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   background: #1c2430; border: 1px solid #2f3b4d; border-left: 3px solid #f59e0b;

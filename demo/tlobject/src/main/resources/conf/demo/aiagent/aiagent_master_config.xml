@@ -11,6 +11,8 @@
         <maxToolCallIterations value="25"/>
         <!-- defaultTemperature: LLM采样温度 -->
         <defaultTemperature value="0.7"/>
+        <!-- 工具实时进度：主 agent 打开源开关，UI 经 msgBus toolProgress 订阅；子 agent 不配（默认不对外发） -->
+        <toolProgressToBus value="true"/>
         <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
         <defaultMaxTokens value="4096"/>
         <!-- contextTokenLimit: 发送给 LLM 的上下文 token 预算（默认 1048576 = DeepSeek 1M 上下文）。

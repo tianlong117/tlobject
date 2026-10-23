@@ -18,7 +18,8 @@
         <module name="webui" classfile="cn.tianlong.tlobject.aiagent.webui.TLWebChatModule" singleton="true"/>
     </modules>
     <modulesParams>
-        <module name="webui" userModule="demoUserModule" passwords="admin:123456;guest:123456" uploadSizeMaxMB="50"/>
+        <module name="webui" userModule="demoUserModule" passwords="admin:123456;guest:123456"
+                uploadSizeMaxMB="50" subscribeToolProgress="true"/>
         <!-- servletPath="/api/" → initServletDispatch 挂唯一 TLServletDispatch 到 /api/*
              （与 appConfig 的 tlobjectPath="/api" 配套，全部框架请求走它，仿 ltbgtadmin 模式；
               不使用 extraServlets 再造 dispatch 实例，避免线程 Map 竞争覆盖）

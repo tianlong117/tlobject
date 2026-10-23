@@ -80,6 +80,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
     protected boolean directOutput = false;
 
+    /** 是否把工具进度状态发布到 msgBus（UI 订阅）；默认关闭，主 agent 配 true，子 agent 不配 */
+    protected boolean toolProgressToBus = false;
+
     /** 是否走意图缓存（TLIntentCacheProvider）。带审批门禁工具的 agent 配置 intentCache=false，
      *  防止被拒/危险操作的轮次被学习并在重复请求时命中缓存 */
     protected boolean intentCacheEnabled = true;
@@ -677,6 +680,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 noHistory = "true".equals(params.get("noHistory"));
             if (params.get("directOutput") != null)
                 directOutput = "true".equals(params.get("directOutput"));
+            if (params.get("toolProgressToBus") != null)
+                toolProgressToBus = "true".equals(params.get("toolProgressToBus"));
             if (params.get("intentCache") != null)
                 intentCacheEnabled = "true".equals(params.get("intentCache"));
             if (params.get("defaultTemperature") != null) {
@@ -1110,6 +1115,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 break;
             case "msgTool":
                 returnMsg = executeMsgTool(fromWho, msg);
+                break;
+            case TOOL_PROGRESS:
+                returnMsg = handleToolProgress(fromWho, msg);
                 break;
             default:
                 returnMsg = null;
@@ -2196,6 +2204,40 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Agent error: " + t.getMessage());
         }
+    }
+
+    /**
+     * 执行器回调：按配置决定是否把工具进度发布到 msgBus。
+     * 默认丢弃（子 agent 不配 toolProgressToBus 就不外发）。
+     */
+    protected TLMsg handleToolProgress(Object fromWho, TLMsg msg) {
+        if (!toolProgressToBus) return null;
+        try {
+            Object bus = getModuleInFactory("msgBus");
+            if (!(bus instanceof IObject)) return null;
+            TLMsg evt = createMsg()
+                    .setAction(TOOL_PROGRESS_TOPIC)
+                    .setParam("agentName", getName())
+                    .setParam("agentFamilyName", getFamilyName())
+                    .setParam("executionId", msg.getStringParam("executionId", ""))
+                    .setParam("roundId", msg.getStringParam("roundId", ""))
+                    .setParam("sessionId", String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "")))
+                    .setParam("userId", String.valueOf(msg.getSystemParam("userId", "")))
+                    .setParam("rootSessionId", String.valueOf(msg.getSystemParam("rootSessionId", "")))
+                    .setParam("toolCallId", msg.getStringParam("toolCallId", ""))
+                    .setParam("toolName", msg.getStringParam("toolName", ""))
+                    .setParam("moduleName", msg.getStringParam("moduleName", ""))
+                    .setParam("index", msg.getIntParam("index", 0))
+                    .setParam("total", msg.getIntParam("total", 0))
+                    .setParam("status", msg.getStringParam("status", ""))
+                    .setParam("durationMs", msg.getLongParam("durationMs", 0L))
+                    .setParam("message", msg.getStringParam("message", ""));
+            evt.setDestination(TOOL_PROGRESS_TOPIC);
+            putMsg((IObject) bus, evt);
+        } catch (Throwable t) {
+            try { putLog("toolProgress publish failed: " + t, LogLevel.DEBUG); } catch (Throwable ignored) {}
+        }
+        return null;
     }
 
     /**
