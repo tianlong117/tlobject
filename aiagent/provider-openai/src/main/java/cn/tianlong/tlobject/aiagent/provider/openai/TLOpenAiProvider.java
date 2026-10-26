@@ -358,13 +358,21 @@ public class TLOpenAiProvider extends TLLlmProvider {
             }
             tc.setFunctionName(func.get("name").getAsString());
 
-            String argsStr = func.has("arguments") ? func.get("arguments").getAsString() : null;
+            String argsStr = func.has("arguments") && !func.get("arguments").isJsonNull()
+                    ? func.get("arguments").getAsString() : null;
             if (argsStr != null && !argsStr.isEmpty()) {
                 try {
                     Map<String, Object> args = gson.fromJson(argsStr, Map.class);
-                    tc.setArguments(args);
+                    tc.setArguments(args != null ? args : new LinkedHashMap<>());
                 } catch (Exception e) {
+                    // 非空但解析失败 = 参数被截断（典型 finish_reason=length）或模型输出损坏。
+                    // 绝不能静默当空参数：那会把"无参调用"执行成一次真实工具调用
+                    // （子 agent 报 missing userMessage 白烧一轮；code_execution 可能只跑半个脚本）。
                     tc.setArguments(new LinkedHashMap<>());
+                    tc.setArgumentsInvalid(true);
+                    putLog("Tool call arguments 不完整（可能被 max_tokens 截断）: function="
+                            + tc.getFunctionName() + ", len=" + argsStr.length()
+                            + ", error=" + e, LogLevel.WARN);
                 }
             }
             toolCalls.add(tc);
@@ -586,9 +594,14 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                     if (rawArgs != null && !rawArgs.isEmpty()) {
                                         try {
                                             Map<String, Object> parsed = gson.fromJson(rawArgs, Map.class);
-                                            tc.setArguments(parsed);
+                                            tc.setArguments(parsed != null ? parsed : new LinkedHashMap<>());
                                         } catch (Exception e) {
-                                            putLog("Failed to parse streamed tool call args: " + e.toString(), LogLevel.WARN);
+                                            // 与非流式同一守卫：截断的参数不能当空参数执行
+                                            tc.setArguments(new LinkedHashMap<>());
+                                            tc.setArgumentsInvalid(true);
+                                            putLog("Streamed tool call arguments 不完整（可能被 max_tokens 截断）: function="
+                                                    + tc.getFunctionName() + ", len=" + rawArgs.length()
+                                                    + ", error=" + e, LogLevel.WARN);
                                         }
                                     }
                                 }

@@ -17,6 +17,12 @@ public class TLToolCall implements Serializable {
     private String type = "function";
     private String functionName;
     private Map<String, Object> arguments;
+    /**
+     * arguments 字符串非空但 JSON 解析失败（典型原因：max_tokens 截断，参数只写了一半）。
+     * 绝不可把它当"无参数调用"执行：轻则白烧一轮（子 agent 报 missing userMessage），
+     * 重则截断的 code_execution/file_operation 只执行了一半内容。
+     */
+    private boolean argumentsInvalid;
 
     public TLToolCall() {}
 
@@ -38,8 +44,12 @@ public class TLToolCall implements Serializable {
     public Map<String, Object> getArguments() { return arguments; }
     public void setArguments(Map<String, Object> arguments) { this.arguments = arguments; }
 
+    public boolean isArgumentsInvalid() { return argumentsInvalid; }
+    public void setArgumentsInvalid(boolean argumentsInvalid) { this.argumentsInvalid = argumentsInvalid; }
+
     @Override
     public String toString() {
-        return "TLToolCall{id=" + id + ", function=" + functionName + ", args=" + arguments + '}';
+        return "TLToolCall{id=" + id + ", function=" + functionName + ", args=" + arguments
+                + (argumentsInvalid ? ", argsInvalid=true" : "") + '}';
     }
 }

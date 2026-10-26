@@ -97,9 +97,19 @@ public class TLMockProvider extends TLLlmProvider {
     public volatile TLMsg lastCompletionRequest;
     public volatile TLMsg lastStreamRequest;
 
+    /**
+     * 全部同步 completion 请求的快照。
+     * lastCompletionRequest 会被异步起名等旁路调用覆盖（回合结束后线程池里还会再发一次
+     * LLM 请求），断言"某轮请求里带了什么"必须遍历历史，不能只看最后一次。
+     */
+    private final List<TLMsg> completionRequests = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public List<TLMsg> getCompletionRequests() { return completionRequests; }
+
     @Override
     protected TLMsg completion(Object fromWho, TLMsg msg) {
         lastCompletionRequest = msg;
+        completionRequests.add(msg);
         return consumeResponse(msg);
     }
 
@@ -224,6 +234,9 @@ public class TLMockProvider extends TLLlmProvider {
     public void clearAllResponses() {
         responseQueue.clear();
         streamQueueMap.clear();
+        completionRequests.clear();
+        lastCompletionRequest = null;
+        lastStreamRequest = null;
     }
 
     /**

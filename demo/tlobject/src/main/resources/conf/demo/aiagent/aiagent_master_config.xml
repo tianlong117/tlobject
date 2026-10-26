@@ -7,14 +7,18 @@
     <params>
         <!-- defaultLlmProvider: 默认LLM Provider模块名 -->
         <defaultLlmProvider value="openAiProvider"/>
-        <!-- maxToolCallIterations: LLM tool-call最大迭代轮次 -->
-        <maxToolCallIterations value="25"/>
+        <!-- maxToolCallIterations: LLM tool-call最大迭代轮次。
+             长翻译/排版任务会连续委派子 agent 写文件，25 轮偏紧（实测 57 段序言翻译 + 校验用满 25 轮后
+             正好卡在最后一次成功写入，来不及收尾）；50 给长任务留出余量。 -->
+        <maxToolCallIterations value="50"/>
         <!-- defaultTemperature: LLM采样温度 -->
         <defaultTemperature value="0.7"/>
         <!-- 工具实时进度：主 agent 打开源开关，UI 经 msgBus toolProgress 订阅；子 agent 不配（默认不对外发） -->
         <toolProgressToBus value="true"/>
-        <!-- defaultMaxTokens: 单次LLM回复最大token数 -->
-        <defaultMaxTokens value="4096"/>
+        <!-- defaultMaxTokens: 单次LLM回复最大token数。
+             4096 对"把整段译文写进工具参数"这类输出太紧，会被 finish_reason=length 截断；
+             与子 agent（fileAgent/codeAgent 8192）对齐，降低长输出被腰斩的概率。 -->
+        <defaultMaxTokens value="8192"/>
         <!-- contextTokenLimit: 发送给 LLM 的上下文 token 预算（默认 1048576 = DeepSeek 1M 上下文）。
              历史按条数裁剪不按体量，超大单条内容（大文件读取/长工具输出/恢复巨量历史）会超模型上下文 → HTTP 400。
              框架按此预算自动丢弃最旧消息、单条仍超则截断后再发送（仅影响当轮发送，不删历史/不影响恢复）。

@@ -115,12 +115,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_TRUNC        = "test_mock_truncation";
     private static final String SID_PLUMP        = "test_mock_streamparams";
     private static final String SID_TOOLPROGRESS = "test_mock_toolprogress";
+    private static final String SID_TRUNCARGS    = "test_mock_truncargs";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS);
 
     // ======================== 构造器 ========================
 
@@ -493,6 +494,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("approvalResumeLost", new String[]{"26-断点恢复失效不执行", null});
         TEST_CASES.put("approvalCheckpointDiscard", new String[]{"27-待批断点可见与丢弃", null});
         TEST_CASES.put("approvalPendingCheckpoint", new String[]{"28-待批断点生命周期", null});
+        TEST_CASES.put("truncToolArgs",    new String[]{"29-截断工具参数不可执行", "test_echo 未注册"});
     }
 
     /**
@@ -571,6 +573,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "truncnotice":     return this::testTruncNotice;
             case "streamparams":    return this::testStreamParams;
             case "toolprogress":    return this::testToolProgress;
+            case "trunctoolargs":   return this::testToolArgsTruncated;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -760,6 +763,121 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, false)
                 .setParam("error", String.format("ok=%s, iterations=%d, resp=%s",
                         ok, iterations, aiResp.substring(0, Math.min(100, aiResp.length()))));
+    }
+
+    // ======================== 场景 29: 截断工具参数不可执行 ========================
+
+    /**
+     * 背景（2026-10-26 真机会话 webchat_tianlong_1792671447143）：
+     * master 的 defaultMaxTokens=4096，模型把整批译文塞进 codeAgent 的 task 参数，
+     * arguments JSON 被截断；Provider 解析失败后静默当空参数，ToolManager 照常执行，
+     * 连续 8 轮 "Error: missing userMessage"，最后撞上 25 轮上限。
+     *
+     * <p>断言：① argumentsInvalid 的调用不执行，回喂明确的"参数不完整"提示；
+     * ② 循环还能继续（第二次 LLM 调用返回终答）；
+     * ③ 撞迭代上限时，截断提示作为 assistant 消息写入 history（重登可见，不停在工具结果上）。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg testToolArgsTruncated(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        // ① 截断参数：不执行，回喂明确错误，循环继续
+        TLToolCall badTc = TLMockProvider.createToolCall("call_trunc_1", FN_ECHO,
+                new HashMap<String, Object>());
+        badTc.setArgumentsInvalid(true);
+        mp.enqueueResponse(mp.toolCallResponse(badTc));
+        mp.enqueueResponse(mp.textResponse("已按提示分批重试。"));
+
+        TLMsg r1 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, SID_TRUNCARGS)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "测试截断的工具参数"));
+        if (r1 == null || !r1.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "截断参数场景 chat 失败: "
+                            + (r1 != null ? r1.getStringParam(AI_P_RESPONSE, "") : "null"));
+        }
+        if (!"已按提示分批重试。".equals(r1.getStringParam(AI_P_RESPONSE, ""))) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "循环未继续到终答: "
+                            + r1.getStringParam(AI_P_RESPONSE, ""));
+        }
+        // 遍历全部同步请求（lastCompletionRequest 可能被异步起名覆盖）：
+        // 只要任一请求的历史里出现守卫文案，就说明工具结果确实回喂给了模型。
+        boolean guardSeen = false, executed = false;
+        for (TLMsg req : mp.getCompletionRequests()) {
+            List<TLConversationHistory> sent = (List<TLConversationHistory>)
+                    req.getListParam(AI_P_MESSAGEHISTORY, null);
+            if (sent == null) continue;
+            for (TLConversationHistory h : sent) {
+                String c = h.getContent();
+                if (c == null) continue;
+                if (c.contains("工具调用参数") && c.contains("不完整")) guardSeen = true;
+                if (c.contains("ECHO:")) executed = true;
+            }
+        }
+        if (!guardSeen) {
+            StringBuilder dbg = new StringBuilder("requests=").append(mp.getCompletionRequests().size());
+            for (TLMsg req : mp.getCompletionRequests()) {
+                List<?> sent = req.getListParam(AI_P_MESSAGEHISTORY, null);
+                dbg.append(" | msgs=").append(sent == null ? 0 : sent.size());
+                if (sent == null) continue;
+                for (Object o : sent) {
+                    if (!(o instanceof TLConversationHistory)) { dbg.append(";nonHist"); continue; }
+                    TLConversationHistory h = (TLConversationHistory) o;
+                    String c = h.getContent();
+                    dbg.append(";").append(h.getRole()).append(":")
+                            .append(c == null ? "null" : c.substring(0, Math.min(24, c.length())));
+                }
+            }
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "非法参数未回喂明确提示（找不到「工具调用参数…不完整」）: " + dbg);
+        }
+        if (executed) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "非法参数仍被执行（出现 ECHO 输出）");
+        }
+
+        // ② 迭代上限截断：提示必须落 history（不是只回 UI）
+        mp.clearAllResponses();
+        TLToolCall okTc = TLMockProvider.createToolCall("call_trunc_2", FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "limit"); }});
+        mp.enqueueResponse(mp.toolCallResponse(okTc));
+
+        TLMsg r2 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, SID_TRUNCARGS)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_MAXTOOLCALLITERATIONS, 1)
+                .setParam(AI_P_USERMESSAGE, "测试迭代上限收尾"));
+        if (r2 == null || !r2.parseBoolean(AI_P_TRUNCATED, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "未按迭代上限截断: "
+                            + (r2 != null ? r2.getStringParam(AI_P_RESPONSE, "") : "null"));
+        }
+        String truncResp = r2.getStringParam(AI_P_RESPONSE, "");
+        if (!truncResp.contains("最大迭代次数")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "截断提示文案异常: " + truncResp);
+        }
+        TLMsg cont = putMsg("sessionManager", createMsg().setAction("continueSession")
+                .setParam("sessionId", SID_TRUNCARGS).setParam("userId", TEST_USER_ID));
+        List<?> history = cont != null
+                ? (List<?>) cont.getListParam("history", Collections.emptyList()) : null;
+        if (history == null || history.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "截断轮 history 为空");
+        }
+        Object lastObj = history.get(history.size() - 1);
+        String lastContent = lastObj instanceof TLConversationHistory
+                ? ((TLConversationHistory) lastObj).getContent() : "";
+        if (lastContent == null || !lastContent.contains("最大迭代次数")) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "截断提示未落 history，末条=" + lastContent);
+        }
+
+        log("[TEST]   截断工具参数: 未执行且回喂提示；迭代上限提示已落 history");
+        return createMsg().setParam(RESULT, true);
     }
 
     // ======================== 场景 11: 意图路由缓存 ========================

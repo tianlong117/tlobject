@@ -1648,6 +1648,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         boolean resumedFromCheckpoint = ctx.resumedFromCheckpoint;
         boolean noHistory = ctx.noHistory;
         final java.util.concurrent.atomic.AtomicBoolean cancelled = ctx.cancelled;
+        // 单次请求可覆盖迭代上限（测试/上层驱动用）；0/负值回退到 agent 配置
+        int requestMaxIterations = msg.getIntParam(AI_P_MAXTOOLCALLITERATIONS, 0);
+        final int maxIterations = requestMaxIterations > 0
+                ? requestMaxIterations : maxToolCallIterations;
 
         int iteration = 0;
         long[] turn = {0, 0, 0};   // 本次 chat 的 token 用量 {prompt, completion, total}
@@ -1667,7 +1671,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         String finalResponse = null;
 
         // 非流式: tool-call循环（流式入口由 chatStream 独立处理）
-        while (iteration < maxToolCallIterations) {
+        while (iteration < maxIterations) {
             ThreadTask.checkPauseHere();
             // cancelled = /stop；isCurrentCancelled = 执行器 cancelTask（stale 清理/取消/超时）。
             // 后者此前只置 isThreadOver、无人检查，导致被取消的委派任务继续跑成僵尸。
@@ -1940,7 +1944,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         if (finalResponse == null) {
             truncated = true;
-            finalResponse = "（已达最大迭代次数 " + maxToolCallIterations + "，可能未完成）";
+            finalResponse = "（已达最大迭代次数 " + maxIterations + "，可能未完成）";
         }
 
         // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
@@ -1973,6 +1977,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
                     .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);
         }
+
+        // 迭代上限截断：提示必须作为 assistant 消息落 history。
+        // 此前只回 UI，重开会话末尾停在工具结果上——用户看到"任务清单停在第二项"却没有停因。
+        // 正常循环耗尽时末条是 tool 消息，可安全追加；末条若是孤立的 assistant(tool_calls)
+        //（execResult==null 等错误路径），追加会破坏 tool 配对，保持原样不追加。
+        if (truncated) appendTruncatedFinalToHistory(history, finalResponse);
 
         // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
         if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
@@ -3399,6 +3409,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             putLog("Output guard error: " + e.toString(), LogLevel.WARN);
         }
         return response;
+    }
+
+    /**
+     * 迭代上限截断提示落 history（assistant 消息）。
+     * 安全性：末条若是带 tool_calls 的 assistant（没有对应 tool 结果），直接追加 assistant
+     * 会破坏 tool 配对（下轮 400），此时放弃追加，保历史可发送。
+     */
+    private void appendTruncatedFinalToHistory(List<TLConversationHistory> history, String text) {
+        if (text == null || text.isEmpty()) return;
+        if (!history.isEmpty()) {
+            TLConversationHistory last = history.get(history.size() - 1);
+            if (last.getRole() == TLConversationHistory.Role.assistant
+                    && last.getToolCalls() != null && !last.getToolCalls().isEmpty()) {
+                putLog("Skip truncation notice in history: dangling assistant tool_calls", LogLevel.WARN);
+                return;
+            }
+        }
+        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, text));
     }
 
     /** 工具结果写 history（工具消息）+ 把技能声明要投喂的图**攒起来**（不可就地注入：

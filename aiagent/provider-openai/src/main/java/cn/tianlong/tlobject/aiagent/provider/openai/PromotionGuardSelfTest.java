@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.provider.openai;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLToolCall;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.GsonBuilder;
@@ -70,6 +71,40 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
         check("流式 正常收尾：保留原兜底（提升）",
                 "the answer is 42".equals(s3.lastDone().getStringParam(AI_P_RESPONSE, "")));
 
+        // ================= 截断的 tool_calls：参数不完整必须标记 =================
+        // 背景：max_tokens=4096 时模型把整段译文塞进工具参数，arguments JSON 被截断；
+        // 旧行为是解析失败后静默当空参数，agent 照常执行 → 8 轮 missing userMessage 白烧。
+        TestProvider pTrunc = new TestProvider();
+        TLToolCall truncTc = firstToolCall(pTrunc.parseResponse(
+                json("", null, truncatedToolCalls(), "length"), new TLMsg()));
+        check("非流式 截断 tool args：标记 argumentsInvalid",
+                truncTc != null && truncTc.isArgumentsInvalid());
+
+        TLToolCall okTc = firstToolCall(pTrunc.parseResponse(
+                json("", null, toolCalls(), "tool_calls"), new TLMsg()));
+        check("非流式 正常 tool args：不误标",
+                okTc != null && !okTc.isArgumentsInvalid()
+                        && okTc.getArguments() != null && okTc.getArguments().isEmpty());
+
+        // 合法的无参工具即使 finish_reason=length 也不误标：参数缺失 ≠ 参数被截断
+        // （只有"非空字符串解析失败"才是截断证据，避免把无参调用逼成重试循环）
+        TLToolCall missingTc = firstToolCall(pTrunc.parseResponse(
+                json("", null, noArgsToolCalls(), "length"), new TLMsg()));
+        check("非流式 length 且无参工具：不误标",
+                missingTc != null && !missingTc.isArgumentsInvalid());
+
+        TLToolCall noArgOk = firstToolCall(pTrunc.parseResponse(
+                json("", null, noArgsToolCalls(), "tool_calls"), new TLMsg()));
+        check("非流式 无参工具（tool_calls 收尾）：不误标",
+                noArgOk != null && !noArgOk.isArgumentsInvalid());
+
+        TestProvider sTrunc = new TestProvider();
+        sTrunc.feedStream(sse(
+                deltaToolCall("c2", "f", "{\\\"task\\\":\\\"abc"), finishChunk("length")));
+        TLToolCall streamTrunc = firstToolCall(sTrunc.lastDone());
+        check("流式 截断 tool args：标记 argumentsInvalid",
+                streamTrunc != null && streamTrunc.isArgumentsInvalid());
+
         // ================= trace 文件大小上限轮转 =================
         // 背景：某 provider 的文件名落到 "default" 后，所有会话/所有日子的调用全追加进同一个
         // .trace（实测 176MB 且无轮转）。上限轮转保证任何单文件有界（当前 + .1 两份）。
@@ -131,6 +166,12 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
         } catch (Exception e) {
             return "";
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static TLToolCall firstToolCall(TLMsg m) {
+        List<TLToolCall> calls = (List<TLToolCall>) m.getListParam(AI_P_TOOLCALLS, null);
+        return calls == null || calls.isEmpty() ? null : calls.get(0);
     }
 
     // ======================== 测试替身 ========================
@@ -203,6 +244,17 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
 
     private static String toolCalls() {
         return "[{\"id\":\"c1\",\"type\":\"function\",\"function\":{\"name\":\"f\",\"arguments\":\"{}\"}}]";
+    }
+
+    /** arguments 是被截断的 JSON（值本身是 "{\"task\":\"abc"，缺收尾引号/大括号） */
+    private static String truncatedToolCalls() {
+        return "[{\"id\":\"c2\",\"type\":\"function\",\"function\":{\"name\":\"f\","
+                + "\"arguments\":\"{\\\"task\\\":\\\"abc\"}}]";
+    }
+
+    /** 合法的无参工具（function 里没有 arguments 字段） */
+    private static String noArgsToolCalls() {
+        return "[{\"id\":\"c3\",\"type\":\"function\",\"function\":{\"name\":\"f\"}}]";
     }
 
     private static String sse(String... chunks) {
