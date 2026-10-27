@@ -63,6 +63,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private String userModule = "demoUserModule";
     /** 是否订阅工具实时进度（false = 不注册总线订阅） */
     private boolean subscribeToolProgress = true;
+    /** 是否订阅工作流节点进度（false = 不注册总线订阅） */
+    private boolean subscribeWorkflowProgress = true;
 
     /**
      * 进度写 SSE 的专用单线程 writer：
@@ -74,6 +76,17 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     new java.util.concurrent.ArrayBlockingQueue<>(256),
                     r -> {
                         Thread t = new Thread(r, "webui-tool-progress");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy());
+    /** 工作流节点进度专用 writer：与工具进度分开，避免高频工具事件挤掉节点事件。 */
+    private final java.util.concurrent.ThreadPoolExecutor workflowProgressWriter =
+            new java.util.concurrent.ThreadPoolExecutor(
+                    1, 1, 0L, java.util.concurrent.TimeUnit.MILLISECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(256),
+                    r -> {
+                        Thread t = new Thread(r, "webui-workflow-progress");
                         t.setDaemon(true);
                         return t;
                     },
@@ -126,6 +139,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (params == null) return;
         if (params.get("subscribeToolProgress") != null)
             subscribeToolProgress = "true".equals(params.get("subscribeToolProgress"));
+        if (params.get("subscribeWorkflowProgress") != null)
+            subscribeWorkflowProgress = "true".equals(params.get("subscribeWorkflowProgress"));
         if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
         if (params.get("userModule") != null) userModule = params.get("userModule");
         if (params.get("uploadSizeMaxMB") != null) {
@@ -145,6 +160,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "startWeb":
                 subscribeApprovalEvents();
                 subscribeToolProgressBus();
+                subscribeWorkflowProgressBus();
                 break;
             case STREAM_ONCHUNK:
                 onStreamChunk(msg);
@@ -175,6 +191,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             // ===== 工具实时进度（执行器 → Agent → msgBus；只要状态，不含 output）=====
             case TOOL_PROGRESS_TOPIC:
                 return onToolProgress(msg);
+            // ===== 工作流节点进度（引擎 → 宿主 → msgBus；节点状态，不含产出）=====
+            case WORKFLOW_PROGRESS_TOPIC:
+                return onWorkflowProgress(msg);
             // ===== 框架路由入口（TLServletDispatch → TLWUrlMap → 本模块）=====
             case "session":
                 return doSession();
@@ -937,10 +956,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam("destination", "approvalResolved").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, LogLevel.DEBUG);
         }
         toolProgressWriter.shutdownNow();
+        workflowProgressWriter.shutdownNow();
         for (TLWebChannel c : streamWriters.values()) {
             try { c.close(); } catch (Exception ignored) {}
         }
@@ -1210,6 +1232,42 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String json = GSON.toJson(evt);
         try {
             toolProgressWriter.execute(() -> writeToEventChannels(userId, json));
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            return null;
+        }
+        return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 工作流节点进度：只入队到有界 writer，慢 SSE 不阻塞引擎线程。
+     * sessionId 可能是节点的合成会话；前端用 rootSessionId 兜底找父会话视图。
+     */
+    private TLMsg onWorkflowProgress(TLMsg msg) {
+        if (!subscribeWorkflowProgress) return null;
+        String userId = msg.getStringParam("userId", "");
+        if (userId.isEmpty()) return null;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list == null || list.isEmpty()) return null;
+
+        Map<String, Object> evt = new LinkedHashMap<>();
+        evt.put("type", WORKFLOW_PROGRESS_TOPIC);
+        evt.put("source", "workflow");
+        evt.put("workflowName", msg.getStringParam("workflowName", ""));
+        evt.put("workflowFamilyName", msg.getStringParam("workflowFamilyName", ""));
+        evt.put("runId", msg.getStringParam("runId", ""));
+        evt.put("nodeId", msg.getStringParam("nodeId", ""));
+        evt.put("nodeType", msg.getStringParam("nodeType", ""));
+        evt.put("status", msg.getStringParam("status", ""));
+        evt.put("durationMs", msg.getLongParam("durationMs", 0L));
+        evt.put("detail", msg.getStringParam("detail", ""));
+        evt.put("totalNodes", msg.getIntParam("totalNodes", 0));
+        evt.put("sessionId", msg.getStringParam("sessionId", ""));
+        evt.put("userId", userId);
+        evt.put("rootSessionId", msg.getStringParam("rootSessionId", ""));
+        evt.put("roundId", msg.getStringParam("roundId", ""));
+        String json = GSON.toJson(evt);
+        try {
+            workflowProgressWriter.execute(() -> writeToEventChannels(userId, json));
         } catch (java.util.concurrent.RejectedExecutionException e) {
             return null;
         }
@@ -1595,6 +1653,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 putLog("webui 已订阅工具进度事件（msgBus toolProgress）", LogLevel.INFO);
         } catch (Exception e) {
             putLog("webui 订阅工具进度事件失败: " + e, LogLevel.WARN);
+        }
+    }
+
+    private void subscribeWorkflowProgressBus() {
+        if (!subscribeWorkflowProgress) return;
+        try {
+            TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
+            if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT)))
+                putLog("webui 订阅工作流节点进度事件被拒绝", LogLevel.WARN);
+            else
+                putLog("webui 已订阅工作流节点进度事件（msgBus workflowProgress）", LogLevel.INFO);
+        } catch (Exception e) {
+            putLog("webui 订阅工作流节点进度事件失败: " + e, LogLevel.WARN);
         }
     }
 

@@ -55,6 +55,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private boolean streamMode = false;
     /** 是否订阅并显示工具实时进度（false = 不注册总线订阅） */
     private boolean subscribeToolProgress = true;
+    /** 是否订阅并显示工作流节点进度（false = 不注册总线订阅） */
+    private boolean subscribeWorkflowProgress = true;
     // 不要直接打印 prompt——统一走 promptText()（含 [自动] 标记）
     private String prompt = "你 > ";
     private volatile boolean running = false;
@@ -75,7 +77,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private static final int MAX_HISTORY = 200;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
-    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO, TOOL_PROGRESS, INT }
+    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO, TOOL_PROGRESS, WORKFLOW_PROGRESS, INT }
 
     private static final class ConsoleEvent {
         final EventType type;
@@ -128,6 +130,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     .setParam("destination", "todoEvent").setParam("object", this));
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
         }
@@ -145,6 +149,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (params.get("streamMode") != null) streamMode = "true".equals(params.get("streamMode"));
             if (params.get("subscribeToolProgress") != null)
                 subscribeToolProgress = "true".equals(params.get("subscribeToolProgress"));
+            if (params.get("subscribeWorkflowProgress") != null)
+                subscribeWorkflowProgress = "true".equals(params.get("subscribeWorkflowProgress"));
             if (params.get("prompt") != null) prompt = params.get("prompt");
         }
     }
@@ -213,6 +219,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             }
             case TOOL_PROGRESS_TOPIC:
                 return onToolProgressEvent(msg);
+            case WORKFLOW_PROGRESS_TOPIC:
+                return onWorkflowProgressEvent(msg);
         }
         return null;
     }
@@ -267,6 +275,85 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 return "  ✗ " + tag + " 失败" + (m.isEmpty() ? "" : ": " + m);
             }
             default: return "  · " + tag + " " + status;
+        }
+    }
+
+    // ======================== 工作流节点进度 ========================
+
+    private void registerWorkflowProgressBus() {
+        if (!subscribeWorkflowProgress) return;
+        try {
+            TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                    .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
+            if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT)))
+                putLog("msgBus 订阅工作流进度事件被拒绝",
+                        cn.tianlong.tlobject.modules.LogLevel.WARN);
+        } catch (Exception e) {
+            putLog("msgBus 订阅工作流进度事件失败: " + e,
+                    cn.tianlong.tlobject.modules.LogLevel.WARN);
+        }
+    }
+
+    /**
+     * 工作流节点进度：按 userId + 当前会话过滤。
+     * 事件 sessionId 可能是工作流节点合成会话（wf_nid:...)；工作流直调/嵌套时
+     * rootSessionId 才是控制台的会话，故两者匹配其一即可。
+     */
+    private TLMsg onWorkflowProgressEvent(TLMsg msg) {
+        String evtUser = msg.getStringParam("userId", "");
+        if (!userId.equals(evtUser)) return null;
+        String evtSid = msg.getStringParam("sessionId", "");
+        String evtRoot = msg.getStringParam("rootSessionId", "");
+        boolean match = sessionId != null
+                && (sessionId.equals(evtSid) || sessionId.equals(evtRoot));
+        if (!match) return null;
+        offer(new ConsoleEvent(EventType.WORKFLOW_PROGRESS, formatWorkflowProgress(msg), null));
+        return running ? createMsg().setParam(RESULT, true) : null;
+    }
+
+    String formatWorkflowProgress(TLMsg msg) {
+        String wf = msg.getStringParam("workflowName", "workflow");
+        String nodeId = msg.getStringParam("nodeId", "");
+        String status = msg.getStringParam("status", "");
+        long ms = msg.getLongParam("durationMs", 0L);
+        int total = msg.getIntParam("totalNodes", 0);
+        String dur = ms >= 1000
+                ? String.format(java.util.Locale.ROOT, "%.1fs", ms / 1000.0)
+                : (ms > 0 ? ms + "ms" : "");
+
+        if ("_workflow".equals(nodeId)) {
+            String label;
+            switch (status) {
+                case "RUNNING":       label = "开始" + (total > 0 ? "（" + total + " 节点）" : ""); break;
+                case "DONE":          label = "完成"; break;
+                case "PARTIAL":       label = "部分完成"; break;
+                case "INTERRUPTED":   label = "已中断"; break;
+                case "WORKFLOW_TIMEOUT": label = "超时"; break;
+                case "CYCLE_DETECTED":   label = "检测到环"; break;
+                default:              label = status;
+            }
+            return "  ⇄ [" + wf + "] " + label;
+        }
+
+        String tag = "[" + wf + "] " + nodeId;
+        if (status.startsWith("FAILED:")) {
+            String strategy = status.substring("FAILED:".length());
+            if ("retry(exhausted)".equals(strategy)) strategy = "重试耗尽";
+            return "  ✗ " + tag + " 失败" + (strategy.isEmpty() ? "" : "（" + strategy + "）");
+        }
+        if (status.startsWith("RETRY:")) {
+            return "  ↻ " + tag + " 重试 " + status.substring("RETRY:".length());
+        }
+        switch (status) {
+            case "RUNNING":          return "  ⚙ " + tag + " 运行中";
+            case "DONE":             return "  ✓ " + tag + " 完成" + (dur.isEmpty() ? "" : " " + dur);
+            case "SKIPPED":          return "  ⏭ " + tag + " 跳过";
+            case "TRUE":             return "  ◇ " + tag + " 条件 true";
+            case "FALSE":            return "  ◇ " + tag + " 条件 false";
+            case "FALLBACK_READY":   return "  ⤵ " + tag + " 降级就绪";
+            case "INTERRUPTED":      return "  ⏹ " + tag + " 已中断";
+            case "WORKFLOW_TIMEOUT": return "  ⏱ " + tag + " 超时";
+            default:                 return "  · " + tag + " " + status;
         }
     }
 
@@ -373,6 +460,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             putLog("msgBus 订阅事件失败: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
         }
         registerToolProgressBus();
+        registerWorkflowProgressBus();
 
         // 读取线程
         readerThread = new Thread(() -> {
@@ -563,6 +651,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.flush();
                     break;
                 case TOOL_PROGRESS:
+                case WORKFLOW_PROGRESS:
                     printProgressLine(e.text);
                     break;
             }
@@ -576,6 +665,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** JLine raw mode 不可用时的降级方案 */
     private void startConsoleFallback() {
         registerToolProgressBus();
+        registerWorkflowProgressBus();
         java.util.Scanner scanner = new java.util.Scanner(System.in);
         readerThread = new Thread(() -> {
             try {
@@ -607,6 +697,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.flush();
                     break;
                 case TOOL_PROGRESS:
+                case WORKFLOW_PROGRESS:
                     printProgressLine(e.text);
                     break;
             }

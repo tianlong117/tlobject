@@ -1,9 +1,11 @@
 package cn.tianlong.tlobject.aiagent.workflow;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLParamString;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -22,7 +24,8 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>nodeDuration 存的是时间戳而不是耗时（引擎）——断言数值量级是毫秒耗时；</li>
  *   <li>工作流超时/中断只清 running 表、不取消底层任务——断言 NodeTask.cancel() 被调用；</li>
  *   <li>doWorkflow 的 userMessage 回落被 addArgs 里的空串覆盖——断言 workflowInput 能补位；</li>
- *   <li>doWorkflowAsTool 对 null/空 task 的处理（"null" 字符串 / 空串挡住 AI_P_USERMESSAGE 兜底）。</li>
+ *   <li>doWorkflowAsTool 对 null/空 task 的处理（"null" 字符串 / 空串挡住 AI_P_USERMESSAGE 兜底）；</li>
+ *   <li>节点进度：引擎状态回调顺序/耗时，以及宿主发布到 msgBus 的事件字段。</li>
  * </ol>
  *
  * <p>运行（classpath 见 aistart_args.txt）：
@@ -36,6 +39,9 @@ public class TLWorkflowSelfTest implements TLParamString, TLAiAgentParamString {
 
     public static void main(String[] args) throws Exception {
         durationIsElapsedNotTimestamp();
+        nodeProgressReportsLifecycle();
+        nodeProgressReportsFailure();
+        hostPublishesWorkflowProgress();
         timeoutCancelsRunningTask();
         interruptCancelsRunningTask();
         userMessageFallbackToWorkflowInput();
@@ -60,7 +66,115 @@ public class TLWorkflowSelfTest implements TLParamString, TLAiAgentParamString {
                 d != null && d >= 0 && d < 60_000L);
     }
 
-    // ======================== 2. 超时取消 ========================
+    // ======================== 2. 节点进度 ========================
+
+    private static void nodeProgressReportsLifecycle() {
+        FakeTask task = new FakeTask(80);
+        TLWorkflowEngine engine = engine("n1", (node, input) -> task);
+        List<String> events = Collections.synchronizedList(new ArrayList<>());
+        List<Long> doneDurations = Collections.synchronizedList(new ArrayList<>());
+        engine.setProgressListener((nid, status, durationMs, detail) -> {
+            events.add(nid + ":" + status);
+            if ("DONE".equals(status)) doneDurations.add(durationMs);
+        });
+        engine.execute();
+
+        check("节点进度包含工作流开始", events.contains("_workflow:RUNNING"));
+        check("节点进度包含节点 RUNNING", events.contains("n1:RUNNING"));
+        check("节点进度包含节点 DONE", events.contains("n1:DONE"));
+        check("节点进度包含工作流完成", events.contains("_workflow:DONE"));
+        check("生命周期顺序 RUNNING 在 DONE 前",
+                events.indexOf("n1:RUNNING") >= 0
+                        && events.indexOf("n1:DONE") > events.indexOf("n1:RUNNING"));
+        check("DONE 事件带耗时（" + doneDurations + "）",
+                !doneDurations.isEmpty() && doneDurations.get(0) >= 0);
+    }
+
+    private static void nodeProgressReportsFailure() {
+        // runner 返回 null = 提交失败，走 handleNodeFailure（默认 fail）
+        TLWorkflowEngine engine = engine("n1", (node, input) -> null);
+        List<String> events = Collections.synchronizedList(new ArrayList<>());
+        engine.setProgressListener((nid, status, durationMs, detail) -> events.add(nid + ":" + status));
+        engine.execute();
+
+        check("提交失败发 FAILED:fail", events.contains("n1:FAILED:fail"));
+        check("失败时工作流终态 PARTIAL", events.contains("_workflow:PARTIAL"));
+    }
+
+    // ======================== 3. 宿主发布事件 ========================
+
+    private static void hostPublishesWorkflowProgress() throws Exception {
+        TestWorkflow wf = new TestWorkflow("wf-progress-publisher");
+        TLMsg input = new TLMsg()
+                .setSystemParam(AI_P_SESSIONID, "sid-1")
+                .setSystemParam("rootSessionId", "sid-1")
+                .setSystemParam("userId", "u1")
+                .setSystemParam(AI_P_ROUNDID, "r1");
+        Map<String, TLWorkflowNode> nodes = new LinkedHashMap<>();
+        nodes.put("poetA", new TLWorkflowNode("poetA", TLWorkflowNodeType.AGENT));
+
+        TLWorkflowEngine.NodeProgressListener publisher =
+                (TLWorkflowEngine.NodeProgressListener) newPublisher(wf, input, nodes, "run-1");
+        publisher.onNodeStatus("poetA", "RUNNING", 0L, "type=AGENT");
+
+        check("宿主发布一条节点进度", wf.bus.events.size() == 1);
+        TLMsg evt = wf.bus.events.isEmpty() ? null : wf.bus.events.get(0);
+        check("topic/destination 正确", evt != null
+                && WORKFLOW_PROGRESS_TOPIC.equals(evt.getAction())
+                && WORKFLOW_PROGRESS_TOPIC.equals(evt.getDestination()));
+        check("事件字段完整", evt != null
+                && "poetA".equals(evt.getStringParam("nodeId", ""))
+                && "AGENT".equals(evt.getStringParam("nodeType", ""))
+                && "RUNNING".equals(evt.getStringParam("status", ""))
+                && "run-1".equals(evt.getStringParam("runId", ""))
+                && "sid-1".equals(evt.getStringParam("sessionId", ""))
+                && "sid-1".equals(evt.getStringParam("rootSessionId", ""))
+                && "u1".equals(evt.getStringParam("userId", ""))
+                && "r1".equals(evt.getStringParam("roundId", ""))
+                && evt.getIntParam("totalNodes", 0) == 1
+                && "wf-progress-publisher".equals(evt.getStringParam("workflowName", "")));
+
+        publisher.onNodeStatus("_workflow", "DONE", 12L, "");
+        check("工作流事件 nodeType=WORKFLOW", wf.bus.events.size() == 2
+                && "WORKFLOW".equals(wf.bus.events.get(1).getStringParam("nodeType", "")));
+    }
+
+    /** 反射构造私有内部类（publisher 是运行期快照，不暴露成生产 API） */
+    private static Object newPublisher(TLAgentWorkflow wf, TLMsg input,
+                                       Map<String, TLWorkflowNode> nodes, String runId) throws Exception {
+        Class<?> cls = null;
+        for (Class<?> c : TLAgentWorkflow.class.getDeclaredClasses()) {
+            if ("NodeProgressPublisher".equals(c.getSimpleName())) { cls = c; break; }
+        }
+        if (cls == null) throw new IllegalStateException("NodeProgressPublisher not found");
+        java.lang.reflect.Constructor<?> ctor = cls.getDeclaredConstructor(
+                TLAgentWorkflow.class, TLMsg.class, Map.class, String.class);
+        ctor.setAccessible(true);
+        return ctor.newInstance(wf, input, nodes, runId);
+    }
+
+    private static final class TestWorkflow extends TLAgentWorkflow {
+        final FakeBus bus = new FakeBus();
+        TestWorkflow(String name) { super(name); }
+        @Override protected Object getModuleInFactory(String moduleName) {
+            return "msgBus".equals(moduleName) ? bus : null;
+        }
+    }
+
+    private static final class FakeBus implements IObject {
+        final List<TLMsg> events = new ArrayList<>();
+        @Override public String getName() { return "msgBus"; }
+        @Override public TLMsg putMsg(IObject toWho, TLMsg msg) {
+            events.add(msg);
+            return new TLMsg().setParam(RESULT, true);
+        }
+        @Override public TLMsg getMsg(Object fromWho, TLMsg msg) {
+            events.add(msg);
+            return new TLMsg().setParam(RESULT, true);
+        }
+    }
+
+    // ======================== 4. 超时取消 ========================
 
     private static void timeoutCancelsRunningTask() {
         FakeTask task = new FakeTask(-1);   // 永不完成
@@ -75,7 +189,7 @@ public class TLWorkflowSelfTest implements TLParamString, TLAiAgentParamString {
                 && "partial".equals(result.getStringParam("message", "")));
     }
 
-    // ======================== 3. 中断取消 ========================
+    // ======================== 5. 中断取消 ========================
 
     private static void interruptCancelsRunningTask() throws Exception {
         FakeTask task = new FakeTask(-1);
@@ -100,7 +214,7 @@ public class TLWorkflowSelfTest implements TLParamString, TLAiAgentParamString {
                 result != null && "INTERRUPTED".equals(statusOf(result, "_workflow")));
     }
 
-    // ======================== 4. userMessage 回落 ========================
+    // ======================== 6. userMessage 回落 ========================
 
     private static void userMessageFallbackToWorkflowInput() {
         TLAgentWorkflow wf = new TLAgentWorkflow("wf-selftest");
@@ -134,9 +248,17 @@ public class TLWorkflowSelfTest implements TLParamString, TLAiAgentParamString {
                         && "root".equals(in3.getSystemParam("rootSessionId", ""))
                         && "uid".equals(in3.getSystemParam("userId", ""))
                         && "r1".equals(in3.getSystemParam(AI_P_ROUNDID, "")));
+
+        // 直接调 WORKFLOW_EXECUTE（不经过 master）时只有 sessionId：rootSessionId 要
+        // 回落到它，否则节点进度事件没有父会话可路由（UI 会丢弃）
+        TLMsg noRoot = new TLMsg().setParam("userMessage", "u")
+                .setSystemParam(AI_P_SESSIONID, "sid2");
+        TLMsg in4 = wf.buildWorkflowInput(noRoot);
+        check("缺 rootSessionId 时回落到 sessionId",
+                "sid2".equals(in4.getSystemParam("rootSessionId", "")));
     }
 
-    // ======================== 5. 工具入口 task 兜底 ========================
+    // ======================== 7. 工具入口 task 兜底 ========================
 
     private static void toolTaskNullAndEmptyFallback() {
         TLAgentWorkflow wf = new TLAgentWorkflow("wf-selftest");

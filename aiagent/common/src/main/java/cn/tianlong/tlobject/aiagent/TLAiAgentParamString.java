@@ -110,6 +110,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String TOOL_PROGRESS = "onToolProgress";
     /** Agent → msgBus：工具进度事件 topic（UI 订阅） */
     String TOOL_PROGRESS_TOPIC = "toolProgress";
+    /** 工作流 → msgBus：节点级进度事件 topic（UI 订阅；与工具进度分开渲染） */
+    String WORKFLOW_PROGRESS_TOPIC = "workflowProgress";
 
     String TOOL_STATUS_STARTING = "starting";
     String TOOL_STATUS_DONE = "done";

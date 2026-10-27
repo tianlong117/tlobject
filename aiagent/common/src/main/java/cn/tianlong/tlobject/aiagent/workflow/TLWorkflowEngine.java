@@ -35,6 +35,20 @@ public class TLWorkflowEngine implements TLParamString {
         NodeTask runAgentNode(TLWorkflowNode node, TLMsg nodeInput);
     }
 
+    /**
+     * 节点状态变更监听器：宿主模块用它把节点进度发布到 UI。
+     * 回调在引擎调度线程，异常会被吞掉——进度是旁路，不能影响工作流执行。
+     */
+    public interface NodeProgressListener {
+        /**
+         * @param nodeId     节点 id；"_workflow" 表示工作流整体
+         * @param status     RUNNING/DONE/SKIPPED/FAILED:xxx/RETRY:n/m/TRUE/FALSE/FALLBACK_READY 等
+         * @param durationMs 耗时（仅节点 DONE 有意义，其余为 0）
+         * @param detail     附加说明（节点类型/取消原因等，可为空）
+         */
+        void onNodeStatus(String nodeId, String status, long durationMs, String detail);
+    }
+
     private final Map<String, TLWorkflowNode> nodes;
     private final Map<String, List<TLWorkflowEdge>> outEdges;
     private final Map<String, List<TLWorkflowEdge>> inEdges;
@@ -44,6 +58,9 @@ public class TLWorkflowEngine implements TLParamString {
 
     private int maxParallel = 10;
     private long workflowTimeout;
+
+    /** 节点进度监听器（可空；宿主模块按运行实例注入） */
+    private volatile NodeProgressListener progressListener;
 
     private final Set<String> completed = ConcurrentHashMap.newKeySet();
     private final Set<String> skipped = ConcurrentHashMap.newKeySet();
@@ -91,6 +108,7 @@ public class TLWorkflowEngine implements TLParamString {
 
     public void setMaxParallel(int maxParallel) { this.maxParallel = maxParallel; }
     public void setWorkflowTimeout(long timeout) { this.workflowTimeout = timeout; }
+    public void setProgressListener(NodeProgressListener listener) { this.progressListener = listener; }
 
     /**
      * 执行工作流，阻塞直到所有节点完成、超时或死锁。
@@ -100,11 +118,11 @@ public class TLWorkflowEngine implements TLParamString {
         long deadline = workflowTimeout > 0 ? startTime + workflowTimeout : Long.MAX_VALUE;
 
         if (topologicalSort() == null) {
-            context.putStatus("_workflow", "CYCLE_DETECTED");
+            setStatus("_workflow", "CYCLE_DETECTED", 0L, "");
             return buildResult(false, "cycle detected");
         }
 
-        context.putStatus("_workflow", "RUNNING");
+        setStatus("_workflow", "RUNNING", 0L, "nodes=" + nodes.size());
 
         try {
             while (completed.size() + skipped.size() + failed.size() < nodes.size()) {
@@ -137,7 +155,7 @@ public class TLWorkflowEngine implements TLParamString {
                         if (task != null) {
                             runningStartTs.put(nid, System.currentTimeMillis());
                             running.put(nid, task);
-                            context.putStatus(nid, "RUNNING");
+                            setStatus(nid, "RUNNING", 0L, "type=" + node.getType());
                         } else {
                             // 提交失败走统一失败处理：默认策略等价，且 onFailure="skip" 能放行下游（|| 回退的硬失败路径）
                             handleNodeFailure(nid, node);
@@ -150,11 +168,15 @@ public class TLWorkflowEngine implements TLParamString {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             cancelRunning("INTERRUPTED");
-            context.putStatus("_workflow", "INTERRUPTED");
+            setStatus("_workflow", "INTERRUPTED", 0L, "");
         }
 
         long elapsed = System.currentTimeMillis() - startTime;
         boolean allDone = completed.size() + skipped.size() == nodes.size();
+        // 正常收尾才补工作流终态事件；超时/中断已在上面发过终态，不能覆盖
+        if ("RUNNING".equals(context.getNodeStatus().get("_workflow"))) {
+            emitProgress("_workflow", allDone ? "DONE" : "PARTIAL", elapsed, "");
+        }
         TLMsg result = buildResult(allDone, allDone ? "completed" : "partial");
         result.setParam("elapsed", elapsed);
         return result;
@@ -192,11 +214,12 @@ public class TLWorkflowEngine implements TLParamString {
         TLWorkflowNode node = nodes.get(nid);
         context.putOutput(nid, output);
         Long startTs = runningStartTs.remove(nid);
-        context.putDuration(nid, startTs != null ? System.currentTimeMillis() - startTs : 0L);
+        long durationMs = startTs != null ? System.currentTimeMillis() - startTs : 0L;
+        context.putDuration(nid, durationMs);
 
         if (output != null && output.parseBoolean(RESULT, true)) {
             completed.add(nid);
-            context.putStatus(nid, "DONE");
+            setStatus(nid, "DONE", durationMs, "");
             onNodeDone(nid);
         } else {
             handleNodeFailure(nid, node);
@@ -210,7 +233,7 @@ public class TLWorkflowEngine implements TLParamString {
         switch (node.getType()) {
             case CONDITION:
                 boolean condResult = evalCondition(node, upstream);
-                context.putStatus(nid, condResult ? "TRUE" : "FALSE");
+                setStatus(nid, condResult ? "TRUE" : "FALSE", 0L, "type=CONDITION");
                 context.putOutput(nid, new TLMsg().setParam(RESULT, condResult));
                 completed.add(nid);
                 for (TLWorkflowEdge edge : outEdges.getOrDefault(nid, Collections.emptyList())) {
@@ -226,14 +249,14 @@ public class TLWorkflowEngine implements TLParamString {
             case JOIN:
             case FANOUT:
                 context.putOutput(nid, upstream != null ? upstream : new TLMsg());
-                context.putStatus(nid, "DONE");
+                setStatus(nid, "DONE", 0L, "type=" + node.getType());
                 completed.add(nid);
                 onNodeDone(nid);
                 break;
 
             default:
                 completed.add(nid);
-                context.putStatus(nid, "DONE");
+                setStatus(nid, "DONE", 0L, "type=" + node.getType());
                 onNodeDone(nid);
         }
     }
@@ -264,7 +287,7 @@ public class TLWorkflowEngine implements TLParamString {
         if (resolved < in.size()) return;                       // 还有入边未判定 → 留待活分支
         if (liveIncoming.getOrDefault(nodeId, 0) > 0) return;   // 有活上游 → 不该跳过
         skipped.add(nodeId);
-        context.putStatus(nodeId, "SKIPPED");
+        setStatus(nodeId, "SKIPPED", 0L, "");
         for (TLWorkflowEdge edge : outEdges.getOrDefault(nodeId, Collections.emptyList())) {
             cascadeSkip(edge.getTo());
         }
@@ -412,7 +435,7 @@ public class TLWorkflowEngine implements TLParamString {
      */
     private void cancelRunning(String status) {
         for (Map.Entry<String, NodeTask> e : running.entrySet()) {
-            context.putStatus(e.getKey(), status);
+            setStatus(e.getKey(), status, 0L, "cancelled");
             try {
                 e.getValue().cancel();
             } catch (Throwable t) {
@@ -427,11 +450,29 @@ public class TLWorkflowEngine implements TLParamString {
     private void timeoutRemaining(String status) {
         cancelRunning(status);
         for (String nid : nodes.keySet()) {
-            if (!completed.contains(nid) && !skipped.contains(nid) && !failed.contains(nid)) {
-                context.putStatus(nid, status);
+            if (!completed.contains(nid) && !skipped.contains(nid) && !failed.contains(nid)
+                    && !status.equals(context.getNodeStatus().get(nid))) {   // 运行中节点已由 cancelRunning 落状态
+                setStatus(nid, status, 0L, "timeout");
             }
         }
-        context.putStatus("_workflow", status);
+        setStatus("_workflow", status, 0L, "");
+    }
+
+    /** 状态写入与进度通知的唯一入口：保证 context 与监听器不会漏掉任何一次状态变更。 */
+    private void setStatus(String nodeId, String status, long durationMs, String detail) {
+        context.putStatus(nodeId, status);
+        emitProgress(nodeId, status, durationMs, detail);
+    }
+
+    /** 进度是旁路：监听器异常/慢回调不能影响工作流执行。 */
+    private void emitProgress(String nodeId, String status, long durationMs, String detail) {
+        NodeProgressListener l = progressListener;
+        if (l == null) return;
+        try {
+            l.onNodeStatus(nodeId, status, durationMs, detail);
+        } catch (Throwable ignored) {
+            // 进度推送失败不影响工作流
+        }
     }
 
     private void handleNodeFailure(String nid, TLWorkflowNode node) {
@@ -441,13 +482,13 @@ public class TLWorkflowEngine implements TLParamString {
             int max = Math.max(0, node.getMaxRetries());
             if (used <= max) {
                 // 不入 failed、不动 inDegree，主循环下一轮自然重排该节点
-                context.putStatus(nid, "RETRY:" + used + "/" + max);
+                setStatus(nid, "RETRY:" + used + "/" + max, 0L, "");
                 return;
             }
             strategy = "retry(exhausted)";
         }
         failed.add(nid);
-        context.putStatus(nid, "FAILED:" + strategy);
+        setStatus(nid, "FAILED:" + strategy, 0L, "");
         if ("skip".equals(strategy)) {
             onNodeDone(nid);
         } else if (node.getFallbackNodeId() != null) {
@@ -455,7 +496,7 @@ public class TLWorkflowEngine implements TLParamString {
             String fb = node.getFallbackNodeId();
             skipped.remove(fb);
             inDegree.put(fb, 0);
-            context.putStatus(fb, "FALLBACK_READY");
+            setStatus(fb, "FALLBACK_READY", 0L, "");
         }
     }
 

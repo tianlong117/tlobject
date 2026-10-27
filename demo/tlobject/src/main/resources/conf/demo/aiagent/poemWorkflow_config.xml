@@ -119,6 +119,8 @@
         <description value="诗歌创作工作流：两个不同风格诗人并行创作后汇总"/>
         <!-- 直出：作为工具被调用时，完整汇总（诗A+诗B+评判全文）不经上游 LLM 再加工，原样返回用户 -->
         <directOutput value="true"/>
+        <!-- 节点级进度：引擎状态 → msgBus(workflowProgress) → 控制台/WebUI 面板；默认 true，静默配 false -->
+        <progressToBus value="true"/>
         <!-- 表达式模式（可选替代 <nodes>/<edges>）：语法与规则详见文件头"六、表达式模式" -->
         <expression value="(poetA &amp;&amp; poetB) as m1 -> poetc"/>
         <!-- m1 的字段级合并。注意：本 demo 的两个诗人只返回 aiResponse，没有业务字段，

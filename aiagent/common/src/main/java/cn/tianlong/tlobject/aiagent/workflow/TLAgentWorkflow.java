@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.workflow;
 
 import cn.tianlong.tlobject.aiagent.IAgentCapable;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -61,6 +62,12 @@ public class TLAgentWorkflow extends TLBaseModule
     private boolean directOutput = false;
 
     /**
+     * 节点级进度是否发布到 msgBus（配置 progressToBus，默认 true）。
+     * 纯旁路：没有 UI 订阅时 msgBus 直接丢弃，不影响执行；需要静默时配 false。
+     */
+    private boolean progressToBus = true;
+
+    /**
      * 字段级合并策略（合并点名 → 字段 → 策略），来自 &lt;params&gt; 的 merge.&lt;合并点名&gt;。
      * 适用于静态节点和表达式生成的节点。
      */
@@ -94,6 +101,9 @@ public class TLAgentWorkflow extends TLBaseModule
             }
             if (params.get("directOutput") != null) {
                 directOutput = "true".equals(params.get("directOutput"));
+            }
+            if (params.get("progressToBus") != null) {
+                progressToBus = "true".equals(params.get("progressToBus"));
             }
             // 字段级合并策略（merge.<合并点名>）：配置在 <params> 段，适用于静态节点和
             // 表达式生成的节点——后者拿不到 <node> 子元素，不能只挂在节点解析路径上
@@ -471,6 +481,10 @@ public class TLAgentWorkflow extends TLBaseModule
         // 缺了它节点各自生成 roundId，追踪记录会互相清空（截断）
         if (msg.containsSystemParam(AI_P_ROUNDID))
             input.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
+        // 直接调 WORKFLOW_EXECUTE（不经过 master）时通常只有 sessionId：rootSessionId
+        // 回落到它，节点进度才有父会话可路由（UI 按 rootSessionId 兜底）
+        if (!input.containsSystemParam("rootSessionId") && input.containsSystemParam(AI_P_SESSIONID))
+            input.setSystemParam("rootSessionId", input.getSystemParam(AI_P_SESSIONID, ""));
 
         return input;
     }
@@ -536,6 +550,11 @@ public class TLAgentWorkflow extends TLBaseModule
         TLWorkflowEngine engine = new TLWorkflowEngine(workflowNodes, workflowEdges, context, this);
         engine.setMaxParallel(maxParallel);
         engine.setWorkflowTimeout(workflowTimeout);
+        if (progressToBus) {
+            // 每次运行一个 publisher：runId/input/节点表快照，并发工作流互不串
+            engine.setProgressListener(new NodeProgressPublisher(input, workflowNodes,
+                    name + "_" + System.nanoTime()));
+        }
 
         putLog("Workflow [" + name + "] starting: " + workflowNodes.size()
                 + " nodes, " + workflowEdges.size() + " edges", LogLevel.INFO);
@@ -754,6 +773,62 @@ public class TLAgentWorkflow extends TLBaseModule
         @Override public TLMsg getResult() { return task.getResult(); }
         /** 与 TLToolExecutor 的取消同法：先标记结束（阻止排队中的任务再执行），再打断执行线程 */
         @Override public void cancel() { task.cancelTask(); task.interrupt(); }
+    }
+
+    /**
+     * 把引擎的节点状态发布到 msgBus（topic=workflowProgress）。
+     * 每次运行一个实例：runId/input/节点表都是该次运行的快照，并发运行互不串。
+     */
+    private final class NodeProgressPublisher implements TLWorkflowEngine.NodeProgressListener {
+        private final TLMsg input;
+        private final Map<String, TLWorkflowNode> nodes;
+        private final String runId;
+        private final int totalNodes;
+
+        NodeProgressPublisher(TLMsg input, Map<String, TLWorkflowNode> nodes, String runId) {
+            this.input = input;
+            this.nodes = nodes;
+            this.runId = runId;
+            this.totalNodes = nodes != null ? nodes.size() : 0;
+        }
+
+        @Override
+        public void onNodeStatus(String nodeId, String status, long durationMs, String detail) {
+            try {
+                String sid = input != null
+                        ? String.valueOf(input.getSystemParam(AI_P_SESSIONID, "")) : "";
+                if (sid.isEmpty() && input != null)   // 兼容 sessionId 走 args 的编程式调用
+                    sid = input.getStringParam(AI_P_SESSIONID, "");
+                if (sid.isEmpty()) return;   // 无会话上下文：UI 无从路由，不推
+                Object bus = getModuleInFactory("msgBus");
+                if (!(bus instanceof IObject)) return;
+                TLWorkflowNode node = nodes != null ? nodes.get(nodeId) : null;
+                TLMsg evt = createMsg()
+                        .setAction(WORKFLOW_PROGRESS_TOPIC)
+                        .setParam("source", "workflow")
+                        .setParam("workflowName", getName())
+                        .setParam("workflowFamilyName", getFamilyName())
+                        .setParam("runId", runId)
+                        .setParam("nodeId", nodeId)
+                        .setParam("nodeType", node != null ? node.getType().name()
+                                : ("_workflow".equals(nodeId) ? "WORKFLOW" : ""))
+                        .setParam("status", status)
+                        .setParam("durationMs", durationMs)
+                        .setParam("detail", detail != null ? detail : "")
+                        .setParam("totalNodes", totalNodes)
+                        .setParam("sessionId", sid)
+                        .setParam("rootSessionId",
+                                String.valueOf(input.getSystemParam("rootSessionId", "")))
+                        .setParam("userId", String.valueOf(input.getSystemParam("userId", "")))
+                        .setParam("roundId",
+                                String.valueOf(input.getSystemParam(AI_P_ROUNDID, "")))
+                        .setDestination(WORKFLOW_PROGRESS_TOPIC);
+                putMsg((IObject) bus, evt);
+            } catch (Throwable t) {
+                try { putLog("workflow progress publish failed: " + t, LogLevel.DEBUG); }
+                catch (Throwable ignored) {}
+            }
+        }
     }
 
     // ======================== XML 配置解析 ========================

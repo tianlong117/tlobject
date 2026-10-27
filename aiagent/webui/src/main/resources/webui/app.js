@@ -70,7 +70,12 @@ function switchSessionView(sid) {
   refreshAutoState();
 }
 /** 清空某会话内容（新会话/清除上下文用） */
-function clearSessionBox(sid) { viewOf(sid).box.innerHTML = ''; }
+function clearSessionBox(sid) {
+  clearWorkflowProgress(sid);   // 面板随内容一起清，避免留下已脱离 DOM 的引用
+  const v = viewOf(sid);
+  v.box.innerHTML = '';
+  v.currentHolder = null;
+}
 
 // ======================== 基础工具 ========================
 const $ = sel => document.querySelector(sel);
@@ -465,6 +470,126 @@ function clearToolProgress(sid) {
   }
 }
 
+// ======================== 工作流节点进度 ========================
+const WORKFLOW_TERMINAL = new Set(['DONE', 'SKIPPED', 'TRUE', 'FALSE', 'INTERRUPTED', 'WORKFLOW_TIMEOUT']);
+function isWorkflowTerminal(status) {
+  if (!status) return false;
+  return status.startsWith('FAILED:') || WORKFLOW_TERMINAL.has(status);
+}
+function workflowStatusText(status) {
+  if (!status) return '';
+  if (status.startsWith('RETRY:')) return '重试 ' + status.slice(6);
+  if (status.startsWith('FAILED:')) {
+    let s = status.slice(7);
+    if (s === 'retry(exhausted)') s = '重试耗尽';
+    return '失败' + (s ? '（' + s + '）' : '');
+  }
+  switch (status) {
+    case 'RUNNING': return '运行中';
+    case 'DONE': return '完成';
+    case 'SKIPPED': return '跳过';
+    case 'TRUE': return '条件 true';
+    case 'FALSE': return '条件 false';
+    case 'FALLBACK_READY': return '降级就绪';
+    case 'INTERRUPTED': return '已中断';
+    case 'WORKFLOW_TIMEOUT': return '超时';
+    default: return status;
+  }
+}
+function workflowStatusIcon(status) {
+  if (!status) return '·';
+  if (status.startsWith('RETRY:')) return '↻';
+  if (status.startsWith('FAILED:')) return '✗';
+  switch (status) {
+    case 'RUNNING': return '⚙';
+    case 'DONE': return '✓';
+    case 'SKIPPED': return '⏭';
+    case 'TRUE': case 'FALSE': return '◇';
+    case 'FALLBACK_READY': return '⤵';
+    case 'INTERRUPTED': return '⏹';
+    case 'WORKFLOW_TIMEOUT': return '⏱';
+    default: return '·';
+  }
+}
+/**
+ * 工作流节点进度：每个 runId 一个瞬时面板，节点行按 nodeId 原地更新。
+ * 与工具进度分开，避免父子 executionId 交替清屏；只在这条链路 busy 的已知会话渲染。
+ */
+function applyWorkflowProgress(evt) {
+  const known = s => s && (s === state.sessionId || !!(state.sessions && state.sessions[s]));
+  // 工作流节点可能用合成会话（wf_nid:父sid）；rootSessionId 才是父会话时用它兜底
+  const sid = known(evt.sessionId) ? evt.sessionId
+      : (known(evt.rootSessionId) ? evt.rootSessionId : '');
+  if (!sid) return;
+  const v = viewOf(sid);
+  if (!v.box || !v.busy) return;
+
+  const runId = evt.runId || evt.workflowName || 'workflow';
+  v.workflowPanels = v.workflowPanels || {};
+  let panel = v.workflowPanels[runId];
+  if (!panel || !panel.parentNode) {
+    panel = document.createElement('div');
+    panel.className = 'workflow-progress';
+    panel._rows = {};
+    panel._done = 0;
+    panel._total = evt.totalNodes || 0;
+    panel._wfStatus = '';
+    panel._head = document.createElement('div');
+    panel._head.className = 'tp-head';
+    panel.appendChild(panel._head);
+    // 插在本次助手气泡前（进程在结果上方）；没有 holder（后台/异常）就追加到末尾
+    const holderEl = v.currentHolder && v.currentHolder.el;
+    if (holderEl && holderEl.parentNode === v.box) v.box.insertBefore(panel, holderEl);
+    else v.box.appendChild(panel);
+    v.workflowPanels[runId] = panel;
+  }
+  if (evt.totalNodes) panel._total = evt.totalNodes;
+
+  if (evt.nodeId === '_workflow') {
+    panel._wfStatus = evt.status || '';
+  } else {
+    const nodeId = evt.nodeId || 'node';
+    let row = panel._rows[nodeId];
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'tp-row';
+      panel.appendChild(row);
+      panel._rows[nodeId] = row;
+      row._terminal = false;
+    }
+    const terminal = isWorkflowTerminal(evt.status);
+    if (!(row._terminal && !terminal)) {   // 终态优先：迟到的非终态不降级
+      if (terminal && !row._terminal) { row._terminal = true; panel._done++; }
+      const dur = evt.durationMs > 0
+          ? (evt.durationMs >= 1000 ? (evt.durationMs / 1000).toFixed(1) + 's' : evt.durationMs + 'ms')
+          : '';
+      const error = evt.status && (evt.status.startsWith('FAILED:')
+          || evt.status === 'INTERRUPTED' || evt.status === 'WORKFLOW_TIMEOUT');
+      row.className = 'tp-row ' + (terminal ? (error ? 'tp-error' : 'tp-done') : 'tp-running');
+      row.textContent = workflowStatusIcon(evt.status) + ' ' + nodeId + ' '
+          + workflowStatusText(evt.status) + (dur ? ' ' + dur : '');
+    }
+  }
+
+  if (panel._head) {
+    let head = '⇄ 工作流 ' + (evt.workflowName || 'workflow');
+    if (panel._total > 0) head += ' · ' + panel._done + '/' + panel._total;
+    const wfText = { DONE: '完成', PARTIAL: '部分完成', INTERRUPTED: '已中断',
+      WORKFLOW_TIMEOUT: '超时', CYCLE_DETECTED: '检测到环' }[panel._wfStatus];
+    if (wfText) head += ' · ' + wfText;
+    panel._head.textContent = head;
+  }
+  scrollChat(v.box);
+}
+
+/** 对话结束（正常/错误/停止）时移除该会话的全部工作流瞬时面板 */
+function clearWorkflowProgress(sid) {
+  const v = state.sessions && state.sessions[sid];
+  if (!v || !v.workflowPanels) return;
+  Object.values(v.workflowPanels).forEach(p => { if (p && p.parentNode) p.remove(); });
+  v.workflowPanels = null;
+}
+
 function renderToolResult(toolName, output, box) {
   const d = document.createElement('div');
   d.className = 'msg tool-result';
@@ -526,10 +651,14 @@ function startAssistantMsg() {
   const cursor = document.createElement('span');
   cursor.className = 'cursor';
   d.appendChild(cursor);
+  // holder.box：本次流所属会话的盒子——后台会话流式期间切走了，收尾也知道该写回哪个 box
+  const holder = { el: d, cursor, box: state.currentBox };
+  // 工作流面板插在助手气泡之前：进程在上、结果在下，回答结尾始终在滚动底部
+  const v = state.sessions[state.sessionId];
+  if (v) v.currentHolder = holder;
   curBox().appendChild(d);
   scrollChat();
-  // holder.box：本次流所属会话的盒子——后台会话流式期间切走了，收尾也知道该写回哪个 box
-  return { el: d, cursor, box: state.currentBox };
+  return holder;
 }
 function appendReasoning(el, reasoning) {
   if (!reasoning) return;
@@ -646,6 +775,7 @@ async function plainChat(msg) {
     appendMsg('system', '[错误] ' + e.message, holder.box);
   } finally {
     clearToolProgress(sid);
+    // 工作流节点面板不清：它是聊天内容的一部分，保留在滚动流里（清上下文/重建视图时才清）
     setBusy(false, sid);
   }
 }
@@ -780,6 +910,7 @@ async function streamChat(msg, opts) {
   } finally {
     clearIdle();   // AbortError/异常路径也要清"思考中"，否则停止后残留
     clearToolProgress(sid);
+    // 工作流节点面板不清：它是聊天内容的一部分，保留在滚动流里（清上下文/重建视图时才清）
     setBusy(false, sid);
     viewOf(sid).abort = null;
   }
@@ -967,6 +1098,7 @@ function openEvents() {
     }
     if (evt.type === 'todo') { applyTodoEvent(evt); }   // 任务清单变更（输入区上方清单条）
     if (evt.type === 'toolProgress') { applyToolProgress(evt); }   // 工具执行状态（无 output）
+    if (evt.type === 'workflowProgress') { applyWorkflowProgress(evt); }   // 工作流节点状态
     if (evt.type === 'sessionTitle') {
       // 首轮完成后模型自动起名推送：命中缓存行则就地更新标题并节流重渲染。
       // 未命中（新会话首轮刚完成、侧栏缓存里还没有它）→ 拉一次列表让该行出现
