@@ -25,22 +25,37 @@ public class SseMcpTransport implements McpTransport, TLAiAgentParamString {
     private final McpJsonRpc jsonRpc;
     private final McpTransport.LogCallback logCallback;
 
-    /** MCP 会话 ID（initialize 后由服务器返回在响应头 Mcp-Session-Id 中） */
-    private String sessionId;
+    /**
+     * MCP 会话 ID（initialize 后由服务器返回在响应头 Mcp-Session-Id 中）。
+     * volatile：send 在并发线程上读它——不加 volatile 时，另一个线程可能读到未及时可见的
+     * null，请求不带 Mcp-Session-Id 头被服务器拒绝。
+     */
+    private volatile String sessionId;
     private volatile boolean connected = false;
+
+    /** 单次响应读超时（毫秒，0=不限） */
+    private static final long DEFAULT_READ_TIMEOUT_MS = 120_000L;
 
     /**
      * @param url MCP Server 端点 URL
      * @param logCallback 日志回调
      */
     public SseMcpTransport(String url, McpTransport.LogCallback logCallback) {
+        this(url, DEFAULT_READ_TIMEOUT_MS, logCallback);
+    }
+
+    /**
+     * @param readTimeoutMs 单次响应读超时（毫秒，0=不限）。长耗时 MCP 工具可调大；
+     *                      0 时完全交给工具自身的执行超时控制（连接断开不会自动感知）
+     */
+    public SseMcpTransport(String url, long readTimeoutMs, McpTransport.LogCallback logCallback) {
         this.url = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
         this.jsonRpc = new McpJsonRpc();
         this.logCallback = logCallback;
 
         this.httpClient = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(120, TimeUnit.SECONDS)
+                .readTimeout(Math.max(0L, readTimeoutMs), TimeUnit.MILLISECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
                 .build();
     }
@@ -78,8 +93,13 @@ public class SseMcpTransport implements McpTransport, TLAiAgentParamString {
         log("MCP SSE transport connected to " + url, LogLevel.DEBUG);
     }
 
+    /**
+     * 与 StdioMcpTransport 对齐：MCP 是一问一答模型，同一次连接上的请求串行发送。
+     * 不加同步时并行 tool 调用会同时读写 sessionId / 多路复用同一条会话，
+     * 服务器端要求"同一 session 串行"时会乱序或丢会话。
+     */
     @Override
-    public String send(String jsonRpcRequest) throws Exception {
+    public synchronized String send(String jsonRpcRequest) throws Exception {
         Request request = buildPostRequest(jsonRpcRequest);
         return executeRequest(request);
     }

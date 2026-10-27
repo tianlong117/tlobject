@@ -24,8 +24,9 @@ public class McpJsonRpc {
     private static final String JSONRPC_VERSION = "2.0";
     private static final Gson gson = new GsonBuilder().create();
 
-    /** 原子递增的请求 ID */
-    private int nextId = 1;
+    /** 原子递增的请求 ID（同一 Agent 的并行 tool 调用共用一个实例，nextId++ 会丢更新） */
+    private final java.util.concurrent.atomic.AtomicInteger nextId =
+            new java.util.concurrent.atomic.AtomicInteger(1);
 
     /**
      * 构建 JSON-RPC 请求 JSON 字符串。
@@ -37,7 +38,7 @@ public class McpJsonRpc {
     public String buildRequest(String method, Map<String, Object> params) {
         JsonObject req = new JsonObject();
         req.addProperty("jsonrpc", JSONRPC_VERSION);
-        req.addProperty("id", nextId++);
+        req.addProperty("id", nextId.getAndIncrement());
         req.addProperty("method", method);
 
         if (params != null && !params.isEmpty()) {
@@ -75,7 +76,21 @@ public class McpJsonRpc {
      */
     @SuppressWarnings("unchecked")
     public JsonObject parseResponse(String responseBody) throws McpRpcException {
-        JsonObject root = gson.fromJson(responseBody, JsonObject.class);
+        // 空响应（204/空 body/连接提前关闭）会让 gson 返回 null → 下面 root.has() NPE，
+        // 报错信息也应是"空响应"而不是一句 NullPointerException
+        if (responseBody == null || responseBody.trim().isEmpty()) {
+            throw new McpRpcException(-1, "Empty response from MCP server");
+        }
+        JsonObject root;
+        try {
+            root = gson.fromJson(responseBody, JsonObject.class);
+        } catch (JsonSyntaxException e) {
+            // 语法错误的 body（网关错误页、被截断的响应）也按"非法响应"报，而不是抛运行时异常
+            throw new McpRpcException(-1, "Invalid JSON-RPC response: " + responseBody);
+        }
+        if (root == null) {
+            throw new McpRpcException(-1, "Invalid JSON-RPC response: " + responseBody);
+        }
 
         if (root.has("error")) {
             JsonObject errorObj = root.getAsJsonObject("error");

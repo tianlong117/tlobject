@@ -75,6 +75,13 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
     private long retryIntervalMs = 60_000;
     private volatile long lastConnectAttempt;
 
+    /**
+     * 单次响应读超时（毫秒，0=不限；-1=用 transport 默认）。
+     * 未配置时：SSE 沿用 OkHttp 默认 120s；stdio 不限（长任务工具不被打断）。
+     * 长耗时 MCP 工具（构建/抓取）可调大或设 0；卡死的 Server 可设小值让它被强杀重连。
+     */
+    private long readTimeoutMs = -1L;
+
     // ======================== 构造函数 ========================
 
     public TLMcpAgent() {
@@ -113,6 +120,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 try { retryIntervalMs = Long.parseLong(params.get("retryIntervalMs")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("readTimeoutMs") != null) {
+                try { readTimeoutMs = Long.parseLong(params.get("readTimeoutMs")); }
+                catch (NumberFormatException ignored) {}
+            }
         }
     }
 
@@ -149,8 +160,9 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 putLog("MCP Agent [" + agentName + "]: SSE transport requires 'url' parameter", LogLevel.ERROR);
                 return this;
             }
-            transport = new SseMcpTransport(url, (msg, level) ->
-                    putLog(msg, level));
+            transport = readTimeoutMs >= 0
+                    ? new SseMcpTransport(url, readTimeoutMs, (msg, level) -> putLog(msg, level))
+                    : new SseMcpTransport(url, (msg, level) -> putLog(msg, level));
         } else {
             // 默认 stdio
             if (command == null || command.isEmpty()) {
@@ -158,8 +170,9 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 return this;
             }
             String[] args = parseArgs(argsString);
-            transport = new StdioMcpTransport(command, args, (msg, level) ->
-                    putLog(msg, level));
+            // 未配置 readTimeoutMs 时 stdio 保持不限时（长任务工具不被打断）
+            transport = new StdioMcpTransport(command, args,
+                    readTimeoutMs >= 0 ? readTimeoutMs : 0L, (msg, level) -> putLog(msg, level));
         }
 
         // 连接并发现工具
@@ -178,8 +191,18 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
 
     /** 执行一次连接握手 + 工具发现（init 与惰性重连共用） */
     private void connectInternal() throws Exception {
-        transport.connect(clientName, clientVersion);
-        refreshTools();
+        try {
+            transport.connect(clientName, clientVersion);
+            // tools/list 失败 = 连接不可用。不能只打个日志就 initialized=true：
+            // 那样惰性重连的快速路径会直接返回，Agent 会永远拿着空/过期的工具表不再重试。
+            if (!refreshTools()) {
+                throw new Exception("tools/list failed after connect");
+            }
+        } catch (Exception e) {
+            // 清掉半开连接（stdio 握手失败已自行 disconnect，重复调用幂等），等退避后整体重连
+            transport.disconnect();
+            throw e;
+        }
         initialized = true;
         putLog("MCP Agent [" + agentName + "]: connected, " + tools.size() + " tools discovered", LogLevel.INFO);
 
@@ -195,16 +218,21 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
      * AGENT_GETTOOLDEFS / callTool / refreshTools 入口调用，
      * 避免"工具瞬间不可用"，同时退避保证不形成重试风暴。
      */
-    private synchronized void ensureInitialized() {
+    private void ensureInitialized() {
+        // 快路径无锁：并行 tool 调用都抢同一把锁会把每次调用串行化（npx 启动+握手可达数秒）
         if (initialized && transport != null && transport.isConnected()) return;
-        long now = System.currentTimeMillis();
-        if (now - lastConnectAttempt < retryIntervalMs) return;
-        lastConnectAttempt = now;
-        try {
-            connectInternal();
-        } catch (Exception e) {
-            initialized = false;
-            putLog("MCP Agent [" + agentName + "] reconnect failed: " + e.toString(), LogLevel.WARN);
+        synchronized (this) {
+            // 双检：等锁期间别的线程可能已经重连成功
+            if (initialized && transport != null && transport.isConnected()) return;
+            long now = System.currentTimeMillis();
+            if (now - lastConnectAttempt < retryIntervalMs) return;
+            lastConnectAttempt = now;
+            try {
+                connectInternal();
+            } catch (Exception e) {
+                initialized = false;
+                putLog("MCP Agent [" + agentName + "] reconnect failed: " + e.toString(), LogLevel.WARN);
+            }
         }
     }
 
@@ -336,8 +364,18 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
             return createMsg().setParam(RESULT, true)
                     .setParam(AI_P_SKILLOUTPUT, output)
                     .setParam(AI_P_TOOLNAME, toolName);
+        } catch (McpJsonRpc.McpRpcException e) {
+            // 协议级错误（工具参数不合法/工具内部报错）：连接本身正常，不能触发重连
+            putLog("MCP tool [" + toolName + "] rpc error: " + e, LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_SKILLOUTPUT, "Error executing MCP tool " + toolName + ": " + e.getMessage())
+                    .setParam(AI_P_TOOLNAME, toolName);
         } catch (Exception e) {
             putLog("MCP tool [" + toolName + "] error: " + e.toString(), LogLevel.ERROR);
+            // 传输级错误（断连/超时/HTTP 错误）：标记断开，下次访问走 ensureInitialized 重连。
+            // SSE 的 isConnected 只是连接旗标，服务器挂了它不会自己变 false——不在这里断开
+            // 就永远走不到惰性重连分支。
+            try { transport.disconnect(); } catch (Exception ignored) {}
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error executing MCP tool " + toolName + ": " + e.getMessage())
                     .setParam(AI_P_TOOLNAME, toolName);
@@ -361,9 +399,12 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
     // ======================== 内部方法 ========================
 
     /**
-     * 重新发现工具列表（调用 MCP tools/list）
+     * 重新发现工具列表（调用 MCP tools/list）。
+     *
+     * @return true=发现成功（工具表已刷新）；false=失败（保留旧工具表，由调用方决定是否算连接可用）。
+     *         失败时保留旧表是刻意策略：手工 refresh 遇到网络抖动不该瞬间清空工具。
      */
-    private void refreshTools() {
+    private boolean refreshTools() {
         try {
             String request = jsonRpc.buildRequest("tools/list");
             String response = transport.send(request);
@@ -397,8 +438,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                     + " tools, exposed " + tools.size();
             if (filtered > 0) msg += " (filtered out " + filtered + ")";
             putLog(msg, LogLevel.DEBUG);
+            return true;
         } catch (Exception e) {
             putLog("MCP Agent [" + agentName + "] tools/list failed: " + e.toString(), LogLevel.ERROR);
+            return false;
         }
     }
 
@@ -435,7 +478,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
 
     private TLMsg handleRefreshTools(Object fromWho, TLMsg msg) {
         ensureInitialized();
-        if (initialized) refreshTools();
-        return createMsg().setParam(RESULT, true).setParam("toolCount", tools.size());
+        // 手工刷新失败时保留旧工具表（见 refreshTools 注释），refreshed 让调用方知道这次没刷成
+        boolean refreshed = initialized && refreshTools();
+        return createMsg().setParam(RESULT, true)
+                .setParam("refreshed", refreshed)
+                .setParam("toolCount", tools.size());
     }
 }

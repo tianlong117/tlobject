@@ -132,11 +132,16 @@ public class TLMcpRuntime {
             ProcessBuilder pb = new ProcessBuilder(command, arg);
             pb.redirectErrorStream(true);
             Process p = pb.start();
-            // 消费 stdout 避免阻塞
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                while (reader.readLine() != null) { /* drain */ }
-            }
+            // 消费 stdout 避免管道写满阻塞。必须在独立线程里排空：
+            // 原顺序是"先读到 EOF 再 waitFor"，命令卡住不输出/不退出时永远走不到超时判断
+            Thread drainer = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    while (reader.readLine() != null) { /* drain */ }
+                } catch (Exception ignored) {}
+            }, "mcp-runtime-check-drain");
+            drainer.setDaemon(true);
+            drainer.start();
             boolean finished = p.waitFor(timeoutSec, TimeUnit.SECONDS);
             if (!finished) {
                 p.destroyForcibly();

@@ -34,7 +34,8 @@ public class TLApprovalRequest {
     private String operation;
     private String riskLevel;
     private String rationale;
-    private String state;
+    /** volatile：状态由决策线程写、阻塞等待/查询线程读；迁移本身须在 synchronized(request) 内做 */
+    private volatile String state;
     private Map<String, Object> toolArguments;
     private Map<String, Object> modifiedArguments;
     private String rejectionReason;

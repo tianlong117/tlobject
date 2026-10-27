@@ -21,6 +21,11 @@ public class TLWorkflowEngine implements TLParamString {
     public interface NodeTask {
         boolean isOver();
         TLMsg getResult();
+        /**
+         * 取消仍在执行的节点任务。超时/中断收尾必须调它——只清 running 表不会停掉底层
+         * LLM 调用：线程会继续跑完、继续烧 token，结果却再没人取。
+         */
+        void cancel();
     }
 
     /** 宿主模块提供的节点执行能力 */
@@ -44,9 +49,14 @@ public class TLWorkflowEngine implements TLParamString {
     private final Set<String> skipped = ConcurrentHashMap.newKeySet();
     private final Set<String> failed = ConcurrentHashMap.newKeySet();
     private final Map<String, NodeTask> running = new ConcurrentHashMap<>();
+    /** 运行中节点的提交时间戳（nodeDuration 要的是"耗时"，不能拿完成时刻当耗时） */
+    private final Map<String, Long> runningStartTs = new ConcurrentHashMap<>();
 
     /** 节点重试计数（onFailure="retry" 时按节点累积） */
     private final Map<String, Integer> retryCounts = new ConcurrentHashMap<>();
+
+    /** 运行期告警（如字段类型不一致），由宿主模块经 drainWarnings 取走输出 */
+    private final List<String> warnings = new ArrayList<>();
 
     /**
      * 节点"活"入边激活计数（上游真实完成 / CONDITION 命中边）。
@@ -125,6 +135,7 @@ public class TLWorkflowEngine implements TLParamString {
                         TLMsg nodeInput = buildNodeInput(node);
                         NodeTask task = runner.runAgentNode(node, nodeInput);
                         if (task != null) {
+                            runningStartTs.put(nid, System.currentTimeMillis());
                             running.put(nid, task);
                             context.putStatus(nid, "RUNNING");
                         } else {
@@ -138,6 +149,7 @@ public class TLWorkflowEngine implements TLParamString {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            cancelRunning("INTERRUPTED");
             context.putStatus("_workflow", "INTERRUPTED");
         }
 
@@ -179,7 +191,8 @@ public class TLWorkflowEngine implements TLParamString {
     private void onAgentNodeDone(String nid, TLMsg output) {
         TLWorkflowNode node = nodes.get(nid);
         context.putOutput(nid, output);
-        context.putDuration(nid, System.currentTimeMillis());
+        Long startTs = runningStartTs.remove(nid);
+        context.putDuration(nid, startTs != null ? System.currentTimeMillis() - startTs : 0L);
 
         if (output != null && output.parseBoolean(RESULT, true)) {
             completed.add(nid);
@@ -296,7 +309,7 @@ public class TLWorkflowEngine implements TLParamString {
      * 声明合并策略没有任何效果（不影响运行，但会误导配置者）。见 TLAgentWorkflow 加载告警。
      */
     public static final Set<String> RESERVED_MERGE_FIELDS =
-            Collections.unmodifiableSet(new HashSet<>(Collections.singletonList("upstreamResponses")));
+            Collections.singleton("upstreamResponses");
 
     /** 取节点的字段级合并策略（无声明返回 null，调用方走默认） */
     private Map<String, TLStateReducer> fieldReducersOf(String nodeId) {
@@ -318,12 +331,51 @@ public class TLWorkflowEngine implements TLParamString {
         for (Map.Entry<String, ?> entry : incoming.entrySet()) {
             String field = entry.getKey();
             TLStateReducer reducer = fieldReducers != null ? fieldReducers.get(field) : null;
-            if (reducer == null) reducer = TLReducers.ADAPTIVE;
             Object existing = merged.getParam(field);
+            if (reducer == null) {
+                warnTypeMismatch(field, existing, entry.getValue());
+                reducer = TLReducers.ADAPTIVE;
+            }
             Object value = reducer.reduce(existing, entry.getValue());
             if (value == null) merged.removeParam(field);
             else merged.setParam(field, value);
         }
+    }
+
+    /**
+     * 同名字段在各上游之间应保持同类型（契约，见 README「上游类型契约」）。
+     * 现有值与新来值一边是集合、另一边不是时，说明某上游违反了契约——ADAPTIVE 按
+     * 「谁的类型」决定的合并方式会让人困惑（标量→列表是覆盖、列表→标量是追加，
+     * 同一对类型换个顺序结果就不同），所以这里记录下来，但不改变合并行为：
+     * 契约该在上游修，框架不替上游做类型调和。
+     *
+     * <p>引擎不打日志（它是纯算法类，没有 putLog），告警收集起来由宿主模块输出——
+     * 见 {@link #drainWarnings()}。</p>
+     */
+    private void warnTypeMismatch(String field, Object existing, Object incoming) {
+        if (existing == null || incoming == null) return;
+        if (typeBucket(existing).equals(typeBucket(incoming))) return;   // 同类型：正常，不打扰
+        warnings.add("字段 '" + field + "' 类型不一致：已有 " + existing.getClass().getSimpleName()
+                + "，新来 " + incoming.getClass().getSimpleName()
+                + "。同名字段应由上游节点保证同类型，请检查节点产出");
+    }
+
+    /**
+     * 类型归类。Map 与 Collection 算不同类——两者都不是标量，但契约要求的是同类型，
+     * Map 对 List 同样是不一致（ADAPTIVE 也会给出让人困惑的结果）。
+     */
+    private static String typeBucket(Object v) {
+        if (v instanceof Map) return "map";
+        if (v instanceof Collection) return "collection";
+        return "scalar";
+    }
+
+    /** 取走本次执行收集到的告警（取后清空，由宿主模块负责输出） */
+    public java.util.List<String> drainWarnings() {
+        if (warnings.isEmpty()) return java.util.Collections.emptyList();
+        java.util.List<String> out = new ArrayList<>(warnings);
+        warnings.clear();
+        return out;
     }
 
     /** 构建节点的完整输入：工作流初始输入 + 上游产出 */
@@ -354,11 +406,26 @@ public class TLWorkflowEngine implements TLParamString {
         return input;
     }
 
-    private void timeoutRemaining(String status) {
-        for (String nid : running.keySet()) {
-            context.putStatus(nid, status);
+    /**
+     * 收尾仍在跑的节点：先落状态，再取消任务（{@link NodeTask#cancel()}）。
+     * 取消失败不能挡住收尾——工作流已经超时/被中断，引擎必须能返回。
+     */
+    private void cancelRunning(String status) {
+        for (Map.Entry<String, NodeTask> e : running.entrySet()) {
+            context.putStatus(e.getKey(), status);
+            try {
+                e.getValue().cancel();
+            } catch (Throwable t) {
+                // 取消是尽力而为：异常留给宿主日志（引擎是纯算法类，不打日志）
+                warnings.add("取消节点 '" + e.getKey() + "' 失败: " + t);
+            }
         }
         running.clear();
+        runningStartTs.clear();
+    }
+
+    private void timeoutRemaining(String status) {
+        cancelRunning(status);
         for (String nid : nodes.keySet()) {
             if (!completed.contains(nid) && !skipped.contains(nid) && !failed.contains(nid)) {
                 context.putStatus(nid, status);

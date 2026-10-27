@@ -116,12 +116,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_PLUMP        = "test_mock_streamparams";
     private static final String SID_TOOLPROGRESS = "test_mock_toolprogress";
     private static final String SID_TRUNCARGS    = "test_mock_truncargs";
+    private static final String SID_EMPTY        = "test_mock_emptyanswer";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY);
 
     // ======================== 构造器 ========================
 
@@ -495,6 +496,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("approvalCheckpointDiscard", new String[]{"27-待批断点可见与丢弃", null});
         TEST_CASES.put("approvalPendingCheckpoint", new String[]{"28-待批断点生命周期", null});
         TEST_CASES.put("truncToolArgs",    new String[]{"29-截断工具参数不可执行", "test_echo 未注册"});
+        TEST_CASES.put("emptyAnswer",      new String[]{"30-空终答占位", null});
     }
 
     /**
@@ -574,6 +576,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "streamparams":    return this::testStreamParams;
             case "toolprogress":    return this::testToolProgress;
             case "trunctoolargs":   return this::testToolArgsTruncated;
+            case "emptyanswer":     return this::testEmptyAnswer;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -811,6 +814,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     req.getListParam(AI_P_MESSAGEHISTORY, null);
             if (sent == null) continue;
             for (TLConversationHistory h : sent) {
+                // 记忆召回注入的 system 消息会带上历史用例跑过的输出（如 "ECHO: hello world"），
+                // 不是本轮模型产出——扫描执行痕迹时必须跳过；否则开了 recallAgentMemory 的配置
+                // （conf/demo/aitest）会把陈年记忆误判成"非法参数仍被执行"
+                if (h.getRole() == TLConversationHistory.Role.system) continue;
                 String c = h.getContent();
                 if (c == null) continue;
                 if (c.contains("工具调用参数") && c.contains("不完整")) guardSeen = true;
@@ -878,6 +885,85 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
 
         log("[TEST]   截断工具参数: 未执行且回喂提示；迭代上限提示已落 history");
         return createMsg().setParam(RESULT, true);
+    }
+
+    // ======================== 场景 30: 空终答占位 ========================
+
+    /**
+     * 模型真空输出（无 tool_calls、正文为空）此前只给 history 写占位符，finalResponse 仍是空串：
+     * 流式 UI 收不到任何正文（ForwardStreamSink.onFinalText 对空串直接 return），
+     * 用户看到"已完成"但气泡是空的；非流式调用方也拿到空回复。
+     * 断言：① 非流式返回占位符；② 流式把占位符推给前端；③ 落库末条也是占位符。
+     */
+    protected TLMsg testEmptyAnswer(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        mp.clearAllResponses();
+
+        // ① 非流式：空正文、无工具调用
+        mp.enqueueResponse(mp.textResponse(""));
+        TLMsg r1 = putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, SID_EMPTY)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "随便说点什么"));
+        String resp1 = r1 != null ? r1.getStringParam(AI_P_RESPONSE, "") : "";
+        if (!"（无输出）".equals(resp1)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "非流式空终答未落占位符: [" + resp1 + "]");
+        }
+
+        // ② 流式：done 正文为空，前端应收到占位符
+        try {
+            putMsg("streamCallback", createMsg().setAction("resetStream"));
+            mp.enqueueStreamResponses(SID_EMPTY, Collections.singletonList(mp.streamDone("")));
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_CHATSTREAM)
+                    .setSystemParam(AI_P_SESSIONID, SID_EMPTY)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "流式随便说点什么")
+                    .setParam(RESULTFOR, M_AIAGENT)
+                    .setParam(RESULTACTION, "onStreamResult")
+                    .setParam("_streamResultFor", "streamCallback")
+                    .setParam("_streamResultAction", "onStreamChunk"));
+            TLMsg waitResult = putMsg("streamCallback", createMsg().setAction("waitForStream")
+                    .setParam("timeout", 30));
+            String content = waitResult.getStringParam("content", "");
+            if (!"（无输出）".equals(content)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "流式空终答未推占位符: [" + content + "]");
+            }
+
+            // ③ 落库末条 assistant 也应是占位符（并确认取到的是流式轮，不是 ① 的同步轮）
+            TLMsg cont = putMsg("sessionManager", createMsg().setAction("continueSession")
+                    .setParam("sessionId", SID_EMPTY).setParam("userId", TEST_USER_ID));
+            List<?> history = cont != null
+                    ? (List<?>) cont.getListParam("history", Collections.emptyList()) : null;
+            if (history == null || history.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "空终答轮落库历史为空");
+            }
+            boolean streamRound = false;
+            for (Object o : history) {
+                if (o instanceof TLConversationHistory
+                        && "流式随便说点什么".equals(((TLConversationHistory) o).getContent())) {
+                    streamRound = true;
+                    break;
+                }
+            }
+            if (!streamRound) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "落库历史不是流式轮（读到了上一轮）");
+            }
+            Object lastObj = history.get(history.size() - 1);
+            String lastContent = lastObj instanceof TLConversationHistory
+                    ? ((TLConversationHistory) lastObj).getContent() : "";
+            if (!"（无输出）".equals(lastContent)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "空终答落库未用占位符: [" + lastContent + "]");
+            }
+
+            log("[TEST]   空终答: 非流式/流式/落库 三处均有占位符");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "empty answer exception: " + e);
+        }
     }
 
     // ======================== 场景 11: 意图路由缓存 ========================

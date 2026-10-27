@@ -51,6 +51,14 @@ public class TLWorkflowExprParser {
     public static class Compiled {
         public final Map<String, TLWorkflowNode> nodes = new LinkedHashMap<>();
         public final List<TLWorkflowEdge> edges = new ArrayList<>();
+
+        /**
+         * 用户用 {@code as} 显式命名的合并点。
+         * <p>用于区分「用户起的名」与「编译器自动生成的 __eN」——静态节点模式下
+         * 手写的 {@code <node id="merge" type="join">} 两者都不是，所以不能靠
+         * "id 不是 __ 开头"来判断，那样会把静态节点误报成"命名了却没配置"。
+         */
+        public final java.util.Set<String> namedByUser = new java.util.LinkedHashSet<>();
     }
 
     /** 表达式错误（携带位置信息） */
@@ -163,11 +171,11 @@ public class TLWorkflowExprParser {
         registerId(id);
     }
 
-    /** 校验 as 别名：不得与已有节点重名、不得是保留字（与 readIdent 同一套规则） */
+    /**
+     * 校验 as 别名是否与已有节点重名。
+     * <p>不查保留字——别名来自 {@link #readIdent()}，那里已经查过（保留字与 __ 前缀）。</p>
+     */
     private void checkAliasName(String alias) {
-        if (RESERVED.contains(alias)) {
-            throw new ExprParseException("reserved word: " + alias, pos);
-        }
         if (usedIdents.contains(alias)) {
             throw new ExprParseException("duplicate node id: " + alias, pos);
         }
@@ -313,9 +321,15 @@ public class TLWorkflowExprParser {
             if (inner.exit.equals(edge.getFrom())) edge.setFrom(alias);
             if (inner.exit.equals(edge.getTo())) edge.setTo(alias);
         }
+        // condDeps 的键是条件节点 id；若被改名的正是某个条件的依赖前缀，
+        // 其值也要跟着改，否则 addCondDeps 会拿着旧 id 找不到节点、静默不补边
+        for (Map.Entry<String, String> dep : condDeps.entrySet()) {
+            if (inner.exit.equals(dep.getValue())) dep.setValue(alias);
+        }
         out.nodes.remove(inner.exit);
         node.setId(alias);
         out.nodes.put(alias, node);
+        out.namedByUser.add(alias);
         usedIdents.remove(inner.exit);
         usedIdents.add(alias);
         return new Shape(inner.entries, alias);

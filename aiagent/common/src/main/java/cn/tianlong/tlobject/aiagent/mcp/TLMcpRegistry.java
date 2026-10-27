@@ -35,10 +35,24 @@ public class TLMcpRegistry {
     /** In-memory index: packageName → TLMcpRegistryEntry */
     private final Map<String, TLMcpRegistryEntry> index = new LinkedHashMap<>();
 
-    /** npm 搜索结果缓存：keyword → entries（5 分钟有效） */
-    private final Map<String, List<TLMcpRegistryEntry>> npmCache = new LinkedHashMap<>();
-    private final Map<String, Long> npmCacheTime = new LinkedHashMap<>();
+    /**
+     * npm 搜索结果缓存：keyword → 条目（5 分钟有效）。
+     * ConcurrentHashMap + 单条目持有"值+时间"：多端并发 search 不会破坏 LinkedHashMap，
+     * 也不会出现"值在、时间没了"的中间态。keyword 空间无界，写入时有上限。
+     */
+    private final Map<String, CacheEntry> npmCache =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private static final long CACHE_TTL_MS = 5 * 60 * 1000;
+    private static final int NPM_CACHE_MAX = 100;
+
+    private static final class CacheEntry {
+        final List<TLMcpRegistryEntry> entries;
+        final long timestamp;
+        CacheEntry(List<TLMcpRegistryEntry> entries, long timestamp) {
+            this.entries = entries;
+            this.timestamp = timestamp;
+        }
+    }
 
     private final Gson gson = new Gson();
 
@@ -287,11 +301,9 @@ public class TLMcpRegistry {
      */
     private List<TLMcpRegistryEntry> searchNpm(String keyword) {
         // Check cache
-        if (npmCache.containsKey(keyword)) {
-            long age = System.currentTimeMillis() - npmCacheTime.getOrDefault(keyword, 0L);
-            if (age < CACHE_TTL_MS) {
-                return npmCache.get(keyword);
-            }
+        CacheEntry cached = npmCache.get(keyword);
+        if (cached != null && System.currentTimeMillis() - cached.timestamp < CACHE_TTL_MS) {
+            return cached.entries;
         }
 
         List<TLMcpRegistryEntry> results = new ArrayList<>();
@@ -364,10 +376,25 @@ public class TLMcpRegistry {
         }
 
         // 缓存结果
-        npmCache.put(keyword, results);
-        npmCacheTime.put(keyword, System.currentTimeMillis());
+        putNpmCache(keyword, results);
 
         return results;
+    }
+
+    /** 写缓存：满时先清过期项，仍满则淘汰一条（keyword 空间无界，不能无限增长） */
+    private void putNpmCache(String keyword, List<TLMcpRegistryEntry> results) {
+        long now = System.currentTimeMillis();
+        if (npmCache.size() >= NPM_CACHE_MAX) {
+            npmCache.entrySet().removeIf(e -> now - e.getValue().timestamp >= CACHE_TTL_MS);
+            if (npmCache.size() >= NPM_CACHE_MAX) {
+                Iterator<String> it = npmCache.keySet().iterator();
+                if (it.hasNext()) {
+                    it.next();
+                    it.remove();
+                }
+            }
+        }
+        npmCache.put(keyword, new CacheEntry(results, now));
     }
 
     // ======================== Private ========================

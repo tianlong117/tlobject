@@ -105,7 +105,7 @@ public class TLAgentWorkflow extends TLBaseModule
                             TLWorkflowExprParser.compile(params.get("expression"));
                     xmlExprNodes = compiled.nodes;
                     xmlExprEdges = compiled.edges;
-                    applyMergeConfig(xmlExprNodes);
+                    applyMergeConfig(xmlExprNodes, compiled.namedByUser);
                     putLog("Workflow [" + name + "] expression compiled: "
                             + params.get("expression"), LogLevel.DEBUG);
                 } catch (RuntimeException e) {
@@ -114,11 +114,15 @@ public class TLAgentWorkflow extends TLBaseModule
                 }
             }
         }
-        configuredNodes = ((myConfig) mconfig).getNodes();
-        configuredEdges = ((myConfig) mconfig).getEdges();
+        // mconfig 可能被 super.setConfig() 置 null（configfile 缺失/读不出）——
+        // 直接强转是 NPE，不是"配置加载失败"该有的表现
+        if (mconfig instanceof myConfig) {
+            configuredNodes = ((myConfig) mconfig).getNodes();
+            configuredEdges = ((myConfig) mconfig).getEdges();
+        }
 
         if (!configuredNodes.isEmpty()) {
-            applyMergeConfig(configuredNodes);
+            applyMergeConfig(configuredNodes, java.util.Collections.emptySet());
             putLog("Workflow [" + name + "] loaded: " + configuredNodes.size()
                     + " nodes, " + configuredEdges.size() + " edges", LogLevel.DEBUG);
         }
@@ -153,11 +157,12 @@ public class TLAgentWorkflow extends TLBaseModule
                             + "' 由框架独占（正文收集逻辑覆盖），配置无效已忽略", LogLevel.WARN);
                     continue;
                 }
-                TLStateReducer reducer = TLReducers.byName(strategy);
+                TLStateReducer reducer = resolveReducer(strategy);
                 if (reducer == null) {
                     putLog("Workflow [" + name + "] merge." + pointId + " 字段 '" + field
-                            + "' 的策略 '" + strategy + "' 未知，回落默认策略。可用: "
-                            + TLReducers.knownNames(), LogLevel.WARN);
+                            + "' 的策略 '" + strategy + "' 未知，回落默认策略。可用内置: "
+                            + TLReducers.knownNames() + "，或自定义类的全限定名（须实现 TLStateReducer）",
+                            LogLevel.WARN);
                     continue;
                 }
                 reducers.put(field, reducer);
@@ -167,23 +172,61 @@ public class TLAgentWorkflow extends TLBaseModule
         return all;
     }
 
-    /** 把合并策略挂到节点上（表达式生成的节点也走这里） */
-    private void applyMergeConfig(Map<String, TLWorkflowNode> target) {
+    /**
+     * 解析一个策略配置值：内置策略名，或自定义 Reducer 类的全限定名。
+     *
+     * <p>区分依据是<b>有没有点号</b>——内置名不含 {@code .}，类名必然含。这样
+     * 「把 append 拼成 appendd」仍走内置报错分支并提示可用内置名，不会被误当成类名加载。</p>
+     */
+    private TLStateReducer resolveReducer(String strategy) {
+        TLStateReducer builtin = TLReducers.byName(strategy);
+        if (builtin != null) return builtin;
+        if (strategy.indexOf('.') > 0) {
+            return loadCustomReducer(strategy);
+        }
+        return null;
+    }
+
+    /**
+     * 按类名加载自定义 Reducer：须实现 {@link TLStateReducer}、public 且有无参构造。
+     * 失败只告警不中断（与其它配置错误一致，由调用方回落默认策略）。
+     * 实现须无状态（见接口契约），故各合并点共用一个实例即可。
+     */
+    private TLStateReducer loadCustomReducer(String className) {
+        try {
+            Class<?> cls = Class.forName(className, true, getClass().getClassLoader());
+            if (!TLStateReducer.class.isAssignableFrom(cls)) {
+                putLog("Workflow [" + name + "] 自定义 Reducer " + className
+                        + " 未实现 TLStateReducer 接口", LogLevel.WARN);
+                return null;
+            }
+            return (TLStateReducer) cls.getDeclaredConstructor().newInstance();
+        } catch (ClassNotFoundException e) {
+            putLog("Workflow [" + name + "] 自定义 Reducer 类不存在: " + className, LogLevel.WARN);
+        } catch (NoSuchMethodException e) {
+            putLog("Workflow [" + name + "] 自定义 Reducer " + className
+                    + " 缺少 public 无参构造函数", LogLevel.WARN);
+        } catch (ReflectiveOperationException | LinkageError e) {
+            putLog("Workflow [" + name + "] 自定义 Reducer " + className
+                    + " 实例化失败: " + e, LogLevel.WARN);
+        }
+        return null;
+    }
+
+    /**
+     * 把合并策略挂到节点上（表达式生成的节点也走这里）。
+     *
+     * @param namedByUser 用户用 {@code as} 显式命名的合并点。静态节点模式传空集——
+     *                    那里的合并点就是节点自身，不存在"白命名"，不该告警
+     */
+    private void applyMergeConfig(Map<String, TLWorkflowNode> target, Set<String> namedByUser) {
         if (target == null || target.isEmpty()) return;
-        // as 命名的合并点却没有对应配置：命名本身就是"我要配它"的声明，
+        // 一个 merge 配置都没写、却有 as 命名的合并点：命名本身就是"我要配它"的声明，
         // 而 merge.* 是唯一入口——只命名不配置等于白命名（走默认），提示一下
         if (mergeReducers.isEmpty()) {
-            List<String> namedOnly = new ArrayList<>();
-            for (TLWorkflowNode node : target.values()) {
-                // 自动生成的 __eN 不算——那不是用户写的名字
-                if (node.getType() == TLWorkflowNodeType.JOIN
-                        && !node.getId().startsWith("__")) {
-                    namedOnly.add(node.getId());
-                }
-            }
-            if (!namedOnly.isEmpty()) {
+            if (namedByUser != null && !namedByUser.isEmpty()) {
                 putLog("Workflow [" + name + "] 以下合并点已用 as 命名但未配置合并策略，"
-                        + "走默认（列表追加 / 标量覆盖）: " + namedOnly
+                        + "走默认（列表追加 / 标量覆盖）: " + namedByUser
                         + "。不需要定制就去掉 as，需要则加 <merge.<名字> value=\"字段:策略\"/>",
                         LogLevel.WARN);
             }
@@ -331,22 +374,31 @@ public class TLAgentWorkflow extends TLBaseModule
      * - nodes: Map&lt;String, Map&lt;String, String&gt;&gt;  动态节点（可选，覆盖XML）
      * - edges: List&lt;Map&lt;String, String&gt;&gt;          动态边（可选，覆盖XML）
      */
-    @SuppressWarnings("unchecked")
     /** 作为 function 被调用：执行工作流 → AI_P_SKILLOUTPUT */
     private TLMsg doWorkflowAsTool(TLMsg msg) {
-        // 从 AI_P_SKILLINPUT 提取 task，注入 userMessage
-        Map<String, Object> args = (Map<String, Object>) msg.getParam(AI_P_SKILLINPUT, Map.class);
-        if (args != null && args.containsKey("task")) {
-            msg.setParam("userMessage", String.valueOf(args.get("task")));
-        }
-        if (!msg.containsParam("userMessage")) {
-            msg.setParam("userMessage", msg.getStringParam(AI_P_USERMESSAGE, ""));
-        }
+        applyToolTask(msg);
         TLMsg result = doWorkflow(msg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
         TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
         if (directOutput) ret.setParam(AI_P_FINALANSWER, true);
         return ret;
+    }
+
+    /**
+     * 工具调用入口：把 SKILLINPUT.task 提为 userMessage。
+     * task 缺失/为 null/空串时不落值——否则 {@code String.valueOf(null)} 的字符串 "null"
+     * 或空串都会占住 userMessage，把 {@link #AI_P_USERMESSAGE} 兜底挡掉
+     *（判存在用 getStringParam().isEmpty()，不能用 containsParam——它只看 key 在不在）。
+     */
+    @SuppressWarnings("unchecked")
+    void applyToolTask(TLMsg msg) {
+        Map<String, Object> args = (Map<String, Object>) msg.getParam(AI_P_SKILLINPUT, Map.class);
+        Object taskObj = args != null ? args.get("task") : null;
+        String task = taskObj != null ? String.valueOf(taskObj) : "";
+        if (!task.isEmpty()) msg.setParam("userMessage", task);
+        if (msg.getStringParam("userMessage", "").isEmpty()) {
+            msg.setParam("userMessage", msg.getStringParam(AI_P_USERMESSAGE, ""));
+        }
     }
 
     private TLMsg doWorkflow(TLMsg msg) {
@@ -360,7 +412,7 @@ public class TLAgentWorkflow extends TLBaseModule
                         TLWorkflowExprParser.compile((String) exprParam);
                 workflowNodes = compiled.nodes;
                 workflowEdges = compiled.edges;
-                applyMergeConfig(workflowNodes);
+                applyMergeConfig(workflowNodes, compiled.namedByUser);
                 putLog("Workflow [" + name + "] expression run: "
                         + ((String) exprParam).trim(), LogLevel.DEBUG);
             } catch (RuntimeException e) {
@@ -389,14 +441,25 @@ public class TLAgentWorkflow extends TLBaseModule
             }
         }
 
-        // 构建输入
+        return executeWorkflow(workflowNodes, workflowEdges, buildWorkflowInput(msg));
+    }
+
+    /**
+     * 构建工作流初始输入：调用方 args + 有效 userMessage + 会话上下文（systemArgs）。
+     *
+     * <p>顺序是关键：<b>先</b> {@code addArgs}（里面可能带着空 userMessage），<b>再</b>把
+     * "userMessage 为空则回落 workflowInput" 算出的有效值写回去。反过来时，
+     * {@code getStringParam("userMessage", 默认值)} 遇到"key 存在但值为空"会返回空串
+     * （默认值只在 key 缺失时生效），回落值会先被跳过、再被 addArgs 的空串覆盖。</p>
+     *
+     * <p>包级可见：自测直接验证回落与顺序，不需要起工厂。</p>
+     */
+    TLMsg buildWorkflowInput(TLMsg msg) {
         TLMsg input = createMsg();
-        String userMessage = msg.getStringParam("userMessage",
-                msg.getStringParam(WORKFLOW_INPUT, ""));
-        if (!userMessage.isEmpty()) {
-            input.setParam("userMessage", userMessage);
-        }
+        String userMessage = msg.getStringParam("userMessage", "");
+        if (userMessage.isEmpty()) userMessage = msg.getStringParam(WORKFLOW_INPUT, "");
         input.addArgs(msg.getArgs());
+        if (!userMessage.isEmpty()) input.setParam("userMessage", userMessage);
         // 转发会话上下文（框架系统参数区），保持级联停止、用户数据隔离（与 executeAsTool 同款）
         if (msg.containsSystemParam(AI_P_SESSIONID))
             input.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
@@ -409,7 +472,7 @@ public class TLAgentWorkflow extends TLBaseModule
         if (msg.containsSystemParam(AI_P_ROUNDID))
             input.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
 
-        return executeWorkflow(workflowNodes, workflowEdges, input);
+        return input;
     }
 
     /**
@@ -481,6 +544,11 @@ public class TLAgentWorkflow extends TLBaseModule
         TLMsg result = engine.execute();
         long elapsed = System.currentTimeMillis() - t0;
 
+        // 引擎是纯算法类不打日志，运行期告警在这里统一输出
+        for (String w : engine.drainWarnings()) {
+            putLog("Workflow [" + name + "] " + w, LogLevel.WARN);
+        }
+
         // 构建返回
         TLMsg ret = createMsg()
                 .setParam(RESULT, result.parseBoolean(RESULT, false))
@@ -500,12 +568,20 @@ public class TLAgentWorkflow extends TLBaseModule
         // 汇总文本：按节点声明顺序拼接 AGENT 节点产出。
         // JOIN/FANOUT/CONDITION 是管线节点——其 output 为 addArgs 覆盖式合并的上游产物，
         // 混入汇总会产生【__eN】冗余段（内容还是最后上游的 aiResponse 重复）；
-        // 且 nodeOutputs 是 ConcurrentHashMap，迭代顺序随机，必须按声明序遍历
+        // 且 nodeOutputs 是 ConcurrentHashMap，迭代顺序随机，必须按声明序遍历。
+        // 失败/超时/未执行的节点不能混进终答：错误文案（"Agent error: ..."）会被当成
+        // 节点产出拼进 AI_P_RESPONSE，用户看到的是"多个人的回答"，其中一段其实是报错
+        Set<String> uncompleted = new HashSet<>();
+        Object uncompletedObj = result.getParam(UNCOMPLETEDMSGLIST);
+        if (uncompletedObj instanceof List) {
+            for (Object o : (List<?>) uncompletedObj) if (o != null) uncompleted.add(o.toString());
+        }
         StringBuilder summary = new StringBuilder();
         Map<String, TLMsg> outputs = context.getNodeOutputs();
         for (String nid : workflowNodes.keySet()) {
             TLWorkflowNode node = workflowNodes.get(nid);
             if (node.getType() != TLWorkflowNodeType.AGENT) continue;
+            if (uncompleted.contains(nid)) continue;
             TLMsg v = outputs.get(nid);
             if (v != null) {
                 String resp = v.getStringParam("aiResponse", "");
@@ -535,7 +611,12 @@ public class TLAgentWorkflow extends TLBaseModule
             try {
                 node.setType(TLWorkflowNodeType.valueOf(typeStr));
             } catch (IllegalArgumentException iae) {
-                node.setType(TLWorkflowNodeType.AGENT);
+                // 不能静默退化成 AGENT：写 type="loop" 之类会得到一个普通 LLM 节点且毫无提示。
+                // 跳过该节点，引用它的边会在后续校验里报"Edge references unknown node"
+                putLog("Workflow dynamic node [" + e.getKey() + "] unknown type '" + typeStr
+                        + "'，已跳过；可用: " + java.util.Arrays.toString(
+                                TLWorkflowNodeType.values()), LogLevel.WARN);
+                continue;
             }
             node.setModule(attrs.get("module"));
             node.setSameClassAs(attrs.get("sameClassAs"));
@@ -671,6 +752,8 @@ public class TLAgentWorkflow extends TLBaseModule
         NodeTaskAdapter(ThreadTask task) { this.task = task; }
         @Override public boolean isOver() { return task.isThreadOver(); }
         @Override public TLMsg getResult() { return task.getResult(); }
+        /** 与 TLToolExecutor 的取消同法：先标记结束（阻止排队中的任务再执行），再打断执行线程 */
+        @Override public void cancel() { task.cancelTask(); task.interrupt(); }
     }
 
     // ======================== XML 配置解析 ========================
@@ -719,7 +802,10 @@ public class TLAgentWorkflow extends TLBaseModule
                         try {
                             node.setType(TLWorkflowNodeType.valueOf(typeStr.toUpperCase()));
                         } catch (IllegalArgumentException e) {
-                            node.setType(TLWorkflowNodeType.AGENT);
+                            putLog("Workflow [" + name + "] node [" + id + "] unknown type '"
+                                    + typeStr + "'，已跳过；可用: " + java.util.Arrays.toString(
+                                            TLWorkflowNodeType.values()), LogLevel.WARN);
+                            continue;
                         }
                     }
 

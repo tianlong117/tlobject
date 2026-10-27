@@ -1141,12 +1141,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (msgId.isEmpty()) {
             return createMsg().setParam(AI_P_SKILLOUTPUT, "Error: msgId missing");
         }
-        // 将关键参数注入 systemArgs，确保 msgTable 路由时 doMsgList 的 addSystemArgs 能传播给目标模块
-        if (msg.containsSystemParam(AI_P_SESSIONID))
-            msg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
-        if (msg.containsSystemParam("userId"))
-            msg.setSystemParam("userId", msg.getSystemParam("userId", ""));
-
+        // 身份参数已在 systemArgs 里（执行器传入，msgTable 路由时 doMsgList 的 addSystemArgs 会继续传播），
+        // 无需再"存在则取原值 set 回原键"——那是空操作
         TLMsg result = checkMsgId(msgId, fromWho, msg);
         String output;
         if (result == null) {
@@ -1239,6 +1235,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 一轮聊天的上下文工厂：ID 一次算定（上游透传 > resumeRoundId > 新生成）。 */
     private ChatRunContext newContext(Object fromWho, TLMsg msg,
                                       StreamSink sink, boolean preBegan) {
+        // 防御：调用方漏带 _chatRequest 时构造器里的 msg.getSystemParam 会 NPE。异常若逃出
+        // try/finally，chatStream 已 sessionRoundBegin 的计数就永远漏掉（会话永久"忙"，
+        // 后台任务结果再也不会 flush）。空 msg 交给 prepareChat 的 "missing userMessage" 出口收尾。
+        if (msg == null) {
+            putLog("runChat: null chat request (missing _chatRequest), treated as empty message",
+                    LogLevel.WARN);
+            msg = createMsg();
+        }
         String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
         Object upstreamObj = msg.getSystemParam(AI_P_ROUNDID, null);
@@ -1801,6 +1805,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 String rawResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
                 // 截断如实告知：返回/UI 的终答补提示
                 finalResponse = withTruncationNotice(rawResponse, turnFinish);
+                // 空终答（推理吃光预算 / 模型真空输出）也必须给 UI 一份非空文本：
+                // ForwardStreamSink.onFinalText 对空串直接 return，前端只收到 done、气泡空白；
+                // history 本就有占位符，返回/UI/落库三处应一致
+                if (finalResponse.isEmpty()) finalResponse = emptyHistoryPlaceholder(turnFinish);
                 // 历史存哪份：流式与旧 onStreamResult 对齐（存带提示的终答，重登可见）；
                 // 非流式保持原 doChat 的原始文本，避免无关行为变化。
                 boolean streamRun = ctx.sink != null && !ctx.sink.isNull();

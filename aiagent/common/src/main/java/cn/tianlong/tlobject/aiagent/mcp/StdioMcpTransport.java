@@ -47,11 +47,23 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
     private BufferedWriter writer;
     private BufferedReader reader;
     private Thread stderrThread;
-    private final StringBuilder stderrBuffer = new StringBuilder();
+    /** stderr 线程写、send 的异常路径读：必须用线程安全的 StringBuffer */
+    private final StringBuffer stderrBuffer = new StringBuffer();
     private volatile boolean connected = false;
 
     /** 日志回调 */
     private final McpTransport.LogCallback logCallback;
+
+    /** 单次响应读超时（毫秒，0=不限——保持"长任务工具不被打断"的默认行为） */
+    private final long readTimeoutMs;
+
+    /** 有超时的 readLine 在独立线程上跑，超时后可被丢弃（进程会被强杀） */
+    private static final java.util.concurrent.ExecutorService READ_POOL =
+            java.util.concurrent.Executors.newCachedThreadPool(r -> {
+                Thread t = new Thread(r, "mcp-stdio-read");
+                t.setDaemon(true);
+                return t;
+            });
 
     /**
      * @param command 启动命令（如 "npx", "node", "python"）
@@ -59,9 +71,19 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
      * @param logCallback 日志回调（用于输出到框架日志系统）
      */
     public StdioMcpTransport(String command, String[] args, McpTransport.LogCallback logCallback) {
+        this(command, args, 0L, logCallback);
+    }
+
+    /**
+     * @param readTimeoutMs 单次响应读超时（毫秒，0=不限）。超时会强杀子进程并断开连接，
+     *                      由 Agent 的惰性重连下次拉起——不死等卡住的 Server。
+     */
+    public StdioMcpTransport(String command, String[] args, long readTimeoutMs,
+                             McpTransport.LogCallback logCallback) {
         this.command = command;
         this.args = args != null ? args.clone() : new String[0];
         this.jsonRpc = new McpJsonRpc();
+        this.readTimeoutMs = Math.max(0L, readTimeoutMs);
         this.logCallback = logCallback;
     }
 
@@ -83,11 +105,13 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
         // stdout → reader (从子进程读取)
         reader = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
 
-        // 单独线程消费 stderr，避免进程阻塞。收集输出用于错误诊断
+        // 单独线程消费 stderr，避免进程阻塞。收集输出用于错误诊断。
+        // 捕获局部 process：disconnect 会把字段置 null，线程若读字段会 NPE
+        final Process stderrProcess = process;
         stderrBuffer.setLength(0);
         stderrThread = new Thread(() -> {
             try (BufferedReader errReader = new BufferedReader(
-                    new InputStreamReader(process.getErrorStream(), StandardCharsets.UTF_8))) {
+                    new InputStreamReader(stderrProcess.getErrorStream(), StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = errReader.readLine()) != null) {
                     stderrBuffer.append(line).append("\n");
@@ -129,7 +153,7 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
         }
         checkProcessAlive();
         writeLine(jsonRpcRequest);
-        String response = readLine();
+        String response = readLineWithTimeout();
         if (response == null) {
             int exitCode = process != null ? process.exitValue() : -1;
             String stderrTail = stderrBuffer.length() > 0
@@ -194,6 +218,56 @@ public class StdioMcpTransport implements McpTransport, TLAiAgentParamString {
     private String readLine() throws IOException {
         if (reader == null) throw new IOException("Reader is null");
         return reader.readLine();
+    }
+
+    /**
+     * 带超时的 readLine。readTimeoutMs=0（默认）时保持同步阻塞——长任务工具不被打断。
+     *
+     * <p>超时必须强杀子进程：readLine 阻塞在管道读上，不响应线程中断，单 cancel Future
+     * 会让读线程永久挂着，而且它还会吞掉下一次请求的响应。杀进程让管道 EOF，读线程才能退出。</p>
+     */
+    private String readLineWithTimeout() throws IOException {
+        if (readTimeoutMs <= 0) return readLine();
+        final BufferedReader r = reader;
+        if (r == null) throw new IOException("Reader is null");
+
+        java.util.concurrent.Future<String> future = READ_POOL.submit(r::readLine);
+        try {
+            return future.get(readTimeoutMs, TimeUnit.MILLISECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            abortAbandonedRead("response timeout after " + readTimeoutMs + "ms");
+            throw new IOException("MCP response timeout after " + readTimeoutMs
+                    + "ms; process terminated (will reconnect on demand)");
+        } catch (InterruptedException e) {
+            // 调用线程被中断（/stop）：这次响应已放弃，读线程不能留着吞下一条响应
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            abortAbandonedRead("send interrupted while awaiting response");
+            throw new IOException("Interrupted while waiting for MCP response", e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof IOException) throw (IOException) cause;
+            throw new IOException("MCP read failed: " + cause, cause);
+        }
+    }
+
+    /** 丢弃未完成的读：强杀子进程让阻塞读收到 EOF，再断开连接；下次访问由 Agent 惰性重连 */
+    private void abortAbandonedRead(String reason) {
+        Process p = process;
+        if (p != null) {
+            LIVE_PROCESSES.remove(p);
+            try {
+                p.descendants().forEach(ProcessHandle::destroyForcibly);
+                p.destroyForcibly();
+                p.waitFor(2, TimeUnit.SECONDS);   // 等 EOF，避免读线程残留
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            } catch (Exception ignored) {}
+        }
+        log("MCP stdio read abandoned (" + reason + "), killing process", LogLevel.ERROR);
+        // 进程已死：此时 close 不会卡在阻塞读持有的锁上
+        disconnect();
     }
 
     private void log(String msg, LogLevel level) {

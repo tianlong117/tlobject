@@ -99,6 +99,12 @@ public final class TLReducers {
     /**
      * 类型自适应（未显式配置字段时使用）：List/Set 追加，其余覆盖。
      * 让不写任何配置的现有工作流在「多上游都产出列表」时自动不丢数据。
+     *
+     * <p><b>上游类型契约</b>：同名字段在各上游之间应保持同类型——集合对集合、标量对标量。
+     * 这是本策略成立的前提（引擎侧对不一致的情况打 WARN，见
+     * {@code TLWorkflowEngine#warnTypeMismatch}）。类型不一致时的行为由 {@code existing}
+     * 的类型决定，同一对类型换个到达顺序结果就不同，属于契约被破坏——应当去上游修，
+     * 不要指望靠合并策略兜。</p>
      */
     public static final TLStateReducer ADAPTIVE = (existing, incoming) ->
             (existing instanceof List || existing instanceof Set) ? APPEND.reduce(existing, incoming) : incoming;

@@ -36,14 +36,14 @@ public class TLWorkflowNode {
     private String action = "chat";
 
     /** 节点参数（表达式、timeout 等） */
-    private Map<String, String> params;
+    private Map<String, String> params = new HashMap<>();
 
     /**
      * 字段级合并策略：key = 上游产出的字段名。
      * 来源是节点配置里的 merge.&lt;字段&gt; = &lt;策略名&gt;（见 TLAgentWorkflow.parseFieldReducers）。
      * 未声明的字段由引擎按类型自适应合并。
      */
-    private Map<String, TLStateReducer> fieldReducers;
+    private Map<String, TLStateReducer> fieldReducers = new HashMap<>();
 
     /** 单节点超时（毫秒，0=不限制） */
     private long timeout;
@@ -87,17 +87,11 @@ public class TLWorkflowNode {
     public String getAction() { return action; }
     public void setAction(String action) { this.action = action; }
 
-    public Map<String, String> getParams() {
-        if (params == null) params = new HashMap<>();
-        return params;
-    }
+    public Map<String, String> getParams() { return params; }
     public void setParams(Map<String, String> params) { this.params = params; }
 
     /** 字段级合并策略（无声明时返回空 Map，调用方可直接 get） */
-    public Map<String, TLStateReducer> getFieldReducers() {
-        if (fieldReducers == null) fieldReducers = new HashMap<>();
-        return fieldReducers;
-    }
+    public Map<String, TLStateReducer> getFieldReducers() { return fieldReducers; }
     public void setFieldReducers(Map<String, TLStateReducer> fieldReducers) {
         this.fieldReducers = fieldReducers;
     }

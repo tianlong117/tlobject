@@ -102,6 +102,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     /** 拒绝记忆上限 */
     private static final int MAX_REJECTED_OPS = 200;
 
+    /** 拒绝记忆键的序列化器：保留值类型（Integer 1 与 String "1" 不能混成同一个键） */
+    private static final com.google.gson.Gson KEY_GSON = new com.google.gson.Gson();
+
     // ======================== 授权记忆（会话/轮次级免审） ========================
 
     /** 授权表：key = grantKey(resolve(sessionId), scope, roundId, ruleId, operation) */
@@ -303,6 +306,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
         decisionLatches.put(request.getApprovalId(), latch);
         try {
+            // 注册后先复查状态：决策可能在本 latch 注册前就已发生（publish 与 wait 之间的窗口），
+            // 那次 signalDecision 会打空——不复查就要白等到超时（或永远）
+            boolean decided;
+            synchronized (request) {
+                decided = !TLApprovalRequest.PENDING.equals(request.getState());
+            }
+            if (decided) return buildApprovalResponse(request, null);
+
             // 等待时长：请求级优先，缺省用模块级；0 = 一直等（latch.await() 无超时）
             long waitMs = request.getTimeoutMs() > 0 ? request.getTimeoutMs() : approvalTimeoutMs;
             boolean ok;
@@ -315,16 +326,24 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             if (!ok) {
                 markExpired(request, "审批超时（" + fmtSeconds(waitMs) + "）");
             } else if (Thread.currentThread().isInterrupted()) {
-                request.setState(TLApprovalRequest.REJECTED);
-                request.setRejectionReason("审批被中断");
+                markInterrupted(request);
             }
         } catch (InterruptedException e) {
+            markInterrupted(request);
+            Thread.currentThread().interrupt();
+        } finally {
+            decisionLatches.remove(request.getApprovalId());
+        }
+        return buildApprovalResponse(request, null);
+    }
+
+    /** 中断收口：只有仍未决才置 REJECTED——已批准/已超时的请求不能被"审批被中断"覆盖 */
+    private void markInterrupted(TLApprovalRequest request) {
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) return;
             request.setState(TLApprovalRequest.REJECTED);
             request.setRejectionReason("审批被中断");
-            Thread.currentThread().interrupt();
         }
-        decisionLatches.remove(request.getApprovalId());
-        return buildApprovalResponse(request, null);
     }
 
     /** 信号唤醒等待中的审查人 */
@@ -511,27 +530,35 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         String state = reviewerResult.getStringParam(AI_P_APPROVAL_STATE, TLApprovalRequest.PENDING);
 
         if (TLApprovalRequest.APPROVED.equals(state)) {
-            request.setState(TLApprovalRequest.APPROVED);
-            request.setModifiedArguments(
-                    (Map<String, Object>) reviewerResult.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null));
-            putLog("Approval approved: id=" + request.getApprovalId(), LogLevel.INFO);
+            if (applyReviewerState(request, state, reviewerResult)) {
+                putLog("Approval approved: id=" + request.getApprovalId(), LogLevel.INFO);
+            }
 
         } else if (TLApprovalRequest.REJECTED.equals(state)) {
-            request.setState(TLApprovalRequest.REJECTED);
-            request.setRejectionReason(
-                    reviewerResult.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝"));
-            putLog("Approval rejected: id=" + request.getApprovalId()
-                    + " reason=" + request.getRejectionReason(), LogLevel.INFO);
+            if (applyReviewerState(request, state, reviewerResult)) {
+                putLog("Approval rejected: id=" + request.getApprovalId()
+                        + " reason=" + request.getRejectionReason(), LogLevel.INFO);
+            }
 
         } else if (TLApprovalRequest.PENDING.equals(state)) {
-            // pending：无人接收（转断点）或异步审查人已接受——等待登录重放/后续决策
-            request.setDeferred(true);
-            // 转断点态：阻塞等待已结束，创建时限不再适用（只由 TTL 兜底）——
-            // 不取消的话非零 approvalTimeoutMs 配置下断点审批仍会被创建时限杀掉
-            java.util.concurrent.ScheduledFuture<?> creationTimer = timeoutTasks.remove(request.getApprovalId());
-            if (creationTimer != null) creationTimer.cancel(false);
-            armPendingTtl(request);
-            putLog("Approval pending (deferred): id=" + request.getApprovalId(), LogLevel.INFO);
+            // pending：无人接收（转断点）或异步审查人已接受——等待登录重放/后续决策。
+            // 只有仍未决才转断点：审查人返回的是快照，期间外部决策/超时可能已给出终态
+            boolean deferred = false;
+            synchronized (request) {
+                if (TLApprovalRequest.PENDING.equals(request.getState())) {
+                    request.setDeferred(true);
+                    // 转断点态：阻塞等待已结束，创建时限不再适用（只由 TTL 兜底）——
+                    // 不取消的话非零 approvalTimeoutMs 配置下断点审批仍会被创建时限杀掉
+                    java.util.concurrent.ScheduledFuture<?> creationTimer =
+                            timeoutTasks.remove(request.getApprovalId());
+                    if (creationTimer != null) creationTimer.cancel(false);
+                    armPendingTtl(request);
+                    deferred = true;
+                }
+            }
+            if (deferred) {
+                putLog("Approval pending (deferred): id=" + request.getApprovalId(), LogLevel.INFO);
+            }
         }
 
         if (!TLApprovalRequest.PENDING.equals(state)) {
@@ -547,6 +574,31 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
         // 构造返回给 Agent 的 TLMsg
         return buildApprovalResponse(request, reviewerResult);
+    }
+
+    /**
+     * 应用同步审查人返回的终态（APPROVED/REJECTED）。
+     * reviewerResult 是审查人返回时刻的快照：外部决策/超时可能已抢先给出**另一个**终态
+     * （如超时任务正好落 EXPIRED），此时不得用旧快照覆盖——只在仍未决或快照与现态一致时写入。
+     *
+     * @return true = 状态已按审查人结果落定（幂等重写同值也算）
+     */
+    @SuppressWarnings("unchecked")
+    private boolean applyReviewerState(TLApprovalRequest request, String state, TLMsg reviewerResult) {
+        synchronized (request) {
+            String cur = request.getState();
+            if (!TLApprovalRequest.PENDING.equals(cur) && !cur.equals(state)) return false;
+            if (TLApprovalRequest.APPROVED.equals(state)) {
+                request.setState(TLApprovalRequest.APPROVED);
+                request.setModifiedArguments(
+                        (Map<String, Object>) reviewerResult.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null));
+            } else if (TLApprovalRequest.REJECTED.equals(state)) {
+                request.setState(TLApprovalRequest.REJECTED);
+                request.setRejectionReason(
+                        reviewerResult.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝"));
+            }
+            return true;
+        }
     }
 
     /**
@@ -568,38 +620,43 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                     .setParam("approvalEnded", true);
         }
 
-        if (!TLApprovalRequest.PENDING.equals(request.getState())) {
-            // approvalEnded：已决策/已超时——同上，让弹框自愈关闭
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "approval already " + request.getState())
-                    .setParam("approvalEnded", true);
-        }
+        // 检查-修改必须原子：两个窗口同时点批准、或批准与拒绝并发时，不加锁会让两边都通过
+        // PENDING 检查（拒绝后仍写入授权 = 授权与用户拒绝意图矛盾）。同一把 request 锁贯穿
+        // handleApprove/handleReject/handleAbandon/markExpired/中断收口。
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) {
+                // approvalEnded：已决策/已超时——同上，让弹框自愈关闭
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "approval already " + request.getState())
+                        .setParam("approvalEnded", true);
+            }
 
-        // 用户可修改参数
-        Map<String, Object> modifiedArgs =
-                (Map<String, Object>) msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null);
-        request.setModifiedArguments(modifiedArgs);
-        String scope = msg.getStringParam(AI_P_APPROVAL_SCOPE, "once");
-        if (!"once".equals(scope)) {
-            // 授权只记 rule+operation，改后的参数不会用于后续调用：非 once 授权下必须禁止改参数，
-            // 否则被改掉的危险参数会在下一次自动批准时"复活"，用户还以为改后的才是被批准的。
-            // 提前返回保持请求 PENDING，用户可改用 once 重新批准（语义正确）
-            if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
-                return createMsg().setParam(RESULT, false)
-                        .setParam("error", "带参数修改的批准仅支持本次（once）：授权只记规则+操作，改后的参数不会用于后续调用");
+            // 用户可修改参数
+            Map<String, Object> modifiedArgs =
+                    (Map<String, Object>) msg.getMapParam(AI_P_APPROVAL_MODIFIEDARGS, null);
+            request.setModifiedArguments(modifiedArgs);
+            String scope = msg.getStringParam(AI_P_APPROVAL_SCOPE, "once");
+            if (!"once".equals(scope)) {
+                // 授权只记 rule+operation，改后的参数不会用于后续调用：非 once 授权下必须禁止改参数，
+                // 否则被改掉的危险参数会在下一次自动批准时"复活"，用户还以为改后的才是被批准的。
+                // 提前返回保持请求 PENDING，用户可改用 once 重新批准（语义正确）
+                if (modifiedArgs != null && !modifiedArgs.isEmpty()) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "带参数修改的批准仅支持本次（once）：授权只记规则+操作，改后的参数不会用于后续调用");
+                }
+                if (!ApprovalGrant.SCOPE_ROUND.equals(scope) && !ApprovalGrant.SCOPE_SESSION.equals(scope)) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "未知授权范围: " + scope + "（可用 once/round/session）");
+                }
+                if (ApprovalGrant.SCOPE_ROUND.equals(scope)
+                        && (request.getRoundId() == null || request.getRoundId().isEmpty())) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam("error", "该请求无轮次信息，无法按轮授权（可用 once/session）");
+                }
+                addGrant(scope, request);
             }
-            if (!ApprovalGrant.SCOPE_ROUND.equals(scope) && !ApprovalGrant.SCOPE_SESSION.equals(scope)) {
-                return createMsg().setParam(RESULT, false)
-                        .setParam("error", "未知授权范围: " + scope + "（可用 once/round/session）");
-            }
-            if (ApprovalGrant.SCOPE_ROUND.equals(scope)
-                    && (request.getRoundId() == null || request.getRoundId().isEmpty())) {
-                return createMsg().setParam(RESULT, false)
-                        .setParam("error", "该请求无轮次信息，无法按轮授权（可用 once/session）");
-            }
-            addGrant(scope, request);
+            request.setState(TLApprovalRequest.APPROVED);
         }
-        request.setState(TLApprovalRequest.APPROVED);
         timeoutTasks.remove(approvalId);   // 已决策：创建时限任务作废（任务体里还有 PENDING 守卫兜底）
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         publishApprovalResolved(request);  // 其他窗口/页面打开的弹框立即关闭
@@ -631,17 +688,21 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                     .setParam("approvalEnded", true);
         }
 
-        if (!TLApprovalRequest.PENDING.equals(request.getState())) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "approval already " + request.getState())
-                    .setParam("approvalEnded", true);
-        }
+        // 与 handleApprove 同一把锁：批准/拒绝并发时只允许先到者生效（见该处注释）
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "approval already " + request.getState())
+                        .setParam("approvalEnded", true);
+            }
 
-        request.setRejectionReason(reason);
-        request.setState(TLApprovalRequest.REJECTED);
-        // 记入会话级拒绝记忆，防止 LLM 重试同一操作造成连环审批
-        rememberRejection(request.getSessionId(), request.getToolName(),
-                request.getToolArguments(), reason);
+            request.setRejectionReason(reason);
+            request.setState(TLApprovalRequest.REJECTED);
+            // 记入会话级拒绝记忆，防止 LLM 重试同一操作造成连环审批。
+            // 放在锁内：只有真正完成 PENDING→REJECTED 迁移民才记（并发批准已生效时不记）
+            rememberRejection(request.getSessionId(), request.getToolName(),
+                    request.getToolArguments(), reason);
+        }
         timeoutTasks.remove(approvalId);   // 已决策：创建时限任务作废（同 handleApprove）
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         publishApprovalResolved(request);  // 其他窗口/页面打开的弹框立即关闭
@@ -670,13 +731,15 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                     .setParam("error", "approval not found: " + approvalId)
                     .setParam("approvalEnded", true);
         }
-        if (!TLApprovalRequest.PENDING.equals(request.getState())) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "approval already " + request.getState())
-                    .setParam("approvalEnded", true);
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "approval already " + request.getState())
+                        .setParam("approvalEnded", true);
+            }
+            request.setRejectionReason("用户放弃该操作");
+            request.setState(TLApprovalRequest.REJECTED);
         }
-        request.setRejectionReason("用户放弃该操作");
-        request.setState(TLApprovalRequest.REJECTED);
         signalDecision(approvalId);
         publishApprovalResolved(request);   // 其他窗口的弹框立即关闭
         putLog("Approval abandoned: id=" + approvalId + " tool=" + request.getToolName(), LogLevel.INFO);
@@ -754,13 +817,21 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     /** 列出授权（sessionId 可选过滤，过滤值做会话归一化；为空 = 全部） */
     private TLMsg handleGrants(Object fromWho, TLMsg msg) {
-        String rawFilter = msg.getStringParam("sessionId", "");
-        // 类型非法（非 String）时 getStringParam 回落 ""，过滤条件会静默消失、列出所有会话的授权
-        // （与 revoke 的硬报错方向相反）——这里统一按参数错误拒绝。containsParam 只看 args
-        // （systemArgs 不参与），故显式传空串同样命中本守卫，属预期（空串过滤无意义）
-        if (msg.containsParam("sessionId") && rawFilter.isEmpty()) {
-            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 类型非法（需为字符串）");
+        // 显式传参必须是"非空字符串"：非 String 会被 getStringParam 静默回落成 ""，
+        // 过滤条件消失、列出所有会话的授权（与 revoke 的硬报错方向相反）；显式空串同理
+        //（列出全部请直接省略参数）。两种情况错误文案要能区分，别把空串报成"类型非法"。
+        if (msg.containsParam("sessionId")) {
+            Object rawObj = msg.getParam("sessionId");
+            if (!(rawObj instanceof String)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "sessionId 类型非法（需为字符串）");
+            }
+            if (((String) rawObj).isEmpty()) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "sessionId 不能为空串（列出全部请省略该参数）");
+            }
         }
+        String rawFilter = msg.getStringParam("sessionId", "");
         String filter = rawFilter.isEmpty() ? "" : resolveSession(rawFilter);
         List<Map<String, Object>> list = new ArrayList<>();
         synchronized (approvedGrants) {
@@ -973,7 +1044,11 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     }
 
     private String rejectionKey(String sessionId, String toolName, Map<String, Object> args) {
-        String argsKey = args != null && !args.isEmpty() ? new TreeMap<>(args).toString() : "{}";
+        // TreeMap.toString() 不区分值类型（Integer 1 与 String "1" 都变 "1"），嵌套 Map 的
+        // toString 顺序也不稳定——会造成不同类型的参数误命中拒绝记忆（下次同工具直接拒）。
+        // Gson 保留类型；TreeMap 保证顶层键序稳定（写入与查询走同一构造）。
+        String argsKey = args != null && !args.isEmpty()
+                ? KEY_GSON.toJson(new TreeMap<>(args)) : "{}";
         return sessionId + "|" + toolName + "|" + argsKey;
     }
 
@@ -1101,11 +1176,10 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     }
 
     /**
-     * 确定风险级别。目前简单映射：在规则中 = CRITICAL。
-     * 未来可扩展为按 tool 和 operation 分别配置。
+     * 确定风险级别。当前进入审批的请求统一为 HIGH（弹框/查询展示该值）；
+     * 按规则/操作细分（LOW/MEDIUM/CRITICAL）是预留扩展点，尚未接线——别把它当已生效的配置。
      */
     private String resolveRiskLevel(String toolName, String operation) {
-        // 默认：被规则匹配到的至少是 HIGH
         return TLApprovalRequest.HIGH;
     }
 
@@ -1156,6 +1230,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             }
         }
 
+        // 最长前缀优先：同时配了 file_ 与 file_op_ 时，file_op_delete 应命中更具体的
+        // file_op_（此前命中顺序由配置/哈希顺序决定，谁排前面谁赢）
+        approvalRulePrefixes.sort(Comparator.comparingInt(String::length).reversed());
         putLog("Approval rules parsed: " + approvalRules
                 + (approvalRulePrefixes.isEmpty() ? "" : " prefixes=" + approvalRulePrefixes), LogLevel.DEBUG);
     }
@@ -1205,6 +1282,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 approvalRules.put(name, Collections.emptySet());
             }
         }
+        // 最长前缀优先（同 parseApprovalRules）：rulesConfig 是 HashMap，不排序时命中哪条前缀规则
+        // 取决于哈希顺序，更具体的规则可能被更宽的前缀抢走
+        approvalRulePrefixes.sort(Comparator.comparingInt(String::length).reversed());
         putLog("Structured approval rules applied: " + approvalRules
                 + (approvalRulePrefixes.isEmpty() ? "" : " prefixes=" + approvalRulePrefixes), LogLevel.DEBUG);
     }
@@ -1273,12 +1353,17 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
      * 两条超时路径（scheduleTimeout 定时任务 / waitForDecision 的 latch 自超时）都必须走这里。
      */
     private void markExpired(TLApprovalRequest request, String reason) {
-        if (request == null || !TLApprovalRequest.PENDING.equals(request.getState())) return;
-        request.setState(TLApprovalRequest.EXPIRED);
-        timeoutTasks.remove(request.getApprovalId());   // 已失效：创建时限任务作废（任务体里还有 PENDING 守卫兜底）
-        if (request.getRejectionReason() == null || request.getRejectionReason().isEmpty()) {
-            request.setRejectionReason(reason);
+        if (request == null) return;
+        // 与 handleApprove/handleReject 同一把锁：超时任务与用户决策并发时只允许先到者生效，
+        // 否则可能出现"用户看到批准成功但状态已 EXPIRED"，或超时把刚批准的状态覆盖掉
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) return;
+            request.setState(TLApprovalRequest.EXPIRED);
+            if (request.getRejectionReason() == null || request.getRejectionReason().isEmpty()) {
+                request.setRejectionReason(reason);
+            }
         }
+        timeoutTasks.remove(request.getApprovalId());   // 已失效：创建时限任务作废（任务体里还有 PENDING 守卫兜底）
         signalDecision(request.getApprovalId());
         publishApprovalResolved(request);  // 超时：弹框自行关闭（此前弹框会一直留着，再点就是 already expired）
         putLog("Approval expired: id=" + request.getApprovalId() + " reason=" + request.getRejectionReason(),
@@ -1361,13 +1446,25 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
 
     private void scheduleTimeout(String approvalId, long timeoutMs) {
         if (timeoutMs <= 0) return;
-        timeoutTasks.put(approvalId, timeoutScheduler.schedule(() -> {
-            timeoutTasks.remove(approvalId);
-            TLApprovalRequest request = pendingApprovals.get(approvalId);
-            if (request != null && TLApprovalRequest.PENDING.equals(request.getState())) {
-                markExpired(request, "审批超时（" + fmtSeconds(timeoutMs) + "）");
+        // 极短超时下任务可能先于 put 执行完：任务体若按 key 直接 remove，会先删空、再被 put
+        // 放回一个已完成的 future（表泄漏）。用"任务末尾按 key+自身 future 条件删除"兜住两种
+        // 交错：任务先完成 → put 后的 isDone 补删；任务后完成 → finally 自己删。
+        java.util.concurrent.atomic.AtomicReference<java.util.concurrent.ScheduledFuture<?>> self =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.ScheduledFuture<?> future = timeoutScheduler.schedule(() -> {
+            try {
+                TLApprovalRequest request = pendingApprovals.get(approvalId);
+                if (request != null && TLApprovalRequest.PENDING.equals(request.getState())) {
+                    markExpired(request, "审批超时（" + fmtSeconds(timeoutMs) + "）");
+                }
+            } finally {
+                java.util.concurrent.ScheduledFuture<?> f = self.get();
+                if (f != null) timeoutTasks.remove(approvalId, f);
             }
-        }, timeoutMs, TimeUnit.MILLISECONDS));
+        }, timeoutMs, TimeUnit.MILLISECONDS);
+        self.set(future);
+        timeoutTasks.put(approvalId, future);
+        if (future.isDone()) timeoutTasks.remove(approvalId, future);
     }
 
     // ======================== 响应构造 ========================
@@ -1378,12 +1475,15 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     @SuppressWarnings("unchecked")
     private TLMsg buildApprovalResponse(TLApprovalRequest request, TLMsg reviewerResult) {
         TLMsg result = createMsg();
-        result.setParam(AI_P_APPROVAL_STATE, request.getState());
+        // 只读一次：状态可能被其他线程迁移，两次读之间变化会出现
+        // "返回 state=pending 却走 EXPIRED 分支"（RESULT/reason 与 state 自相矛盾）
+        String state = request.getState();
+        result.setParam(AI_P_APPROVAL_STATE, state);
         result.setParam(AI_P_APPROVAL_ID, request.getApprovalId());
         result.setParam(AI_P_APPROVAL_TOOLNAME, request.getToolName());
         result.setParam(AI_P_APPROVAL_TOOLARGS, request.getToolArguments());
 
-        switch (request.getState()) {
+        switch (state) {
             case TLApprovalRequest.APPROVED:
                 result.setParam(RESULT, true);
                 // 传回修改后的参数（如果有）
