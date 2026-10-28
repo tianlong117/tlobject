@@ -371,8 +371,8 @@ public class TLSessionManager extends TLBaseSessionManager {
     }
 
     private static String sanitizePathSegment(String name) {
-        if (name == null) return "null";
-        return name.replaceAll("[\\\\/:*?\"<>|]", "_");
+        // userId 会作为 session_store 的目录段：统一走 TLPathSafety（"." / ".." 不能上跳）
+        return TLPathSafety.safeSegment(name, "default");
     }
 
     private static String sessionFileName(String agentName, String sessionId) {

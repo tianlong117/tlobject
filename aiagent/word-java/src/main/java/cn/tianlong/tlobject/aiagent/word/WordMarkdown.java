@@ -28,6 +28,7 @@ public final class WordMarkdown {
         public enum Type { HEADING, PARAGRAPH, BULLET, NUMBERED, TABLE, PAGEBREAK }
         public Type type;
         public int level;                    // HEADING 的级别 1-6
+        public int ordinal;                  // NUMBERED 的原序号（"3. xxx" → 3）
         public List<Span> spans = new ArrayList<>();
         public List<List<String>> rows = new ArrayList<>();
     }
@@ -85,6 +86,11 @@ public final class WordMarkdown {
             if (isOrdered(trimmed)) {
                 int dot = trimmed.indexOf('.');
                 Block b = newBlock(Block.Type.NUMBERED);
+                try {
+                    b.ordinal = Integer.parseInt(trimmed.substring(0, dot));
+                } catch (NumberFormatException ignored) {
+                    b.ordinal = 0;   // 超长数字等：writer 回落为 1
+                }
                 b.spans = inline(trimmed.substring(dot + 1).trim());
                 out.add(b);
                 i++; continue;

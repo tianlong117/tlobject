@@ -344,6 +344,12 @@ EvalGateCli -d <配置目录> [-m <工厂配置>] [--timeout <总超时秒数，
 | `/eval gen <agent> [要求]` | 自动生成评测用例并立即跑一遍（见 [4.6](#46-自动生成用例eval-gen)） | `/eval gen aiagent_master:priceTeam 重点测价格计算` |
 | `/eval cascade [agent]` | **级联评测**：自动发现子 Agent/Skill，为每个生成基础用例并运行 | `/eval cascade` 或 `/eval cascade aiagent_master` |
 
+> **RESULT 语义（两种口径）**：套件级动作（`suite` / `cascade`）的 `RESULT=true` 表示
+> “评测执行成功”（即使有用例失败）；单用例动作（`run` / `quick`）的 `RESULT` 表示
+> “该用例是否通过”。需要统一口径时读 `casePassed`（单用例动作返回），不要用 `RESULT`
+> 推断质量结果。生成器返回的 `caseFilePath` 是生成的用例文件，`evalReportPath` 才是评测报告；
+> 历史键 `reportPath` 与 `caseFilePath` 同义，仅为兼容保留。
+
 ### 5.2 命令输出示例
 
 **`/eval list`**
@@ -766,6 +772,11 @@ TLEvalsModule → putMsg(targetAgent, SKILL_EXECUTE)
 | `maxResponseLength` | int | 回复最大字符数 |
 
 > **注意**：`maxTokens`、`maxIterations`、`mustCallTools` 等参数仅在 `agent_chat` 模式下有意义。`skill_execute` 模式下这些参数不会触发检查。
+
+> **未知键处理**：若 `config` 里的键**全部**无法识别（典型是拼写错误，如 `maxItarations`），
+> 判**失败**而不是默认通过——配了约束却一项没生效是假绿灯，比报错更危险。
+> 只有部分键无法识别时，裁决 `reason` 里会列出被忽略的键；`description` / `note` / `comment`
+> 属于说明性键，允许存在且不产生检查。
 
 #### 评分规则
 

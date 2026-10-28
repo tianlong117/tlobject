@@ -149,10 +149,14 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     /** 摘要条目持久化：DB INSERT（aiMemory 表已有 tag/metadata 字段，无需新表）+ 内存缓存 */
     @Override
     protected void storeSummaryEntry(TLMemoryEntry entry) {
-        String sid = entry.getMetadata() != null
-                ? String.valueOf(entry.getMetadata().get("sessionId")) : null;
+        String sid = null;
+        if (entry.getMetadata() != null) {
+            Object sidObj = entry.getMetadata().get("sessionId");
+            if (sidObj != null) sid = String.valueOf(sidObj);
+        }
+        if (sid == null || sid.isEmpty()) sid = extractSessionId(entry.getKey());
         LinkedHashMap<String, Object> sqlparams = new LinkedHashMap<>();
-        sqlparams.put("session_id", sid != null ? sid : extractSessionId(entry.getKey()));
+        sqlparams.put("session_id", sid);
         sqlparams.put("mem_key", entry.getKey());
         sqlparams.put("mem_value", entry.getValue() != null ? entry.getValue().toString() : "");
         sqlparams.put("mem_type", entry.getType());

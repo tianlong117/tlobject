@@ -304,9 +304,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                             reasoningContent.append(blockObj.get("thinking").getAsString());
                         }
                     } else if ("redacted_thinking".equals(type)) {
-                        if (blockObj.has("data") && !blockObj.get("data").isJsonNull()) {
-                            reasoningContent.append(blockObj.get("data").getAsString());
-                        }
+                        // redacted_thinking.data 是不透明加密数据（安全拦截内容），不是可读推理，
+                        // 不并入 AI_P_REASONING——否则会作为"思考过程"入库/展示
                     }
                 }
             }
@@ -529,10 +528,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                                                 .setParam(AI_P_SESSIONID, sessionId);
                                         putMsg(resultFor, reasoningChunkMsg);
                                     } else if ("signature_delta".equals(deltaType)) {
-                                        // signature 是 Claude 思考块的签名，不需要展示给用户
-                                        if (delta.has("signature")) {
-                                            reasoningBuilder.append(delta.get("signature").getAsString());
-                                        }
+                                        // signature 是思考块的签名（base64），不是可读推理内容：
+                                        // 不 append、不推送，避免混进 AI_P_REASONING 入库/展示
                                     } else if ("text_delta".equals(deltaType)) {
                                         String text = delta.get("text").getAsString();
                                         contentBuilder.append(text);

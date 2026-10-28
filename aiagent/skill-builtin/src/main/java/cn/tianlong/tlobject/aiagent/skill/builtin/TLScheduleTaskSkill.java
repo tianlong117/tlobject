@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
+import cn.tianlong.tlobject.aiagent.TLPathSafety;
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -1452,7 +1453,8 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
     }
 
     private File storageDir(String userId) {
-        File dir = new File(new File(resolveStorageRoot(), userId), "scheduled_tasks");
+        // userId 是用户可控值：净化后再拼目录，防 ".." 跳出 data/
+        File dir = new File(new File(resolveStorageRoot(), TLPathSafety.safeSegment(userId, "default")), "scheduled_tasks");
         if (!dir.exists()) dir.mkdirs();
         return dir;
     }

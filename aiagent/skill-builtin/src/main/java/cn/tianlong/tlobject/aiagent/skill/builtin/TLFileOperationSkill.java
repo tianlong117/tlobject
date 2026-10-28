@@ -150,14 +150,13 @@ public class TLFileOperationSkill extends TLBaseSkill {
         try {
             Path allowedRoot = Paths.get(allowedRootPath).toAbsolutePath().normalize();
             Path resolvedPath = allowedRoot.resolve(path).normalize().toAbsolutePath();
-            // 如果路径超出根目录，尝试用文件名部分在根目录下重建路径
+            // 越界必须显式失败：绝不能"改用文件名"静默改投——那会让 write/edit/delete
+            // 操作到用户以为之外的另一个文件，而且回执看起来成功（比直接报错更危险）。
             if (!resolvedPath.startsWith(allowedRoot)) {
-                Path fileNamePath = resolvedPath.getFileName();
-                if (fileNamePath == null) {
-                    return createMsg().setParam(RESULT, false)
-                            .setParam(AI_P_SKILLOUTPUT, "Error: path is outside allowed root: " + resolvedPath);
-                }
-                resolvedPath = allowedRoot.resolve(fileNamePath.toString());
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error: path is outside allowed root: " + resolvedPath
+                                + " (allowed root: " + allowedRoot
+                                + "). Pass a path relative to the allowed root.");
             }
 
             switch (op) {

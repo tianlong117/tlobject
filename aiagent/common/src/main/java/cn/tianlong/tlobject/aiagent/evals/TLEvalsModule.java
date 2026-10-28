@@ -240,7 +240,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
                 // 单用例失败时 RESULT=false，上层会走"评测失败"分支并读 error ——
                 // 不带上原因的话控制台只会显示"未知错误"，等于把已经知道的原因丢掉。
                 // total/passed 同理：不带就等于把"这条其实过了"显示成"0/0 通过"
-                TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath)
+                // 单用例动作：RESULT 历史上表示"用例是否通过"（与 suite 的"执行成功"不同）；
+                // casePassed 单独给一份统一口径，消费者不必记两套语义
+                TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("casePassed", r.passed)
+                        .setParam("reportPath", reportPath)
                         .setParam("total", report.summary.total)
                         .setParam("passed", report.summary.passed)
                         .setParam("failed", report.summary.failed)
@@ -322,7 +325,8 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
         // 单用例动作也要把 total/passed 一起返回：上层默认读 0，不带就等于显示"0/0 通过"，
         // 哪怕这条其实是过的——比不显示更容易让人以为没跑
-        TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("reportPath", reportPath)
+        TLMsg resultMsg = createMsg().setParam(RESULT, r.passed).setParam("casePassed", r.passed)
+                .setParam("reportPath", reportPath)
                 .setParam("response", r.response)
                 .setParam("total", report.summary.total)
                 .setParam("passed", report.summary.passed)
@@ -716,7 +720,28 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
             return;
         }
 
+        // 同类型判据只取第一个（各 judge 的 findConfig 都是 first-match）：重复配置静默失效，打个 WARN
+        if (evalCase.judges.size() > 1) {
+            java.util.Set<String> seenTypes = new java.util.HashSet<>();
+            java.util.Set<String> dupTypes = new java.util.LinkedHashSet<>();
+            for (JudgeConfig jc : evalCase.judges) {
+                if (jc == null || jc.type == null) continue;
+                if (!seenTypes.add(jc.type)) dupTypes.add(jc.type);
+            }
+            if (!dupTypes.isEmpty()) {
+                putLog("用例 " + evalCase.id + " 配置了重复判据类型 " + dupTypes
+                        + "，每种类型只有第一个生效", LogLevel.WARN);
+            }
+        }
+
         for (JudgeConfig jc : evalCase.judges) {
+            // LLM 生成/手写用例可能带 null 元素：不拦住的话 jc.type 直接 NPE，
+            // 错误会变成"评判器异常/评测失败: java.lang.NullPointerException"，看不出真因
+            if (jc == null) {
+                result.verdicts.add(TLEvalVerdict.fail("?", 0.0, "judges 中存在 null 条目"));
+                allPassed = false;
+                continue;
+            }
             TLEvalJudge judge = judges.get(jc.type);
             if (judge == null) {
                 result.verdicts.add(TLEvalVerdict.fail(jc.type, 0.0,
@@ -1030,8 +1055,10 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         TLEvalReport.Summary s = report.summary;
         StringBuilder sb = new StringBuilder();
         sb.append("\n========== 评测报告 ==========\n");
-        sb.append(String.format("总计: %d | 通过: %d | 失败: %d | 通过率: %.1f%%\n",
-                s.total, s.passed, s.failed, s.passRate * 100));
+        sb.append(String.format("总计: %d | 通过: %d | 失败: %d%s | 通过率: %.1f%%\n",
+                s.total, s.passed, s.failed,
+                s.skipped > 0 ? " | 跳过: " + s.skipped + "（不计入通过率）" : "",
+                s.passRate * 100));
         sb.append(String.format("平均 Tokens: %.0f | 平均迭代次数: %.1f | 平均延迟: %.0fms\n",
                 s.avgTokens, s.avgIterations, s.avgLatencyMs));
         sb.append(baselineLine(s));
@@ -1054,9 +1081,15 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         if (!s.baselineFound) return "基线对比: 未找到历史报告，本次无基准可比\n";
 
         StringBuilder sb = new StringBuilder();
-        sb.append(String.format("基线对比: %s | 可比 %d 条 | 回归 %d | 改善 %d\n",
-                s.baselineFile, s.baselineCompared, s.regressions.size(), s.improvements.size()));
-        for (TLEvalReport.Change c : s.regressions) {
+        java.util.List<TLEvalReport.Change> regs = s.regressions != null
+                ? s.regressions : java.util.Collections.emptyList();
+        int stableRegs = TLEvalGate.countStableRegressions(regs);
+        // flaky 回归不算门禁（门禁只看 stable）：两个口径不同，显式标出来，免得"回归 1 / 门禁 0"看着矛盾
+        String stableNote = stableRegs != regs.size()
+                ? "（其中 stable " + stableRegs + "）" : "";
+        sb.append(String.format("基线对比: %s | 可比 %d 条 | 回归 %d%s | 改善 %d\n",
+                s.baselineFile, s.baselineCompared, regs.size(), stableNote, s.improvements.size()));
+        for (TLEvalReport.Change c : regs) {
             sb.append(String.format("  [回归] %s (%s)%s%s\n", c.caseName, c.caseId,
                     "flaky".equals(c.stability) ? " [flaky]" : "",
                     c.reason != null ? " — " + abbreviate(c.reason) : ""));

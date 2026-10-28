@@ -47,7 +47,8 @@ public final class WordMarkdownWriter {
                 case NUMBERED: {
                     XWPFParagraph p = doc.createParagraph();
                     XWPFRun r = p.createRun();
-                    r.setText("• ");
+                    // 保留源文档序号（新建文档无 numbering part，无法用自动编号；字面序号是可见性兜底）
+                    r.setText((b.ordinal > 0 ? b.ordinal : 1) + ". ");
                     writeSpans(p, b.spans);
                     break;
                 }

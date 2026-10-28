@@ -189,6 +189,9 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         TLMsg runResult = putMsg("evals", runMsg);
 
         TLMsg out = createMsg().setParam(RESULT, true)
+                // caseFilePath = 生成的用例文件；reportPath 是历史键（语义同 caseFilePath，
+                // 但容易与评测模块的 reportPath=评测报告 混淆）——保留兼容，新消费者读 caseFilePath
+                .setParam("caseFilePath", outFile.getAbsolutePath())
                 .setParam("reportPath", outFile.getAbsolutePath())
                 .setParam("caseCount", cases.size())
                 .setParam("caseFile", fileName)
@@ -371,8 +374,13 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
             // 错误文案塞进 AI_P_RESPONSE——不判 RESULT 就会把"调用失败：xxx"当成 LLM 输出，
             // 一路带到下一段提示词里，最后报成"输出解析不了"，把真正的原因埋掉
             if (!r.parseBoolean(RESULT, false)) {
-                putLog("Provider 调用失败(" + provider + "): "
-                        + r.getStringParam("error", r.getStringParam(AI_P_RESPONSE, "")), LogLevel.ERROR);
+                // 失败原因可能只在 error / AI_P_RESPONSE / httpStatus / exception 之一：
+                // 只回退 AI_P_RESPONSE 的话，框架层故障会打出一行冒号后空白的日志
+                putLog("Provider 调用失败(" + provider + "): error="
+                        + r.getStringParam("error", "")
+                        + ", response=" + r.getStringParam(AI_P_RESPONSE, "")
+                        + ", httpStatus=" + r.getIntParam(AI_P_HTTPSTATUS, 0)
+                        + ", exception=" + r.getStringParam(EXCEPTION, ""), LogLevel.ERROR);
                 return null;
             }
             // 正文是否为空由调用方判定（空正文可能是"推理吃光 token"，要报得具体）

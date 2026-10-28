@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.servletutils.clientinterface;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLWServModule;
 
 import javax.servlet.http.HttpServletResponse;
@@ -71,7 +72,7 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
     /**
      * SSE 通道实现：写 "data: {json}\n\n" 帧 + 20s 心跳，close 时中断心跳线程并关 writer。
      */
-    private static class SseChannel implements TLWebChannel {
+    private class SseChannel implements TLWebChannel {
         private final PrintWriter writer;
         private final Thread heartbeat;
         private final java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
@@ -82,7 +83,7 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
             try {
                 w = response.getWriter();
             } catch (IOException e) {
-                e.printStackTrace();
+                putLog("SSE getWriter 失败: " + e, LogLevel.WARN, "sseChannel");
                 w = null;
             }
             this.writer = w;
@@ -95,10 +96,18 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
             while (open) {
                 try {
                     Thread.sleep(HEARTBEAT_INTERVAL);
+                    if (open) writeHeartbeat();
                 } catch (InterruptedException e) {
                     break;
+                } catch (Throwable t) {
+                    // 心跳失败视为连接已坏：主动 close，让 awaitClosed 释放；异常不得逃出线程
+                    try {
+                        putLog("SSE 心跳失败，关闭通道: " + t, LogLevel.WARN, "sseChannel");
+                    } catch (Throwable ignored) {
+                    }
+                    close();
+                    break;
                 }
-                if (open) writeHeartbeat();
             }
         }
 

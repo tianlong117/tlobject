@@ -134,9 +134,10 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
      * 通过子进程执行Python代码
      */
     private TLMsg executePython(String code) {
+        File tempFile = null;
         try {
             // 将代码写入临时文件
-            File tempFile = File.createTempFile("tl_ai_py_", ".py");
+            tempFile = File.createTempFile("tl_ai_py_", ".py");
             try (FileWriter writer = new FileWriter(tempFile)) {
                 writer.write(code);
             }
@@ -155,7 +156,6 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
                     new InputStreamReader(process.getInputStream()))) {
                 boolean finished = process.waitFor(maxExecutionTime, TimeUnit.SECONDS);
                 if (!finished) {
-                    tempFile.delete();
                     return createMsg().setParam(RESULT, false)
                             .setParam(AI_P_SKILLOUTPUT, "Execution timeout (" + maxExecutionTime + "s)");
                 }
@@ -170,7 +170,6 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
                 }
 
                 int exitCode = process.exitValue();
-                tempFile.delete();
 
                 String result = output.length() > 0 ? output.toString() : "(no output)";
                 putLog("Python executed, exit code: " + exitCode, LogLevel.DEBUG);
@@ -192,6 +191,11 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             Thread.currentThread().interrupt();
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Execution interrupted");
+        } finally {
+            // 兜底删除：超时/中断/IO异常/建进程失败等所有路径都覆盖（原先只在成功与超时分支删）
+            if (tempFile != null) {
+                try { tempFile.delete(); } catch (Exception ignored) {}
+            }
         }
     }
 

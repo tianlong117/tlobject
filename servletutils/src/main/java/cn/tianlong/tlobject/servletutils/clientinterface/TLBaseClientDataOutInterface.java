@@ -54,6 +54,11 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
         }
         return returnMsg ;
     }
+    /** 响应 Content-Type（不含 charset）；JSON 等输出接口按需覆盖 */
+    protected String responseContentType() {
+        return "text/html";
+    }
+
     protected TLMsg responseWrite(String content , String charset){
         if(charset ==null)
             charset =this.charset ;
@@ -63,7 +68,7 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
             // 请求上下文已失效（服务关闭瞬间线程回收）：放弃输出，避免 NPE
             return createMsg().setParam(CLIENT_R_OUTCONTENT, content);
         }
-        response.setContentType("text/html;charset=" + (charset != null ? charset : "UTF-8"));
+        response.setContentType(responseContentType() + ";charset=" + (charset != null ? charset : "UTF-8"));
         try {
             out = response.getWriter();
         } catch (IOException e) {

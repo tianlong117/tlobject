@@ -1,7 +1,10 @@
 package cn.tianlong.tlobject.aiagent.evals;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 约束检查评判器。
@@ -10,6 +13,13 @@ import java.util.List;
  * 作者:tianlong
  */
 public class TLConstraintJudge implements TLEvalJudge {
+
+    /** 认得的键（README §8.2）。说明性键允许存在但不产生检查 */
+    private static final Set<String> KNOWN_KEYS = new HashSet<>(Arrays.asList(
+            "maxTokens", "maxTotalTokens", "maxIterations", "maxLatencyMs",
+            "mustCallTools", "mustNotCallTools", "mustContain", "mustNotContain",
+            "minResponseLength", "maxResponseLength",
+            "description", "note", "comment"));
 
     @Override
     public String getType() { return "constraint"; }
@@ -20,6 +30,11 @@ public class TLConstraintJudge implements TLEvalJudge {
         JudgeConfig config = findConfig(evalCase);
         if (config == null || config.config == null || config.config.isEmpty()) {
             return TLEvalVerdict.pass("constraint", 1.0, "无约束条件，默认通过");
+        }
+
+        List<String> unknownKeys = new ArrayList<>();
+        for (String key : config.config.keySet()) {
+            if (!KNOWN_KEYS.contains(key)) unknownKeys.add(key);
         }
 
         List<String> failures = new ArrayList<>();
@@ -125,7 +140,13 @@ public class TLConstraintJudge implements TLEvalJudge {
         }
 
         if (checksTotal == 0) {
-            return TLEvalVerdict.pass("constraint", 1.0, "无可检查的约束条件");
+            // 配了键却一个检查都没生效：全部键都不认识 = 拼写错误/抄错配置，判失败（假绿灯比报错危险）
+            if (!unknownKeys.isEmpty() && unknownKeys.size() == config.config.size()) {
+                return TLEvalVerdict.fail("constraint", 0.0,
+                        "constraint 配置的键全部无法识别（检查拼写）: " + unknownKeys);
+            }
+            String note = unknownKeys.isEmpty() ? "" : "（忽略未识别的键: " + unknownKeys + "）";
+            return TLEvalVerdict.pass("constraint", 1.0, "无可检查的约束条件" + note);
         }
 
         boolean allPassed = failures.isEmpty();
@@ -134,6 +155,7 @@ public class TLConstraintJudge implements TLEvalJudge {
                 ? String.format("全部 %d 项约束通过", checksTotal)
                 : String.format("%d/%d 项约束通过。失败项: %s", checksPassed, checksTotal,
                         String.join("; ", failures));
+        if (!unknownKeys.isEmpty()) reason += "（忽略未识别的键: " + unknownKeys + "）";
 
         return new TLEvalVerdict("constraint", allPassed, score, reason);
     }
@@ -153,14 +175,21 @@ public class TLConstraintJudge implements TLEvalJudge {
      * 不该被排版差异影响；长度、token、迭代那几项判据不受影响。
      */
     private static String stripWhitespace(String s) {
-        return s == null ? "" : s.replaceAll("\\s+", "");
+        // U+3000 全角空格不在 Java 默认 \s 里；中文 LLM 输出会混进来，不处理会假红
+        return s == null ? "" : s.replaceAll("[\\s\\u3000]+", "");
     }
 
-    @SuppressWarnings("unchecked")
     private List<String> getStringList(JudgeConfig config, String key) {
         Object v = config.config != null ? config.config.get(key) : null;
         if (v == null) return null;
-        if (v instanceof List) return (List<String>) v;
+        if (v instanceof List) {
+            // 逐元素 toString：LLM 可能生成 [123] / [{...}]，直接 (List<String>) 会在取值处 CCE
+            List<String> out = new ArrayList<>();
+            for (Object o : (List<?>) v) {
+                if (o != null) out.add(String.valueOf(o));
+            }
+            return out;
+        }
         String[] parts = v.toString().split(",");
         List<String> result = new ArrayList<>();
         for (String p : parts) {

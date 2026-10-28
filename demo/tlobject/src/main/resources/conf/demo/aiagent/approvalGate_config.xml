@@ -43,6 +43,19 @@
               statup="true"
               description="删除/写入/编辑文件需要审批"
               action="delete,write,edit"/>
+
+        <!-- ===== MCP filesystem 写工具 =====
+             MCP 的函数名是 agentName_toolName（filesystemMcp_write_file /
+             filesystemMcpWrite_write_file），不走 file_operation 的 allowedRootPath；
+             其允许根在各 agent 的 server-filesystem args（已收到 workspace/ 沙箱），
+             这里再挂一层审批。不配 action = 该工具全部操作都审批。 -->
+        <rule name="filesystemMcp_write_file"
+              statup="true"
+              description="MCP 文件写入需要审批（filesystemMcp / fileAgent）"/>
+        <rule name="filesystemMcpWrite_write_file"
+              statup="true"
+              description="MCP 文件写入需要审批（filesystemMcpWrite / 店员 agent）"/>
+
         <rule name="priceTeam"
               statup="true"
               description="询价/下单需要审批"

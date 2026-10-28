@@ -464,7 +464,13 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                     long delay = getRetryDelay(response, attempt);
                     putLog("LLM retry " + attempt + "/" + maxRetries + " after HTTP " + statusCode
                             + " (delay " + delay + "ms)", LogLevel.WARN);
-                    try { Thread.sleep(delay); } catch (InterruptedException ignored) {}
+                    try {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException ie) {
+                        // 被 /stop 中断：复位标志并停止重试，交由 Agent 干净收尾
+                        Thread.currentThread().interrupt();
+                        return createMsg().setParam(RESULT, false).setParam(AI_P_CANCELLED, true);
+                    }
                     continue;
                 }
 
@@ -487,7 +493,13 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                 if (attempt <= maxRetries) {
                     putLog("LLM retry " + attempt + "/" + maxRetries + " after IO error: "
                             + e.toString(), LogLevel.WARN);
-                    try { Thread.sleep(retryDelayMs); } catch (InterruptedException ignored) {}
+                    try {
+                        Thread.sleep(retryDelayMs);
+                    } catch (InterruptedException ie) {
+                        // 被 /stop 中断：复位标志并停止重试，交由 Agent 干净收尾
+                        Thread.currentThread().interrupt();
+                        return createMsg().setParam(RESULT, false).setParam(AI_P_CANCELLED, true);
+                    }
                 }
             }
         }
@@ -548,9 +560,8 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                                  String responseBody, int httpStatus, String model, long durationMs,
                                  String roundId) {
         if (!debugMode) return;
-        // sessionId 安全化：替换路径分隔符，防止路径穿越
-        String safeSession = sessionId != null ? sessionId.replaceAll("[/\\\\:\"*?<>|]", "_") : "default";
-        if (safeSession.isEmpty()) safeSession = "default";
+        // sessionId 是用户可控值：统一走 TLPathSafety（去分隔符 + "."/".." 回落）
+        String safeSession = TLPathSafety.safeSegment(sessionId, "default");
 
         try {
             // 确保目录存在
@@ -604,7 +615,7 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         try {
             if (sessionId != null && !sessionId.isEmpty()) {
                 // 读取单个 session
-                String safeSession = sessionId.replaceAll("[/\\\\:\"*?<>|]", "_");
+                String safeSession = TLPathSafety.safeSegment(sessionId, "default");
                 File file = new File(traceDir, getName() + "_" + safeSession + ".trace");
                 if (!file.exists()) {
                     return createMsg().setParam(RESULT, true)
@@ -643,7 +654,7 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
         try {
             if (sessionId != null && !sessionId.isEmpty()) {
-                String safeSession = sessionId.replaceAll("[/\\\\:\"*?<>|]", "_");
+                String safeSession = TLPathSafety.safeSegment(sessionId, "default");
                 File file = new File(traceDir, getName() + "_" + safeSession + ".trace");
                 // 连带删除大小上限轮转出的 .1 转储
                 new File(traceDir, file.getName() + ".1").delete();

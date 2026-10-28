@@ -67,6 +67,10 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
                 return this ;
             }
         }
+        if (dir == null || dir.isEmpty()) {
+            putLog("velocity templatePath 为空且 getRealPath 返回 null（war 未解压或内嵌容器？），请显式配置 templatePath", LogLevel.ERROR, "init");
+            return this;
+        }
         putLog("velocity path:"+dir ,LogLevel.DEBUG,"init");
         Properties properties = new Properties();
         properties.setProperty(VelocityEngine.FILE_RESOURCE_LOADER_PATH,dir);

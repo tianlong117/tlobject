@@ -82,6 +82,16 @@ public class TLEvalGenSupport {
                 dropped.add(c.id + "：缺 judges（没有判据的用例会被直接判通过）");
                 continue;
             }
+            // LLM 可能产出 judges:[null] / [null, {...}]：剔除 null 元素，全 null 的用例丢弃
+            List<JudgeConfig> validJudges = new ArrayList<>();
+            for (JudgeConfig j : c.judges) {
+                if (j != null) validJudges.add(j);
+            }
+            if (validJudges.isEmpty()) {
+                dropped.add(c.id + "：judges 全是 null 条目");
+                continue;
+            }
+            if (validJudges.size() != c.judges.size()) c.judges = validJudges;
             if (c.input == null) {
                 dropped.add(c.id + "：缺 input");
                 continue;

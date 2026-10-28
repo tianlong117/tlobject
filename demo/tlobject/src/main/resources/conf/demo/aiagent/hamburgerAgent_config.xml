@@ -27,7 +27,8 @@
     <agents>
         <!-- ⚠ factoryShared 按"模块名"共享主工厂实例：同名多声明时**先初始化者的白名单生效**（曾踩：
              与 fileAgent 的同名 filesystemMcp 撞车，fileAgent 想要 3 工具却只拿到本组 write_file）。
-             写-only 工具集统一用 filesystemMcpWrite，与 fileAgent 的 3 工具版分开 -->
+             写-only 工具集统一用 filesystemMcpWrite，与 fileAgent 的 3 工具版分开。
+             MCP 允许根固定在 workspace/（沙箱），且 write_file 已在 approvalGate 挂审批。 -->
         <agent name="filesystemMcpWrite"
                statup="true"
                factoryShared="true"
@@ -36,7 +37,7 @@
                sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
-               args="-y @modelcontextprotocol/server-filesystem ."
+               args="-y @modelcontextprotocol/server-filesystem workspace"
                description="MCP文件系统工具集"/>
     </agents>
 

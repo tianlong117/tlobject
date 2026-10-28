@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.aiagent.TLAttachmentRef;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
+import cn.tianlong.tlobject.aiagent.TLPathSafety;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -99,6 +100,16 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private final Map<String, TLWebChannel> streamWriters = new ConcurrentHashMap<>();
     /** userId → 事件通道列表（多标签页并存，全部收到推送） */
     private final Map<String, java.util.concurrent.CopyOnWriteArrayList<TLWebChannel>> eventChannels = new ConcurrentHashMap<>();
+    /*
+     * 会话级引用表——生命周期各不相同，不要"统一清理"：
+     *  - sessionOwner：执行中会话的属主（chat/stream 开始 put，流结束/任务结束 remove）。
+     *    非流式 chat 的条目会保留到进程重启，量级=会话数（短字符串），不是消息数。
+     *  - taskSessions：后台任务执行会话的归属（finishTask → unregisterTaskSession 清理）。
+     * 登出只清 eventChannels / currentSessionByUser / sessionLogin / todo，刻意保留
+     * taskSessions / sessionOwner——退出后后台任务仍在跑，审批路由与结果投递还需要它们
+     * （详见 doLogout 的注释）。任务运行态（runningTasks/RunState/agent 线程）
+     * 在 TLScheduleTaskSkill 里，与这些引用表无关。
+     */
     /** sessionId → userId（审批事件定位属主） */
     private final Map<String, String> sessionOwner = new ConcurrentHashMap<>();
     /** 任务执行会话 → 发起信息（审批/事件路由到发起会话）；unregisterTaskSession 清理 */
@@ -385,6 +396,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     // ======================== 聊天 ========================
 
     /**
+     * 用户目录名净化：userId 来自登录输入，拼进文件路径前必须去掉路径分隔符等字符，
+     * 防止 "alice/../bob" 这类 userId 让 data/{userId} 落到别人的目录。
+     */
+    private static String safeUserId(String userId) {
+        return TLPathSafety.safeSegment(userId, "default");
+    }
+
+    /**
      * 附件归一化：前端传的是相对 data/{userId}/ 的路径（如 uploads/saved.png），
      * 这里补成绝对路径再交 agent —— agent 侧 attachmentStore.register 只接受本用户 data/{uid}/ 内的真实文件。
      * ⚠ 不能只补成相对路径 "data/{uid}/uploads/xxx"：register 对相对路径会再拼一次 userRoot（data/{uid}），
@@ -398,7 +417,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             Map<String, Object> m = new LinkedHashMap<>((Map<String, Object>) o);
             Object p = m.get("path");
             if (p != null && !new java.io.File(String.valueOf(p)).isAbsolute()) {
-                m.put("path", new java.io.File("data/" + userId + "/" + p).getAbsolutePath());
+                m.put("path", new java.io.File("data/" + safeUserId(userId) + "/" + p).getAbsolutePath());
             }
             m.put("origin", "user");
             norm.add(m);
@@ -546,6 +565,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         currentSessionByUser.remove(userId);
         deferPendingApprovals(userId);    // 退出转断点：待批审批保持待批，等重登后处理（取代"退出即拒"）
         clearTodoCacheOf(userId);         // 任务清单缓存同理：换用户/重登不串上一用户的清单
+        // 刻意不清 taskSessions / sessionOwner：退出后后台任务仍在运行——
+        // 任务期间的审批路由、"来自后台任务"标记、重登后的断点重放都依赖它们。
+        // 任务结束由 TLScheduleTaskSkill.finishTask → unregisterTaskSession 清理；
+        // 会话级 sessionOwner 在流结束时由 onStreamChunk 清理。
         // 释放本登录占用的会话（loginId 为空则释放该用户全部占用，兼容旧前端）；
         // 只动属于当前用户的会话（sessionOwner 归属校验），其他登录/用户的占用保留
         String loginId = msg.getStringParam("loginId", "");
@@ -615,7 +638,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String userId = currentUserId();
         if (userId == null) return notLogin();
         try {
-            String filePath = "data/" + userId + "/uploads";   // 相对启动目录，uploadFile 的 getRealPath 回退修复后可用
+            String filePath = "data/" + safeUserId(userId) + "/uploads";   // 相对启动目录；目录名净化防路径穿越
             TLMsg r = putMsg("uploadFile", createMsg().setAction(UPLOADFILE_UPLOAD)
                     .setParam(UPLOADFILE_P_FILESIZE, uploadSizeMaxMB * 1024 * 1024)   // int 字节，覆盖模块默认 1MB
                     .setParam(UPLOADFILE_P_FILEPATH, filePath));                     // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
@@ -663,9 +686,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         if (path.isEmpty()) return null;
         try {
+            String safeUid = safeUserId(userId);
             java.io.File f = new java.io.File(path);
-            if (!f.isAbsolute()) f = new java.io.File("data/" + userId + "/" + path);
-            String root = new java.io.File("data/" + userId).getCanonicalPath() + java.io.File.separator;
+            if (!f.isAbsolute()) f = new java.io.File("data/" + safeUid + "/" + path);
+            String root = new java.io.File("data/" + safeUid).getCanonicalPath() + java.io.File.separator;
             if (!(f.getCanonicalPath().startsWith(root))) return null;   // 越权：直接断连不输出
             if (!f.isFile()) return null;
             try (java.io.InputStream in = new java.io.FileInputStream(f)) {
@@ -751,11 +775,16 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             return outJson(failMap("SSE 通道注册失败"), null);
         }
         TLWebChannel channel = (TLWebChannel) reg.getParam("channel");
-        // 重进/重连：审批事件只发布一次，断线后补推该用户的未决审批（弹框重现）
-        replayPendingApprovals(userId, channel);
-        // 任务清单同理：todoEvent 只推一次，刷新/重连后按缓存补推该用户各会话的最新清单
-        replayTodoStates(userId, channel);
-        if (channel != null) channel.awaitClosed();
+        try {
+            // 重进/重连：审批事件只发布一次，断线后补推该用户的未决审批（弹框重现）
+            replayPendingApprovals(userId, channel);
+            // 任务清单同理：todoEvent 只推一次，刷新/重连后按缓存补推该用户各会话的最新清单
+            replayTodoStates(userId, channel);
+            if (channel != null) channel.awaitClosed();
+        } finally {
+            // 请求线程退出一律注销：否则关闭/断线的 channel 会永远留在 eventChannels 里（只增不减）
+            if (channel != null) unregisterEventsChannel(userId, channel);
+        }
         return null;
     }
 
@@ -907,7 +936,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (key == null || channel == null) return createMsg().setParam(RESULT, false);
         String type = (String) msg.getParam("sseType");
         if ("event".equals(type)) {
-            eventChannels.computeIfAbsent(key, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(channel);
+            addEventChannel(key, channel);
         } else {
             // 同 key 已有 open 的流通道 → 拒绝新通道（覆盖会让旧请求的 awaitClosed 挂死到超时）
             TLWebChannel existing = streamWriters.putIfAbsent(key, channel);
@@ -1010,14 +1039,49 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     // ======================== 事件通道（SSE）=======================
 
+    /** 事件通道入表：先清理死通道再 add（正常由 doEvents finally 注销，此处兜底） */
+    private void addEventChannel(String userId, TLWebChannel channel) {
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list =
+                eventChannels.computeIfAbsent(userId, k -> new java.util.concurrent.CopyOnWriteArrayList<>());
+        list.removeIf(c -> c == null || !c.isOpen());
+        list.add(channel);
+    }
+
     /** 注册 /api/events 通道（userId 级，多标签页并存） */
     public void registerEventsChannel(String userId, TLWebChannel channel) {
-        eventChannels.computeIfAbsent(userId, k -> new java.util.concurrent.CopyOnWriteArrayList<>()).add(channel);
+        addEventChannel(userId, channel);
     }
 
     public void unregisterEventsChannel(String userId, TLWebChannel channel) {
         java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
         if (list != null) { list.remove(channel); if (list.isEmpty()) eventChannels.remove(userId); }
+    }
+
+    /**
+     * 向该用户全部打开的 SSE 事件通道广播。逐通道兜底：
+     * 一条通道写失败不能中断对其他标签页的投递；已关闭/写失败的通道顺手摘除。
+     *
+     * @return 是否至少成功写入一条连接（供审批等需要 ack 的调用方判定"有人接收"）
+     */
+    private boolean broadcastToUser(String userId, String json) {
+        if (userId == null || userId.isEmpty() || "null".equals(userId)) return false;
+        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
+        if (list == null || list.isEmpty()) return false;
+        boolean sent = false;
+        for (TLWebChannel c : list) {
+            if (c == null || !c.isOpen()) continue;
+            try {
+                c.write(json);
+                sent = true;
+            } catch (Exception e) {
+                // 单条通道异常：关掉它，继续推给其他标签页（否则一个坏页面会拖死整轮广播）
+                try { c.close(); } catch (Exception ignored) {}
+            }
+        }
+        // COW 的 removeIf 是单次重建（不是遍历中逐个 remove）
+        list.removeIf(c -> c == null || !c.isOpen());
+        if (list.isEmpty()) eventChannels.remove(userId);
+        return sent;
     }
 
     /** 退出登录：关闭该用户的全部事件通道 */
@@ -1036,11 +1100,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 "type", "kicked", "sessionId", sessionId,
                 "loginId", kickedLoginId != null ? kickedLoginId : "",
                 "text", "该会话已被其他设备接管，你已下线"));
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-        if (list == null) return;
-        for (TLWebChannel c : list) {
-            try { if (c.isOpen()) c.write(json); } catch (Exception ignored) {}
-        }
+        broadcastToUser(userId, json);
     }
 
     // ======================== 内部 ========================
@@ -1136,14 +1196,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         // 返回 null/false 让发布方判定无人接收 → 转断点（不再有 stdout 兜底打印）。
         String evtUser = msg.getStringParam("userId", "");
         String targetUser = !evtUser.isEmpty() ? evtUser : owner;
-        boolean sent = false;
-        if (targetUser != null && !targetUser.isEmpty() && !"null".equals(targetUser)) {
-            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(targetUser);
-            if (list != null) for (TLWebChannel c : list) {
-                if (c.isOpen()) { c.write(json); sent = true; }
-            }
-        }
-        return sent;
+        return broadcastToUser(targetUser, json);
     }
 
     /**
@@ -1166,13 +1219,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String evtUser = msg.getStringParam("userId", "");
         String sid = msg.getStringParam("sessionId", "");
         String targetUser = !evtUser.isEmpty() ? evtUser : (sid.isEmpty() ? null : sessionOwner.get(sid));
-        if (targetUser == null || targetUser.isEmpty() || "null".equals(targetUser)) return false;
-        boolean sent = false;
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(targetUser);
-        if (list != null) for (TLWebChannel c : list) {
-            if (c.isOpen()) { c.write(json); sent = true; }
-        }
-        return sent;
+        return broadcastToUser(targetUser, json);
     }
 
     /**
@@ -1275,14 +1322,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     }
 
     private void writeToEventChannels(String userId, String json) {
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-        if (list == null) return;
-        for (TLWebChannel c : list) {
-            try {
-                if (c.isOpen()) c.write(json);
-            } catch (Exception ignored) {
-            }
-        }
+        broadcastToUser(userId, json);
     }
 
     /**
@@ -1306,12 +1346,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (msg.containsParam("toolName")) evt.put("toolName", msg.getStringParam("toolName", ""));
         if (msg.containsParam("text")) evt.put("text", msg.getStringParam("text", ""));
         String json = GSON.toJson(evt);
-        boolean sent = false;
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-        if (list != null) for (TLWebChannel c : list) {
-            if (c.isOpen()) { c.write(json); sent = true; }
-        }
-        return sent;
+        return broadcastToUser(userId, json);
     }
 
     /**
@@ -1327,12 +1362,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         evt.put("sessionId", msg.getStringParam("sessionId", ""));
         evt.put("title", msg.getStringParam("title", ""));
         String json = GSON.toJson(evt);
-        boolean sent = false;
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-        if (list != null) for (TLWebChannel c : list) {
-            if (c.isOpen()) { c.write(json); sent = true; }
-        }
-        return sent;
+        return broadcastToUser(userId, json);
     }
 
     /**
@@ -1357,12 +1387,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         evt.put("completedCount", msg.getIntParam("completedCount", 0));
         evt.put("failedCount", msg.getIntParam("failedCount", 0));
         if (!sid.isEmpty()) lastTodoBySession.put(sid, evt);   // 先留档再推送：推送失败（无通道）也得能重放
-        java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-        boolean sent = false;
-        if (list != null) for (TLWebChannel c : list) {
-            if (c.isOpen()) { c.write(GSON.toJson(evt)); sent = true; }
-        }
-        return sent;
+        return broadcastToUser(userId, GSON.toJson(evt));
     }
 
     /** 前端上报当前打开的会话（页面加载/切会话/开新会话时调用；只记内存，不落盘） */
@@ -1459,10 +1484,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             evt.put("type", "inbox");
             evt.put("unread", unread);
             String json = GSON.toJson(evt);
-            java.util.concurrent.CopyOnWriteArrayList<TLWebChannel> list = eventChannels.get(userId);
-            if (list != null) for (TLWebChannel c : list) {
-                if (c.isOpen()) c.write(json);
-            }
+            broadcastToUser(userId, json);
         } catch (Exception e) {
             putLog("推送 inbox 事件失败: " + e, LogLevel.DEBUG);
         }

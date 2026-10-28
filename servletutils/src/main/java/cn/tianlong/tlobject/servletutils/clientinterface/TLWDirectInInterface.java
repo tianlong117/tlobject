@@ -58,6 +58,10 @@ public class TLWDirectInInterface extends TLBaseClientDataInInterface {
     protected TLMsg getDataFromUser(Object fromWho, TLMsg msg) {
         TLMsg returnMsg=createMsg();
         HttpServletRequest request =getRequest();
+        if (request == null) {
+            // 请求上下文已失效（非请求线程 / 服务关闭瞬间线程回收）：返回空输入，避免 NPE
+            return returnMsg;
+        }
         try {
             request.setCharacterEncoding(charset);
         } catch (UnsupportedEncodingException e) {

@@ -56,7 +56,7 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         EXT_INTERPRETER_MAP.put(".ps1", "powershell");
         EXT_INTERPRETER_MAP.put(".bat", "cmd");
         EXT_INTERPRETER_MAP.put(".cmd", "cmd");
-        EXT_INTERPRETER_MAP.put(".R", "Rscript");
+        EXT_INTERPRETER_MAP.put(".r", "Rscript");   // 查表前 ext 已 toLowerCase，key 必须小写
         EXT_INTERPRETER_MAP.put(".lua", "lua");
     }
 

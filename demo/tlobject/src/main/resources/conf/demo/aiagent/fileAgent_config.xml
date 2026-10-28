@@ -29,7 +29,9 @@
         <!-- MCP Agent 示例：本地文件系统工具集
              ⚠ 与 hamburger/pizza/poetc 的写-only 工具集必须**不同名**：factoryShared 按模块名共享主工厂
              实例，同名多声明时先初始化者的白名单生效（曾踩：poetc 的 write_file-only 先创建，
-             此处声明的 3 工具白名单从未生效——它们已改名 filesystemMcpWrite 区分） -->
+             此处声明的 3 工具白名单从未生效——它们已改名 filesystemMcpWrite 区分）
+             MCP 的允许根固定在 workspace/（沙箱）：与 file_operation 的 allowedRootPath 是两套独立策略；
+             MCP 写工具已在 approvalGate 的 rules 里挂审批。 -->
         <agent name="filesystemMcp"
                statup="true"
                factoryShared="true"
@@ -39,7 +41,7 @@
                sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
-               args="-y @modelcontextprotocol/server-filesystem ."/>
+               args="-y @modelcontextprotocol/server-filesystem workspace"/>
 
 
     </agents>

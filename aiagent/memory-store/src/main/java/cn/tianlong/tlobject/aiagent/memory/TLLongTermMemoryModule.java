@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.aiagent.TLBaseMemory;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.aiagent.TLLlmProvider;
 import cn.tianlong.tlobject.aiagent.TLMemoryEntry;
+import cn.tianlong.tlobject.aiagent.TLPathSafety;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -49,9 +50,9 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     /** 存储文件名——JSONL格式（每行一个JSON entry） */
     private static final String STORE_FILE = "memory_store.jsonl";
 
-    /** 获取 userId 专属的存储文件路径 */
+    /** 获取 userId 专属的存储文件路径（userId 是用户可控值，必须净化后再拼路径） */
     private Path getUserStorePath(String userId) {
-        String uid = (userId != null && !userId.isEmpty()) ? userId : "default";
+        String uid = TLPathSafety.safeSegment(userId, "default");
         return Paths.get(storagePath, uid, "longterm_memory", STORE_FILE);
     }
 
@@ -405,7 +406,10 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         TLMemoryEntry removed = cache.remove(scopedKey);
         if (removed != null) {
             deletedKeys.add(scopedKey);
-            schedulePersist();
+            // 删除必须落盘：persistPending 只追加新条目，不能表达"删除"。
+            // 这里同步 compact（删除是低频操作）：异步排队的话，"删除后立刻重启"仍可能
+            // 在任务执行前退出，旧 JSONL 记录会被 loadFromDisk 读回来。
+            compact();
         }
 
         return createMsg().setParam(RESULT, removed != null).setParam("removed", removed != null);

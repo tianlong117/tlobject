@@ -24,12 +24,19 @@ public class TLEvalReportMsg {
      */
     public static TLMsg attach(TLMsg msg, TLEvalReport report, boolean compareBaseline) {
         TLEvalReport.Summary s = report.summary;
+        // 外部报告 JSON 可能显式写 "regressions": null（Gson 反序列化为 null）
+        List<TLEvalReport.Change> regs = s.regressions != null
+                ? s.regressions : java.util.Collections.emptyList();
+        List<TLEvalReport.Change> imps = s.improvements != null
+                ? s.improvements : java.util.Collections.emptyList();
         return msg.setParam("baselineFound", s.baselineFound)
                 .setParam("baselineFile", s.baselineFile)
                 .setParam("baselineCompared", s.baselineCompared)
-                .setParam("regressionCount", s.regressions.size())
-                .setParam("improvementCount", s.improvements.size())
-                .setParam("regressions", formatChanges(s.regressions))
+                .setParam("regressionCount", regs.size())
+                // 门禁只看 stable 回归；regressionCount 含 flaky，两个口径分开给
+                .setParam("stableRegressionCount", TLEvalGate.countStableRegressions(regs))
+                .setParam("improvementCount", imps.size())
+                .setParam("regressions", formatChanges(regs))
                 // 报告正文随响应一起回去：webui 直接把这份渲染出来读，
                 // 不用再去点文件路径（与落盘的 .md 同源，内容一致）
                 .setParam("reportMarkdown", report.toMarkdown(compareBaseline));
@@ -40,6 +47,7 @@ public class TLEvalReportMsg {
         List<String> list = new ArrayList<>();
         if (changes == null) return list;
         for (TLEvalReport.Change c : changes) {
+            if (c == null) continue;
             list.add(c.caseName + " (" + c.caseId + ")"
                     + ("flaky".equals(c.stability) ? " [flaky]" : ""));
         }

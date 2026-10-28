@@ -507,6 +507,28 @@ public class FileSkillSelfTest extends TLFileOperationSkill {
             check("4r 病态正则长行不崩溃且附跳过提示", false, t.toString());
         }
 
+        // 4s 路径越界：必须显式报错，不得"改用文件名"静默改投到 root/<文件名>
+        Path outsideDir = root.getParent();
+        Path outsideFile = outsideDir.resolve("outside-" + System.nanoTime() + ".txt");
+        String escapeName = root.getFileName() + "-escape.txt";
+        Files.write(outsideFile, "outside".getBytes(StandardCharsets.UTF_8));
+        try {
+            r = call(s, "operation", "read", "path", outsideFile.toAbsolutePath().toString());
+            check("4s-1 越界绝对路径 read 显式报错",
+                    !isOk(r) && out(r).contains("outside allowed root"), out(r));
+
+            r = call(s, "operation", "write", "path", "../" + escapeName, "content", "x");
+            check("4s-2 越界相对路径 write 显式报错",
+                    !isOk(r) && out(r).contains("outside allowed root"), out(r));
+            check("4s-3 越界 write 没有在 root 下静默创建同名文件",
+                    !Files.exists(root.resolve(escapeName)), "意外创建: " + root.resolve(escapeName));
+            check("4s-4 越界 write 没有在 root 外创建文件",
+                    !Files.exists(outsideDir.resolve(escapeName)), "意外创建: " + outsideDir.resolve(escapeName));
+        } finally {
+            Files.deleteIfExists(outsideFile);
+            Files.deleteIfExists(outsideDir.resolve(escapeName));
+        }
+
         System.out.println("\n== " + passed + " passed, " + failed + " failed ==");
         deleteRecursively(root);
         System.exit(failed == 0 ? 0 : 1);

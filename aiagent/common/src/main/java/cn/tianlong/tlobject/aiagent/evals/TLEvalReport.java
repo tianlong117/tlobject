@@ -213,6 +213,7 @@ public class TLEvalReport {
         sb.append("\n## ").append(title).append("\n\n");
         sb.append("| 用例 | 稳定性 | 原因 |\n|---|---|---|\n");
         for (Change c : changes) {
+            if (c == null) continue;   // 外部报告 JSON 里可能出现 null 元素
             sb.append(String.format("| %s (%s) | %s | %s |\n",
                     cell(c.caseName), cell(c.caseId), cell(c.stability), cell(abbreviate(c.reason))));
         }

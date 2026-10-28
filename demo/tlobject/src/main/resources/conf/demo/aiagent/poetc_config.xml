@@ -6,7 +6,8 @@
          供 poetc 调用 write_file 把分析结果写入文件。
          ⚠ factoryShared 按"模块名"共享主工厂实例：同名多声明时**先初始化者的白名单生效**
          （曾踩：与 fileAgent 的同名 filesystemMcp 撞车——它想要 3 工具却只拿到本组的 write_file，
-         故写-only 组改用 filesystemMcpWrite 区分）。 -->
+         故写-only 组改用 filesystemMcpWrite 区分）。
+         MCP 允许根固定在 workspace/（沙箱），且 write_file 已在 approvalGate 挂审批。 -->
 
     <agents>
         <agent name="filesystemMcpWrite"
@@ -18,6 +19,6 @@
                sameClassAs="mcpAgent"
                transport="stdio"
                command="C:/Program Files/nodejs/npx.cmd"
-               args="-y @modelcontextprotocol/server-filesystem ."/>
+               args="-y @modelcontextprotocol/server-filesystem workspace"/>
     </agents>
 </moduleConfig>

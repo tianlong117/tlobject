@@ -93,6 +93,17 @@ public class TLEvalGate {
         return new Result(failures.isEmpty(), failures);
     }
 
+    /** 统计 stable 回归数（flaky/experimental 不算门禁；null/空 stability 按 stable 处理） */
+    public static int countStableRegressions(List<TLEvalReport.Change> regs) {
+        if (regs == null) return 0;
+        int count = 0;
+        for (TLEvalReport.Change c : regs) {
+            if (c == null) continue;
+            if ("stable".equals(stabilityOf(c.stability))) count++;
+        }
+        return count;
+    }
+
     private static boolean isStable(TLEvalRunResult r) {
         return "stable".equals(stabilityOf(r.stability));
     }

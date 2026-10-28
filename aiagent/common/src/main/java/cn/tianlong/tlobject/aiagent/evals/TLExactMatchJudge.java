@@ -66,7 +66,8 @@ public class TLExactMatchJudge implements TLEvalJudge {
                             boolean trim, String normalizeMode) {
         String result = text;
         if (trim) result = result.trim();
-        if (normalizeWhitespace) result = result.replaceAll("\\s+", " ");
+        // U+3000 全角空格不在 Java 默认 \s 里；中文 LLM 输出会混进来，不处理会假红
+        if (normalizeWhitespace) result = result.replaceAll("[\\s\\u3000]+", " ");
         if ("flexible".equals(normalizeMode)) {
             result = result.replace('，', ',').replace('。', '.').replace('！', '!')
                     .replace('？', '?').replace('；', ';').replace('：', ':')

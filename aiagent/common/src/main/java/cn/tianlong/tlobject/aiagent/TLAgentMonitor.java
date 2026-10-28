@@ -702,7 +702,8 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
     }
 
     private static String safe(String s) {
-        return s == null ? "" : s.replaceAll("[\\\\/:*?\"<>|]", "_");
+        // 用于目录段（userId / rootSessionId）："." / ".." 会被当作上跳，统一走 TLPathSafety
+        return TLPathSafety.safeSegment(s, "default");
     }
 
     private static String esc(String s) {

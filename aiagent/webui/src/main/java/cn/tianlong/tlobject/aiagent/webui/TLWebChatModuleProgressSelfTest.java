@@ -4,7 +4,10 @@ import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.servletutils.clientinterface.TLWebChannel;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.List;
+import java.util.Map;
 
 /**
  * WebUI 工具进度消费者自测（runnable main，无 JUnit——仓库惯例）。
@@ -48,6 +51,7 @@ public class TLWebChatModuleProgressSelfTest implements TLAiAgentParamString {
         check("工具名正确", ch.json != null && ch.json.contains("\"toolName\":\"browser\""));
 
         workflowProgress();
+        broadcast();
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
@@ -94,6 +98,42 @@ public class TLWebChatModuleProgressSelfTest implements TLAiAgentParamString {
                 && ch.json.contains("\"runId\":\"wf_1\"")
                 && ch.json.contains("\"totalNodes\":3"));
         check("事件不含节点产出", ch.json != null && !ch.json.contains("\"output\""));
+    }
+
+    /** 广播：一条通道写失败不能中断其他通道；失败/已关闭的通道要被摘除 */
+    @SuppressWarnings("unchecked")
+    private static void broadcast() throws Exception {
+        TLWebChatModule module = new TLWebChatModule("broadcastSelfTest");
+        BlockingChannel stale = new BlockingChannel(0);
+        stale.close();                              // 注册时应被先清理掉
+        BlockingChannel live = new BlockingChannel(0);
+        ThrowingChannel bad = new ThrowingChannel();
+        module.registerEventsChannel("u3", stale);
+        module.registerEventsChannel("u3", bad);
+        module.registerEventsChannel("u3", live);
+
+        Method m = TLWebChatModule.class.getDeclaredMethod(
+                "broadcastToUser", String.class, String.class);
+        m.setAccessible(true);
+        boolean sent = (Boolean) m.invoke(module, "u3", "{\"type\":\"x\"}");
+
+        check("广播：坏通道不阻断其他通道", sent && "{\"type\":\"x\"}".equals(live.json));
+        check("广播：写失败的通道被关闭", !bad.isOpen());
+
+        Field ef = TLWebChatModule.class.getDeclaredField("eventChannels");
+        ef.setAccessible(true);
+        Map<String, ?> channels = (Map<String, ?>) ef.get(module);
+        List<TLWebChannel> list = (List<TLWebChannel>) channels.get("u3");
+        check("广播：死通道被摘除，只留活通道",
+                list != null && list.size() == 1 && list.get(0) == live);
+    }
+
+    static class ThrowingChannel implements TLWebChannel {
+        volatile boolean open = true;
+        public void write(String data) { throw new RuntimeException("boom"); }
+        public boolean isOpen() { return open; }
+        public void close() { open = false; }
+        public void awaitClosed() { }
     }
 
     static class BlockingChannel implements TLWebChannel {

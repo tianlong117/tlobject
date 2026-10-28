@@ -298,7 +298,7 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
 
     private File userRoot(String userId) {
         File root = new File(dataBasePath, safe(userId));
-        // 防御：safe() 不过滤点号，"." / ".." 会让 root 塌陷成 data/ 甚至仓库根，越过 per-user 隔离
+        // 第二层防御：safe() 已防 "."/".."，这里再用 canonical 校验兜住未来规则漂移
         try {
             String base = new File(dataBasePath).getCanonicalPath() + File.separator;
             if (!(root.getCanonicalPath() + File.separator).startsWith(base)) {
@@ -312,11 +312,7 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
     }
 
     private static String safe(String s) {
-        if (s == null || s.isEmpty()) return "default";
-        String r = s.replaceAll("[\\\\/:*?\"<>|]", "_");
-        // 第二层：点号不在过滤集里，纯点号名（"." / ".."）会让 userRoot 塌陷/上跳
-        if (r.isEmpty() || ".".equals(r) || "..".equals(r)) return "default";
-        return r;
+        return TLPathSafety.safeSegment(s, "default");
     }
 
     private static boolean isUnder(File f, File root) {

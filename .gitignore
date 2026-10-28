@@ -80,3 +80,7 @@ _tmp_*
 
 # ===== 2026-10-07 追加：word-java 模块 classpath 转储 =====
 aiagent/word-java/cp.txt
+
+# ===== 2026-10-28 追加：MCP filesystem 沙箱工作目录（只保留占位文件） =====
+/workspace/*
+!/workspace/.gitkeep

@@ -53,6 +53,9 @@ public class WordEngineSelfTest {
                 WordMarkdown.parse("###### 深").get(0).level == 6);
         check("markdown: 有序列表 1. → NUMBERED",
                 WordMarkdown.parse("1. 首项").get(0).type == WordMarkdown.Block.Type.NUMBERED);
+        java.util.List<WordMarkdown.Block> olv = WordMarkdown.parse("3. 第三项\n4. 第四项");
+        check("markdown: 有序列表保留原序号",
+                olv.size() == 2 && olv.get(0).ordinal == 3 && olv.get(1).ordinal == 4);
 
         // ================= WordTextExtractor =================
         org.apache.poi.xwpf.usermodel.XWPFDocument d1 = newDoc();
@@ -615,6 +618,12 @@ public class WordEngineSelfTest {
         // （本任务标题三重设定的立论基础）。故按实测值钉死：谁把符号去掉，这条立刻红。
         check("writer: 列表项（带字面项目符号，无编号定义时的可见性兜底）",
                 d11.getParagraphs().get(2).getText().equals("• 甲"));
+
+        // 有序列表：writer 必须保留源序号（此前 NUMBERED 也写 "• "，序号丢失）
+        org.apache.poi.xwpf.usermodel.XWPFDocument dNum = newDoc();
+        WordMarkdownWriter.writeBlocks(dNum, WordMarkdown.parse("3. 第三项"), true);
+        check("writer: 有序列表保留原序号",
+                dNum.getParagraphs().get(0).getText().equals("3. 第三项"));
         check("writer: 表格已建 2行2列",
                 d11.getTables().size() == 1 && d11.getTables().get(0).getRows().size() == 2);
         check("writer: 表头内容", d11.getTables().get(0).getRow(0).getCell(0).getText().equals("月"));
