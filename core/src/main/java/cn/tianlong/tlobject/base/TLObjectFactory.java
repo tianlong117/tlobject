@@ -592,7 +592,7 @@ public class TLObjectFactory extends TLBaseModule {
             realPath =classPath+configFile.substring(9) ;
         else
         {
-            if ( !configFile.startsWith(File.separator) && configFile.indexOf(":") < 0 )
+            if ( !isAbsolutePath(configFile) )
                 realPath = configDir + configFile;
             else
                 return  configFile;
@@ -606,13 +606,23 @@ public class TLObjectFactory extends TLBaseModule {
             realPath =classPath+configFile.substring(9) ;
         else
         {
-            if ( !configFile.startsWith(File.separator) && configFile.indexOf(":") < 0 )
+            if ( !isAbsolutePath(configFile) )
                 realPath = configDir + configFile;
             else
                 return  configFile;
         }
         System.out.println("path:"+realPath);
         return realPath ;
+    }
+    /**
+     * 判定是否为绝对路径。不能只看 File.separator——Windows 上它是 "\"，
+     * 而配置里常见 "/data/x.xml" 这种正斜杠写法，会被误拼到 configDir 后面。
+     */
+    private static boolean isAbsolutePath(String path) {
+        if (path == null || path.isEmpty())
+            return false;
+        char first = path.charAt(0);
+        return first == '/' || first == '\\' || path.indexOf(':') >= 0;
     }
     private TLMsg getModuleFromOtherFactory(String factoryName , TLMsg msg){
         if(factoryName.equals(FACTORY_P_PARENTFACTORY) && parentFactory !=null)
@@ -703,6 +713,12 @@ public class TLObjectFactory extends TLBaseModule {
         } else
             classFilename = moduleName;
         classFilename = addPackage(classFilename);
+        if (classFilename == null || classFilename.isEmpty()) {
+            // sameClassAs 指向的配置不存在、且自身也没写 classfile 时，
+            // 继续走 Class.forName(null) 会 NPE 打崩调用方；这里按"模块创建失败"优雅返回
+            putLog("module classfile is null, moduleName:" + newModuleName, LogLevel.ERROR, "getModule");
+            return createMsg().setParam(FACTORY_R_MODULEINSTANCE, null).setParam(FACTORY_P_MODULENAME, newModuleName);
+        }
         //是否只创建模块，而不start运行
         Boolean ifOnlyCreate = false;
         if (!msg.isNull(MODULE_IFONLYCREATE))
@@ -921,6 +937,8 @@ public class TLObjectFactory extends TLBaseModule {
 
     public  Class<?> myClassforName(String className){
         Class<?> cls = null; // 取得Class对象
+        if (className == null || className.isEmpty())   // Class.forName(null) 抛 NPE，按"类没找到"处理
+            return null;
         // 1. 先试自定义 ClassLoader
         if (classLoader != null) {
             try {

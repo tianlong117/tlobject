@@ -219,9 +219,18 @@ public   class TLReUsedModulePool extends TLBaseModule {
                             makePool(moduleNumber, moduleInPool);
                         }
                         else {
+                            // 池满回绕：模块按既有语义复用（锁池/线程池组都依赖共享），但要留痕
+                            putLog("模块池已满，回绕复用 index:0, user:"+user,LogLevel.WARN,"getModuleInPool");
                             index =0;
                             nowModulePoolIndex.set(0);
                         }
+                    }
+                    // 新建可能部分失败（getNewModule 返回 null 时 makePool 提前返回），
+                    // 直接 get 会 IndexOutOfBoundsException
+                    if(index >= modulePool.size())
+                    {
+                        putLog("模块池分配失败，无可用模块, user:"+user,LogLevel.ERROR,"getModuleInPool");
+                        return null;
                     }
                     module =modulePool.get(index);
                     useingModules.put(user,module);

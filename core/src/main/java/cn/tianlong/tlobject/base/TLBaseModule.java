@@ -246,10 +246,17 @@ public abstract class TLBaseModule extends TLBaseObject {
               Object value =fieldMsg.getParam("value");
                try {
                    field.setAccessible(true);
-                   field.set(this ,value);
+                   field.set(this ,convertFieldValue(value, field.getType()));
                } catch (IllegalAccessException e) {
                    putLog(" field set error:"+ fieldName,LogLevel.ERROR);
                    putLog(e, LogLevel.ERROR, "setfieldFromModule");
+               } catch (IllegalArgumentException e) {   // 含 NumberFormatException
+                   // 值类型与字段类型不匹配（如 null 灌原始类型、配置写成 String）
+                   // 不能让它逃出 configure() 把整个模块 start 打断
+                   putLog(" field value type mismatch, field:" + fieldName
+                                   + " expected:" + field.getType().getSimpleName()
+                                   + " actual:" + (value == null ? "null" : value.getClass().getSimpleName()),
+                           LogLevel.ERROR, "setfieldFromModule");
                }
            }
         }
@@ -416,15 +423,58 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
     protected Field getField(String fieldName){
-        Class clazz = this.getClass();
-        try {
-            Field field=clazz.getDeclaredField(fieldName) ;
-            return  field ;
-        } catch (NoSuchFieldException e) {
-            putLog("no field:"+fieldName ,LogLevel.ERROR);
-            putLog(e, LogLevel.ERROR, "getField");
-            return null ;
+        // 逐级查父类：fieldsInModule/setField 允许操作继承自 TLBaseModule 的字段
+        Class<?> clazz = this.getClass();
+        while (clazz != null && clazz != Object.class) {
+            try {
+                return clazz.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException e) {
+                clazz = clazz.getSuperclass();
+            }
         }
+        putLog("no field:"+fieldName ,LogLevel.ERROR, "getField");
+        return null ;
+    }
+
+    /**
+     * 把模块字段值转换成字段声明的类型（DB 字段值可能是 String，setField 由外部传入）。
+     * 转换失败时返回原值，交由 {@code Field.set} 抛 IllegalArgumentException，
+     * 由调用方记录"类型不匹配"，而不是让异常打断 configure()。
+     */
+    private static Object convertFieldValue(Object value, Class<?> fieldType) {
+        if (value == null)
+            return null;
+        if (fieldType.isInstance(value))
+            return value;
+        if (value instanceof Number) {
+            Number n = (Number) value;
+            if (fieldType == int.class || fieldType == Integer.class) return n.intValue();
+            if (fieldType == long.class || fieldType == Long.class) return n.longValue();
+            if (fieldType == double.class || fieldType == Double.class) return n.doubleValue();
+            if (fieldType == float.class || fieldType == Float.class) return n.floatValue();
+            if (fieldType == short.class || fieldType == Short.class) return n.shortValue();
+            if (fieldType == byte.class || fieldType == Byte.class) return n.byteValue();
+            if (fieldType == boolean.class || fieldType == Boolean.class) return n.intValue() != 0;
+            if (fieldType == String.class) return value.toString();
+        }
+        if (value instanceof String) {
+            String s = ((String) value).trim();
+            if (s.isEmpty())
+                return null;
+            try {
+                if (fieldType == int.class || fieldType == Integer.class) return Integer.parseInt(s);
+                if (fieldType == long.class || fieldType == Long.class) return Long.parseLong(s);
+                if (fieldType == double.class || fieldType == Double.class) return Double.parseDouble(s);
+                if (fieldType == float.class || fieldType == Float.class) return Float.parseFloat(s);
+                if (fieldType == short.class || fieldType == Short.class) return Short.parseShort(s);
+                if (fieldType == byte.class || fieldType == Byte.class) return Byte.parseByte(s);
+                if (fieldType == boolean.class || fieldType == Boolean.class) return Boolean.parseBoolean(s);
+                if (fieldType == char.class || fieldType == Character.class) return s.charAt(0);
+            } catch (NumberFormatException e) {
+                return value;      // 交给 Field.set 报类型不匹配
+            }
+        }
+        return value;
     }
     protected Field[] getAllFields(){
         Class clazz = this.getClass();
@@ -693,7 +743,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             returnMsg = checkMsgId(msgId, fromWho, msg);
         else {
             TLMsg preResult =null ;
-            if(beforeMsgTable  !=null && !beforeMsgTable.isEmpty() && (boolean) msg.getSystemParam(IGNOREBEFORE,false) == false)
+            if(beforeMsgTable  !=null && !beforeMsgTable.isEmpty() && TLDataUtils.parseBoolean(msg.getSystemParam(IGNOREBEFORE),false) == false)
             {
                 returnMsg =doBeforMsgTable( action, msg);
                 preResult= (TLMsg) returnMsg.getSystemParam(PRERESULT);
@@ -716,7 +766,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                     usePreReturnMsg(nextMsg ,returnMsg) ;
                     returnMsg = ((IObject) fromWho).putMsg(this, nextMsg);
                 }
-                if (afterMsgTable !=null && !afterMsgTable.isEmpty() &&  (boolean) msg.getSystemParam(IGNOREAFTER,false)== false && ifDoNextMsg(returnMsg))
+                if (afterMsgTable !=null && !afterMsgTable.isEmpty() && TLDataUtils.parseBoolean(msg.getSystemParam(IGNOREAFTER),false)== false && ifDoNextMsg(returnMsg))
                      returnMsg = doAfterMsgTable(action, msg, returnMsg);
             } else
                 {
@@ -1072,11 +1122,17 @@ public abstract class TLBaseModule extends TLBaseObject {
        Object fieldValue =  msg.getParam(FIELDVALUE);
         try {
             field.setAccessible(true);
-            field.set(this,fieldValue);
+            field.set(this,convertFieldValue(fieldValue, field.getType()));
             return createMsg().setParam(RESULT,true);
         } catch (IllegalAccessException e) {
-            e.printStackTrace();
             putLog("set field is error:"+ fieldName ,LogLevel.ERROR,"setField");
+            putLog(e, LogLevel.ERROR, "setField");
+            return createMsg().setParam(RESULT,false);
+        } catch (IllegalArgumentException e) {
+            putLog(" field value type mismatch, field:" + fieldName
+                            + " expected:" + field.getType().getSimpleName()
+                            + " actual:" + (fieldValue == null ? "null" : fieldValue.getClass().getSimpleName()),
+                    LogLevel.ERROR, "setField");
             return createMsg().setParam(RESULT,false);
         }
     }
@@ -1084,6 +1140,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected TLMsg reloadConfig(Object fromWho, TLMsg msg) {
         preReConfig();
         HashMap<String, String> cparams =moduleFactory.getModuleParam(name, (HashMap<String, String>) null);
+        if (params == null)          // 直接构造的模块可能从未有过 params
+            params = new HashMap<>();
         params.putAll(cparams);
         configure();
         reload();
@@ -1448,7 +1506,7 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     public TLMsg putMsg(String moduleName, TLMsg msg) {
         IObject module ;
-        if((boolean)(msg.getSystemParam(IFLOADMODULE,true)) ==true)
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(IFLOADMODULE),true))
             module = (IObject) getModule(moduleName);
         else
         {
@@ -1462,7 +1520,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
         else {
             putLog("module is not exist " + moduleName, LogLevel.ERROR);
-            if((boolean)(msg.getSystemParam(IGNOREMODULEISNULL,false)) ==true)
+            if(TLDataUtils.parseBoolean(msg.getSystemParam(IGNOREMODULEISNULL),false))
                 return createMsg().setParam(IGNOREMODULEISNULL,false);
             moduleFactory.shutdown(-1);
             return null ;

@@ -301,7 +301,7 @@ public class TLClientMsgHandler extends TLBaseModule {
                 msg = TLMsgUtils.addSystemArgToMsg(WEBSOCKET_P_SESSIONARRIVEDMSGID, arrivedMsgid,msg);
         }
         if(sesstionId !=null
-                || (msg !=null && ((Boolean)msg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true))
+                || (msg !=null && TLDataUtils.parseBoolean(msg.getSystemParam(SOCKETSERVER_R_IFRETURN),false)))
             putMsgToClient(this, msg.addSystemArgs(clientSystemArgs) );
     }
 

@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
 
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -72,7 +73,8 @@ public class WebSocketServerHandler extends TLBaseServerInboundHandler<Object> {
             server.putLog("client发送非json字符，IP：" + ip , LogLevel.WARN);
             return ;
         }
-        boolean socketSessionIsarrived = (boolean) clientMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED,false);
+        // 客户端 JSON 的 systemArgs 值可能是字符串/数字，直接用 (boolean) 解包会 CCE
+        boolean socketSessionIsarrived = TLDataUtils.parseBoolean(clientMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED),false);
         if(socketSessionIsarrived ==true && !clientMsg.systemParamIsNull(WEBSOCKET_P_SESSION))
             notifySessionIsArrived (clientMsg,ctx);
         String channelName =ctx.channel().id().asLongText();

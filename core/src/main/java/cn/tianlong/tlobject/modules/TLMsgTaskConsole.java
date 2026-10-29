@@ -55,7 +55,10 @@ public class TLMsgTaskConsole extends TLMsgScanner {
     protected void initProperty() {
         super.initProperty();
 
-        if (params != null && params.get("msgTaskModule") != null) {
+        // 无 <params> 又直接 start 时 params 可能为 null（工厂路径会带 applicationId，不为 null）
+        if (params == null)
+            params = new HashMap<>();
+        if (params.get("msgTaskModule") != null) {
             msgTaskModule = params.get("msgTaskModule");
         }
 

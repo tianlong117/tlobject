@@ -85,7 +85,7 @@ public class TLServiceClientInterface extends TLSocketClientAgentPool {
     }
 
     private TLMsg toService(Object fromWho, TLMsg msg) {
-        if((Boolean)msg.getSystemParam(WEBSOCKETCLIENTAGENT_ISWAIT,true) ==true)
+        if(TLDataUtils.parseBoolean(msg.getSystemParam(WEBSOCKETCLIENTAGENT_ISWAIT),true))
           return   putToServerAndWait(fromWho,msg);
         else
           return   putMsgToServer(fromWho,msg);

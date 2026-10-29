@@ -164,11 +164,27 @@ public class TLAuthModule extends TLBaseModule {
     }
 
     protected HashMap<String, String> addParentPolicy(String policyName) {
+        return addParentPolicy(policyName, new HashSet<>());
+    }
+
+    /**
+     * @param visited 已展开的策略链，用于检测 A.parent=B、B.parent=A 这类成环配置
+     *                —— 无检测时递归会 StackOverflowError，且发生在 init 阶段
+     */
+    private HashMap<String, String> addParentPolicy(String policyName, Set<String> visited) {
+        if (!visited.add(policyName)) {
+            putLog("policy parent cycle detected at: " + policyName, LogLevel.ERROR, "auth");
+            return null;
+        }
         HashMap<String, String> policy = policies.get(policyName);
+        if (policy == null) {                       // parent 名字写错时原来会在 policy.get 处 NPE
+            putLog("policy not found: " + policyName, LogLevel.ERROR, "auth");
+            return null;
+        }
         String parentName = policy.get("parent");
         if (parentName == null || parentName.isEmpty())
             return policy;
-        HashMap<String, String> parentPolicy = addParentPolicy(parentName);
+        HashMap<String, String> parentPolicy = addParentPolicy(parentName, visited);
         if (parentPolicy == null || parentPolicy.isEmpty())
             return policy;
         HashMap<String, String> tempMap = new HashMap<>();

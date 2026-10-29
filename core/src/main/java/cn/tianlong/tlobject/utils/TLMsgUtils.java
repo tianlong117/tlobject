@@ -90,12 +90,16 @@ public class TLMsgUtils {
      */
     public static TLMsg strToMsg(String string) {
         TLMsg cmdMsg = new TLMsg();
-        if (!string.contains(";"))
+        if (string == null || string.isEmpty())
+            return cmdMsg;
+        // 不含等号 = 纯 action；含等号（哪怕没有分号，如 "action=chat" / "#a=chat"）按 key=value 解析
+        if (!string.contains("="))
             return cmdMsg.setAction(string);
         String str[] = string.split(";");
         for (int i = 0; i < str.length; i++) {
             if (!str[i].isEmpty() && str[i].contains("=")) {
-                String cmd[] = str[i].split("=");
+                // 只切第一个等号，值里允许再出现等号（如 url=http://x?y=z）
+                String cmd[] = str[i].split("=", 2);
                 if (cmd.length == 2 && !cmd[0].trim().isEmpty()) {
                     String key = cmd[0].trim();
                     String value = cmd[1].trim();

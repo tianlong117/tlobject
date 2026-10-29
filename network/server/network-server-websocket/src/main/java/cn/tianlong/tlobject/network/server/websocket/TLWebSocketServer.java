@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import io.netty.buffer.ByteBuf;
@@ -145,7 +146,7 @@ public class TLWebSocketServer extends TLBaseServer {
     }
     public void handleClientMsg(TLMsg handleMsg,  Channel clientChannel) {
         TLMsg returnMsg = clientMsgHandler.getMsg(this, handleMsg);
-        if (returnMsg != null  && ((Boolean)returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true)
+        if (returnMsg != null  && TLDataUtils.parseBoolean(returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN),false))
         {
              HashMap<String, Object> serverData = returnMsg.getArgs();
             if(serverData !=null && !serverData.isEmpty())

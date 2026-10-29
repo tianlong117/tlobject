@@ -124,7 +124,7 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             if(taskResultAction==null )
                taskResultMsg = (TLMsg)  msg.getAndRemoveSystemParam(TASKRESULTMSG);
             if(!msg.systemParamIsNull(IFTASKRESULT))
-               ifTaskResult = (Boolean) msg.getAndRemoveSystemParam(IFTASKRESULT);
+               ifTaskResult = TLDataUtils.parseBoolean(msg.getAndRemoveSystemParam(IFTASKRESULT),false);
             taskSessionData=  msg.getSystemParam(TASKRESESSIONDATA);
         }
        /** 共享 worker 线程池，daemon 线程，供超时 task 的 getMsg 外包执行 */

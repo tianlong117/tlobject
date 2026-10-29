@@ -140,6 +140,10 @@ public   class TLModulePool extends TLBaseModule {
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 }
+                if (module == null)
+                    // 调用方 doMsgUsePool 拿到 null 会直接返回，消息就没了——至少留下痕迹
+                    putLog("模块池已满且等待超时，消息未执行, maxNumbs:" + maxNumbs,
+                            LogLevel.WARN, "getModuleInPool");
             }
         }
         return  createMsg().setParam(MODULEPOOL_P_MODULE,module) ;

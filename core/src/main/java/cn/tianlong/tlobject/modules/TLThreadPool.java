@@ -92,7 +92,14 @@ public class TLThreadPool extends TLBaseModule {
             return null ;
         ThreadTask threadTask = new ThreadTask(toWho,dmsg, (IObject) fromWho);
         putLog("start thread task,source:"+((IObject) fromWho).getName()+" action:"+dmsg.getAction(),LogLevel.DEBUG);
-        threadPool.execute(threadTask);
+        try {
+            threadPool.execute(threadTask);
+        } catch (java.util.concurrent.RejectedExecutionException e) {
+            // 销毁竞态：模块已 destroy 但线程池 shutdown 后仍有晚到的 execute 消息
+            putLog("thread pool rejected task, action:" + dmsg.getAction() + " (pool already shutdown?)",
+                    LogLevel.ERROR, "execute");
+            return null;
+        }
         return createMsg().setParam(THREADPOOL_TASK,threadTask);
     }
     private void shutdownAndAwait() {

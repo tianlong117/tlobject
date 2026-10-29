@@ -66,8 +66,10 @@ public class TLMsgBroadCast extends TLBaseModule {
 
     private synchronized void unregistReceiver(Object fromWho, TLMsg msg) {
         String receiver = (String) msg.getParam(MSGBROADCAST_P_RECEIVER);
-        if(receiver ==null)
+        if(receiver ==null && fromWho instanceof IObject)
             receiver=((IObject)fromWho).getName();
+        if(receiver ==null || receiver.isEmpty())      // ConcurrentHashMap 禁 null key
+            return;
         modules.remove(receiver);
         String messageType = (String) msg.getParam(MSGBROADCAST_P_MESSAGETYPE);
         if(messageType !=null){
@@ -147,6 +149,8 @@ public class TLMsgBroadCast extends TLBaseModule {
             if(receiverMsg ==null)
                 return createMsg().setParam(RESULT,false);
             receiver =receiverMsg.getDestination();
+            if(receiver ==null || receiver.isEmpty())     // 无 destination 无法登记，且 CHM 禁 null key
+                return createMsg().setParam(RESULT,false);
             modules.remove(receiver);
         }
         ArrayList<TLMsg> msgList =receivers.get(messageType);

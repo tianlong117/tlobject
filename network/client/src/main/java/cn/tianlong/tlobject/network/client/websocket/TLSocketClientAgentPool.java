@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.*;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.network.common.TLBaseWebSocketSendFile;
 import cn.tianlong.tlobject.network.common.TLNetSession;
+import cn.tianlong.tlobject.utils.TLDataUtils;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
 import org.xmlpull.v1.XmlPullParser;
 
@@ -344,7 +345,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         }
         String notifyId = (String) serverMsg.getSystemParam( WEBSOCKET_P_NOTIFYID);
         String  arrivedMsgid = (String) serverMsg.getSystemParam(WEBSOCKET_P_SESSIONARRIVEDMSGID);
-        boolean socketSessionIsarrived = (boolean) serverMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED,false);
+        boolean socketSessionIsarrived = TLDataUtils.parseBoolean(serverMsg.getSystemParam(WEBSOCKET_P_SESSIONISARRIVED),false);
         if(socketSessionIsarrived ==true && notifyId !=null)
         {
             HashMap<String,Object> echodata = new HashMap<>();
@@ -371,7 +372,7 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         }
 
         if(notifyId!=null
-           || (returnMsg !=null && ((Boolean)returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN,false))==true))
+           || (returnMsg !=null && TLDataUtils.parseBoolean(returnMsg.getSystemParam(SOCKETSERVER_R_IFRETURN),false)))
         {
             TLMsg toUserMsg =createMsg().setAction(WEBSOCKET_PUT).setParam(WEBSOCKET_P_CONTENT,returnMsg.getArgs())
                             .setSystemParam(SOCKETCLIENTAGENTPOOL_P_SERVERNAME,server);

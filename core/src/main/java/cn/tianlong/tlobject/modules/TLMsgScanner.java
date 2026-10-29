@@ -146,6 +146,10 @@ public class TLMsgScanner extends TLBaseModule {
                     scanThread.join(2000);
                 } catch (InterruptedException ignored) {
                 }
+                if (scanThread.isAlive())
+                    // Scanner.hasNextLine() 阻塞在 System.in，interrupt 打断不了；
+                    // 线程是 daemon，进程退出时会自然结束，这里只留痕不再等
+                    putLog("扫描线程仍阻塞在 System.in，按 daemon 线程放弃回收", LogLevel.WARN);
                 scanThread = null;
             }
             putLog("消息扫描器已停止", LogLevel.INFO);
