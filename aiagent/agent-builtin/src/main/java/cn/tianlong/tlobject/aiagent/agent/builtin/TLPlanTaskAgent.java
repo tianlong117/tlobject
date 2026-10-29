@@ -116,8 +116,9 @@ public class TLPlanTaskAgent extends TLAiAgent {
                 Files.createDirectories(dir);
             }
 
+            // 带毫秒：同一秒内连续两次调用（重试/批量）会互相覆盖
             String timestamp = LocalDateTime.now()
-                    .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+                    .format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss_SSS"));
             String filename = "plan_" + timestamp + ".md";
             Path filePath = dir.resolve(filename);
 

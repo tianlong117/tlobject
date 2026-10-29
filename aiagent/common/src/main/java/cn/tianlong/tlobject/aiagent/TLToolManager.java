@@ -617,6 +617,15 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     ? ((TLBaseModule) old.module).getName() : name;
             TLBaseModule newModule = (TLBaseModule) getNewModule(moduleName);
             if (newModule == null) return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + moduleName);
+            // 退役旧实例：热重载走 getNewModule 换实例，框架不会自动 destroy——
+            // 旧实例的看门狗线程 / 连接池 / 子进程会一直留着（destroy 各实现均幂等）
+            if (old.module instanceof TLBaseModule && old.module != newModule) {
+                try {
+                    putMsg((TLBaseModule) old.module, createMsg().setAction(MODULE_DESTROY));
+                } catch (Exception e) {
+                    putLog("retire old " + type + " failed: " + e, LogLevel.WARN);
+                }
+            }
             modules.put(moduleName, newModule);
             functions.put(name, new FunctionEntry(name, old.action, old.type, newModule, old.description, old.paramSchema));
             registerToRegistry(name, newModule, type);

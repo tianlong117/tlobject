@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import okhttp3.*;
 
 import java.io.ByteArrayOutputStream;
@@ -31,6 +32,8 @@ public class TLHttpRequestSkill extends TLBaseSkill {
     /** 响应体读取上限（KB，params 可配）。此前 body().string() 全量物化——抓超大页面/文件会吃爆内存
      *  （OOM 是 Error，逃出 execute 经框架链 shutdown 整个应用）；改为流式读取封顶，超出截断并注明 */
     private int maxResponseKB = 2048;
+    /** 返回给模型的 body 字符上限（params 可配）。此前硬编码 5000：配 maxResponseKB>5KB 也没用 */
+    private int maxBodyChars = 5000;
 
     public TLHttpRequestSkill() {
         super();
@@ -54,6 +57,10 @@ public class TLHttpRequestSkill extends TLBaseSkill {
 
         if (params != null && params.get("maxResponseKB") != null) {
             try { maxResponseKB = Integer.parseInt(params.get("maxResponseKB").trim()); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (params != null && params.get("maxBodyChars") != null) {
+            try { maxBodyChars = Integer.parseInt(params.get("maxBodyChars").trim()); }
             catch (NumberFormatException ignored) {}
         }
 
@@ -86,7 +93,10 @@ public class TLHttpRequestSkill extends TLBaseSkill {
 
     @Override
     protected TLBaseModule init() {
-        gson = new Gson();
+        // 幂等：重复 init（显式 runInit / 重入路径）不再新建 OkHttpClient（连接池 + Dispatcher 线程会泄漏）
+        if (httpClient != null) return this;
+        // disableHtmlEscaping：默认 Gson 会把 = & < > 转成 = 等，工具输出可读性变差
+        gson = new GsonBuilder().disableHtmlEscaping().create();
         httpClient = new OkHttpClient.Builder()
                 .connectTimeout(30, TimeUnit.SECONDS)
                 .readTimeout(60, TimeUnit.SECONDS)
@@ -125,20 +135,30 @@ public class TLHttpRequestSkill extends TLBaseSkill {
         try {
             Request.Builder builder = new Request.Builder().url(url);
 
-            // 设置请求头
+            // 设置请求头。Content-Type 单独处理：OkHttp 的 BridgeInterceptor 会用
+            // RequestBody 的 media type **覆盖**同名 header（不是追加），用户显式传的值
+            // 若不接进 RequestBody 就会被静默丢弃、强制成 application/json
+            String userContentType = null;
             if (headers != null) {
                 for (Map.Entry<String, Object> h : headers.entrySet()) {
-                    builder.addHeader(h.getKey(), String.valueOf(h.getValue()));
+                    String k = h.getKey();
+                    if ("Content-Type".equalsIgnoreCase(k)) {
+                        userContentType = String.valueOf(h.getValue());
+                    } else {
+                        builder.addHeader(k, String.valueOf(h.getValue()));
+                    }
                 }
             }
 
             // 设置请求方法
             if ("POST".equalsIgnoreCase(method)) {
-                MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
+                MediaType mediaType = MediaType.parse(
+                        userContentType != null ? userContentType : "application/json; charset=utf-8");
                 RequestBody requestBody = RequestBody.create(mediaType,
                         body != null ? body : "");
                 builder.post(requestBody);
             } else {
+                if (userContentType != null) builder.addHeader("Content-Type", userContentType);
                 builder.get();
             }
 
@@ -151,8 +171,9 @@ public class TLHttpRequestSkill extends TLBaseSkill {
 
                 Map<String, Object> result = new LinkedHashMap<>();
                 result.put("status", statusCode);
-                result.put("body", responseBody.length() > 5000
-                        ? responseBody.substring(0, 5000) + "...(truncated)" : responseBody);
+                // 字符上限可配（默认 5000，保持原行为）：原先硬编码，maxResponseKB 配大了也不生效
+                result.put("body", responseBody.length() > maxBodyChars
+                        ? responseBody.substring(0, maxBodyChars) + "...(truncated)" : responseBody);
                 result.put("headers", response.headers().toMultimap());
 
                 return createMsg()

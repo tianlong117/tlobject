@@ -114,20 +114,31 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
         }
     }
 
+    /** 探测结果缓存：每次执行都起一个 `python3 --version` 子进程是纯开销（几十~几百 ms） */
+    private volatile String cachedPythonCommand = null;
+
     /**
-     * 查找可用的Python命令（优先python3，不可用时回退python）
+     * 查找可用的Python命令（优先python3，不可用时回退python），结果缓存。
      */
     private String findPythonCommand() {
-        // 先尝试python3
-        try {
-            ProcessBuilder pb = new ProcessBuilder("python3", "--version");
-            Process p = pb.start();
-            if (p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0) {
-                return "python3";
-            }
-        } catch (Exception ignored) {}
-        // 回退到python（Windows通常用python）
-        return "python";
+        String cached = cachedPythonCommand;
+        if (cached != null) return cached;
+        synchronized (this) {
+            if (cachedPythonCommand != null) return cachedPythonCommand;
+            String cmd = "python";
+            // 先尝试python3
+            try {
+                Process p = new ProcessBuilder("python3", "--version").start();
+                if (p.waitFor(3, TimeUnit.SECONDS) && p.exitValue() == 0) {
+                    cmd = "python3";
+                } else {
+                    p.destroyForcibly();   // 探测失败/超时：别留下僵进程
+                }
+            } catch (Exception ignored) {}
+            // 回退到python（Windows通常用python）
+            cachedPythonCommand = cmd;
+            return cmd;
+        }
     }
 
     /**
@@ -150,28 +161,47 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             Process process = pb.start();
             Thread owner = Thread.currentThread();
             TLProcessRegistry.register(owner, process);   // C：登记进程，供 stopChat 强杀
-            StringBuilder output = new StringBuilder();
+            final StringBuilder output = new StringBuilder();
+            final boolean[] truncated = {false};
 
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
+            // 必须边跑边读：输出超过管道缓冲（Windows 64KB）时子进程会阻塞在 print()，
+            // 先 waitFor 再读会等不到进程退出——脚本早就打印完了也要等到超时，输出全丢。
+            // （ScriptExecution / Browser 都有 drainer，这里此前漏了）
+            Thread drainer = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        boolean over;
+                        synchronized (output) {
+                            over = output.length() + line.length() > maxOutputSize;
+                            if (!over) output.append(line).append("\n");
+                        }
+                        if (over) truncated[0] = true;   // 继续排空管道，不能让子进程阻塞
+                    }
+                } catch (IOException ignored) {
+                }
+            }, "py-exec-drain");
+            drainer.setDaemon(true);
+            drainer.start();
+
+            try {
                 boolean finished = process.waitFor(maxExecutionTime, TimeUnit.SECONDS);
                 if (!finished) {
+                    process.destroyForcibly();   // 先杀再收尾：drainer 读到 EOF 才能退出
+                    drainer.join(1000);
                     return createMsg().setParam(RESULT, false)
                             .setParam(AI_P_SKILLOUTPUT, "Execution timeout (" + maxExecutionTime + "s)");
                 }
-
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (output.length() + line.length() > maxOutputSize) {
-                        output.append("\n...(output truncated)");
-                        break;
-                    }
-                    output.append(line).append("\n");
-                }
+                // 进程已退出：drainer 读到 EOF 即结束，join 保证输出完整
+                drainer.join(2000);
 
                 int exitCode = process.exitValue();
-
-                String result = output.length() > 0 ? output.toString() : "(no output)";
+                String result;
+                synchronized (output) {
+                    result = output.length() > 0 ? output.toString() : "(no output)";
+                }
+                if (truncated[0]) result += "\n...(output truncated)";
                 putLog("Python executed, exit code: " + exitCode, LogLevel.DEBUG);
 
                 return createMsg().setParam(RESULT, exitCode == 0)
@@ -200,7 +230,10 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
     }
 
     /**
-     * 通过Java ScriptEngine执行JavaScript
+     * 通过Java ScriptEngine执行JavaScript。
+     * <p>每次新建 ScriptEngine 是**故意的**：JSR-223 的 ScriptEngine 非线程安全，
+     * 池化/单例必须自己加锁（eval 会改引擎内部状态）。此处选择"慢但正确"，
+     * 不要为了性能改成 shared 单例。</p>
      */
     private TLMsg executeJavaScript(String code) {
         try {

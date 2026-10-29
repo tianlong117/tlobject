@@ -440,12 +440,16 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.INFO);
         putLog("    任务: " + task, LogLevel.INFO);
 
-        // 向监控模块登记（与 TLAiAgent.doChat 同契约），finally 注销
-        putMsg(M_AGENTMONITOR, createMsg().setAction("register")
+        // 向监控模块登记（与 TLAiAgent.doChat 同契约），finally 注销。
+        // IGNOREMODULEISNULL：监控是可选模块，未配置时不能走 putMsg 的默认
+        // "模块不存在即 shutdown(-1)" 分支把整个应用带走
+        TLMsg monitorReg = createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, baseSession)
                 .setParam("rootSessionId", rootSessionId)
                 .setParam(AI_P_USERID, gUserId)
-                .setParam("agentName", getName()));
+                .setParam("agentName", getName());
+        monitorReg.setSystemParam(IGNOREMODULEISNULL, true);
+        putMsg(M_AGENTMONITOR, monitorReg);
         try {
             LinkedHashMap<String, String> results;
             String plainAnswer;   // 无监理时的返回内容
@@ -470,7 +474,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, plainAnswer);
         } finally {
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
-                    .setParam(AI_P_SESSIONID, baseSession));
+                    .setParam(AI_P_SESSIONID, baseSession)
+                    .setSystemParam(IGNOREMODULEISNULL, true));
         }
     }
 

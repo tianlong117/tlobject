@@ -120,6 +120,7 @@ public class TLEvalReport {
         int agentChatCount = 0;
 
         for (TLEvalRunResult r : results) {
+            if (r == null) continue;   // 外部 JSON 的 null 元素（toMarkdown 侧已有同款防御）
             // 跳过先判：它不占通过也不占失败，更不进通过率分母——"没跑"不能折算成任何一边
             if (r.skipped) summary.skipped++;
             else if (r.passed) summary.passed++;

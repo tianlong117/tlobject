@@ -548,7 +548,12 @@ public class TLWorkflowEngine implements TLParamString {
                 case "!=": return a != b;
                 default:   return false;
             }
-        } catch (Exception e) { return false; }
+        } catch (Exception e) {
+            // 表达式写错/值不能转数字时不能静默当"假"——下游会拿到错误分支且无人知晓。
+            // 收集到 warnings，由宿主 drainWarnings 统一 WARN 输出。
+            warnings.add("条件求值失败 [" + expr + "]: " + e.getMessage());
+            return false;
+        }
     }
 
     private double toDouble(Object v) {

@@ -289,11 +289,28 @@ public class TLAgentWorkflow extends TLBaseModule
         }
     }
 
+    /**
+     * 只挂 module= 的节点：显式指定了目标工厂模块，且自身没有 sameClassAs/classfile、
+     * 工作流 &lt;modules&gt; 里也没声明同名模块。这类节点直接用工厂模块（单例），
+     * 不建私有实例——否则 getMyModule(nid) 会为每个这样的节点尝试创建同名模块并打 ERROR。
+     */
+    private boolean isModuleOnlyNode(TLWorkflowNode node) {
+        String module = node.getModule();
+        if (module == null || module.isEmpty()) return false;
+        String sameClassAs = node.getSameClassAs();
+        if (sameClassAs != null && !sameClassAs.isEmpty()) return false;
+        String classfile = node.getClassfile();
+        if (classfile != null && !classfile.isEmpty()) return false;
+        return modulesClass == null || !modulesClass.containsKey(node.getId());
+    }
+
     /** 初始化阶段创建所有 agent 节点的私有模块实例，失败当场报错 */
     private void initNodeModules() {
         for (TLWorkflowNode node : configuredNodes.values()) {
             if (node.getType() != TLWorkflowNodeType.AGENT) continue;
             String nid = node.getId();
+            // module= 节点不需要私有实例：运行时直接投给工厂模块（见 runAgentNode 兜底分支）
+            if (isModuleOnlyNode(node)) continue;
             try {
                 Object inst = getMyModule(nid);
                 if (inst != null) {
@@ -517,6 +534,9 @@ public class TLAgentWorkflow extends TLBaseModule
         for (TLWorkflowNode node : workflowNodes.values()) {
             if (node.getType() != TLWorkflowNodeType.AGENT) continue;
             String nid = node.getId();
+            // 只依赖 module= 的节点用工厂模块本身（文档语义"工厂同名模块兜底"），
+            // 不能拿 getMyModule 当存在性检查——那会给每个 module= 节点尝试创建同名模块并打 ERROR
+            if (isModuleOnlyNode(node)) continue;
             if (getMyModule(nid) != null) continue; // 已存在（静态配置或之前创建过）
 
             if (node.getSameClassAs() != null) {
@@ -744,10 +764,14 @@ public class TLAgentWorkflow extends TLBaseModule
             msg.setSystemParam(AI_P_ROUNDID, nodeInput.getSystemParam(AI_P_ROUNDID, ""));
         }
 
-        // 节点 id 即模块名（<modules> 中定义），getMyModule 创建/获取自有实例。
+        // 节点 id 即模块名（<modules> 中定义），优先用已建好的私有实例；
+        // 只挂 module= 的节点不走私有实例创建，直接落到下方工厂模块兜底分支。
         // 节点自身任务指令由 TLAiAgent 层统一处理（task 参数前置到 user 消息），此处无需重复
         TLMsg ret;
-        TLBaseModule target = (TLBaseModule) getMyModule(nid);
+        TLBaseModule target = (TLBaseModule) modules.get(nid);
+        if (target == null && !isModuleOnlyNode(node)) {
+            target = (TLBaseModule) getMyModule(nid);
+        }
         if (target != null) {
             ret = putMsg(target, msg);
         } else if (node.getModule() != null) {

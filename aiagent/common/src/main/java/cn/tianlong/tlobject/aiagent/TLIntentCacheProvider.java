@@ -91,8 +91,11 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             };
 
     /** Phase 1 待学习暂存：归一化消息键 → 条目。
-     *  用消息键而非 sessionId：llmMsg 不带 sessionId（全部显示 default），
-     *  且 master/工作流节点共享同一缓存实例，按消息追踪互不干扰 */
+     *  键刻意用消息文本（数字归一化为槽位）而不是 sessionId：master/工作流节点共享
+     *  同一缓存实例，模板级共享才有效命中的价值。代价是跨会话共享模板——
+     *  同结构但数字含义不同的请求会互相命中（已有设计取舍，见类注释）。
+     *  注：llmMsg 本身是带 sessionId 的（TLAiAgent 发请求时 setParam），
+     *  要做会话隔离随时可用，只是当前版本没有这么做。 */
     private final ConcurrentHashMap<String, PendingEntry> pendingLearn = new ConcurrentHashMap<>();
 
     /** Phase 1 缓存命中的消息键（Phase 2 据此合成终版响应，零 LLM） */
@@ -223,7 +226,6 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         @SuppressWarnings("unchecked")
         List<TLConversationHistory> messages =
                 (List<TLConversationHistory>) msg.getListParam(AI_P_MESSAGEHISTORY, new ArrayList<>());
-        String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
 
         // 阶段判定：仅看"本轮"（最后一条 user 消息之后）是否已有工具结果。
         // 多轮会话里历史包含前几轮的 tool_result，若按全历史判断会把新一轮误判为 phase TWO，
@@ -237,12 +239,12 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             TLConversationHistory h = messages.get(i);
             if (h.getToolCallId() != null && !h.getToolCallId().isEmpty()) { hasToolResults = true; break; }
         }
-        return hasToolResults ? phaseTwo(msg, messages, sessionId) : phaseOne(msg, messages, sessionId);
+        return hasToolResults ? phaseTwo(msg, messages) : phaseOne(msg, messages);
     }
 
     /** Phase 1：无工具结果——查缓存，命中返回缓存的 tool_calls，未命中转发并观察学习 */
     @SuppressWarnings("unchecked")
-    private TLMsg phaseOne(TLMsg msg, List<TLConversationHistory> messages, String sessionId) {
+    private TLMsg phaseOne(TLMsg msg, List<TLConversationHistory> messages) {
         String lastUser = extractLastUserMessage(messages);
         if (lastUser.isEmpty()) return forward(msg);   // 异常形态直通
 
@@ -291,7 +293,7 @@ public class TLIntentCacheProvider extends TLLlmProvider {
     }
 
     /** Phase 2：含工具结果——命中路径合成终版（零 LLM）；正常路径转发并提交/丢弃学习 */
-    private TLMsg phaseTwo(TLMsg msg, List<TLConversationHistory> messages, String sessionId) {
+    private TLMsg phaseTwo(TLMsg msg, List<TLConversationHistory> messages) {
         String lastUser = extractLastUserMessage(messages);
         String key = lastUser.isEmpty() ? null : normalizeIntents(lastUser);
 

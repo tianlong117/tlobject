@@ -716,7 +716,9 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         boolean allPassed = true;
 
         if (evalCase.judges == null || evalCase.judges.isEmpty()) {
-            result.passed = true;
+            // 没判据时 passed 只能是"执行没出错"：chat 调用失败/模块不存在（result.error != null）
+            // 不能算通过——否则无判据用例 + 调用失败 = 假绿灯，基线对比也不会标红
+            result.passed = result.error == null;
             return;
         }
 

@@ -488,8 +488,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
     @Override
     protected TLMsg listModels(Object fromWho, TLMsg msg) {
         String path = "/v1/models";
-        Request request = buildHttpRequest(path, "", null);
-        // 需要GET请求
+        // 需要 GET 请求（buildHttpRequest 构造的是 POST，别用）
         Request getRequest = new Request.Builder()
                 .url(joinBaseUrl(apiBaseUrl, path))
                 .get()

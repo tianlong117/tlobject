@@ -1095,7 +1095,16 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 r.required = true;
                 r.ruleId = prefixRuleNames.getOrDefault(prefix, prefix);
                 String op = extractOperation(toolName, args);
-                r.operation = op != null ? op : "";
+                // 冒号风格函数名（tool:action）：从函数名里取 action 作为操作名
+                if ((op == null || op.isEmpty()) && prefix.endsWith(":")) {
+                    String suffix = toolName.substring(prefix.length());
+                    if (!suffix.isEmpty()) op = suffix.toLowerCase();
+                }
+                // 仍取不到操作名（如 MCP 的 agentName_toolName，args 里没有 operation/method/action）：
+                // 用完整函数名当区分键。否则同前缀下所有工具共享 (ruleId, "") 授权——
+                // 用户批准 filesystemMcp_read_file 后，filesystemMcp_write_file 会被静默放行（授权串联）。
+                if (op == null || op.isEmpty()) op = toolName.toLowerCase();
+                r.operation = op;
                 return r;
             }
         }

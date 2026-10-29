@@ -71,9 +71,10 @@ public class TLExactMatchJudge implements TLEvalJudge {
         if ("flexible".equals(normalizeMode)) {
             result = result.replace('，', ',').replace('。', '.').replace('！', '!')
                     .replace('？', '?').replace('；', ';').replace('：', ':')
-                    .replace('"', '"').replace('"', '"')
+                    // 全角引号 → 半角（原代码两处都写成了半角 ASCII 引号，是 no-op）
+                    .replace('“', '"').replace('”', '"')
                     .replace('（', '(').replace('）', ')')
-                    .replace('\'', '\'').replace('\'', '\'');
+                    .replace('‘', '\'').replace('’', '\'');
         }
         if (ignoreCase) result = result.toLowerCase();
         return result;

@@ -22,14 +22,16 @@ import java.util.Map;
  *  - 零外部依赖（纯 JDK Robot）；无子进程开销；不受 Python 环境/GBK 编码影响
  *
  * 配置参数（XML params）：
- *  - maxShotHeight: 截图最大高度（默认 1080；超出按比例缩小，控制 base64 体量；0=不限）
+ *  - maxShotHeight: 截图最大高度（默认 0=不缩放）。>0 且截图超高时会等比缩小以控制 base64 体量，
+ *    但**图像坐标不再等于屏幕坐标**——模型从缩略图读到的坐标点下去会整倍错位，所以缩放状态下
+ *    click/move/drag 会被拒绝并提示改回 0。4K 屏保持默认 0，坐标才能直传。
  *
  * 创建日期：2026/10/04 作者:tianlong
  */
 public class TLDesktopJavaSkill extends TLBaseSkill {
 
-    /** 截图最大高度（像素）；超出按比例缩小 */
-    private int maxShotHeight = 1080;
+    /** 截图最大高度（像素）；超出按比例缩小。默认 0：坐标与屏幕一致（缩放会拒绝点击） */
+    private int maxShotHeight = 0;
 
     private volatile JavaDesktopEngine engine;
 

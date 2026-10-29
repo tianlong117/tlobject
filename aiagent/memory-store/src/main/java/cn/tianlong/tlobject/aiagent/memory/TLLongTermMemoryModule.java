@@ -158,6 +158,24 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             if (msg.containsParam("metadata")) {
                 entry.setMetadata((Map<String, Object>) msg.getMapParam("metadata", new HashMap<>()));
             }
+        } else {
+            // 外部传入 entry：key 必须带 userId 作用域，否则 persistPending 会把
+            // "key 第一段"当成用户、落到错误的用户目录。补前缀用副本，不改调用方对象。
+            String k = entry.getKey();
+            String scopedPrefix = buildScopedKey(userId + ":");
+            if (k == null || k.isEmpty())
+                k = "mem_" + UUID.randomUUID().toString().substring(0, 8);
+            if (!k.startsWith(scopedPrefix)) {
+                String scopedKey = buildScopedKey(userId + ":" + k);
+                putLog("TLLongTermMemory: 外部 entry 的 key 未带 userId 前缀，已按 userId 重挂: "
+                        + k + " -> " + scopedKey, LogLevel.WARN);
+                TLMemoryEntry scoped = new TLMemoryEntry(scopedKey, entry.getValue(), entry.getType());
+                scoped.setTag(entry.getTag());
+                scoped.setCreatedAt(entry.getCreatedAt());
+                scoped.setExpiresAt(entry.getExpiresAt());
+                scoped.setMetadata(entry.getMetadata());
+                entry = scoped;
+            }
         }
 
         // embedding：文本向量化并存入 entry metadata
@@ -514,8 +532,14 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     /** 从 scopedKey 提取 userId（第一段） */
     private String extractUserId(String scopedKey) {
         if (scopedKey == null) return "default";
-        int idx = scopedKey.indexOf(':');
-        return idx > 0 ? scopedKey.substring(0, idx) : "default";
+        String key = scopedKey;
+        // agentNamespace 也是 key 前缀（buildScopedKey 先拼它），不剥掉的话
+        // 所有用户都会被当成同一个"用户 ns"，记忆文件全落到 ns 目录
+        if (agentNamespace != null && !agentNamespace.isEmpty()
+                && key.startsWith(agentNamespace + ":"))
+            key = key.substring(agentNamespace.length() + 1);
+        int idx = key.indexOf(':');
+        return idx > 0 ? key.substring(0, idx) : "default";
     }
 
     protected synchronized void persistPending() {

@@ -33,6 +33,11 @@ public class JavaDesktopEngine {
     /** 截图最大高度（像素）；超出按比例缩小，保证 base64 体量可控（4K 全屏 PNG 可达数 MB）。0=不限 */
     private final int maxShotHeight;
 
+    /** 最近一次截图是否被缩放（imageHeight / rect.height，<1 表示缩过）。
+     *  缩放后图像坐标 ≠ 屏幕坐标，此时坐标类动作直接拒绝，避免"看着对、实际错"的整倍错位。 */
+    private volatile double lastShotScale = 1.0;
+    private volatile String lastShotSize = "";
+
     private final Robot robot;
     /** 物理像素 / AWT 报告尺寸。1.0=无缩放或 JVM 已 DPI 感知；>1.0=坐标错位风险 */
     private double dpiScale = 1.0;
@@ -119,6 +124,12 @@ public class JavaDesktopEngine {
                 + "截图与坐标查询仍可用。");
     }
 
+    /** 截图被缩放后的坐标动作拒绝：模型读的是图上像素，Robot 点的是屏幕像素，静默错位比失败更糟 */
+    private Map<String, Object> scaledReject() {
+        return err("截图已缩放到 " + lastShotSize + "，图像坐标与屏幕坐标不一致，点击/移动/拖拽会错位，已拒绝执行；"
+                + "请把 desktop skill 的 maxShotHeight 配为 0（或截图后用 get_screen_size 按屏幕坐标操作）。");
+    }
+
     // ======================== 动作分发 ========================
 
     private static final String VALID_ACTIONS =
@@ -180,6 +191,20 @@ public class JavaDesktopEngine {
         out.put("x", rect.x); out.put("y", rect.y);
         out.put("width", rect.width); out.put("height", rect.height);
         out.put("screen_width", screenW); out.put("screen_height", screenH);
+        // 图像尺寸与缩放比：缩放后图像坐标不再是屏幕坐标，坐标类动作会被拒绝
+        int imgH = (maxShotHeight > 0 && rect.height > maxShotHeight) ? maxShotHeight : rect.height;
+        int imgW = Math.max(1, (int) Math.round((double) rect.width * imgH / rect.height));
+        double scale = (double) imgH / rect.height;
+        lastShotScale = scale;
+        lastShotSize = imgW + "x" + imgH;
+        out.put("image_width", imgW);
+        out.put("image_height", imgH);
+        out.put("image_to_screen", scale > 0 ? (1.0 / scale) : 1.0);   // 屏幕像素 = 图中像素 × 该系数
+        if (scale < 1.0) {
+            out.put("coord_notice", "截图已缩放到 " + imgW + "x" + imgH + "（屏幕 " + rect.width + "x"
+                    + rect.height + "）：图中坐标与屏幕坐标不一致，点击/移动/拖拽会被拒绝。"
+                    + "把 desktop skill 的 maxShotHeight 配为 0 即可恢复精确坐标。");
+        }
         if (clampNotice != null) out.put("notice", clampNotice);
         if (dpiMismatch()) {
             out.put("dpi_notice", "系统缩放约 " + Math.round((dpiScale - 1) * 100)
@@ -212,6 +237,7 @@ public class JavaDesktopEngine {
 
     private Map<String, Object> move(Map<String, Object> in) {
         if (dpiMismatch()) return dpiReject();
+        if (lastShotScale < 1.0) return scaledReject();
         Integer x = intOf(in, "x"), y = intOf(in, "y");
         if (x == null || y == null) return err("move requires x,y");
         if (!inBounds(x, y)) return outOfBounds(x, y);
@@ -223,6 +249,7 @@ public class JavaDesktopEngine {
 
     private Map<String, Object> click(Map<String, Object> in, int clicks) throws InterruptedException {
         if (dpiMismatch()) return dpiReject();
+        if (lastShotScale < 1.0) return scaledReject();
         Integer x = intOf(in, "x"), y = intOf(in, "y");
         if (x == null || y == null) return err((clicks > 1 ? "double_click" : "click") + " requires x,y");
         if (!inBounds(x, y)) return outOfBounds(x, y);
@@ -242,6 +269,7 @@ public class JavaDesktopEngine {
 
     private Map<String, Object> drag(Map<String, Object> in) throws InterruptedException {
         if (dpiMismatch()) return dpiReject();
+        if (lastShotScale < 1.0) return scaledReject();
         Integer x1 = intOf(in, "x1"), y1 = intOf(in, "y1");
         Integer x2 = intOf(in, "x2"), y2 = intOf(in, "y2");
         if (x1 == null || y1 == null || x2 == null || y2 == null)

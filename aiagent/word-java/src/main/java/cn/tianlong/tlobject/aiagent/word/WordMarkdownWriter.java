@@ -97,7 +97,12 @@ public final class WordMarkdownWriter {
         try {
             org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr pPr = p.getCTP().isSetPPr()
                     ? p.getCTP().getPPr() : p.getCTP().addNewPPr();
-            pPr.addNewOutlineLvl().setVal(java.math.BigInteger.valueOf(lv - 1));
+            // 已存在时 addNew 的语义随 POI 版本波动（部分版本抛异常被吞 → outlineLvl 静默丢失），
+            // 先 set 再兜底 add
+            if (pPr.isSetOutlineLvl())
+                pPr.getOutlineLvl().setVal(java.math.BigInteger.valueOf(lv - 1));
+            else
+                pPr.addNewOutlineLvl().setVal(java.math.BigInteger.valueOf(lv - 1));
         } catch (Throwable ignored) { }
     }
 

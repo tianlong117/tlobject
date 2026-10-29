@@ -1309,11 +1309,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         currentRootSessionId.set(ctx.rootSid);
         currentChatUserId.set(ctx.userId);
 
+        // IGNOREMODULEISNULL：监控是可选模块，未配置时不能走 putMsg 的默认
+        // "模块不存在即 shutdown(-1)" 分支把整个应用带走
         putMsg(M_AGENTMONITOR, createMsg().setAction("register")
                 .setParam(AI_P_SESSIONID, sessionId)
                 .setParam("rootSessionId", ctx.rootSid)
                 .setParam(AI_P_USERID, ctx.userId)
-                .setParam("agentName", getName()));
+                .setParam("agentName", getName())
+                .setSystemParam(IGNOREMODULEISNULL, true));
         ctx.monitorRegistered = true;
 
         traceStage(sessionId, ctx.rootSid, ctx.roundId, "roundStart",
@@ -1561,7 +1564,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         if (ctx.monitorRegistered) {
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
-                    .setParam(AI_P_SESSIONID, ctx.sessionId));
+                    .setParam(AI_P_SESSIONID, ctx.sessionId)
+                    .setSystemParam(IGNOREMODULEISNULL, true));
         }
         currentRootSessionId.remove();
         currentChatUserId.remove();
@@ -1603,6 +1607,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                           StreamSink sink, boolean preBegan) {
         ChatRunContext ctx = newContext(fromWho, msg, sink, preBegan);
         try {
+            // initToolManager 失败时只打 WARN、toolManager 保持 null；继续跑会在
+            // putMsg(toolManager, ...) 处 NPE（prepareHistory 恢复分支 / prepareChat 取函数定义）。
+            // 放在 try 内：cleanupChatRun 负责释放会话轮次，streamError 负责给流式前端发终帧。
+            if (toolManager == null) {
+                String error = "Agent [" + name + "] 的工具管理模块未初始化（initToolManager 失败），拒绝执行 chat";
+                putLog(error, LogLevel.ERROR);
+                streamError(ctx, error);
+                return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, error);
+            }
             prepareChat(ctx);
             if (ctx.terminalResult != null) {
                 if (ctx.terminalAsFinal)

@@ -255,7 +255,9 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                         List<TLConversationHistory> prefix =
                                 new ArrayList<>(history.subList(i, idxInFull));
                         filtered.addAll(startIdx, prefix);
-                        startIdx += prefix.size();
+                        // ⚠ 不推进 startIdx：补回的前缀必须留在视图内——推进会把刚借回的
+                        //   assistant 又切出视图，孤儿 tool 被下游净化删掉，等于白补。
+                        //   （与 TLAiAgent.buildSendList 同一不变量）
                         break;
                     }
                 }

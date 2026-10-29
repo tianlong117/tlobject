@@ -319,6 +319,8 @@ public class TLFileOperationSkill extends TLBaseSkill {
     }
 
     private static int countOccurrences(String s, String sub) {
+        // 空 needle 会让 indexOf 永远返回 i、i 不前进 → 死循环（调用方目前有前置守卫，仍要防守）
+        if (s == null || sub == null || sub.isEmpty()) return 0;
         int n = 0, i = 0;
         while ((i = s.indexOf(sub, i)) >= 0) { n++; i += sub.length(); }
         return n;

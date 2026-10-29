@@ -195,8 +195,10 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     @SuppressWarnings("unchecked")
     protected TLMsg retrieve(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        // 长期记忆按 userId 隔离（与 store 一致）；缺省回落到 sessionId 兼容旧调用
+        String userId = msg.getStringParam("userId", sessionId);
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
-        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
+        String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
 
         TLMemoryEntry cached = cache.get(scopedKey);
         if (cached != null && !cached.isExpired()) {
@@ -280,7 +282,9 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
                     }
                     if (excludeChatHistory && maxSummaryTs > 0L) {
                         sql.append(" and (tag != ? or created_at > ?)");
-                        sqlparams.put("tag", TAG_CHAT_HISTORY);
+                        // 用独立 key：TLDatabase 按 LinkedHashMap 的 key 顺序取 values() 绑参，
+                        // 与上面的 "tag" 同名会让占位符错位（当前两个分支互斥，属防回归加固）
+                        sqlparams.put("excludeTag", TAG_CHAT_HISTORY);
                         sqlparams.put("created_at", maxSummaryTs);
                     }
                     sql.append(" and metadata is not null and metadata like '%embedding%'");
@@ -328,7 +332,8 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         }
         if (excludeChatHistory && maxSummaryTs > 0L) {
             sql.append(" and (tag != ? or created_at > ?)");
-            sqlparams.put("tag", TAG_CHAT_HISTORY);
+            // 独立 key，理由同 embedding 分支：避免与用户 tag 同名导致绑定顺序错位
+            sqlparams.put("excludeTag", TAG_CHAT_HISTORY);
             sqlparams.put("created_at", maxSummaryTs);
         }
         if (!query.isEmpty()) {
@@ -364,8 +369,10 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
     @Override
     protected TLMsg delete(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
+        // 与 store/retrieve 同一 key 构造：userId 优先，缺省回落 sessionId
+        String userId = msg.getStringParam("userId", sessionId);
         String tag = msg.getStringParam(AI_P_MEMORYTAG, null);
-        String scopedKey = buildScopedKey(sessionId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
+        String scopedKey = buildScopedKey(userId + ":" + (tag != null ? tag + ":" : "") + msg.getStringParam(AI_P_MEMORYKEY, ""));
         delete(scopedKey);
         return createMsg().setParam(RESULT, true);
     }

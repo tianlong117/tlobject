@@ -451,6 +451,22 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         watchdog.scheduleWithFixedDelay(this::sweepStaleTasks, 60, 60, java.util.concurrent.TimeUnit.SECONDS);
     }
 
+    /**
+     * 退役清理：关掉看门狗线程。
+     * /reload 换实例时框架走 getNewModule、不会调到这里——热重载路径由 TLToolManager.reloadFunction
+     * 显式发 MODULE_DESTROY 兜住；进程退出时 daemon 线程自然结束。
+     */
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        java.util.concurrent.ScheduledExecutorService wd;
+        synchronized (this) {
+            wd = watchdog;
+            watchdog = null;
+        }
+        if (wd != null) wd.shutdownNow();
+        return super.destroy(fromWho, msg);
+    }
+
     /** 周期扫描：超时未收尾的运行中任务强制收尾（background 一次性任务不依赖再次触发） */
     private void sweepStaleTasks() {
         try {
@@ -758,12 +774,16 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
         m.addSystemArgs(msg.getSystemArgs());
         Object target = getModuleFromFactory(destModule);
         TLMsg r = null;
-        if (target instanceof IObject) {
-            r = putMsg((IObject) target, m);
-        } else {
-            putLog("任务 [" + taskId + "] 目标模块不存在: " + destModule, LogLevel.ERROR);
+        try {
+            if (target instanceof IObject) {
+                r = putMsg((IObject) target, m);
+            } else {
+                putLog("任务 [" + taskId + "] 目标模块不存在: " + destModule, LogLevel.ERROR);
+            }
+        } finally {
+            // 无论目标模块是否抛异常都要回写计数：漏写会让一次性任务 enabled 永真 → 无限重复执行
+            updateRecordAfterRun(taskId);
         }
-        updateRecordAfterRun(taskId);
         return r;
     }
 
