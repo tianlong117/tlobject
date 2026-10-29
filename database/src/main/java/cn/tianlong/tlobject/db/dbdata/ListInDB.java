@@ -29,8 +29,19 @@ public class ListInDB extends MapInDB {
 
     }
     public boolean  add(Object value){
-        long size=size() ;
-        String key =String.valueOf(size);
+        // 不能拿 size() 当 key：remove(index) 后 size 会回退，新 key 会覆盖既有元素（数据丢失）。
+        // 取现有数字 key 的最大值 + 1。
+        int next = 0;
+        Map<String, Object> dbmap = super.getAll();
+        if (dbmap != null) {
+            for (String key : dbmap.keySet()) {
+                try {
+                    int k = Integer.parseInt(key);
+                    if (k >= next) next = k + 1;
+                } catch (NumberFormatException ignored) { }
+            }
+        }
+        String key =String.valueOf(next);
         return super.put(key,value);
     }
     public boolean  addAll(int index ,List list){

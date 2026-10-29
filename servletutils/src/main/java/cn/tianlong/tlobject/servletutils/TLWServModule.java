@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.servletutils;
 
 import cn.tianlong.tlobject.base.*;
+import cn.tianlong.tlobject.modules.LogLevel;
 import org.apache.commons.lang3.StringUtils;
 
 import javax.servlet.ServletContext;
@@ -48,41 +49,58 @@ public abstract class TLWServModule extends TLBaseModule {
         if(userObj ==null)
         {
             TLMsg returnMsg =putMsg(M_APPCENTER,createMsg().setAction("getDefaultUser"));
+            if(returnMsg ==null)
+                return null ;
             userObj= (String) returnMsg.getParam("userObj");
         }
         return userObj;
     }
     protected String getUserid()
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETLOGINSTATE));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)            // 无用户上下文：putMsg(null,...) 会在 getModule 里 NPE
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
         return (String) returnMsg.getParam(USER_P_USERID);
     }
     protected String getUserName()
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETLOGINSTATE));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
         return (String) returnMsg.getParam(USER_P_USERNAME);
     }
     protected String getToken()
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETLOGINSTATE));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
         return (String) returnMsg.getParam(TOKENUSER_P_TOKEN);
     }
     protected ArrayList<String> getUserRole()
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETLOGINSTATE));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
         return (ArrayList) returnMsg.getParam(USER_P_ROLE);
     }
     protected boolean setUserSessionData(String varName,Object varValue)
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return false ;
+        TLMsg returnMsg =putMsg(userObjName,
                 createMsg().setAction(USER_SAVEDATA).setParam( varName,varValue));
         if(returnMsg ==null)
             return false ;
@@ -90,7 +108,10 @@ public abstract class TLWServModule extends TLBaseModule {
     }
     protected Boolean removeUserSessionData(String varName)
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return false ;
+        TLMsg returnMsg =putMsg(userObjName,
                 createMsg().setAction(USER_REMOVEDATA).setParam( USER_P_DATANAMES,varName));
         if(returnMsg ==null)
             return false ;
@@ -98,14 +119,20 @@ public abstract class TLWServModule extends TLBaseModule {
     }
     protected Object getUserSessionData(String varName)
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETDATA).setParam( USER_P_DATANAMES,varName));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETDATA).setParam( USER_P_DATANAMES,varName));
         if(returnMsg ==null)
             return null ;
         return  returnMsg.getParam(varName);
     }
     protected Map<String,Object> getUserSessionData()
     {
-        TLMsg returnMsg =putMsg(getUserObjName(),createMsg().setAction(USER_GETALLDATA));
+        String userObjName =getUserObjName();
+        if(userObjName ==null)
+            return null ;
+        TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETALLDATA));
         if(returnMsg ==null)
             return null ;
         return returnMsg.getArgs();
@@ -190,33 +217,54 @@ public abstract class TLWServModule extends TLBaseModule {
         if(client ==null)
         {
             String userObj =  getUserObjName();
+            if (userObj == null)          // 无用户上下文：putMsg(null,...) 会 NPE
+                return null;
             TLMsg returnMsg =putMsg(userObj,createMsg().setAction(USER_GETCLIENT));
-            client= (String) returnMsg.getParam(USER_R_CLIENT);
+            if (returnMsg == null)
+                return null;
+            Object clientObj = returnMsg.getParam(USER_R_CLIENT);
+            client = clientObj instanceof String ? (String) clientObj : null;
         }
         return client;
     }
    protected  boolean putFile (String filePath,String fileName){
        File file = new File(filePath);//获取缓存文件
-       if(!file.exists())
+       if(!file.exists()) {
+           putLog("putFile: 文件不存在, path:" + filePath, LogLevel.WARN, "putFile");
            return false ;
+       }
        InputStream inputStream = null;
        try {
            inputStream = new FileInputStream(file);
        } catch (FileNotFoundException e) {
-         return  false ;
+           putLog("putFile: 无法打开文件, path:" + filePath, LogLevel.WARN, "putFile");
+           return  false ;
        }
        return putStream(fileName,inputStream) ;
    }
     protected boolean putStream(String fileName, InputStream inputStream){
         boolean   ifDo =true ;
         String filetype =StringUtils.substringAfterLast(fileName,".");
+        if (filetype == null)             // 文件名无扩展名：substringAfterLast 返回 null
+            filetype = "";
+        filetype = filetype.toLowerCase();
         HttpServletResponse response =getResponse();
-        try {
-            int length = inputStream.available();
-            response.setContentLength( length);
-        } catch (IOException e) {
-            e.printStackTrace();
+        if (response == null)             // 非请求线程/上下文未就绪
+            return false;
+        // available() 只是"当前可无阻塞读取的字节数"，不等于总长度（设置错的 Content-Length 会截断下载）。
+        // 文件流用 channel.size() 拿准确长度；其他流拿不到就交给容器 chunked
+        long length = -1L;
+        if (inputStream instanceof FileInputStream) {
+            try { length = ((FileInputStream) inputStream).getChannel().size(); }
+            catch (IOException ignored) { length = -1L; }
+        } else {
+            try {
+                int available = inputStream.available();
+                if (available > 0) length = available;
+            } catch (IOException ignored) { }
         }
+        if (length > 0)
+            response.setContentLengthLong(length);
         if(filetype.equals("jpg")||filetype.equals("gif")||filetype.equals("jpeg")||filetype.equals("tif")
                 ||filetype.equals("png")||filetype.equals("bmp")){
             response.setContentType("image/".concat(filetype).concat(";charset=UTF-8"));
@@ -247,11 +295,17 @@ public abstract class TLWServModule extends TLBaseModule {
         } catch (IOException e) {
             e.printStackTrace();
             return false;
+        } catch (IllegalStateException e) {
+            // 同一响应已经用过 getWriter()（getWriter/getOutputStream 二选一）：
+            // 这不是 IO 错误，原 catch 接不住会直接抛到容器
+            putLog("putStream: 响应已使用 getWriter(), 不能再取 OutputStream, file:" + fileName,
+                    LogLevel.WARN, "putStream");
+            return false;
         }
         byte[] buf = new byte[4096];
         int size;
         try {
-            while (-1 != (size = inputStream.read(buf))) {
+            while (-1 != (size = inputStream.read(buf, 0, buf.length))) {
                 out.write(buf, 0, size);
                 out.flush();
             }
@@ -274,6 +328,8 @@ public abstract class TLWServModule extends TLBaseModule {
     protected void setThreadData(String varname ,Object value)
     {
         Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        if(threadDatas ==null)            // 无请求上下文（非请求线程/模块未注册）：不记录
+            return;
         String threadName=Thread.currentThread().getName();
         HashMap<String ,Object> datas =threadDatas.get(threadName);
         if(datas !=null)
@@ -288,6 +344,8 @@ public abstract class TLWServModule extends TLBaseModule {
     {
         String threadName=Thread.currentThread().getName();
         Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        if(threadDatas ==null)
+            return;
         HashMap<String ,Object> datas =threadDatas.get(threadName);
         if(datas !=null)
             datas.putAll(inputdatas);
@@ -301,6 +359,8 @@ public abstract class TLWServModule extends TLBaseModule {
     {
         String threadName=Thread.currentThread().getName();
         Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        if(threadDatas ==null)
+            return null;
         HashMap<String ,Object> datas =threadDatas.get(threadName);
         return (datas!=null)? datas.get(varname):null;
     }
@@ -308,11 +368,15 @@ public abstract class TLWServModule extends TLBaseModule {
     {
         String threadName=Thread.currentThread().getName();
         Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        if(threadDatas ==null)
+            return null;
         return  threadDatas.get(threadName);
     }
     protected  HttpServletResponse getResponse(){
         String threadName=Thread.currentThread().getName();
         Map<String,HttpServletResponse>responseMap = (Map<String, HttpServletResponse>) getModuleInFactory("servletResponse");
+        if (responseMap ==null)          // 与 getRequest 同款：非请求线程/模块未注册时返回 null
+            return null ;
         return responseMap.get(threadName);
     }
     protected  HttpServletRequest getRequest(){
@@ -383,6 +447,12 @@ public abstract class TLWServModule extends TLBaseModule {
             outDataMap.put(varname,value);
             return this;
         }
+        /**
+         * @deprecated 自动编号 key 用「模块名 + 实例内自增 i」生成：不同 outData 实例的
+         * 第一个 addData 都是 {@code name1}，同一输出里混用会互相覆盖。请改用
+         * {@link #addData(String, Object)} 显式给 key（本仓库已无调用方）。
+         */
+        @Deprecated
         public outData addData(Object value )
         {
             String varname =name+i;

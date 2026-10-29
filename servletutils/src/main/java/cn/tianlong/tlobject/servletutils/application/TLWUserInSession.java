@@ -53,6 +53,8 @@ public  class TLWUserInSession extends TLWAbstractUser {
             return createMsg().setParam(RESULT,false) ;
         String dataName = (String) msg.getParam( USER_P_DATANAMES);
         HashMap <String ,Object> sessionDatas = (HashMap<String, Object>)userSessionData.getAttribute(USER_P_USERDATAS);
+        if(sessionDatas ==null)            // 新会话未 save 过：没有数据可删
+            return createMsg().setParam(RESULT,true) ;
         if(sessionDatas.containsKey(dataName))
             sessionDatas.remove(dataName) ;
         return createMsg().setParam(RESULT,true) ;
@@ -63,9 +65,16 @@ public  class TLWUserInSession extends TLWAbstractUser {
         if(userSessionData ==null)
             return createMsg().setParam(RESULT,false) ;
         HashMap <String ,Object> sessionDatas = (HashMap<String, Object>)userSessionData.getAttribute(USER_P_USERDATAS);
+        if(sessionDatas ==null)            // 新会话第一次读：返回空而不是 NPE
+            return createMsg().setParam(RESULT,false) ;
         String dataName = (String) msg.getParam( USER_P_DATANAMES);
-        if(dataName !=null)
-            return createMsg().setParam(dataName,sessionDatas.get(dataName));
+        if(dataName !=null) {
+            Object value = sessionDatas.get(dataName);
+            TLMsg dataMsg = createMsg().setParam(dataName, value);
+            if (value == null)          // key 不存在：与"未登录"一样用 RESULT=false 区分
+                dataMsg.setParam(RESULT, false);
+            return dataMsg;
+        }
         HashMap <String ,Object> datas =msg.getArgs();
         TLMsg returnMsg =createMsg();
         for(String key:datas.keySet())
@@ -80,7 +89,7 @@ public  class TLWUserInSession extends TLWAbstractUser {
         if(userSessionData ==null)
             return createMsg().setParam(RESULT,false) ;
         HashMap <String ,Object> sessionDatas = (HashMap<String, Object>)userSessionData.getAttribute(USER_P_USERDATAS);
-        TLMsg returnMsg =createMsg().addArgs(sessionDatas);
+        TLMsg returnMsg =createMsg().addArgs(sessionDatas);   // addArgs 对 null 安全
         return  returnMsg;
     }
     @Override
@@ -150,7 +159,7 @@ public  class TLWUserInSession extends TLWAbstractUser {
             if(userInfo ==null)
                 continue;
             String userid = (String) userInfo.get(USER_P_USERID);
-            if(userid==null)
+            if(userid==null || userid.length() < useridPrefixLength)   // 外部写入的短 userid
                 continue;
             String p =userid.substring(0,useridPrefixLength);
             if(p.equals(useridPrefix))
@@ -193,7 +202,9 @@ public  class TLWUserInSession extends TLWAbstractUser {
         String userid = (String) msg.getParam(USER_P_USERID);
         String userRole= (String) msg.getParam(USER_P_ROLE);
         HttpSession userSessionData =getSesstion();
-        if(params.get(USER_P_TIMEOUT)!=null)
+        if(userSessionData ==null)          // 无 session 上下文（非请求线程）
+            return createMsg().setParam(RESULT,false) ;
+        if(params !=null && params.get(USER_P_TIMEOUT)!=null)
            userSessionData.setMaxInactiveInterval(Integer.valueOf(params.get(USER_P_TIMEOUT))*60);
         userSessionData.setAttribute(USER_P_USEROBJ,this);
         userSessionData.setAttribute(USER_P_USERID,SesstionUserid(userid));
@@ -212,7 +223,12 @@ public  class TLWUserInSession extends TLWAbstractUser {
     protected HttpSession getSesstion () {
         String threadName=Thread.currentThread().getName();
         Map<String,HttpServletRequest> requestMap = (Map<String, HttpServletRequest>) getModuleInFactory("servletRequest");
-        return requestMap.get(threadName).getSession();
+        if (requestMap == null)          // 非请求线程/上下文未就绪
+            return null;
+        HttpServletRequest request = requestMap.get(threadName);
+        if (request == null)
+            return null;
+        return request.getSession();
     }
      protected  String  SesstionUserid(String userid){
         if(userid ==null)
@@ -222,6 +238,8 @@ public  class TLWUserInSession extends TLWAbstractUser {
     protected  String   useridFormSesstion(String sesstionUserid){
         if(sesstionUserid ==null)
             return sesstionUserid ;
+        if(sesstionUserid.length() <= useridPrefixLength)   // 无前缀/短 id：原样返回，别 substring 越界
+            return  sesstionUserid ;
         return  sesstionUserid.substring(useridPrefixLength);
     }
 }

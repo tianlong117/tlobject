@@ -8,7 +8,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import javax.servlet.http.HttpServletResponse;
-import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.CHARSET;
 
@@ -48,7 +48,12 @@ public class TLWJsonDataOutInterface extends TLWDirectOutInterface {
     }
     @Override
     protected TLMsg putDataToUser(Object fromWho, TLMsg msg) {
-        outData outData = (TLWServModule.outData) msg.getParam("outData");
+        Object odObj = msg.getParam("outData");
+        if (!(odObj instanceof TLWServModule.outData)) {   // 调用方漏传 outData 时不要 NPE
+            putLog("putDataToUser: outData 参数缺失或类型错误", LogLevel.ERROR, "putDataToUser");
+            return null;
+        }
+        outData outData = (TLWServModule.outData) odObj;
         // 可选 HTTP 状态码（如未登录 401）：msg 带 httpStatus 参数时设置，无则默认 200
         Object httpStatus = msg.getParam("httpStatus");
         if (httpStatus != null) {
@@ -60,7 +65,9 @@ public class TLWJsonDataOutInterface extends TLWDirectOutInterface {
             HttpServletResponse response = getResponse();
             if (code > 0 && response != null) response.setStatus(code);
         }
-        LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam("outData");
+        // 业务方可能把 outData 里的 "outData" 换成别的 Map 实现：按接口类型取，别强转 LinkedHashMap
+        Object datasObj = outData.getParam("outData");
+        Object datas = datasObj instanceof Map ? datasObj : null;
         String  outContent = toJson(datas);
         return  responseWrite(outContent,(String) msg.getParam(CHARSET));
     }

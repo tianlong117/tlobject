@@ -63,10 +63,14 @@ public  class TLWAPPCenter extends TLWServModule {
     @Override
     public void runStartMsg(){
         super.runStartMsg();
-        if( params.get("defaultClientUser")!=null)
+        if( params !=null && params.get("defaultClientUser")!=null)
         {
             TLMsg returnMsg =putMsg(params.get("defaultClientUser"),createMsg().setAction("getClient"));
-            params.put("defaultClient", (String) returnMsg.getParam("client"));
+            if (returnMsg != null) {
+                Object clientObj = returnMsg.getParam("client");
+                if (clientObj != null)
+                    params.put("defaultClient", String.valueOf(clientObj));
+            }
         }
     }
     @Override
@@ -115,9 +119,11 @@ public  class TLWAPPCenter extends TLWServModule {
     }
 
     protected void end(Object fromWho, TLMsg msg) {
-        Long startTime = (Long) getThreadData("startTime");
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
+        // start 未执行/非请求线程时 startTime 为 null：原来拆箱会 NPE
+        Object startObj = getThreadData("startTime");
+        if (!(startObj instanceof Number))
+            return;
+        long runtime = System.currentTimeMillis() - ((Number) startObj).longValue();
         putLog(filterName+ " 运行时间：" + runtime,LogLevel.INFO,"end");
     }
 

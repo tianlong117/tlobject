@@ -98,11 +98,16 @@ public class uploadFile extends TLWServModule {
         File repository = (File) ctx.getAttribute("javax.servlet.context.tempdir");// 获取临时文件的存储路径
         factory.setRepository(repository);// 设置工程对象的仓库
         ServletFileUpload handler = new ServletFileUpload(factory);// 实例化 servletFileupload 上传
-        int upfileSizeMax;
-        if (msg.getParam(UPLOADFILE_P_FILESIZE) != null)
-            upfileSizeMax = (int) msg.getParam(UPLOADFILE_P_FILESIZE);
-        else
-            upfileSizeMax = fileSizeMax;
+        // 参数可能来自 XML 配置（TLWUploadInInterface 传的是 String）或 webui（int）：
+        // 直接 (int) 强转对 String 会 CCE
+        int upfileSizeMax = fileSizeMax;
+        Object fsObj = msg.getParam(UPLOADFILE_P_FILESIZE);
+        if (fsObj instanceof Number)
+            upfileSizeMax = ((Number) fsObj).intValue();
+        else if (fsObj != null) {
+            try { upfileSizeMax = Integer.parseInt(String.valueOf(fsObj).trim()); }
+            catch (NumberFormatException ignored) { }
+        }
         if (upfileSizeMax > 0)
             handler.setFileSizeMax(upfileSizeMax);
         List<FileItem> items = null;
@@ -207,10 +212,11 @@ public class uploadFile extends TLWServModule {
                         if (fileName.indexOf(".") != -1) {
                             fileName = StringUtils.substringBeforeLast(fileName, ".");
                         }
+                        // 带毫秒：同秒多文件（批量上传/重试）会互相覆盖
                         if (type != null && !type.isEmpty()) {
-                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmss") + "." + type;
+                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmssSSS") + "." + type;
                         } else {
-                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmss");
+                            fileName = fileName + "_" + TLDateUtils.getNowDateStr("yyyyMMddHHmmssSSS");
                         }
                     }
                 }

@@ -32,7 +32,7 @@ public class TLServletFactory extends GenericServlet {
         this.isStartup =isStartup ;
     }
     public  int getNowRequestNumber(){
-        return requestMap.size();
+        return requestMap == null ? 0 : requestMap.size();   // startup=no 时三张表未初始化
     }
     @Override
     public void init(ServletConfig config) throws ServletException {
@@ -48,9 +48,6 @@ public class TLServletFactory extends GenericServlet {
         String  initialCapacityOfConf=config.getInitParameter("initialCapacity");
         if(initialCapacityOfConf !=null && !initialCapacityOfConf.isEmpty() )
             initialCapacity= Integer.parseInt(initialCapacityOfConf);
-        requestMap =new ConcurrentHashMap<>( initialCapacity);
-        responseMap =new ConcurrentHashMap<>(initialCapacity);
-        threadDatas =new ConcurrentHashMap<>(initialCapacity);
         String  initConfigPath=config.getInitParameter("configPath");
         if(initConfigPath==null || initConfigPath.isEmpty())
             initConfigPath="conf";
@@ -66,9 +63,25 @@ public class TLServletFactory extends GenericServlet {
         moduleFactory.startFactory(null,null);
         context.setAttribute( servletName, moduleFactory);
         registInfactory(moduleFactory, "servletContext", context);
-        registInfactory(moduleFactory, "servletRequest", requestMap);
-        registInfactory(moduleFactory, "servletResponse", responseMap);
-        registInfactory(moduleFactory, "threadDatas", threadDatas);
+        // 与 TLServletDispatch / TLFilterWithSingleFactory 同款：已有则复用，不覆盖注册
+        if (moduleFactory.containsModule("servletRequest")) {
+            requestMap = (Map<String, HttpServletRequest>) moduleFactory.getModule("servletRequest");
+        } else {
+            requestMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletRequest", requestMap);
+        }
+        if (moduleFactory.containsModule("servletResponse")) {
+            responseMap = (Map<String, HttpServletResponse>) moduleFactory.getModule("servletResponse");
+        } else {
+            responseMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletResponse", responseMap);
+        }
+        if (moduleFactory.containsModule("threadDatas")) {
+            threadDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("threadDatas");
+        } else {
+            threadDatas = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "threadDatas", threadDatas);
+        }
         moduleFactory.putLog(servletName+" is statup,configPath:"+configDir,LogLevel.INFO,"filterInit");
         String usefactory=config.getInitParameter("usefactory");
         if( usefactory ==null || usefactory.isEmpty())
@@ -84,8 +97,15 @@ public class TLServletFactory extends GenericServlet {
         }
         moduleFactory.boot();
         appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
-        ((TLWAPPCenter)appCenter).setFilter(this);
-        ((TLWAPPCenter)appCenter).setFilterName(servletName);
+        // 与 TLServletDispatch / Filter 一致：appCenter 未配置或配错类时不能盲转
+        if (appCenter instanceof TLWAPPCenter) {
+            ((TLWAPPCenter) appCenter).setFilter(this);
+            ((TLWAPPCenter) appCenter).setFilterName(servletName);
+        } else {
+            moduleFactory.putLog(servletName + " appCenter is not TLWAPPCenter: "
+                    + (appCenter == null ? "null" : appCenter.getClass().getName()),
+                    LogLevel.ERROR, "servletInit");
+        }
     }
     @Override
     public void service(ServletRequest servletRequest, ServletResponse servletResponse) throws IOException {
@@ -96,6 +116,10 @@ public class TLServletFactory extends GenericServlet {
             printWriter.flush();
             return;
         }
+        // init 因 usefactory 找不到而提前返回时，三张表仍为 null——不能直接 put
+        if(moduleFactory ==null || requestMap ==null || responseMap ==null || threadDatas ==null
+                || appCenter ==null)
+            return;
         long startTime = System.currentTimeMillis();
         String threadName=Thread.currentThread().getName();
         HttpServletRequest request = (HttpServletRequest) servletRequest;
@@ -110,14 +134,21 @@ public class TLServletFactory extends GenericServlet {
             if (uri == null || uri.isEmpty())
                 return ;
             appCenter.getMsg(moduleFactory, new TLMsg().setAction("start").setParam("uri",uri));
+        } catch (Exception e) {
+            // 与 TLServletDispatch 一致：业务异常转 500，不把栈甩给容器
+            moduleFactory.putLog("请求处理异常: " + e.getMessage(), LogLevel.ERROR, "servletService");
+            try {
+                response.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR);
+                response.getWriter().println("<h1>服务器内部错误</h1>");
+            } catch (Exception ignored) {}
         } finally {
             requestMap.remove(threadName);
             responseMap.remove(threadName);
             threadDatas.remove(threadName);
         }
-        Long nowTime = System.currentTimeMillis();
-        Long runtime = nowTime - startTime;
-        moduleFactory.putLog(servletName + " 运行时间：" + runtime,LogLevel.INFO,"doFilter");
+        long runtime = System.currentTimeMillis() - startTime;
+        // 每请求一条：INFO 在高并发下会刷屏
+        moduleFactory.putLog(servletName + " 运行时间：" + runtime,LogLevel.DEBUG,"doFilter");
     }
     protected void registInfactory(TLObjectFactory modulefactory, String name, Object object)
     {

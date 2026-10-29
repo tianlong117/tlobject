@@ -27,7 +27,8 @@ public class TLFilterWithSingleFactory implements Filter{
     protected TLObjectFactory moduleFactory;
     protected int initialCapacity=256;
     protected TLBaseModule appCenter;
-    protected boolean isStartup =true ;
+    /** destroy 置 false、请求线程读：需 volatile 保证关闭瞬间能立刻看到 */
+    protected volatile boolean isStartup =true ;
     public  void setIsStartup (boolean isStartup){
         this.isStartup =isStartup ;
     }
@@ -47,9 +48,6 @@ public class TLFilterWithSingleFactory implements Filter{
         String  initialCapacityOfConf=config.getInitParameter("initialCapacity");
         if(initialCapacityOfConf !=null && !initialCapacityOfConf.isEmpty() )
             initialCapacity= Integer.parseInt(initialCapacityOfConf);
-        requestMap =new ConcurrentHashMap<>( initialCapacity);
-        responseMap =new ConcurrentHashMap<>(initialCapacity);
-        threadDatas =new ConcurrentHashMap<>(initialCapacity);
         String  initConfigPath=config.getInitParameter("configPath");
         if(initConfigPath==null || initConfigPath.isEmpty())
             initConfigPath="conf";
@@ -67,16 +65,42 @@ public class TLFilterWithSingleFactory implements Filter{
         moduleFactory.startFactory(null,null);
         context.setAttribute( filterName, moduleFactory);
         registInfactory(moduleFactory, "servletContext", context);
-        registInfactory(moduleFactory, "servletRequest", requestMap);
-        registInfactory(moduleFactory, "servletResponse", responseMap);
-        registInfactory(moduleFactory, "threadDatas", threadDatas);
+        // 与 TLServletDispatch 同款：工厂里已有这三张表就复用，别覆盖注册
+        //（多入口共用一个工厂时，后启动者覆盖会让先启动者的请求上下文失效）
+        if (moduleFactory.containsModule("servletRequest")) {
+            requestMap = (Map<String, HttpServletRequest>) moduleFactory.getModule("servletRequest");
+        } else {
+            requestMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletRequest", requestMap);
+        }
+        if (moduleFactory.containsModule("servletResponse")) {
+            responseMap = (Map<String, HttpServletResponse>) moduleFactory.getModule("servletResponse");
+        } else {
+            responseMap = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "servletResponse", responseMap);
+        }
+        if (moduleFactory.containsModule("threadDatas")) {
+            threadDatas = (Map<String, HashMap<String, Object>>) moduleFactory.getModule("threadDatas");
+        } else {
+            threadDatas = new ConcurrentHashMap<>(initialCapacity);
+            registInfactory(moduleFactory, "threadDatas", threadDatas);
+        }
         moduleFactory.putLog(filterName+" is statup,configPath:"+configDir,LogLevel.INFO,"filterInit");
         moduleFactory.boot();
         appCenter = (TLBaseModule) moduleFactory.getModule(M_APPCENTER);
-        ((TLWAPPCenter)appCenter).setFilter(this);
-        ((TLWAPPCenter)appCenter).setFilterName(filterName);
+        // 与 TLServletDispatch 一致：appCenter 配成别的模块类时不能盲转，否则启动即 CCE
+        if (appCenter instanceof TLWAPPCenter) {
+            ((TLWAPPCenter) appCenter).setFilter(this);
+            ((TLWAPPCenter) appCenter).setFilterName(filterName);
+        } else {
+            moduleFactory.putLog(filterName + " appCenter is not TLWAPPCenter: "
+                    + (appCenter == null ? "null" : appCenter.getClass().getName()),
+                    LogLevel.ERROR, "filterInit");
+        }
     }
 
+    /** 请求终点 filter：全权处理请求并直接写响应，<b>不调用 chain.doFilter</b>（设计如此，不是漏写）。
+     *  需要继续走后续 filter/servlet 的场景请用 TLServletDispatch，不要改这里。 */
     public void doFilter(ServletRequest req, ServletResponse resp, FilterChain chain) throws ServletException, IOException
     {
        if(isStartup ==false){
@@ -115,7 +139,7 @@ public class TLFilterWithSingleFactory implements Filter{
             return;
         }
         isStartup=false ;
-        int sessionNumb =responseMap.size();
+        int sessionNumb =responseMap == null ? 0 : responseMap.size();
         int maxWaitSeconds = 30;
         int waited = 0;
         while (sessionNumb !=0 && waited < maxWaitSeconds)
@@ -124,14 +148,17 @@ public class TLFilterWithSingleFactory implements Filter{
                 moduleFactory.putLog(filterName+ " destroying,session number:" + sessionNumb,LogLevel.INFO,"doFilter");
                 sleep(1000);
                 waited++;
-                sessionNumb =responseMap.size();
+                sessionNumb =responseMap == null ? 0 : responseMap.size();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
         }
         if (sessionNumb != 0) {
-            moduleFactory.putLog(filterName+ " destroy timeout, remaining sessions:" + sessionNumb, LogLevel.WARN, "destroy");
+            // 超时强关前把还挂在请求上的线程名列出来，便于排查是谁没退出
+            String active = requestMap == null ? "?" : String.join(",", requestMap.keySet());
+            moduleFactory.putLog(filterName+ " destroy timeout, remaining sessions:" + sessionNumb
+                    + " threads:[" + active + "]", LogLevel.WARN, "destroy");
         }
         moduleFactory.destroyModule();
     }

@@ -15,6 +15,8 @@ import java.util.Map;
 import static cn.tianlong.tlobject.servletutils.TLParamString.CLIENT_R_CONTENT;
 
 public class TLWJsonInInterface extends TLWDirectInInterface {
+    /** 类型标记（匿名子类反射取泛型）：每请求 new 一次的代价约为解析本身数倍，必须缓存 */
+    private static final Type JSON_MAP_TYPE = new TypeToken<Map<String, Object>>() {}.getType();
     protected Gson gson;
     public TLWJsonInInterface(){
         super();
@@ -40,10 +42,12 @@ public class TLWJsonInInterface extends TLWDirectInInterface {
         String jstr = (String) returnMsg.getParam(CLIENT_R_CONTENT);
         if(jstr ==null)
             return null ;
-        Type type = new TypeToken<Map<String, Object>>() {}.getType();
+        // 注意：这里通过 super 读的是原始 body（request.getInputStream）。同一请求若再调
+        // getDataFromUser（request.getParameterMap），form-urlencoded body 已被消费、拿到空参数；
+        // 一个请求只用一套输入接口，不要混着取
         LinkedTreeMap<String, Object> contentmap;
         try {
-            contentmap = gson.fromJson(jstr, type);
+            contentmap = gson.fromJson(jstr, JSON_MAP_TYPE);
             // 将解析后的数据存入线程上下文，供后续模块使用
             setThreadData("jsonRequestBody", contentmap);
         }catch (JsonSyntaxException e){

@@ -61,7 +61,18 @@ public class TLUrlImageCache extends TLUrlFileCache {
             return cacheFileName ;
         float quality =1.0F ;
         if(!msg.isNull(URLIMAGE_P_QUALITY))
-            quality= (float) msg.getParam(URLIMAGE_P_QUALITY);
+        {
+            // 参数可能来自配置/HTTP（String）或 gson（Double）；(float) 直接强转会 CCE
+            Object qObj = msg.getParam(URLIMAGE_P_QUALITY);
+            if (qObj instanceof Number)
+                quality = ((Number) qObj).floatValue();
+            else if (qObj != null) {
+                try { quality = Float.parseFloat(String.valueOf(qObj).trim()); }
+                catch (NumberFormatException ignored) { }
+            }
+            if (quality <= 0 || quality > 1.0F)
+                quality = 1.0F;
+        }
         String outputFile =msg.getStringParam(URLIMAGE_P_OUTFILE,cacheFileName);
         return compressPic(cacheFileName,outputFile,height,width,quality) ;
     }

@@ -98,7 +98,12 @@ public class TLWVelocityOutInterface extends TLBaseClientDataOutInterface {
 
     @Override
     protected TLMsg putDataToUser(Object fromWho, TLMsg msg) {
-        outData outData = (TLWServModule.outData) msg.getParam(CLIENT_P_OUDDATA);
+        Object odObj = msg.getParam(CLIENT_P_OUDDATA);
+        if (!(odObj instanceof TLWServModule.outData)) {   // 调用方漏传 outData 时不要 NPE
+            putLog("putDataToUser: outData 参数缺失或类型错误", LogLevel.ERROR, "putDataToUser");
+            return null;
+        }
+        outData outData = (TLWServModule.outData) odObj;
         String dataid= outData.getDataId();
         LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam(CLIENT_P_OUDDATA);
         boolean hastemp=true;

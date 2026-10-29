@@ -49,7 +49,8 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        if (tableName == null)
+        // fromWho 不保证是 TLTable（触发器也可能被其他模块转发调用）：盲转会 CCE
+        if (tableName == null && fromWho instanceof TLTable)
             tableName = ((TLTable) fromWho).getName();
         TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         if (nmsg == null)

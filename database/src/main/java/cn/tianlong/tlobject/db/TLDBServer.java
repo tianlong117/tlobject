@@ -41,6 +41,8 @@ public class TLDBServer extends TLBaseModule {
     /** 重试间隔：按指数退避，从 retryBaseInterval 起翻倍，上限 maxRetryInterval */
     private int retryBaseInterval = 2000;
     private int maxRetryInterval = 10000;
+    /** 重试总时长上限（秒）：20 次指数退避最坏 ~3 分钟，多个 dbserver 串行会拖死启动 */
+    private int maxConnectRetrySeconds = 60;
 
     @Override
     protected TLBaseModule init() {
@@ -52,6 +54,8 @@ public class TLDBServer extends TLBaseModule {
                 retryBaseInterval = Integer.parseInt(params.get("retryBaseInterval"));
             if (params.get("maxRetryInterval") != null)
                 maxRetryInterval = Integer.parseInt(params.get("maxRetryInterval"));
+            if (params.get("maxConnectRetrySeconds") != null)
+                maxConnectRetrySeconds = Integer.parseInt(params.get("maxConnectRetrySeconds"));
         }
         Object conn = connector.connect();
         if(conn ==null)
@@ -59,7 +63,8 @@ public class TLDBServer extends TLBaseModule {
             putLog("数据库没有连接",LogLevel.ERROR,"init");
             int interval = retryBaseInterval;
             int attempt = 0;
-            while (conn == null && attempt < maxConnectRetries) {
+            long deadline = System.currentTimeMillis() + maxConnectRetrySeconds * 1000L;
+            while (conn == null && attempt < maxConnectRetries && System.currentTimeMillis() < deadline) {
                 attempt++;
                 try {
                     sleep(interval);
@@ -73,7 +78,8 @@ public class TLDBServer extends TLBaseModule {
                 interval = Math.min(interval * 2, maxRetryInterval);
             }
             if (conn == null) {
-                putLog("数据库连接失败，已重试" + maxConnectRetries + "次，放弃（模块启动失败，交由上层处理）",LogLevel.ERROR,"init");
+                putLog("数据库连接失败，已重试" + attempt + "次 / " + maxConnectRetrySeconds
+                        + "s，放弃（模块启动失败，交由上层处理）",LogLevel.ERROR,"init");
                 return null;
             }
         }
@@ -84,9 +90,12 @@ public class TLDBServer extends TLBaseModule {
 
 
     private void setConnector() {
-        String dbconnector = params.get(DB_R_CONNECTOR);
+        String dbconnector = (params != null) ? params.get(DB_R_CONNECTOR) : null;
         if (dbconnector == null || dbconnector.isEmpty()) {
             connector = new selfConnector();
+            // 语义提示：selfConnector 每次 connect() 都新建物理连接（无池化），和 c3p0/Hikari 差异巨大
+            putLog("未配置连接器，使用 selfConnector：每次连接都是新建物理连接，生产环境请配置 c3p0/Hikari",
+                    LogLevel.WARN, "setConnector");
             return;
         }
         connector = (TLBaseConnectorInterface) getMyModule(dbconnector);

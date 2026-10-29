@@ -17,8 +17,10 @@ import java.io.PrintWriter;
  * <ul>
  *   <li><b>SSE 注册模式</b>（msg 带 {@code sseRegister=true}）：创建通道 →
  *       设 event-stream 响应头 → 启动心跳线程 → 发 {@code registerSseChannel}
- *       消息（param: sseKey/channel）给 {@code sseOwner} 模块注册 → <b>不写不关</b>，
- *       请求线程释放、连接保持，由注册方后续写帧。</li>
+ *       消息（param: sseKey/channel）给 {@code sseOwner} 模块注册 → 返回。
+ *       <b>调用方必须在本请求线程上调用 {@code channel.awaitClosed()} 阻塞到流结束</b>
+ *       （参考 TLWebChatModule.doEvents/doChatStream）：Servlet 容器在本方法返回后就会
+ *       提交并关闭响应，不阻塞的话客户端立刻收到 EOF。</li>
  *   <li><b>普通 JSON 模式</b>（无 sseRegister）：原样走 {@link TLWJsonDataOutInterface}
  *       一次性输出（含 httpStatus 支持）。</li>
  * </ul>
@@ -66,7 +68,17 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
         // 透传调用方附加参数（如 sseType=stream/event），供注册方分发
         Object sseType = msg.getParam("sseType");
         if (sseType != null) registerMsg.setParam("sseType", sseType);
-        return putMsg(sseOwner, registerMsg);
+        // 注册方模块不存在时：默认 putMsg 会 shutdown(-1) 关掉整个应用 → 必须 IGNOREMODULEISNULL；
+        // 注册失败则关掉刚建的通道，避免心跳线程和响应流泄漏
+        registerMsg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg regResult = putMsg(sseOwner, registerMsg);
+        if (regResult == null || !regResult.parseBoolean(RESULT, false)) {
+            putLog("SSE 通道注册失败, owner:" + sseOwner + ", key:" + sseKey,
+                    LogLevel.WARN, "sseRegister");
+            channel.close();
+            return createMsg().setParam(RESULT, false);
+        }
+        return regResult;
     }
 
     /**
@@ -87,6 +99,14 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
                 w = null;
             }
             this.writer = w;
+            if (w == null) {
+                // 拿不到 writer：通道不可用。必须标记关闭并 countDown，否则 isOpen() 恒 true
+                // （消费方以为可写）、awaitClosed() 永久挂住请求线程
+                this.heartbeat = null;
+                this.open = false;
+                latch.countDown();
+                return;
+            }
             this.heartbeat = new Thread(this::heartbeatLoop, "sse-hb");
             this.heartbeat.setDaemon(true);
             this.heartbeat.start();
@@ -130,12 +150,15 @@ public class TLWSSEOutInterface extends TLWJsonDataOutInterface {
         public synchronized void close() {
             if (!open) return;
             open = false;
-            heartbeat.interrupt();
+            if (heartbeat != null)
+                heartbeat.interrupt();
             latch.countDown();
             if (writer != null) {
                 try {
                     writer.close();
-                } catch (Exception ignored) {
+                } catch (Exception e) {
+                    // 断连时 PrintWriter.close 可能抛异常：只记 message，不加堆栈
+                    putLog("SSE 通道 close 异常: " + e.getMessage(), LogLevel.DEBUG, "sseChannel");
                 }
             }
         }

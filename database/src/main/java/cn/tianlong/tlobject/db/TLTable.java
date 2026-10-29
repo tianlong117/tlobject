@@ -59,8 +59,12 @@ public class TLTable extends TLBaseDataUnit {
             return this;
         if (ifGetStructure) {
             columnModelList = getTableStructureFromDB();
-            if (columnModelList == null)
-                return null;
+            if (columnModelList == null) {
+                // 数据库暂时不可用不应让整个表模块启动失败（恢复后要重启应用）：
+                // 置空并留痕，getTableStructure() 会按需重试
+                putLog("表结构加载失败（数据库不可用？），模块继续启动，首次使用时重试: " + dbtable,
+                        LogLevel.WARN, "init");
+            }
         }
         return this;
     }
@@ -351,7 +355,15 @@ public class TLTable extends TLBaseDataUnit {
             int i = 0;
             for (String key1 : sqlParamsList.keySet()) {
                 if (key1.indexOf("[in]") >= 0) {
-                    ArrayList<Object> indatas = (ArrayList) sqlParamsList.get(key1);
+                    // 入参可能是 List / Object[] / Set / 单值：直接 (ArrayList) 强转会 CCE
+                    Object inObj = sqlParamsList.get(key1);
+                    ArrayList<Object> indatas = new ArrayList<>();
+                    if (inObj instanceof Object[])
+                        indatas.addAll(java.util.Arrays.asList((Object[]) inObj));
+                    else if (inObj instanceof java.util.Collection)
+                        indatas.addAll((java.util.Collection<Object>) inObj);
+                    else if (inObj != null)
+                        indatas.add(inObj);
                     // 空列表按"1 个 null"处理：in (null) 匹配不到任何行，且占位符/参数个数仍一致
                     // （原来空列表会 new Object[len-1] 后 arraycopy len 个 → ArrayIndexOutOfBounds）
                     int addCount = indatas.isEmpty() ? 1 : indatas.size();
@@ -590,7 +602,13 @@ public class TLTable extends TLBaseDataUnit {
         if (isTransaction) {
             // 事务模式下：不关闭连接，将连接放入 msg 返回给调用方
             msg.setParam(DB_R_CONN, wconn);
-            // 不执行 connClose
+            // 调用方要求关闭事务连接 = 放弃未提交事务：显式 rollback 并留痕（别依赖驱动的隐式行为）
+            if (msg.parseBoolean(DB_P_IFCLOSECONNECTION, true)) {
+                try { wconn.rollback(); } catch (SQLException ignored) {}
+                putLog("事务连接未提交即关闭，已显式回滚（事务边界应走 startTranscation）",
+                        LogLevel.WARN, "insertAndupdateAndDelete");
+                connClose(wconn, msg);
+            }
         } else {
             connClose(wconn, msg);
         }
@@ -689,7 +707,9 @@ public class TLTable extends TLBaseDataUnit {
             if (connection == null)
                 return null;
             DatabaseMetaData metaData = connection.getMetaData();
-            ResultSet columnSet = metaData.getColumns(null, "%", dbtable, "%");
+            // schemaPattern 传 "%" 在 MySQL（schema=null）匹配不到、在 PG 会跨 schema：
+            // 用当前 catalog + 不限定 schema，取本库同名表的列
+            ResultSet columnSet = metaData.getColumns(connection.getCatalog(), null, dbtable, "%");
             ColumnModel columnModel = null;
             while (columnSet.next()) {
                 columnModel = new ColumnModel();
@@ -872,11 +892,22 @@ public class TLTable extends TLBaseDataUnit {
         MEDIUMINT("MEDIUMINT", "java.lang.Integer"),
         BIGINT("BIGINT", "java.lang.Long"),
         DECIMAL("DECIMAL", "java.math.BigDecimal"),
+        NUMERIC("NUMERIC", "java.math.BigDecimal"),
         FLOAT("FLOAT", "java.lang.Float"),
-        DOUBLE("NUMBER", "java.lang.Double"),
+        DOUBLE("DOUBLE", "java.lang.Double"),
         MEDIUMTEXT("MEDIUMTEXT", "java.lang.String"),
         BOOLEAN("BOOLEAN", "java.lang.Boolean"),
-        NUMBER("NUMBER", "java.lang.Double");
+        BOOL("BOOL", "java.lang.Boolean"),
+        // Oracle NUMBER 是任意精度定点数，Double 会丢精度
+        NUMBER("NUMBER", "java.math.BigDecimal"),
+        // Oracle / PostgreSQL 常见类型
+        VARCHAR2("VARCHAR2", "java.lang.String"),
+        NVARCHAR("NVARCHAR", "java.lang.String"),
+        NVARCHAR2("NVARCHAR2", "java.lang.String"),
+        CLOB("CLOB", "java.lang.String"),
+        NCLOB("NCLOB", "java.lang.String"),
+        TIMESTAMP("TIMESTAMP", "java.sql.Timestamp"),
+        UUID("UUID", "java.lang.String");
 
         private String dbType;
         private String javaType;
@@ -887,8 +918,11 @@ public class TLTable extends TLBaseDataUnit {
         }
 
         public static String getColumnTypeEnumByDBType(String dbType) {
+            if (dbType == null)
+                return "";
             for (ColumnTypeEnum columnTypeEnum : ColumnTypeEnum.values()) {
-                if (columnTypeEnum.getDbType().equals(dbType)) {
+                // 大小写敏感会让小写 type_name（PG/SQLite）全部落空
+                if (columnTypeEnum.getDbType().equalsIgnoreCase(dbType)) {
                     return columnTypeEnum.getJavaType();
                 }
             }

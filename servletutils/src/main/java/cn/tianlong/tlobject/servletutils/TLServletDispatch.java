@@ -148,7 +148,8 @@ public class TLServletDispatch extends GenericServlet {
         }
 
         long runtime = System.currentTimeMillis() - startTime;
-        moduleFactory.putLog(name + " 运行时间：" + runtime + "ms", LogLevel.INFO, "servletDispatch");
+        // 每请求一条：INFO 在高并发下会刷屏，排障时调 DEBUG 即可
+        moduleFactory.putLog(name + " 运行时间：" + runtime + "ms", LogLevel.DEBUG, "servletDispatch");
     }
 
     protected void registInfactory(TLObjectFactory modulefactory, String name, Object object) {

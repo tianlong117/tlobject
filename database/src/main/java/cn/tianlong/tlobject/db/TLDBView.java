@@ -23,7 +23,8 @@ import static cn.tianlong.tlobject.db.TLDatabase.getResultSetHandler;
 public class TLDBView extends TLTable {
 
     private String sql ;
-    private String runSql ;
+    /** 运行期由 replaceSql 改写、query 读取：多线程并发访问需可见性 */
+    private volatile String runSql ;
     private TLDatabase.RESULT_TYPE resultType;
 
     public TLDBView() {
@@ -70,7 +71,12 @@ public class TLDBView extends TLTable {
     }
 
     private void replaceSql(Object fromWho, TLMsg msg) {
-        runSql=sql.replace("[SQL]", (CharSequence) msg.getParam(DB_P_SQL));
+        Object part = msg.getParam(DB_P_SQL);
+        if (sql == null || part == null) {      // String.replace(target, null) 会 NPE
+            putLog("replaceSql: sql 或参数为空，忽略替换", LogLevel.WARN, "replaceSql");
+            return;
+        }
+        runSql = sql.replace("[SQL]", (CharSequence) part);
     }
 
     private TLMsg getSql(Object fromWho, TLMsg msg) {

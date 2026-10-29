@@ -86,12 +86,11 @@ public class TLDBSqlCondition {
             String str ;
             if(relation.equals(DB_P_EXP_IN) || relation.equals(DB_P_EXP_NOTIN))
                 str=  sqlOfIn();
-            else if(relation.equals(DB_P_EXP_LIKELEFT))
-                str =  varName +" like  ?\"%\" ";
-            else if(relation.equals(DB_P_EXP_LIKERIGHT))
-                str =  varName +" like  \"%\"? ";
-            else if(relation.equals(DB_P_EXP_LIKE))
-                str =  varName +" like  \"%\"?\"%\" ";
+            else if(relation.equals(DB_P_EXP_LIKELEFT) || relation.equals(DB_P_EXP_LIKERIGHT)
+                    || relation.equals(DB_P_EXP_LIKE))
+                // SQL 里只能是单个占位符（原来的 like ?"%" 是非法语法）；
+                // % 由 getValue() 拼进参数值
+                str =  varName +" like ? " ;
             else
                 str =  varName +" "+ relation +" ? " ;
             if(nextRelation ==null)
@@ -126,8 +125,17 @@ public class TLDBSqlCondition {
             // 与 getSqlStr 用同一判断（原来只认硬编码 "in"，not in 时 SQL 出 N 个 ? 却返回裸数组）
             if(relation.equals(DB_P_EXP_IN) || relation.equals(DB_P_EXP_NOTIN))
                 return valueOfIn();
-            else
-                return value ;
+            if (value == null)
+                return null;
+            // LIKE 的 % 放在参数值里（SQL 只有 like ?）：like% = 值+%，%like = %+值，%like% = 两侧
+            String s = String.valueOf(value);
+            if (relation.equals(DB_P_EXP_LIKELEFT))
+                return s + "%";
+            if (relation.equals(DB_P_EXP_LIKERIGHT))
+                return "%" + s;
+            if (relation.equals(DB_P_EXP_LIKE))
+                return "%" + s + "%";
+            return value ;
         }
 
         private  LinkedHashMap<String, Object> valueOfIn() {

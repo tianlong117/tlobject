@@ -81,6 +81,8 @@ public class TLWUserByToken extends TLWAbstractUser {
     private void setExptime(Object fromWho, TLMsg msg) {
         String expTime = (String) msg.getParam(TOKENUSER_P_EXPTIME);
         HashMap<String ,Object> datas =getThreadData();
+        if (datas == null)          // 非请求线程 / 无上下文
+            return;
         datas.put(TOKENUSER_P_EXPTIME,expTime);
     }
 
@@ -97,8 +99,11 @@ public class TLWUserByToken extends TLWAbstractUser {
 
     protected TLMsg getExpTime(Object fromWho, TLMsg msg) {
         HashMap<String ,Object> datas =getThreadData();
+        if (datas == null)
+            return null ;
         String userid =(String) datas.get(USER_P_USERID);
-        String userRole =(String) datas.get(USER_P_ROLE);
+        // 角色在 login 里存的是 List（roleStrToList）；原先强转 String 会 CCE，按原类型往下传
+        Object userRole = datas.get(USER_P_ROLE);
         String expTime = (String) datas.get(TOKENUSER_P_EXPTIME);
         return createMsg().setParam(USER_P_USERID, userid)
                 .setParam(TOKENUSER_P_EXPTIME, expTime)
@@ -137,8 +142,10 @@ public class TLWUserByToken extends TLWAbstractUser {
         {
             String threadName=Thread.currentThread().getName();
             Map<String,HttpServletRequest> requestMap = (Map<String, HttpServletRequest>) getModuleInFactory("servletRequest");
-            HttpServletRequest request = requestMap.get(threadName);
-            token = request.getHeader("Access-User-Token");
+            // 非请求线程 / 上下文未就绪时 requestMap、request 都可能为 null
+            HttpServletRequest request = requestMap == null ? null : requestMap.get(threadName);
+            if (request != null)
+                token = request.getHeader("Access-User-Token");
         }
         if (token == null )
         {
@@ -173,13 +180,26 @@ public class TLWUserByToken extends TLWAbstractUser {
         userInfo.put(TOKENUSER_P_EXPTIME,expTime);
         userInfo.put("tokenExpire",tokenExpire);
         HashMap<String ,Object> datas =getThreadData();
-        datas.putAll(userInfo);
+        if (datas == null)
+            putLog("login: 无请求线程上下文，用户状态未登记, userid:" + userid, LogLevel.WARN, "login");
+        else
+            datas.putAll(userInfo);
         putLog("user login:"+userid,LogLevel.DEBUG,"login");
         return createMsg().setParam(USER_P_USERID, userid).setParam(USER_P_ROLE, userRole).setParam(USER_P_USERNAME, username);
     }
+
+    /** 登录时校验用户有效性（是否被禁用/删除）。
+     *  默认实现放行任何签名有效的 token——纯内部/无用户表的场景可用，但有用户体系时应覆写。
+     *  JWT 自身只保证签名与有效期，用户被删后旧 token 在过期前仍然有效。 */
     protected boolean checkUserValid(String userid) {
+        if (!userValidWarned) {
+            userValidWarned = true;
+            putLog("TLWUserByToken.checkUserValid 未覆写：不校验用户是否被禁用/删除，"
+                    + "旧 token 在过期前均有效（有用户表时应覆写本方法）", LogLevel.WARN, "checkUserValid");
+        }
         return true ;
     }
+    private volatile boolean userValidWarned = false;
 
     private TLMsg getToken(Object fromWho, TLMsg msg) {
         Object role = msg.getParam(USER_P_ROLE);
@@ -202,6 +222,8 @@ public class TLWUserByToken extends TLWAbstractUser {
 
     private TLMsg reflashToken(Object fromWho, TLMsg msg) {
         HashMap<String ,Object> datas =getThreadData();
+        if (datas == null)
+            return createMsg().setParam(TOKENUSER_R_TOKEN, null);
         String expTime = (String) datas.get(TOKENUSER_P_EXPTIME);
         if (expTime == null)
             return createMsg().setParam(TOKENUSER_R_TOKEN, null);
@@ -240,6 +262,8 @@ public class TLWUserByToken extends TLWAbstractUser {
     private HashMap<String ,Object> getThreadData(){
         String threadName=Thread.currentThread().getName();
         Map<String,HashMap<String ,Object>> threadDatas = (Map<String, HashMap<String, Object>>) getModule("threadDatas");
+        if (threadDatas == null)
+            return null ;
         return threadDatas.get(threadName);
     }
     @Override

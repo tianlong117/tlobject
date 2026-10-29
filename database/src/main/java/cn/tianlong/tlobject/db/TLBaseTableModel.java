@@ -62,7 +62,7 @@ public abstract class TLBaseTableModel extends TLBaseModule {
             dataBase = (TLDatabase) getModule(databaseName);
         TLMsg tmsg = createMsg().setAction(DB_GETTABLE).setParam(DB_P_TABLENAME,tableName);
         TLMsg returnmsg =putMsg(dataBase,tmsg);
-        table= (TLBaseDataUnit) returnmsg.getParam(INSTANCE);
+        table= (returnmsg == null) ? null : (TLBaseDataUnit) returnmsg.getParam(INSTANCE);
         return table ;
     }
     protected TLBaseDataUnit setTable(String tableName){
@@ -85,11 +85,20 @@ public abstract class TLBaseTableModel extends TLBaseModule {
     }
     protected  TLMsg total(Object fromWho, TLMsg msg){
         TLMsg totalMsg =createMsg().setAction("total");
-        List totalDatas = (List) putMsg(table,totalMsg).getParam("result");
-        Long totalNumber= Long.valueOf(0);
-        for(int i=0;i< totalDatas.size();i++){
-            Object [] unit= (Object[]) totalDatas.get(i);
-            totalNumber=totalNumber + (Long)unit[0];
+        TLMsg reply = putMsg(table,totalMsg);
+        if (reply == null)
+            return createMsg().setParam("result", 0L);
+        List totalDatas = (List) reply.getParam("result");
+        long totalNumber = 0L;
+        if (totalDatas != null) {
+            for (Object obj : totalDatas) {
+                if (!(obj instanceof Object[]) || ((Object[]) obj).length == 0)
+                    continue;
+                Object v = ((Object[]) obj)[0];
+                // count(*) 的驱动返回值可能是 Integer/Long/BigInteger：一律走 Number
+                if (v instanceof Number)
+                    totalNumber += ((Number) v).longValue();
+            }
         }
         return createMsg().setParam("result",totalNumber);
     }

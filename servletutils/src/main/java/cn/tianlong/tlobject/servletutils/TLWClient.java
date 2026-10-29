@@ -13,6 +13,22 @@ public class TLWClient extends TLWServModule {
     protected String preOutInterface;
     protected String inInterface;
     protected String preInInterface;
+
+    // 运行期切换的接口名按请求线程存（模块是单例，实例字段会被并发请求互相覆盖）。
+    // 实例字段只作为配置默认值。
+    private static final String TD_OUT = "__tlw_outInterface";
+    private static final String TD_OUT_PRE = "__tlw_preOutInterface";
+    private static final String TD_IN = "__tlw_inInterface";
+    private static final String TD_IN_PRE = "__tlw_preInInterface";
+
+    protected String currentOutInterface() {
+        Object v = getThreadData(TD_OUT);
+        return v instanceof String ? (String) v : outInterface;
+    }
+    protected String currentInInterface() {
+        Object v = getThreadData(TD_IN);
+        return v instanceof String ? (String) v : inInterface;
+    }
     public TLWClient(){
         super();
     }
@@ -83,7 +99,7 @@ public class TLWClient extends TLWServModule {
     }
 
     private TLMsg getOutContent(Object fromWho, TLMsg msg) {
-        return  putMsg(outInterface,msg.setAction("getOutContent"));
+        return  putMsg(currentOutInterface(),msg.setAction("getOutContent"));
     }
 
     private TLMsg getInJson(Object fromWho, TLMsg msg) {
@@ -91,40 +107,44 @@ public class TLWClient extends TLWServModule {
     }
 
     private void recoveryOutInterface(Object fromWho, TLMsg msg) {
-        outInterface = preOutInterface;
-        putLog("outInterface 更换:"+outInterface,LogLevel.DEBUG);
+        Object pre = getThreadData(TD_OUT_PRE);
+        setThreadData(TD_OUT, pre instanceof String ? pre : outInterface);
+        putLog("outInterface 恢复:"+currentOutInterface(),LogLevel.DEBUG);
     }
     private void recoveryInterface(Object fromWho, TLMsg msg) {
-        outInterface = preOutInterface;
-        inInterface = preInInterface;
+        recoveryOutInterface(fromWho, msg);
+        recoveryInInterface(fromWho, msg);
     }
     private void recoveryInInterface(Object fromWho, TLMsg msg) {
-        inInterface = preInInterface;
-        putLog("inInterface 更换:"+inInterface,LogLevel.DEBUG);
+        Object pre = getThreadData(TD_IN_PRE);
+        setThreadData(TD_IN, pre instanceof String ? pre : inInterface);
+        putLog("inInterface 恢复:"+currentInInterface(),LogLevel.DEBUG);
     }
     private void setOutInterface(Object fromWho, TLMsg msg) {
-        preOutInterface=outInterface;
-        outInterface= (String) msg.getParam("outInterface");
-        putLog("outInterface 更换:"+outInterface,LogLevel.DEBUG);
+        setThreadData(TD_OUT_PRE, currentOutInterface());
+        Object v = msg.getParam("outInterface");
+        setThreadData(TD_OUT, v instanceof String ? v : outInterface);
+        putLog("outInterface 更换:"+currentOutInterface(),LogLevel.DEBUG);
     }
 
     private void setinInterface(Object fromWho, TLMsg msg) {
-        preInInterface=inInterface;
-        inInterface= (String) msg.getParam("interface");
-        putLog("inInterface 更换:"+inInterface,LogLevel.DEBUG);
+        setThreadData(TD_IN_PRE, currentInInterface());
+        Object v = msg.getParam("interface");
+        setThreadData(TD_IN, v instanceof String ? v : inInterface);
+        putLog("inInterface 更换:"+currentInInterface(),LogLevel.DEBUG);
     }
     private TLMsg getInContent(Object fromWho, TLMsg msg) {
-        return  putMsg(inInterface,createMsg().setAction(ININTERFACE_GETCONTENTFROMUSER));
+        return  putMsg(currentInInterface(),createMsg().setAction(ININTERFACE_GETCONTENTFROMUSER));
     }
 
     private TLMsg putContent(Object fromWho, TLMsg msg) {
-        return putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTCONTENTTOUSER));
+        return putMsg(currentOutInterface(),msg.setAction(OUTINTERFACE_PUTCONTENTTOUSER));
     }
     private TLMsg putOutData(Object fromWho, TLMsg msg) {
-        return   putMsg(outInterface,msg.setAction(OUTINTERFACE_PUTDATATOUSER));
+        return   putMsg(currentOutInterface(),msg.setAction(OUTINTERFACE_PUTDATATOUSER));
     }
     protected TLMsg getInData(Object fromWho, TLMsg msg) {
-        return putMsg(inInterface,msg.setAction(ININTERFACE_GETDATAFROMUSER));
+        return putMsg(currentInInterface(),msg.setAction(ININTERFACE_GETDATAFROMUSER));
     }
 
 }

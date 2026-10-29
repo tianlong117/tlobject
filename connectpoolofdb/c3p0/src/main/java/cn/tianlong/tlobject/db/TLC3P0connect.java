@@ -99,6 +99,10 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
 
     @Override
     public Connection connect() {
+        if (dataSource == null) {          // init 未执行/失败：NPE 会逃出 catch(SQLException)
+            putLog("connector 未初始化（dataSource=null）", LogLevel.ERROR, "connect");
+            return null;
+        }
         try {
             return dataSource.getConnection();
         } catch (SQLException e) {

@@ -33,7 +33,11 @@ public class TLDatabase extends TLBaseModule {
     protected HashMap<String, HashMap<String, String>> tables;
     protected HashMap<String, HashMap<String, String>> views;
     protected HashMap<String, HashMap<String, String>> triggers;
-    protected HashMap<String, Object> dbObjs = new HashMap<>();
+    /** 运行时创建的表（copyTable 等）与配置解耦：配置 map 只读，不再被运行时写入 */
+    protected final Map<String, HashMap<String, String>> runtimeTables = new java.util.concurrent.ConcurrentHashMap<>();
+    protected volatile Map<String, Object> dbObjs = new java.util.concurrent.ConcurrentHashMap<>();
+    /** 懒创建模块的按 key 锁（避免同一表/视图/触发器被并发创建两次） */
+    protected final java.util.concurrent.ConcurrentHashMap<String, Object> dbLocks = new java.util.concurrent.ConcurrentHashMap<>();
     protected HashMap<String, String> triggerName = new HashMap<>();
 
     public TLDatabase() {
@@ -78,6 +82,8 @@ public class TLDatabase extends TLBaseModule {
     }
 
     private Boolean initDbServer() {
+        if (dbservers == null || dbservers.isEmpty())
+            return true;                 // 未配置 <dbservers>
         for(String serverName :dbservers.keySet()){
             HashMap<String, String> config =dbservers.get(serverName) ;
             if(config !=null && config.get("statup")!=null && Boolean.parseBoolean(config.get("statup"))==true)
@@ -117,9 +123,13 @@ public class TLDatabase extends TLBaseModule {
 
     protected Boolean initTable() {
         boolean result =true;
+        if (tables == null || tables.isEmpty())
+            return true;                 // 未配置 <tables>：不是错误（可能只用裸 SQL）
         for(String tableName :tables.keySet())
         {
-            HashMap<String, String> tableparams =tables.get(tableName) ;  
+            HashMap<String, String> cfg =tables.get(tableName) ;
+            if (cfg == null) continue;
+            HashMap<String, String> tableparams = new HashMap<>(cfg);   // 副本，makeTable 不污染配置
             if( TLDataUtils.parseBoolean(tableparams.get("statup"),true))
             {
                 TLBaseModule tableModule =  makeTable(tableName,tableparams);
@@ -209,16 +219,16 @@ public class TLDatabase extends TLBaseModule {
             return false;
         }
         Boolean result = false;
-        try {
-            java.sql.Statement stmt = rconn.createStatement();
+        // 异常路径也必须关 Statement/Connection：原来 execute 抛异常时两者都跳过 → 每次都泄漏一条连接
+        try (java.sql.Statement stmt = rconn.createStatement()) {
             stmt.execute(sql);
-            stmt.close();
             result = true;
-            rconn.close();
             putLog(dbserver+" sql成功执行： "+sql, LogLevel.DEBUG);
         } catch (SQLException e) {
-            e.printStackTrace();
             putLog(dbserver+" sql执行失败： "+sql, LogLevel.ERROR);
+            putLog(e, LogLevel.ERROR, "prepareCall");
+        } finally {
+            try { rconn.close(); } catch (SQLException ignored) {}
         }
         return result;
     }
@@ -292,8 +302,13 @@ public class TLDatabase extends TLBaseModule {
         String dbserver = msg.getStringParam(DB_DBSERVER,"");
         if (dbserver == null || dbserver.isEmpty())
         {
-            HashMap<String, String> tableparams = tables.get(tableName);
-            dbserver = tableparams.get("dbserver");
+            HashMap<String, String> tableparams = (tables != null) ? tables.get(tableName) : null;
+            if (tableparams == null)
+                tableparams = runtimeTables.get(tableName);
+            if (tableparams != null)
+                dbserver = tableparams.get("dbserver");
+            if (dbserver == null || dbserver.isEmpty())
+                dbserver = params.get("defaultDBserver");
         }
         if(dbserver==null || dbserver.isEmpty())
             dbserver = params.get("defaultDBserver");
@@ -355,111 +370,86 @@ public class TLDatabase extends TLBaseModule {
             return createMsg().setParam(RESULT, false);
         }
 
-        ArrayList<Connection> connections = new ArrayList<>();
-        int successCount = 0;
+        // 1) 先确认所有操作落在同一个 dbserver：跨库用一条连接保证不了原子性，
+        //    直接拒绝而不是"每个操作一条连接再逐个 commit"的伪原子
+        String dbserver = null;
+        for (TLMsg uMsg : msgList) {
+            String tableName = uMsg.getStringParam(DB_P_TABLENAME, "");
+            if (tableName.isEmpty()) {
+                return createMsg().setParam(RESULT, false).setParam("error", "no tableName");
+            }
+            String ds = resolveDbserver(tableName);
+            if (ds == null || ds.isEmpty()) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "no dbserver for table " + tableName);
+            }
+            if (dbserver == null)
+                dbserver = ds;
+            else if (!dbserver.equals(ds)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "跨 dbserver 事务不支持: " + dbserver + " vs " + ds);
+            }
+        }
 
+        // 2) 一条连接贯穿所有操作：失败统一 rollback，成功一次 commit
+        Connection conn = getConnection(dbserver);
+        if (conn == null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "no connection");
+        }
+        boolean oldAutoCommit = true;
         try {
+            oldAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
             for (int i = 0; i < msgList.size(); i++) {
                 TLMsg uMsg = msgList.get(i);
                 TLMsg tMsg = new TLMsg().copyFrom(uMsg);
 
                 String tableName = tMsg.getStringParam(DB_P_TABLENAME, "");
-                if (tableName.isEmpty()) {
-                    putLog("no tableName", LogLevel.ERROR, "startTranscation");
-                    return createMsg().setParam(RESULT, false);
-                }
-
-                // 获取表模块
                 TLMsg tableMsg = getTable(this, tMsg);
                 TLBaseModule table = (TLBaseModule) tableMsg.getParam(INSTANCE);
                 if (table == null) {
+                    conn.rollback();
                     putLog("table not found: " + tableName, LogLevel.ERROR, "startTranscation");
-                    return createMsg().setParam(RESULT, false);
+                    return createMsg().setParam(RESULT, false).setParam("number", i)
+                            .setParam("error", "table not found: " + tableName);
                 }
 
-                // 设置事务参数
+                // 共享连接（表模块优先用消息里的 DB_P_CONNECTION）
+                tMsg.setParam(DB_P_CONNECTION, conn);
                 tMsg.setParam(DB_P_IFTRANSACTION, true);
                 tMsg.setParam(DB_P_IFCLOSECONNECTION, false);
                 tMsg.removeParam(DB_P_TABLENAME);
 
-                // 执行
                 TLMsg returnMsg = putMsg(table, tMsg);
-
-                if (!returnMsg.parseBoolean(RESULT, true)) {
-                    // 执行失败，回滚所有已成功的操作
-                    rollbackAll(connections);
+                if (returnMsg == null || !returnMsg.parseBoolean(RESULT, true)) {
+                    conn.rollback();
                     return createMsg().setParam(RESULT, false)
                             .setParam("number", i)
-                            .setParam("error", returnMsg.getStringParam("error", ""));
-                }
-
-                // 收集连接（去重）
-                Connection conn = (Connection) returnMsg.getParam(DB_R_CONN);
-                if (conn != null && !connections.contains(conn)) {
-                    connections.add(conn);
-                }
-                successCount++;
-            }
-
-            // 全部成功：提交所有连接
-            for (Connection conn : connections) {
-                try {
-                    if (conn != null && !conn.isClosed()) {
-                        conn.commit();
-                    }
-                } catch (SQLException e) {
-                    putLog("commit error: " + e.getMessage(), LogLevel.ERROR, "startTranscation");
-                    rollbackAll(connections);
-                    return createMsg().setParam(RESULT, false)
-                            .setParam("number", connections.indexOf(conn));
+                            .setParam("error", returnMsg == null ? "no reply" : returnMsg.getStringParam("error", ""));
                 }
             }
-
-            // 关闭所有连接
-            for (Connection conn : connections) {
-                try {
-                    if (conn != null && !conn.isClosed()) {
-                        conn.close();
-                    }
-                } catch (SQLException e) {
-                    putLog("close connection error: " + e.getMessage(), LogLevel.WARN, "startTranscation");
-                }
-            }
-
+            conn.commit();
             return createMsg().setParam(RESULT, true);
-
         } catch (Exception e) {
+            try { conn.rollback(); } catch (SQLException ignored) {}
             putLog("transaction error: " + e.getMessage(), LogLevel.ERROR, "startTranscation");
-            rollbackAll(connections);
-            return createMsg().setParam(RESULT, false);
+            return createMsg().setParam(RESULT, false).setParam("error", e.getMessage());
+        } finally {
+            try { conn.setAutoCommit(oldAutoCommit); } catch (SQLException ignored) {}
+            try { conn.close(); } catch (SQLException ignored) {}
         }
     }
 
-    /**
-     * 回滚所有连接
-     */
-    private void rollbackAll(ArrayList<Connection> connections) {
-        for (Connection conn : connections) {
-            if (conn != null) {
-                try {
-                    if (!conn.isClosed()) {
-                        conn.rollback();
-                    }
-                } catch (SQLException e) {
-                    putLog("rollback error: " + e.getMessage(), LogLevel.WARN, "rollbackAll");
-                }
-                try {
-                    if (!conn.isClosed()) {
-                        conn.close();
-                    }
-                } catch (SQLException e) {
-                    putLog("close connection error: " + e.getMessage(), LogLevel.WARN, "rollbackAll");
-                }
-            }
-        }
-        connections.clear();
+    /** 表所属 dbserver：表配置（含运行时表）的 dbserver，缺省回落到 defaultDBserver */
+    private String resolveDbserver(String tableName) {
+        HashMap<String, String> tp = (tables != null) ? tables.get(tableName) : null;
+        if (tp == null)
+            tp = runtimeTables.get(tableName);
+        String ds = tp != null ? tp.get("dbserver") : null;
+        if (ds == null || ds.isEmpty())
+            ds = params.get("defaultDBserver");
+        return ds;
     }
-
 
     private String selectDbServer(TLMsg msg){
         String dbserver = msg.getStringParam(DB_P_SERVERNAME,"");
@@ -574,24 +564,35 @@ public class TLDatabase extends TLBaseModule {
                 i++;
             }
         }
+        boolean ifCloseConn = msg.parseBoolean(DB_P_IFCLOSECONNECTION,true);
+        boolean inTransaction = msg.parseBoolean(DB_P_IFTRANSACTION,false);
         try {
             result = execSql( conn , runner, sql , action , rsh , sqlParams);
-            if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
+            if(ifCloseConn)
+            {
+                // 事务连接直接关闭 = 隐式回滚（驱动行为不一致）：显式 rollback 并留痕
+                if (inTransaction) {
+                    try { conn.rollback(); } catch (SQLException ignored) {}
+                    putLog("事务连接未提交即关闭，已显式回滚（事务边界应走 startTranscation）",
+                            LogLevel.WARN, "execQuery");
+                }
                 conn.close();
+            }
             else
                 returnMsg.setParam(DB_R_CONN,conn);
         } catch (SQLException e) {
-            if(msg.parseBoolean(DB_P_IFCLOSECONNECTION,true) ==true)
+            if(ifCloseConn)
             {
                 try {
+                    if (inTransaction) conn.rollback();
                     conn.close();
                 } catch (SQLException e1) {
-                    e1.printStackTrace();
+                    putLog(e1, LogLevel.WARN, "execQuery");
                 }
             }
             else
                 returnMsg.setParam(DB_R_CONN,conn);
-            e.printStackTrace();
+            putLog(e, LogLevel.ERROR, "execQuery");
             return returnMsg.setParam(RESULT, false);
         }
         if( cacheKey !=null && action.equals(DB_QUERY))
@@ -736,8 +737,14 @@ public class TLDatabase extends TLBaseModule {
         TLBaseModule serverobj = (TLBaseModule) dbObjs.get(prefixServer+serverName);
         if (serverobj != null)
             return serverobj;
-        HashMap<String, String> config = dbservers.get(serverName);
-       return createDbServer(serverName,config);
+        Object lock = dbLocks.computeIfAbsent(prefixServer + serverName, k -> new Object());
+        synchronized (lock) {
+            serverobj = (TLBaseModule) dbObjs.get(prefixServer+serverName);
+            if (serverobj != null)
+                return serverobj;
+            HashMap<String, String> config = dbservers != null ? dbservers.get(serverName) : null;
+            return createDbServer(serverName, config);
+        }
     }
 
     private TLMsg getBeanTable(Object fromWho, TLMsg msg) {
@@ -747,15 +754,17 @@ public class TLDatabase extends TLBaseModule {
         TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
         if (tableobj != null)
             return createMsg().setParam(INSTANCE, tableobj);
-        HashMap<String, String> tableparams =new HashMap<>();
-        tableparams.put(DB_P_PRIMARYKEY, msg.getStringParam(DB_P_PRIMARYKEY,null));
-        tableparams.put(DB_P_IFPRIMARYKEYAUTO, msg.getStringParam(DB_P_IFPRIMARYKEYAUTO,null));
-        tableparams.put("database", name);
-        synchronized (BeanTable.class)
+        // 按 key 加锁（原来 synchronized(BeanTable.class) 会让所有 bean 表串行创建）
+        Object lock = dbLocks.computeIfAbsent(prefixBeanTable + tablename, k -> new Object());
+        synchronized (lock)
         {
             tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
             if (tableobj != null)
                 return createMsg().setParam(INSTANCE, tableobj);
+            HashMap<String, String> tableparams =new HashMap<>();
+            tableparams.put(DB_P_PRIMARYKEY, msg.getStringParam(DB_P_PRIMARYKEY,null));
+            tableparams.put(DB_P_IFPRIMARYKEYAUTO, msg.getStringParam(DB_P_IFPRIMARYKEYAUTO,null));
+            tableparams.put("database", name);
             tableobj = (TLBaseModule) getNewModule(tablename,"beanTable",tableparams);
             if(tableobj !=null)
                dbObjs.put(prefixBeanTable+tablename, tableobj);
@@ -774,25 +783,41 @@ public class TLDatabase extends TLBaseModule {
         TLBaseModule tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
         if (tableobj != null)
             return tableobj;
-        HashMap<String, String> tableparams =  getTableParam(tablename,msg);
-        tableobj = makeTable(tablename, tableparams);
-        return tableobj;
+        // 按 key 加锁：check-then-act 并发时同一张表只创建一个实例
+        Object lock = dbLocks.computeIfAbsent(prefixTable + tablename, k -> new Object());
+        synchronized (lock) {
+            tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
+            if (tableobj != null)
+                return tableobj;
+            HashMap<String, String> tableparams =  getTableParam(tablename,msg);
+            return makeTable(tablename, tableparams);
+        }
     }
     private HashMap<String, String>  getTableParam(String tablename,TLMsg msg){
-        HashMap<String, String> tableparams = tables.get(tablename);
-        if (tableparams == null && msg !=null)
+        // 运行时表（copyTable 等）优先；配置表只读，合并结果一律用副本，避免污染配置对象
+        HashMap<String, String> runtime = runtimeTables.get(tablename);
+        if (runtime != null)
+            return new HashMap<>(runtime);
+        HashMap<String, String> cfg = (tables != null) ? tables.get(tablename) : null;
+        if (cfg == null && msg !=null)
         {
             if (msg.containsParam(DB_P_COPYTABLE)) {
-                tableparams = copyTable(tablename, (String) msg.getParam(DB_P_COPYTABLE), (String) msg.getParam(DB_DBSERVER));
+                cfg = copyTable(tablename, (String) msg.getParam(DB_P_COPYTABLE), (String) msg.getParam(DB_DBSERVER));
             }
         }
-        if (tableparams == null)
+        if (cfg == null)
             return  new HashMap<>();
+        HashMap<String, String> tableparams = new HashMap<>(cfg);
         String sameAsTable = tableparams.get("sameAsTable");
         if (sameAsTable != null && !sameAsTable.isEmpty()) {
-            HashMap<String, String> sameParams = tables.get(sameAsTable);
-            for (String key : sameParams.keySet())
-                tableparams.putIfAbsent(key, sameParams.get(key));
+            HashMap<String, String> sameParams = (tables != null) ? tables.get(sameAsTable) : null;
+            if (sameParams == null)
+                sameParams = runtimeTables.get(sameAsTable);
+            if (sameParams != null)
+                for (String key : sameParams.keySet())
+                    tableparams.putIfAbsent(key, sameParams.get(key));
+            else
+                putLog("sameAsTable 不存在: " + sameAsTable, LogLevel.WARN, "getTableParam");
         }
         return tableparams ;
     }
@@ -830,15 +855,22 @@ public class TLDatabase extends TLBaseModule {
     }
 
     private HashMap<String, String> copyTable(String tablename, String copyTable, String dbserver) {
-        HashMap<String, String> tableparams = new HashMap<>();
-        tableparams.putAll(tables.get(copyTable));
+        HashMap<String, String> src = (tables != null) ? tables.get(copyTable) : null;
+        if (src == null)
+            src = runtimeTables.get(copyTable);
+        if (src == null) {
+            putLog("copyTable 源表不存在: " + copyTable, LogLevel.ERROR, "copyTable");
+            return null;
+        }
+        HashMap<String, String> tableparams = new HashMap<>(src);
         tableparams.put("dbtable", tablename);
-        tables.put(tablename, tableparams);
+        // 写运行时表，不回写配置（配置对象保持只读）
+        runtimeTables.put(tablename, tableparams);
         if (dbserver == null)
             dbserver = tableparams.get("dbserver");
         boolean result = createDBtableFromCopy(tablename, copyTable, dbserver);
         if (result == true)
-            return tableparams;
+            return new HashMap<>(tableparams);
         else
             return null;
     }
@@ -879,13 +911,23 @@ public class TLDatabase extends TLBaseModule {
     private void insertTriggerMsgTable(TLBaseModule tbobj, String triggerName, String addTriggerAction, String onAction, String trigAction) {
         Object triggerObj = dbObjs.get(prefixTrigger+triggerName);
         if (triggerObj == null) {
-            HashMap<String, String> tparams = triggers.get(triggerName);
+            HashMap<String, String> triggerCfg = (triggers != null) ? triggers.get(triggerName) : null;
+            if (triggerCfg == null) {          // 配置缺失：原实现直接 NPE
+                putLog("trigger 未配置: " + triggerName, LogLevel.ERROR, "insertTriggerMsgTable");
+                return;
+            }
+            // 副本：不把 database/tableName 写回配置对象
+            HashMap<String, String> tparams = new HashMap<>(triggerCfg);
             tparams.putIfAbsent("database", name);
             tparams.putIfAbsent("tableName", tbobj.getName());
             String classFile = tparams.get("classfile");
             if (classFile != null && !classFile.isEmpty())
                 classFile = addPackage(classFile);
             triggerObj = getModule( prefixTrigger+triggerName,classFile,false,false,tparams);
+            if (triggerObj == null) {            // CHM 禁 null value
+                putLog("trigger 创建失败: " + triggerName, LogLevel.ERROR, "insertTriggerMsgTable");
+                return;
+            }
             dbObjs.put(prefixTrigger+triggerName, triggerObj);
         }
         TLMsg trmsg = TLMsgUtils.strToMsg(trigAction).setDestination(prefixTrigger+triggerName).setSystemParam(IFLOADMODULE ,false);
@@ -899,7 +941,13 @@ public class TLDatabase extends TLBaseModule {
         String viewName = (String) msg.getParam(DB_P_VIEWNAME);
         TLBaseModule viewobj = (TLBaseModule) dbObjs.get(prefixView+viewName);
         if (viewobj == null) {
-            HashMap<String, String> viewparams = views.get(viewName);
+            HashMap<String, String> viewCfg = (views != null) ? views.get(viewName) : null;
+            if (viewCfg == null) {
+                putLog("view 未配置: " + viewName, LogLevel.ERROR, "getViews");
+                return createMsg().setParam(INSTANCE, null);
+            }
+            // 用副本：下面 putIfAbsent("database") 不能写回配置
+            HashMap<String, String> viewparams = new HashMap<>(viewCfg);
             String sameClassAs = viewparams.get(MODULE_SameClassAs);
             if(sameClassAs != null && sameClassAs.indexOf("@") >0)
             {
@@ -916,6 +964,10 @@ public class TLDatabase extends TLBaseModule {
                 viewparams.putIfAbsent("database", name);
                 viewobj = (TLBaseModule) getNewModule(viewName,DB_DBTVIEWMODULENAME,viewparams);
             }
+            if (viewobj == null) {               // CHM 禁 null value
+                putLog("view 创建失败: " + viewName, LogLevel.ERROR, "getViews");
+                return createMsg().setParam(INSTANCE, null);
+            }
             dbObjs.put(prefixView+viewName, viewobj);
             addTrigger(viewobj, viewparams);
         }
@@ -927,12 +979,16 @@ public class TLDatabase extends TLBaseModule {
         String readserver = null;
         if (dbserver == null || dbserver.isEmpty()) {
             String tablename = (String) msg.getParam(DB_P_TABLENAME);
-            HashMap<String, String> tableparams;
-            if (tablename != null)
-                tableparams = tables.get(tablename);
-            else {
+            HashMap<String, String> tableparams = null;
+            if (tablename != null) {
+                if (tables != null)
+                    tableparams = tables.get(tablename);
+                if (tableparams == null)
+                    tableparams = runtimeTables.get(tablename);
+            } else {
                 String viewName = (String) msg.getParam(DB_P_VIEWNAME);
-                tableparams = views.get(viewName);
+                if (views != null)
+                    tableparams = views.get(viewName);
             }
             if (tableparams == null || tableparams.get("dbserver") == null)
                 dbserver = params.get("defaultDBserver");
@@ -960,8 +1016,14 @@ public class TLDatabase extends TLBaseModule {
 
     private Connection getConnection(String dbserver) {
         TLBaseModule serverModule =getServer(dbserver);
-        return (Connection) putMsg(serverModule, createMsg().setAction(DB_GETCONN))
-                .getParam(DB_R_CONN);
+        if (serverModule == null) {     // dbserver 未配置/启动失败：putMsg(null,...) 会 NPE
+            putLog("dbserver 未配置或启动失败: " + dbserver, LogLevel.ERROR, "getConnection");
+            return null;
+        }
+        TLMsg reply = putMsg(serverModule, createMsg().setAction(DB_GETCONN));
+        if (reply == null)
+            return null;
+        return (Connection) reply.getParam(DB_R_CONN);
     }
     static public String makeCacheKey(String sql, Map<String,Object> sqlParams  ){
        String cacheKey =String.valueOf(sql.hashCode());

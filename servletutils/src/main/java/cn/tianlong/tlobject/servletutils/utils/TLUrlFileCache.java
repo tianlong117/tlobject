@@ -162,13 +162,12 @@ public class TLUrlFileCache extends TLFileCache {
         if(datas !=null)
             gmsg.setParam("datas",datas);
         TLMsg returnMsg = getMsg(this,gmsg);
-        FileClass file = (FileClass) returnMsg.getParam("file");
-        if(file ==null)
+        if(returnMsg ==null)          // getMsg 异常路径可能返回 null（原判空写在解引用之后，是死判断）
             return null ;
-        InputStream inputStream = file.getInputStream();
-        if(returnMsg ==null)
+        Object fileObj = returnMsg.getParam("file");
+        if(!(fileObj instanceof FileClass))
             return null ;
-        return inputStream ;
+        return ((FileClass) fileObj).getInputStream();
     }
 
     private void deleteCache(String cacheFileName) {
@@ -207,38 +206,25 @@ public class TLUrlFileCache extends TLFileCache {
     protected String  saveFile(InputStream inputStream, String filePath, String fileName) throws IOException {
 
         File dir = new File(filePath);
-        if (!dir.exists())      
-            FileUtils.forceMkdir(dir);    
-        byte[] buffer = new byte[4096];
-        int readLenghth;
-        FileOutputStream fileOutputStream = null;
+        if (!dir.exists())
+            FileUtils.forceMkdir(dir);
         File file =new File(fileName);
-        try {
-            fileOutputStream = new FileOutputStream(file);
-        } catch (FileNotFoundException e) {
-            putLog("file dont create:"+fileName,LogLevel.ERROR);
-            return null;
-        }
-        //创建的一个写出的缓冲流
-        BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream);
-        //文件逐步写入本地
-        try {
-            while ((readLenghth = inputStream.read(buffer, 0, 4096)) != -1) {//先读出来，保存在buffer数组中
-                bufferedOutputStream.write(buffer, 0, readLenghth);//再从buffer中取出来保存到本地
+        // try-with-resources：手动 close 任一抛异常都会让后面的流泄漏（写失败路径原先只关到第一层）
+        try (InputStream in = inputStream;
+             FileOutputStream fileOutputStream = new FileOutputStream(file);
+             BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream)) {
+            byte[] buffer = new byte[4096];
+            int readLenghth;
+            while ((readLenghth = in.read(buffer, 0, 4096)) != -1) {
+                bufferedOutputStream.write(buffer, 0, readLenghth);
             }
-        }catch (Exception e){
+        } catch (Exception e) {
             putLog("write cache file error"+fileName,LogLevel.WARN,"saveFile");
-            bufferedOutputStream.close();
-            fileOutputStream.close();
-            inputStream.close();
             if (file.exists()){
                 file.delete();
             }
             return null ;
         }
-        bufferedOutputStream.close();
-        fileOutputStream.close();
-        inputStream.close();
         return fileName;
     }
 }

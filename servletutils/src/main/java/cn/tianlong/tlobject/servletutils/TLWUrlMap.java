@@ -14,7 +14,8 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.*;
 
 public class TLWUrlMap extends TLWServModule {
 
-    protected HashMap<String, ArrayList<TLMsg>> urlMapTable;
+    /** reload 会整体替换引用，请求线程并发读：volatile 保证可见性（旧表只读不写） */
+    protected volatile HashMap<String, ArrayList<TLMsg>> urlMapTable;
     protected String prefixUrl;
     protected String defaultClientUser ="webUser";
     public TLWUrlMap(){
@@ -108,9 +109,14 @@ public class TLWUrlMap extends TLWServModule {
     }
 
     private TLMsg getUrlMapTable(Object fromWho, TLMsg msg) {
-        mconfig.parse(configFile);
-        HashMap<String, ArrayList<TLMsg>> urlMap =((myConfig)mconfig).getUrlMapTable() ;
-        return createMsg().setArgs(urlMap);
+        // 重新解析配置后必须把结果写回模块字段，否则"热刷新"只返回新表、路由仍用旧表
+        synchronized (this) {
+            mconfig.parse(configFile);
+            HashMap<String, ArrayList<TLMsg>> urlMap = ((myConfig) mconfig).getUrlMapTable();
+            if (urlMap != null)
+                urlMapTable = urlMap;
+            return createMsg().setArgs(urlMap);
+        }
     }
 
     private TLMsg getPrefixUrl(Object fromWho, TLMsg msg) {
@@ -212,13 +218,20 @@ public class TLWUrlMap extends TLWServModule {
                 return getMsg(this,smg);
             }
             dmsg.addArgs(getInputVar(dmsg));
+            // 配置里 <url> 没写 destination 时 putMsg(null,...) 会在 getModule 里 NPE；
+            // toServlet 分支自带判空，这里补齐另外两条路径
+            String destination = dmsg.getDestination();
+            if (destination == null || destination.isEmpty()) {
+                putLog("urlmap 未配置 destination，丢弃消息: " + dmsg.getAction(), LogLevel.ERROR);
+                return null;
+            }
             if(beforeAction.equals("direct"))
-                return putMsg(dmsg.getDestination(),dmsg);
+                return putMsg(destination,dmsg);
             else {
                 TLMsg smg =createMsg().setAction(beforeAction).setParam("domsg",dmsg);
                 TLMsg returnMsg= getMsg(this,smg);
                 if( ifDoNextMsg(returnMsg))
-                   return putMsg(dmsg.getDestination(),dmsg);
+                   return putMsg(destination,dmsg);
                 else
                     return returnMsg ;
             }
@@ -256,18 +269,28 @@ public class TLWUrlMap extends TLWServModule {
             dmsg.removeParam("clientUser");
             return null ;
         }
-        String inInterface =(String) dmsg.getAndRemoveParam("inInterface");
+        Object inInterfaceObj =dmsg.getAndRemoveParam("inInterface");
+        String inInterface = inInterfaceObj instanceof String ? (String) inInterfaceObj : null;
         TLMsg inputs ;
         if(inInterface !=null && !inInterface.isEmpty())
             inputs=putMsg(inInterface,createMsg().setAction(ININTERFACE_GETDATAFROMUSER).setParam(CLIENT_P_VARNAME,clientVars ));
         else{
-            String clientType =(String) dmsg.getAndRemoveParam("clientType");
+            Object clientTypeObj =dmsg.getAndRemoveParam("clientType");
+            String clientType = clientTypeObj instanceof String ? (String) clientTypeObj : null;
             if(clientType !=null && !clientType.isEmpty())
                 inputs=putMsg(clientType,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
             else {
-                String clientUser= (String) dmsg.getAndRemoveParam("clientUser",defaultClientUser);
+                Object clientUserObj = dmsg.getAndRemoveParam("clientUser", defaultClientUser);
+                String clientUser = clientUserObj instanceof String ? (String) clientUserObj : defaultClientUser;
+                if (clientUser == null || clientUser.isEmpty())   // 无用户模块可寻址
+                    return null;
                 TLMsg returnMsg =putMsg(clientUser,createMsg().setAction(USER_GETCLIENT));
-                String client= (String) returnMsg.getParam(USER_R_CLIENT);
+                if (returnMsg == null)
+                    return null;
+                Object clientObj = returnMsg.getParam(USER_R_CLIENT);
+                if (!(clientObj instanceof String))
+                    return null;
+                String client= (String) clientObj;
                 inputs=putMsg(client,createMsg().setAction(WEBCLIENT_GETINDATA).setParam(CLIENT_P_VARNAME,clientVars ));
             }
         }

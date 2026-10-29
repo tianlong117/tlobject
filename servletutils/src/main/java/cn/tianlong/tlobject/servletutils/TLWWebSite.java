@@ -74,11 +74,12 @@ public class TLWWebSite extends TLWServModule{
     }
 
     private TLMsg setup(Object fromWho, TLMsg msg) {
+        // 非请求线程/上下文未就绪时 getRequest() 为 null：需要 IP 判断时按安全侧拒绝
+        HttpServletRequest request = getRequest();
 
         if(prohibitIp !=null )
         {
-            HttpServletRequest request = getRequest();
-            if(checkIp(prohibitIp,request.getRemoteAddr())==true)
+            if(request == null || checkIp(prohibitIp,request.getRemoteAddr())==true)
             {
                 putError("ip禁止");
                 return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
@@ -86,7 +87,11 @@ public class TLWWebSite extends TLWServModule{
         }
         if(serverName!=null )
         {
-            HttpServletRequest request = getRequest();
+            if(request == null)
+            {
+                putError("无法获取请求上下文");
+                return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
+            }
             String server =request.getServerName();
             boolean isServerName =false;
             for(int i=0;i<serverName.length;i++)
@@ -107,15 +112,18 @@ public class TLWWebSite extends TLWServModule{
         {
             if(permitIp !=null)
             {
-                HttpServletRequest request = getRequest();
-                if(checkIp(permitIp,request.getRemoteAddr())==false)
+                if(request == null || checkIp(permitIp,request.getRemoteAddr())==false)
                 {
                     putError("服务关闭");
                     return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
                 }
             }
             else
+            {
+                // 原实现只返回 DONEXTMSG=false，不给用户任何提示（空响应）
+                putError("服务关闭");
                 return  createMsg().setSystemParam(MODULE_DONEXTMSG,false);
+            }
         }
         return null ;
     }

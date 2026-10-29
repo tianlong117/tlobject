@@ -40,12 +40,16 @@ public class TLWDirectOutInterface extends TLBaseClientDataOutInterface {
     @Override
     protected TLMsg putDataToUser(Object fromWho, TLMsg msg) {
         outData outData = (TLWServModule.outData) msg.getParam(CLIENT_P_OUDDATA);
+        if (outData == null)
+            return null;
         LinkedHashMap<String, Object> datas =(LinkedHashMap<String, Object>)outData.getParam(CLIENT_P_OUDDATA);
         if(datas==null)
             return null;
         StringBuilder buffer = new StringBuilder();
         for (String key : datas.keySet()) {
-            buffer.append((String)datas.get(key).toString());
+            Object value = datas.get(key);
+            // JSON null / 业务给的可选字段：直接 .toString() 会 NPE（非 String 值由 toString 转，安全）
+            buffer.append(value == null ? "" : value.toString());
         }
         String outContent=buffer.toString();
         return  responseWrite(outContent,(String) msg.getParam(CHARSET));

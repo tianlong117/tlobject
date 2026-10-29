@@ -57,8 +57,15 @@ public class TLWClientJsonToMsg extends TLWServModule {
         return   putMsg(this, (TLMsg) msg.getParam("domsg"));
     }
     private TLMsg fromClient(Object fromWho, TLMsg msg) {
+        if (inInterface == null)          // init 时 M_DIRECTININTERFACE 未注册/创建失败
+            return null;
         TLMsg returnMsg=  putMsg( inInterface,getInMsg);
-        String jstr = (String) returnMsg.getParam("content");
+        if (returnMsg == null)
+            return null;
+        Object contentObj = returnMsg.getParam("content");
+        if (!(contentObj instanceof String))
+            return null;
+        String jstr = (String) contentObj;
         LinkedTreeMap<String, Object> contentmap;
         try {
             contentmap = gson.fromJson(jstr, jsonType);
@@ -68,18 +75,24 @@ public class TLWClientJsonToMsg extends TLWServModule {
         }
         if(contentmap==null )
             return null ;
-        String msgid = (String) contentmap.get(MSG_P_MSGID);
+        Object msgidObj = contentmap.get(MSG_P_MSGID);
+        String msgid = msgidObj != null ? String.valueOf(msgidObj) : null;
         TLMsg clientMsg =createMsg().setMsgId(msgid);
-        if(contentmap.get("datas")!=null )
+        Object datasObj = contentmap.get("datas");
+        if(datasObj instanceof Map)
         {
-            LinkedTreeMap<String, Object> datas = (LinkedTreeMap<String, Object>) contentmap.get("datas");
+            // JSON 里 datas 写成数组/标量时，强转 LinkedTreeMap 会 CCE（且不是 JsonSyntaxException，接不住）
+            LinkedTreeMap<String, Object> datas = (LinkedTreeMap<String, Object>) datasObj;
             datas = (LinkedTreeMap<String, Object>) TLDataUtils.jsonDoubleToInt(datas);
            clientMsg.addArgs(datas);
         }
         HttpServletRequest request =getRequest() ;
-        String token = request.getHeader("Access-User-Token");
+        String token = request != null ? request.getHeader("Access-User-Token") : null;
         if(token ==null)
-            token = (String) contentmap.get("token");
+        {
+            Object tokenObj = contentmap.get("token");
+            token = tokenObj != null ? String.valueOf(tokenObj) : null;   // 数字 token 强转 String 会 CCE
+        }
         if(token!=null)
            clientMsg.setParam("token",token);
         return putMsg(this,createMsg().setAction("toServlet").setParam("domsg",clientMsg));

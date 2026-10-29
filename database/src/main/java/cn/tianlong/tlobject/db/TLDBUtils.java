@@ -110,33 +110,46 @@ public class TLDBUtils {
                 if (value ==null || value.isEmpty())
                     result =0 ;
                 else
-                    result=Integer.parseInt(value);
+                    result=parseNumberOrNull(value, Integer.class);
                 break;
             case "Long":
             case "L":
                 if (value ==null || value.isEmpty())
                     result =0L ;
                 else
-                    result=Long.parseLong(value);
+                    result=parseNumberOrNull(value, Long.class);
                 break;
             case "Float":
             case "F":
                 if (value ==null || value.isEmpty())
                     result =0F ;
                 else
-                    result=Float.parseFloat(value);
+                    result=parseNumberOrNull(value, Float.class);
                 break;
             case "BigDecimal":
             case "D":
                 if (value ==null || value.isEmpty())
                     result =0D ;
                 else
-                    result=Double.parseDouble(value);
+                    result=parseNumberOrNull(value, Double.class);
                 break;
             default:
                 result=value;
         }
         return result ;
+    }
+
+    /** 数字解析失败（"abc"/"  "）返回 null，交给 SQL 层报错，而不是把 NumberFormatException 抛到调用方 */
+    private static Object parseNumberOrNull(String value, Class<?> type) {
+        try {
+            String v = value.trim();
+            if (type == Integer.class) return Integer.parseInt(v);
+            if (type == Long.class) return Long.parseLong(v);
+            if (type == Float.class) return Float.parseFloat(v);
+            return Double.parseDouble(v);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
     public static String objectToString( Object object) {
         if(object ==null)
@@ -153,6 +166,8 @@ public class TLDBUtils {
     }
 
     public static int insertList(String sql, List<LinkedHashMap> datas , TLTable table){
+        if (datas == null || datas.isEmpty())
+            return 0;
         int sucessNumber=0 ;
         for (Map data: datas )
         {
@@ -160,12 +175,16 @@ public class TLDBUtils {
                     .setParam(DB_P_SQL, sql)
                     .setParam(DB_P_PARAMS, data);
             TLMsg resultMsg = table.putMsg(table, insertmsg);
+            if (resultMsg == null)          // 目标模块异常路径可能返回 null
+                continue;
             int result = resultMsg.getIntParam(DB_R_RESULT,0);
             sucessNumber = sucessNumber +result ;
         }
         return sucessNumber ;
     }
     public static int  batchInsertList(String sql , List<LinkedHashMap> datas , TLTable table){
+        if (datas == null || datas.isEmpty())   // 空列表原来 datas.get(0) 直接越界
+            return 0;
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
         if(sql ==null || sql.isEmpty())
           sql =createInsertSql(data0,null);
@@ -173,6 +192,8 @@ public class TLDBUtils {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, datas);
         TLMsg resultMsg = table.putMsg(table, insertmsg);
+        if (resultMsg == null)
+            return 0;
         int[] result = (int[]) resultMsg.getArrayParam(DB_R_RESULT,null);
         if(result ==null)
             return 0 ;
@@ -183,6 +204,8 @@ public class TLDBUtils {
 
         String sql ;
         String[] fieldsNames ;
+        if (datas == null || datas.isEmpty())   // 空列表原来 datas.get(0) 直接越界
+            return 0;
         if(dbFields ==null || dbFields.isEmpty())
         {
             HashMap<String, Object> dataMap0= datas.get(0);
@@ -234,6 +257,8 @@ public class TLDBUtils {
         return sqlCondition ;
     }
     public static int insertList(List<LinkedHashMap> datas , TLTable table){
+        if (datas == null || datas.isEmpty())
+            return 0;
         LinkedHashMap<String,Object> data0 =datas.get(0) ;
         String sql =createInsertSql(data0,null);
         return insertList( sql,  datas , table);

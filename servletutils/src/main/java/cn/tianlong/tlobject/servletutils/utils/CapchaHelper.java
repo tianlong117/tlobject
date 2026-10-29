@@ -68,7 +68,8 @@ public class CapchaHelper {
             new Color(220, 255, 220)
     };
 
-    private static ListImageCaptchaEngine captchaEngine;
+    /** volatile：双检锁下防止其他线程看到"部分构造"的引擎（buildInitialFactories 未完成） */
+    private static volatile ListImageCaptchaEngine captchaEngine;
 
     public static CaptchaEngine getCaptchaEngine(final String imgPath) {
         if (captchaEngine == null) {
@@ -118,8 +119,20 @@ public class CapchaHelper {
     }
 
     public static void  putCaptchaImg(HttpServletRequest req,HttpServletResponse resp) {
-        if(captchaService ==null)
-            initCaptchaService();
+        if(captchaService ==null) {
+            // 字体缺失（如 Linux 无 Arial/Bell MT）等会让初始化抛异常；不拦会变成 NPE 且无日志
+            try {
+                initCaptchaService();
+            } catch (Throwable t) {
+                System.err.println("验证码服务初始化失败: " + t);
+                try { resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR); } catch (Throwable ignored) {}
+                return;
+            }
+        }
+        if(captchaService ==null) {
+            try { resp.setStatus(HttpServletResponse.SC_INTERNAL_SERVER_ERROR); } catch (Throwable ignored) {}
+            return;
+        }
         byte[] captChallengeAsJpeg = null;
         ByteArrayOutputStream jpegOutputStream = new ByteArrayOutputStream();
 
@@ -152,23 +165,18 @@ public class CapchaHelper {
             e.printStackTrace();
             return;
         }
+        // 写失败也要 close：原来的 return 会把 OutputStream 留在异常路径上不关
         try {
             respOutputStream.write(captChallengeAsJpeg);
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
-        try {
             respOutputStream.flush();
         } catch (IOException e) {
             e.printStackTrace();
-            return;
-        }
-        try {
-            respOutputStream.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
+        } finally {
+            try {
+                respOutputStream.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
     public static Boolean checkCaptcha(String checkCode,HttpServletRequest request){

@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.cache.TLBaseCache;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.HashMap;
@@ -18,8 +19,9 @@ import java.util.Map;
  */
 
 public abstract class TLBaseDataUnit extends TLBaseModule {
-    protected TLBaseConnectorInterface connector;
-    protected TLBaseConnectorInterface readConnector;
+    /** 懒初始化（getConnection 首次调用），多线程并发要求可见性 */
+    protected volatile TLBaseConnectorInterface connector;
+    protected volatile TLBaseConnectorInterface readConnector;
     protected boolean ifCache =false ;
     protected int cacheExptime=1;
     protected Object conn;
@@ -135,16 +137,32 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
     protected Object getConnection(String connType){
         if(connType==null )
         {
-            if(connector ==null)
-                connector= (TLBaseConnectorInterface) putMsg(dbserver,createMsg().setAction(DB_GETCONNECTOR))
-                        .getParam(DB_R_CONNECTOR);
+            if(connector ==null) {
+                synchronized (this) {
+                    if (connector == null)
+                        connector = (TLBaseConnectorInterface) putMsg(dbserver, createMsg().setAction(DB_GETCONNECTOR))
+                                .getParam(DB_R_CONNECTOR);
+                }
+            }
+            if (connector == null) {          // dbserver 未配置/启动失败
+                putLog("无可用连接器（dbserver 未启动？）", LogLevel.ERROR, "getConnection");
+                return null;
+            }
             return  connector.connect();
         }
         else
         {
-            if(readConnector ==null)
-                readConnector= (TLBaseConnectorInterface) putMsg(readserver,createMsg().setAction(DB_GETCONNECTOR))
-                        .getParam(DB_R_CONNECTOR);
+            if(readConnector ==null) {
+                synchronized (this) {
+                    if (readConnector == null)
+                        readConnector = (TLBaseConnectorInterface) putMsg(readserver, createMsg().setAction(DB_GETCONNECTOR))
+                                .getParam(DB_R_CONNECTOR);
+                }
+            }
+            if (readConnector == null) {
+                putLog("无可用只读连接器", LogLevel.ERROR, "getConnection");
+                return null;
+            }
             return  readConnector.connect();
         }
     }

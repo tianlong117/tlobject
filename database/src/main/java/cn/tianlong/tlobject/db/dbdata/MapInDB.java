@@ -316,11 +316,12 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
-        Map<String,Object> result = (Map<String, Object>) resultMsg.getParam(DB_R_RESULT);
+        Map<String,Object> result = (resultMsg == null) ? null : (Map<String, Object>) resultMsg.getParam(DB_R_RESULT);
         if(result ==null || result.isEmpty())
             return 0 ;
-        Long  numbers = ( Long) result.get("numbers");
-        return numbers ;
+        // count(*) 的驱动返回值可能是 Long/Integer/BigInteger：强转 Long 在 SQLite 上会 CCE
+        Object v = result.get("numbers");
+        return v instanceof Number ? ((Number) v).longValue() : 0L ;
     }
 
     public boolean isEmpty(){
@@ -345,7 +346,7 @@ public class MapInDB extends TLBaseTableModel {
             cacheMap.clear();
         Map<String,String> dbdata =queryMapUnits(key);
         if(dbdata ==null || dbdata.isEmpty())
-            return null ;
+            return false ;          // 不存在 = 删除失败（原来返回 null，调用方容易误判为"临时故障"）
         String type =dbdata.get("type");
         String mname =dbdata.get("value");
         deleteSonMap( mname , type);
@@ -486,6 +487,11 @@ public class MapInDB extends TLBaseTableModel {
         return null ;
     }
 
+    /**
+     * 写本地缓存：**只在缓存为空时写**（读一次即长期命中，直到过期或被本实例的写操作 clear）。
+     * 注意：缓存是实例级的——另一个 MapInDB 实例改了同一个 mid，本实例读到的仍是旧值，
+     * 直到 cacheExptime 到期。需要强一致时请把 cacheExptime 配 0（禁用本地缓存）。
+     */
     protected synchronized void writeCache( Map<String ,Object> map){
         if(!cacheMap.isEmpty())
             return;
