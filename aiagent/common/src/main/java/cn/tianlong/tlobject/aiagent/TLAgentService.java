@@ -32,6 +32,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     private String agentModule = "aiagent";
 
+    /** 审批模块名：默认 "approvalGate"，可由 params.approvalModule 覆盖 */
+    private String approvalModule = "approvalGate";
+
     /** 会话管理模块名，默认 "sessionManager" */
     private String sessionManagerName = "sessionManager";
 
@@ -100,12 +103,28 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             if (params.get("sessionManager") != null) {
                 sessionManagerName = params.get("sessionManager");
             }
+            if (params.get("approvalModule") != null) {
+                approvalModule = params.get("approvalModule");
+            }
         }
     }
 
     /** 获取会话管理模块名 */
     private String targetSessionManager(TLMsg msg) {
         return msg.getStringParam("sessionManager", sessionManagerName);
+    }
+
+    /**
+     * UI 侧转发：模块名可能来自配置/消息（拼写错误、未安装、启动顺序不对），
+     * 缺模块时不应走框架默认的 shutdown(-1) 把整个应用关掉。
+     */
+    private TLMsg putSafe(String moduleName, TLMsg msg) {
+        return putMsg(moduleName, msg.setSystemParam(IGNOREMODULEISNULL, true));
+    }
+
+    /** 审批模块转发：模块名可配（默认 approvalGate），同样不做"缺模块即退出" */
+    private TLMsg putToApproval(TLMsg msg) {
+        return putSafe(approvalModule, msg);
     }
 
     @Override
@@ -294,7 +313,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         // resume=true: 从 SessionManager 预加载历史数据，注入到 Agent 消息中
         if (resume) {
-            TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+            TLMsg loaded = putSafe(targetSessionManager(msg), createMsg()
                     .setAction("loadSession")
                     .setParam("sessionId", sessionId)
                     .setParam("userId", userId));
@@ -327,7 +346,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (msg.containsParam(AI_P_REASONING_MODE)) chatMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
         if (msg.containsParam(AI_P_ATTACHMENTS)) chatMsg.setParam(AI_P_ATTACHMENTS, msg.getParam(AI_P_ATTACHMENTS));
 
-        TLMsg result = putMsg(targetAgent(msg), chatMsg);
+        TLMsg result = putSafe(targetAgent(msg), chatMsg);
         if (result == null) return fail("Agent 无响应");
 
         boolean success = result.parseBoolean(RESULT, false);
@@ -381,7 +400,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (resume) {
             streamMsg.setParam("resume", true);
             // 从 SessionManager 预加载历史数据
-            TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+            TLMsg loaded = putSafe(targetSessionManager(msg), createMsg()
                     .setAction("loadSession")
                     .setParam("sessionId", sessionId)
                     .setParam("userId", userId));
@@ -410,7 +429,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (msg.containsParam(AI_P_REASONING_MODE)) streamMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
         if (msg.containsParam(AI_P_ATTACHMENTS)) streamMsg.setParam(AI_P_ATTACHMENTS, msg.getParam(AI_P_ATTACHMENTS));
 
-        putMsg(agent, streamMsg);
+        putSafe(agent, streamMsg);
         return ok("流式请求已提交");
     }
 
@@ -418,10 +437,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     private TLMsg doStopChat(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         // 级联停止
-        putMsg(M_AGENTMONITOR, createMsg().setAction("stopByRoot")
+        putSafe(M_AGENTMONITOR, createMsg().setAction("stopByRoot")
                 .setParam("rootSessionId", sessionId));
         // 主 agent 停止
-        putMsg(targetAgent(msg), createMsg().setAction(AGENT_STOPCHAT)
+        putSafe(targetAgent(msg), createMsg().setAction(AGENT_STOPCHAT)
                 .setParam(AI_P_SESSIONID, sessionId));
         return ok("已发送停止信号");
     }
@@ -805,7 +824,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** 列出历史会话 → SessionManager；过滤 task_* 任务会话；附 running（agent 运行计数） */
     @SuppressWarnings("unchecked")
     private TLMsg doListSessions(Object fromWho, TLMsg msg) {
-        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg result = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("listSessions")
                 .setParam("userId", msg.getStringParam("userId", null)));
         if (result == null || !result.parseBoolean(RESULT, false)) return fail("无法获取会话列表");
@@ -819,7 +838,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             if (sid.startsWith("task_")) continue;               // 任务执行会话不进用户会话列表
             TLMsg runMsg = createMsg().setAction("getSessionRunState").setParam(AI_P_SESSIONID, sid);
             runMsg.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg rq = putMsg(targetAgent(msg), runMsg);
+            TLMsg rq = putSafe(targetAgent(msg), runMsg);
             if (rq != null) m.put("running", rq.getIntParam("running", 0) > 0);
             out.add(m);
         }
@@ -845,7 +864,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String targetId = msg.getStringParam(AI_P_SESSIONID, null);
         String userId = msg.getStringParam("userId", null);
 
-        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg result = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("continueSession")
                 .setParam("sessionId", targetId)
                 .setParam("userId", userId)
@@ -858,7 +877,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         // 继续会话后，由 Agent 将历史加载到内部 context
         targetId = result.getStringParam("sessionId", targetId);
         java.util.List<?> history = result.getListParam("history", java.util.List.of());
-        putMsg(targetAgent(msg), createMsg()
+        putSafe(targetAgent(msg), createMsg()
                 .setAction("loadHistory")
                 .setParam(AI_P_SESSIONID, targetId)
                 .setParam(AI_P_MESSAGEHISTORY, history));
@@ -873,7 +892,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** 恢复断点会话 → SessionManager */
     private TLMsg doResume(Object fromWho, TLMsg msg) {
-        TLMsg incompleteResult = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg incompleteResult = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("findIncomplete")
                 .setParam("userId", msg.getStringParam("userId", null))
                 // 会话级定位：webui 批准后的自动续跑按目标会话恢复（空串 = 不限定，保持旧行为）
@@ -900,10 +919,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         if (sessionId == null || sessionId.isEmpty()) return fail("sessionId 参数必填");
         String userId = msg.getStringParam("userId", null);
         // 1. 清 agent 内存上下文（避免删除后残留）
-        putMsg(targetAgent(msg), createMsg().setAction(AGENT_CLEARCONTEXT)
+        putSafe(targetAgent(msg), createMsg().setAction(AGENT_CLEARCONTEXT)
                 .setParam(AI_P_SESSIONID, sessionId));
         // 2. 删除会话记录（DB 版：ai_sessions + ai_session_rounds；文件版：对应文件）
-        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg result = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("deleteSession")
                 .setParam("sessionId", sessionId)
                 .setParam("userId", userId));
@@ -921,7 +940,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         title = title == null ? "" : title.trim();
         if (title.isEmpty()) return fail("title 参数必填");
         if (title.length() > 50) title = title.substring(0, 50);
-        TLMsg result = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg result = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("setSessionTitle")
                 .setParam("sessionId", sessionId)
                 .setParam("userId", msg.getStringParam("userId", null))
@@ -939,7 +958,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** 清除会话上下文 */
     private TLMsg doClearContext(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        putMsg(targetAgent(msg), createMsg().setAction(AGENT_CLEARCONTEXT)
+        putSafe(targetAgent(msg), createMsg().setAction(AGENT_CLEARCONTEXT)
                 .setParam(AI_P_SESSIONID, sessionId));
         return ok("上下文已清除");
     }
@@ -951,7 +970,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         // 存在性提示：查 SessionManager 会话元数据（轻量），防止误切到已存在会话造成混写
         boolean exists = false;
         try {
-            TLMsg list = putMsg(targetSessionManager(msg), createMsg()
+            TLMsg list = putSafe(targetSessionManager(msg), createMsg()
                     .setAction("listSessions")
                     .setParam("userId", msg.getStringParam("userId", null)));
             if (list != null && list.parseBoolean(RESULT, false)) {
@@ -995,7 +1014,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             approveMsg.setSystemParam(IGNOREMODULEISNULL, true);
             // 核 gate 返回值：非 once+改参数 / 未知 scope / round 无轮次 / not found / already decided
             // 都会 RESULT=false+error——透传，不能吞掉谎报"已批准"（本次审批 8b 修复）
-            TLMsg r = putMsg("approvalGate", approveMsg);
+            TLMsg r = putToApproval(approveMsg);
             if (r == null || !r.parseBoolean(RESULT, false)) {
                 // approvalEnded（not found / already decided）：透传给 webui，让弹框自愈关闭
                 TLMsg f = fail("批准失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
@@ -1015,7 +1034,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                     .setParam("approvalId", approvalId)
                     .setParam("approvalRejectReason", reason);
             rejectMsg.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg r = putMsg("approvalGate", rejectMsg);
+            TLMsg r = putToApproval(rejectMsg);
             if (r == null || !r.parseBoolean(RESULT, false)) {
                 TLMsg f = fail("拒绝失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
                 if (r != null && r.parseBoolean("approvalEnded", false)) f.setParam("approvalEnded", true);
@@ -1052,7 +1071,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         } else {
             TLMsg q = createMsg().setAction(APPROVAL_PENDINGLIST);
             q.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg r = putMsg("approvalGate", q);
+            TLMsg r = putToApproval(q);
             Object listObj = r != null ? r.getParam("pendingList") : null;
             if (listObj instanceof List) {
                 for (Object o : (List<?>) listObj) {
@@ -1068,7 +1087,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         for (String id : ids) {
             TLMsg ab = createMsg().setAction(APPROVAL_ABANDON).setParam(AI_P_APPROVAL_ID, id);
             ab.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg r = putMsg("approvalGate", ab);
+            TLMsg r = putToApproval(ab);
             if (r != null && r.parseBoolean(RESULT, false)) abandoned++;
         }
         // 丢弃断点（把该会话的 pending_approval 轮改为 completed）
@@ -1080,7 +1099,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                     .setParam("sessionId", sessionId)
                     .setParam("userId", resolveUid(msg));
             d.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg dr = putMsg(targetSessionManager(msg), d);
+            TLMsg dr = putSafe(targetSessionManager(msg), d);
             if (dr != null && !dr.parseBoolean(RESULT, false)) {
                 checkpointDiscarded = false;
                 checkpointError = dr.getStringParam("error", "");
@@ -1159,7 +1178,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                     f.setParam("sessionId", sid);
                 }
                 f.setSystemParam(IGNOREMODULEISNULL, true);
-                TLMsg r = putMsg("approvalGate", f);
+                TLMsg r = putToApproval(f);
                 if (r == null || !r.parseBoolean(RESULT, false)) {
                     return fail("查询授权失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
                 }
@@ -1183,7 +1202,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 if (!ruleId.isEmpty()) f.setParam("ruleId", ruleId);
                 if (!operation.isEmpty()) f.setParam("operation", operation);
                 f.setSystemParam(IGNOREMODULEISNULL, true);
-                TLMsg r = putMsg("approvalGate", f);
+                TLMsg r = putToApproval(f);
                 if (r == null || !r.parseBoolean(RESULT, false)) {
                     return fail("撤销失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
                 }
@@ -1196,7 +1215,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 f = createMsg().setAction(APPROVAL_GRANT).setParam("sessionId", sid).setParam("ruleId", ruleId);
                 if (!operation.isEmpty()) f.setParam("operation", operation);
                 f.setSystemParam(IGNOREMODULEISNULL, true);
-                TLMsg r = putMsg("approvalGate", f);
+                TLMsg r = putToApproval(f);
                 if (r == null || !r.parseBoolean(RESULT, false)) {
                     return fail("预授权失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
                 }
@@ -1209,7 +1228,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 if (deny != null) return fail(deny);
                 f = createMsg().setAction(APPROVAL_REVOKE).setParam("sessionId", sid).setParam("all", true);
                 f.setSystemParam(IGNOREMODULEISNULL, true);
-                TLMsg r = putMsg("approvalGate", f);
+                TLMsg r = putToApproval(f);
                 if (r == null || !r.parseBoolean(RESULT, false)) {
                     return fail("清空失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
                 }
@@ -1236,7 +1255,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                     : createMsg().setAction(APPROVAL_REVOKE).setParam("sessionId", sid)
                             .setParam("ruleId", "*");
             f.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg r = putMsg("approvalGate", f);
+            TLMsg r = putToApproval(f);
             if (r == null || !r.parseBoolean(RESULT, false)) {
                 return fail("自动运行切换失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
             }
@@ -1250,7 +1269,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         // status：查该会话通配授权是否存在
         TLMsg f = createMsg().setAction(APPROVAL_GRANTS).setParam("sessionId", sid);
         f.setSystemParam(IGNOREMODULEISNULL, true);
-        TLMsg r = putMsg("approvalGate", f);
+        TLMsg r = putToApproval(f);
         if (r == null || !r.parseBoolean(RESULT, false)) {
             return fail("查询自动运行状态失败: " + (r != null ? r.getStringParam("error", "未知错误") : "无响应"));
         }
@@ -1427,7 +1446,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
      */
     private TLMsg queryTrace(Object fromWho, TLMsg msg) {
         String rootSid = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
+        TLMsg result = putSafe(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
                 .setParam("rootSessionId", rootSid));
         if (result == null) return fail("agentMonitor 未注册");
         List<?> stages = result.getListParam("stages", new ArrayList<>());
@@ -1451,7 +1470,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         // 1. 取最新一轮环节表
         String rootSid = sessionId;
-        TLMsg trace = putMsg(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
+        TLMsg trace = putSafe(M_AGENTMONITOR, createMsg().setAction("getLatestTrace")
                 .setParam("rootSessionId", rootSid));
         if (trace == null) return fail("agentMonitor 未注册");
         List<TLAgentMonitor.StageRecord> stages = (List<TLAgentMonitor.StageRecord>)
@@ -1467,7 +1486,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         // 2. 取该轮完整消息（loadRound 按 roundId+agentName 过滤，防御子 agent 覆盖行）
         String owner = targetAgent(msg);
-        TLMsg loaded = putMsg(targetSessionManager(msg), createMsg()
+        TLMsg loaded = putSafe(targetSessionManager(msg), createMsg()
                 .setAction("loadRound")
                 .setParam("sessionId", sessionId)
                 .setParam("userId", userId)
@@ -1564,7 +1583,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
         // ── 1. 当前会话 ──
         String sid = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg s = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETSESSIONTOKENUSAGE)
+        TLMsg s = putSafe(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETSESSIONTOKENUSAGE)
                 .setParam(AI_P_SESSIONID, sid));
         lines.add("当前会话 Token 统计:");
         if (s == null) {
@@ -1586,7 +1605,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         lines.add("");
 
         // ── 2. 进程级合计（所有会话） ──
-        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETPROCESSTOKENUSAGE));
+        TLMsg result = putSafe(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETPROCESSTOKENUSAGE));
         if (result == null) {
             lines.add("所有会话合计: agentMonitor 未注册");
         } else {
@@ -1612,7 +1631,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         lines.add("");
 
         // ── 3. DB 历史合计（跨重启，按当前用户） ──
-        TLMsg db = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETDBTOKENUSAGE)
+        TLMsg db = putSafe(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETDBTOKENUSAGE)
                 .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
         if (db == null) {
             lines.add("DB 历史合计: agentMonitor 未注册");
@@ -1633,7 +1652,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** /stats all 命令：内存中当前用户的会话 token 明细（按合计降序，上限 50 行） */
     @SuppressWarnings("unchecked")
     private TLMsg doStatsAll(Object fromWho, TLMsg msg) {
-        TLMsg result = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETALLSESSIONTOKENUSAGE)
+        TLMsg result = putSafe(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETALLSESSIONTOKENUSAGE)
                 .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
         if (result == null) return fail("agentMonitor 未注册");
         List<Map<String, Object>> sessions = (List<Map<String, Object>>) result.getListParam("sessions", new ArrayList<>());
@@ -1668,7 +1687,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     @SuppressWarnings("unchecked")
     private TLMsg doStatsAgent(Object fromWho, TLMsg msg) {
         String sid = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg r = putMsg(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETLASTROUNDAGENTUSAGE)
+        TLMsg r = putSafe(M_AGENTMONITOR, createMsg().setAction(MONITOR_GETLASTROUNDAGENTUSAGE)
                 .setParam(AI_P_ROOTSESSIONID, sid)
                 .setParam(AI_P_USERID, msg.getStringParam(AI_P_USERID, "")));
         List<String> lines = new ArrayList<>();
@@ -1726,7 +1745,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     private TLMsg doGetTokenUsage(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg result = putMsg(targetAgent(msg), createMsg().setAction(AGENT_GETTOKENUSAGE)
+        TLMsg result = putSafe(targetAgent(msg), createMsg().setAction(AGENT_GETTOKENUSAGE)
                 .setParam(AI_P_SESSIONID, sessionId));
         if (result == null) return fail("Agent 无响应");
 
@@ -1739,7 +1758,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     private TLMsg doGetCacheStats(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        TLMsg result = putMsg(targetAgent(msg), createMsg().setAction("getPromptCacheStats")
+        TLMsg result = putSafe(targetAgent(msg), createMsg().setAction("getPromptCacheStats")
                 .setParam(AI_P_SESSIONID, sessionId));
         if (result == null || !result.parseBoolean(RESULT, false)) return fail("无法获取缓存统计");
 
@@ -1752,7 +1771,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     }
 
     private TLMsg doCheckProvider(Object fromWho, TLMsg msg) {
-        TLMsg result = putMsg(targetAgent(msg), createMsg().setAction(AGENT_CHECKPROVIDER));
+        TLMsg result = putSafe(targetAgent(msg), createMsg().setAction(AGENT_CHECKPROVIDER));
         boolean ok = result != null && result.parseBoolean(RESULT, false);
         return ok ? this.ok("Provider 可用") : fail("Provider 不可用");
     }
@@ -1764,7 +1783,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String param = msg.getStringParam("param", null);
         String value = msg.getStringParam("value", null);
         if (param == null) return fail("缺少 param 参数");
-        putMsg(targetAgent(msg), createMsg().setAction(MODULE_SETPARAM)
+        putSafe(targetAgent(msg), createMsg().setAction(MODULE_SETPARAM)
                 .setParam(param, value));
         return ok(param + " = " + value);
     }

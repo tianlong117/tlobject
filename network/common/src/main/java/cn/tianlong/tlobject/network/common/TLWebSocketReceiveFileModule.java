@@ -29,6 +29,8 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
 
     protected int maxSessions = 100;
     protected int timeOut = 30000;
+    /** getFile 等待文件数据的兜底超时（毫秒） */
+    protected long getFileTimeoutMs = 60000L;
     protected String filePath;
     protected String msgHandler = "clientMsgHandler";
     protected String fileSessionPoolName ="reUsedSingleThreadPoolGroup";
@@ -58,6 +60,8 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
                 maxSessions = Integer.valueOf(params.get("maxSessions"));
             if ( params.get("timeOut") != null)
                 timeOut = Integer.valueOf(params.get("timeOut"));
+            if ( params.get("getFileTimeout") != null)
+                getFileTimeoutMs = Long.parseLong(params.get("getFileTimeout"));
             if(params.get("fileSessionPoolName")!=null && !params.get("fileSessionPoolName").isEmpty()){
                 fileSessionPoolName =params.get("fileSessionPoolName");
             }
@@ -106,8 +110,12 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
                         file.errorOnReceive();
                     }
                     files.remove(sessionId);
-                    sessionPool.removeUser(String.valueOf(sessionId));
-                    sessionPool.useModuleOver();
+                    if (netSession != null)
+                        netSession.removeSessionId(String.valueOf(sessionId));
+                    if (sessionPool != null) {
+                        sessionPool.removeUser(String.valueOf(sessionId));
+                        sessionPool.useModuleOver();
+                    }
                 }
             }
         } while (true);
@@ -151,24 +159,45 @@ public class TLWebSocketReceiveFileModule extends TLBaseModule {
         // 而 getBooleanParam 只认 Boolean —— 只翻极性不改取值方式会把现在侥幸正常的服务端弄坏
         if( resultMsg ==null || resultMsg.parseBoolean(RESULT, false) == false)
         {
-            netSession.removeSessionId(String.valueOf(sessionId));
+            cleanupGetFileSession(sessionId);
             return createMsg().setParam(RESULT, false);
         }
+        long deadline = System.currentTimeMillis() + getFileTimeoutMs;
         do {
             HashMap<String, Object> fileSessionData = null ;
             try {
                 Thread.sleep(4000);
+                if (System.currentTimeMillis() > deadline) {
+                    putLog("getFile timeout: sessionId=" + sessionId, LogLevel.WARN, "getFile");
+                    cleanupGetFileSession(sessionId);
+                    return createMsg().setParam(RESULT, false);
+                }
                 fileSessionData = files.get(sessionId);
                 if (fileSessionData == null)
                     return createMsg().setParam(RESULT, false);
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 TLMsg returnMsg = netSession.returnServerMsg(String.valueOf(sessionId));
+                if (returnMsg == null)
+                    return createMsg().setParam(RESULT, false);
                 if(returnMsg.parseBoolean(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM,false) ==true)
                     return  returnMsg;
                 else
                     return returnFileMsg(returnMsg.getArgs());
             }
         } while (true);
+    }
+
+    private void cleanupGetFileSession(int sessionId) {
+        files.remove(sessionId);
+        if (netSession != null) {
+            netSession.removeSessionId(String.valueOf(sessionId));
+            netSession.removeBinSessionId(sessionId);
+        }
+        if (sessionPool != null) {
+            sessionPool.removeUser(String.valueOf(sessionId));
+            sessionPool.useModuleOver();
+        }
     }
 
     private TLMsg receiveBinaryFile(Object fromWho, TLMsg msg)

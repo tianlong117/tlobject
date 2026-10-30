@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.db;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 
 import java.util.*;
@@ -124,23 +125,39 @@ public abstract class TLBaseTriggerForSplitTable extends TLDBTrigger {
         }
         TLMsg returnMsg = putMsgGroupByThread(msgList, 60 * 1000);   // 多表并行查询
         ArrayList totaldatas = new ArrayList<>();
-        if (returnMsg != null)
-        {
-            List<TLMsg> dbResultList = (List<TLMsg>) returnMsg.getParam(RESULT, List.class);
-            if (dbResultList != null) {
-                for (TLMsg rmsg : dbResultList) {
-                    Object dbresult = rmsg.getParam(DB_R_RESULT);
-                    if(dbresult !=null){
-                        if (dbresult instanceof List)
-                            totaldatas.addAll((List) dbresult);
-                        else
-                            totaldatas.add(dbresult);
-                    }
+        if (returnMsg == null)
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "分表并行查询失败")
+                    .setSystemParam(MODULE_DONEXTMSG, false);
+        List<TLMsg> dbResultList = (List<TLMsg>) returnMsg.getParam(RESULT, List.class);
+        int failedTables = 0;
+        if (dbResultList != null) {
+            for (TLMsg rmsg : dbResultList) {
+                // 超时/提交失败的分表在 RESULT 里是 null，直接解引用会 NPE
+                if (rmsg == null) {
+                    failedTables++;
+                    continue;
+                }
+                Object dbresult = rmsg.getParam(DB_R_RESULT);
+                if(dbresult !=null){
+                    if (dbresult instanceof List)
+                        totaldatas.addAll((List) dbresult);
+                    else
+                        totaldatas.add(dbresult);
                 }
             }
         }
-        else
-            return createMsg().setSystemParam(MODULE_DONEXTMSG, false);
+        Object uncompleted = returnMsg.getParam(UNCOMPLETEDMSGLIST);
+        if (uncompleted instanceof List && !((List<?>) uncompleted).isEmpty())
+            failedTables = Math.max(failedTables, ((List<?>) uncompleted).size());
+        if (failedTables > 0) {
+            // 分表是并行的：部分表超时/失败时结果不完整，必须留痕而不是静默少数据
+            putLog("分表查询未完成 " + failedTables + " 张表，返回数据可能不完整", LogLevel.WARN, "doAllTable");
+            if (totaldatas.isEmpty())
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "分表查询全部失败")
+                        .setSystemParam(MODULE_DONEXTMSG, false);
+        }
         if (!totaldatas.isEmpty() && !msg.isNull(DB_P_ORDERBY)) {
             Object orderDatas = null;
             if (totaldatas instanceof List)

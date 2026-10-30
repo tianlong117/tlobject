@@ -160,16 +160,26 @@ public class TLOutputGuard extends TLBaseModule implements TLAiAgentParamString 
 
     /** LLM 质量审查：返回 null 表示通过，返回字符串表示问题描述 */
     private String llmReview(String response, TLMsg msg) {
-        if (llmJudgeProviderInstance == null && llmJudgeProvider != null) {
-            synchronized (this) {
-                if (llmJudgeProviderInstance == null) {
-                    TLBaseModule m = (TLBaseModule) getMyModule(llmJudgeProvider);
-                    if (m instanceof TLLlmProvider)
-                        llmJudgeProviderInstance = (TLLlmProvider) m;
+        // 优先用调用方（agent）注入的 provider 实例：agent 的 provider 参数（apiKey/baseUrl）
+        // 在 agent 的 <providers> 段，本模块按名字 getMyModule 只能拿到工厂层声明（无 apiKey）。
+        // 不用实例字段缓存，避免多个 agent 共用共享护栏时串用第一个 agent 的 provider。
+        TLLlmProvider provider = null;
+        Object injected = msg.getSystemParam("llmProviderInstance");
+        if (injected instanceof TLLlmProvider)
+            provider = (TLLlmProvider) injected;
+        if (provider == null) {
+            if (llmJudgeProviderInstance == null && llmJudgeProvider != null) {
+                synchronized (this) {
+                    if (llmJudgeProviderInstance == null) {
+                        TLBaseModule m = (TLBaseModule) getMyModule(llmJudgeProvider);
+                        if (m instanceof TLLlmProvider)
+                            llmJudgeProviderInstance = (TLLlmProvider) m;
+                    }
                 }
             }
+            provider = llmJudgeProviderInstance;
         }
-        if (llmJudgeProviderInstance == null) return null;
+        if (provider == null) return null;
         try {
             List<TLConversationHistory> reviewHistory = new ArrayList<>();
             reviewHistory.add(new TLConversationHistory(TLConversationHistory.Role.system,
@@ -189,7 +199,7 @@ public class TLOutputGuard extends TLBaseModule implements TLAiAgentParamString 
                     .setParam(AI_P_MODEL, llmJudgeModel)
                     .setParam(AI_P_MAXTOKENS, 100)
                     .setParam(AI_P_TEMPERATURE, 0.0);
-            TLMsg result = putMsg(llmJudgeProviderInstance, reviewMsg);
+            TLMsg result = putMsg(provider, reviewMsg);
             if (result == null || !result.parseBoolean(RESULT, false)) return null;
             String text = result.getStringParam(AI_P_RESPONSE, "");
             if (text == null || text.trim().equalsIgnoreCase("PASS")) return null;

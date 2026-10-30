@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -55,6 +56,8 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
     private final Map<String, List<String>> summaryBuffer = new ConcurrentHashMap<>();
     /** sessionId → 本批最新碎片对应的 context 最大 seq（coverSeq） */
     private final Map<String, Long> summaryCoverSeq = new ConcurrentHashMap<>();
+    /** sessionId → 摘要生成中（同会话只允许一个 LLM 调用；失败后移除以便下轮重试） */
+    private final Set<String> summaryGenerating = ConcurrentHashMap.newKeySet();
     /** 历史碎片补批防重入（并发 search 只触发一次） */
     private final java.util.concurrent.atomic.AtomicBoolean summarySeedInProgress =
             new java.util.concurrent.atomic.AtomicBoolean(false);
@@ -193,37 +196,78 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                                           String fragmentValue, long maxSeq) {
         if (!summaryEnabled || fragmentValue == null) return;
         if (agentName != null && !agentName.isEmpty()) lastAgentName = agentName;
+        int batch = Math.max(1, summaryBatchSize);
         synchronized (summaryBuffer) {
             List<String> buffer = summaryBuffer.computeIfAbsent(sessionId, k -> new ArrayList<>());
             buffer.add(fragmentValue);
             // 本条碎片对应的 context 最大 seq 作为本批 coverSeq 候选（agent 传入的最新 seq）
             summaryCoverSeq.put(sessionId, maxSeq);
-            if (buffer.size() >= summaryBatchSize) {
-                maybeGenerateSummary(sessionId, userId, agentName);
+            // 硬上限：LLM 持续失败时缓冲不能无限增长（丢最旧，摘要仍能基于新碎片推进）
+            int maxBuffer = batch * 3;
+            while (buffer.size() > maxBuffer) buffer.remove(0);
+        }
+        // 生成阶段不持锁：旧实现持全局锁同步 HTTP，所有会话的 store 都会被一个摘要请求卡住。
+        // 同会话用 summaryGenerating 互斥；成功后若又攒满一批，继续处理剩余。
+        while (true) {
+            List<String> snapshot;
+            long coverSeq;
+            synchronized (summaryBuffer) {
+                List<String> buffer = summaryBuffer.get(sessionId);
+                if (buffer == null || buffer.size() < batch || !summaryGenerating.add(sessionId))
+                    return;
+                snapshot = new ArrayList<>(buffer);
+                Long cs = summaryCoverSeq.get(sessionId);
+                coverSeq = cs != null ? cs : maxSeq;
             }
+            boolean stored;
+            try {
+                stored = generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq);
+            } finally {
+                summaryGenerating.remove(sessionId);
+            }
+            // 失败：缓冲原样保留，等下次 store 重试
+            if (!stored) return;
         }
     }
 
     /**
-     * 满批时 LLM 提炼摘要。失败（provider 不可用 / LLM 调用失败）→ 缓冲保留，下次 store 重试。
-     * 生成成功后调用 storeSummaryEntry 由子类持久化（文件 JSONL / DB 表）。
+     * 满批时 LLM 提炼摘要（兼容入口）。失败（provider 不可用 / LLM 调用失败）→ 缓冲保留，下次重试。
+     * 实际生成在锁外进行，见 {@link #generateSummaryFromSnapshot}。
      */
     protected void maybeGenerateSummary(String sessionId, String userId, String agentName) {
-        List<String> buffer = summaryBuffer.get(sessionId);
-        if (buffer == null || buffer.isEmpty()) return;
-        Long coverSeqObj = summaryCoverSeq.get(sessionId);
-        long coverSeq = coverSeqObj != null ? coverSeqObj : 0L;
+        if (!summaryGenerating.add(sessionId)) return;
+        try {
+            List<String> snapshot;
+            long coverSeq;
+            synchronized (summaryBuffer) {
+                List<String> buffer = summaryBuffer.get(sessionId);
+                if (buffer == null || buffer.isEmpty()) return;
+                snapshot = new ArrayList<>(buffer);
+                Long cs = summaryCoverSeq.get(sessionId);
+                coverSeq = cs != null ? cs : 0L;
+            }
+            generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq);
+        } finally {
+            summaryGenerating.remove(sessionId);
+        }
+    }
 
+    /**
+     * 用快照在锁外调 LLM 并落库；成功后只裁掉快照对应的前缀，生成期间新到的碎片保留。
+     * @return true=已落库（可继续处理剩余满批碎片），false=失败（缓冲保留待重试）
+     */
+    private boolean generateSummaryFromSnapshot(String sessionId, String userId, String agentName,
+                                                List<String> snapshot, long coverSeq) {
         TLLlmProvider provider = resolveSummaryProvider(agentName);
         if (provider == null) {
             putLog("summary provider unavailable, buffer kept (session=" + sessionId + ")", LogLevel.WARN);
-            return; // 缓冲保留，下次重试
+            return false;
         }
 
-        String summary = callSummaryLlm(provider, buffer);
+        String summary = callSummaryLlm(provider, snapshot);
         if (summary == null || summary.isEmpty()) {
             putLog("summary generation failed, buffer kept (session=" + sessionId + ")", LogLevel.WARN);
-            return; // 缓冲保留，下次重试
+            return false;
         }
 
         try {
@@ -237,12 +281,30 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             meta.put("coverSeq", coverSeq);
             sEntry.setMetadata(meta);
             storeSummaryEntry(sEntry);
-            summaryBuffer.remove(sessionId);
-            summaryCoverSeq.remove(sessionId);
+
+            synchronized (summaryBuffer) {
+                List<String> buffer = summaryBuffer.get(sessionId);
+                if (buffer != null) {
+                    int n = Math.min(snapshot.size(), buffer.size());
+                    // 生成期间命中硬上限可能丢弃了快照头部——此时不能按长度盲删，否则会吞掉新碎片
+                    boolean samePrefix = n > 0 && buffer.subList(0, n).equals(snapshot.subList(0, n));
+                    if (samePrefix)
+                        buffer.subList(0, n).clear();
+                    else
+                        putLog("summary buffer changed during generation, skip trim (session=" + sessionId + ")",
+                                LogLevel.DEBUG);
+                    if (buffer.isEmpty()) {
+                        summaryBuffer.remove(sessionId);
+                        summaryCoverSeq.remove(sessionId);
+                    }
+                }
+            }
             putLog("Session summary generated: " + sessionId + " coverSeq=" + coverSeq
-                    + " fragments=" + buffer.size(), LogLevel.INFO);
+                    + " fragments=" + snapshot.size(), LogLevel.INFO);
+            return true;
         } catch (Exception e) {
             putLog("summary store failed: " + e.toString(), LogLevel.WARN);
+            return false;
         }
     }
 

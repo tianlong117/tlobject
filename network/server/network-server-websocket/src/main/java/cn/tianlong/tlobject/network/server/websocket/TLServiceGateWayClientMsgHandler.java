@@ -106,8 +106,16 @@ public class TLServiceGateWayClientMsgHandler extends TLClientMsgHandler {
     }
     @Override
     protected TLMsg fromClient(Object fromWho, TLMsg msg) {
-        String content = (String) msg.getParam(WEBSOCKET_P_CONTENT);
-        LinkedTreeMap<String, Object> contentmap =TLMsgUtils.jsonStrToMap(content);
+        Object contentObj = msg.getParam(WEBSOCKET_P_CONTENT);
+        LinkedTreeMap<String, Object> contentmap;
+        if (contentObj instanceof String)
+            contentmap = TLMsgUtils.jsonStrToMap((String) contentObj);
+        else if (contentObj instanceof Map) {
+            contentmap = new LinkedTreeMap<>();
+            contentmap.putAll((Map) contentObj);
+        }
+        else
+            return null;
         if (contentmap == null)
             return null;
         String msgid = (String) contentmap.get("msgid");

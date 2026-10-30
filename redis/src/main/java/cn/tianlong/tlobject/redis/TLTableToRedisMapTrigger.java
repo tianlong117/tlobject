@@ -131,7 +131,7 @@ public class TLTableToRedisMapTrigger extends TLBaseTriggerForTableToRedis {
             {
                 HashMap<String,Object> dbData =redisToDbdata(result);
                 TLDatabase.RESULT_TYPE result_type = (TLDatabase.RESULT_TYPE) nmsg.getParam(DB_P_RESULTTYPE);
-                if(result_type.equals(TLDatabase.RESULT_TYPE.MAPLIST))
+                if(TLDatabase.RESULT_TYPE.MAPLIST.equals(result_type))
                 {
                     List<Map> dbresult =new ArrayList();
                     dbresult.add(dbData);

@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.cache;
 
 
 import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
@@ -19,6 +20,9 @@ public class TLMemoryCache extends TLBaseCache {
     protected ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>> cacheDatas = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, ConcurrentLinkedDeque<String>> cacheKeysOrder = new ConcurrentHashMap<>();
     protected int maxSize = 0;  // 每个 cacheName 最大条目数，0=不限制
+    /** 清理线程退出标志：模块 destroy/reload 时必须停止，否则旧线程随实例泄漏 */
+    private volatile boolean cleanupRunning = true;
+    private Thread cleanupThread;
 
     public TLMemoryCache() {
         super();
@@ -45,10 +49,12 @@ public class TLMemoryCache extends TLBaseCache {
                 cacheKeysOrder.put(cacheName, new ConcurrentLinkedDeque<>());
             }
         }
-        Thread thread = new Thread(()->{
-            while (true){
+        cleanupRunning = true;
+        cleanupThread = new Thread(()->{
+            while (cleanupRunning){
                 try{
                     sleep(2000);
+                    if (!cleanupRunning) break;
                     if(!cacheDatas.isEmpty())
                     {
                         for(Map.Entry<String, ConcurrentHashMap<String, ConcurrentHashMap<String, Object>>> entry : cacheDatas.entrySet()){
@@ -57,7 +63,10 @@ public class TLMemoryCache extends TLBaseCache {
                             ConcurrentLinkedDeque<String> keyDeque = cacheKeysOrder.get(cacheName);
                             for(String key : caches.keySet()){
                                 ConcurrentHashMap<String, Object> cacheData = caches.get(key);
-                                Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
+                                if (cacheData == null) continue;
+                                Object timeObj = cacheData.get(CACHE_P_EXPTTIME);
+                                if (!(timeObj instanceof Number)) { caches.remove(key); if (keyDeque != null) keyDeque.remove(key); continue; }
+                                long time = ((Number) timeObj).longValue();
                                 if (time == 0L || System.currentTimeMillis() < time)
                                     continue;
                                 else {
@@ -67,14 +76,25 @@ public class TLMemoryCache extends TLBaseCache {
                             }
                         }
                     }
+                }catch (InterruptedException e){
+                    Thread.currentThread().interrupt();
+                    break;
                 }catch (Exception e){
                     putLog("缓存清理线程错误",LogLevel.ERROR,"init");
                 }
             }
         });
-        thread.setDaemon(true);
-        thread.start();
+        cleanupThread.setDaemon(true);
+        cleanupThread.start();
         return this;
+    }
+
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        cleanupRunning = false;
+        if (cleanupThread != null)
+            cleanupThread.interrupt();
+        return super.destroy(fromWho, msg);
     }
     public boolean addCache(String cacheName,String exptime){
         if(cacheDatas.containsKey(cacheName))
@@ -84,6 +104,8 @@ public class TLMemoryCache extends TLBaseCache {
         HashMap<String,String> cacheParam =new HashMap<>() ;
         if(exptime !=null)
              cacheParam.put(CACHE_P_EXPTTIME,exptime);
+        if (cacheTables == null)
+            cacheTables = new ConcurrentHashMap<>();
         cacheTables.put(cacheName,cacheParam) ;
         ConcurrentHashMap<String, ConcurrentHashMap<String, Object>> cacheMap = new ConcurrentHashMap<>();
         cacheDatas.put(cacheName, cacheMap);
@@ -100,7 +122,12 @@ public class TLMemoryCache extends TLBaseCache {
         ConcurrentHashMap<String, Object> cacheData = cacheMap.get(cacheKey);
         if (cacheData == null || cacheData.isEmpty())
             return this;
-        Long time = (Long) cacheData.get(CACHE_P_EXPTTIME);
+        Object timeObj = cacheData.get(CACHE_P_EXPTTIME);
+        if (!(timeObj instanceof Number)) {
+            cacheMap.remove(cacheKey);
+            return this;
+        }
+        long time = ((Number) timeObj).longValue();
         if (time == 0L)
             return cacheData.get(CACHE_P_VALUE);
         if (System.currentTimeMillis() < time)
@@ -155,7 +182,9 @@ public class TLMemoryCache extends TLBaseCache {
                 // 超过上限时淘汰最旧的
                 if (maxSize > 0 && cacheMap.size() > maxSize) {
                     String oldestKey = keyDeque.pollFirst();
-                    if (oldestKey != null) cacheMap.remove(oldestKey);
+                    // 并发下 poll 到的可能正是刚插入的 key，误删会把自己淘汰
+                    if (oldestKey != null && !oldestKey.equals(cacheKey))
+                        cacheMap.remove(oldestKey);
                 }
             }
         } else {

@@ -1480,7 +1480,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (singleResults != null && !singleResults.isEmpty())
                             singleResult = singleResults.get(0);
                     }
-                    appendToolResult(history,
+                    appendToolResult(history, savedTc.getFunctionName(),
                             singleResult != null ? singleResult
                                     : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
                             sessionId, ctx.userId, pendingImages);
@@ -2144,9 +2144,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         List<TLAttachmentRef> pendingImages = new ArrayList<>();
         for (int i = 0; i < results.size(); i++) {
             TLToolExecutor.ToolResult r = results.get(i);
-            appendToolResult(ctx.history, r, ctx.sessionId, ctx.userId, pendingImages);
+            String toolName = i < tasks.size() ? tasks.get(i).functionName : r.toolCallId;
+            appendToolResult(ctx.history, toolName, r, ctx.sessionId, ctx.userId, pendingImages);
             // 必须喂原始 output（webui 渲染路径要从里面取 base64），不能喂 stripImageKeys 后的文本
-            ctx.sink.onToolEvent(i < tasks.size() ? tasks.get(i).functionName : r.toolCallId, r.output);
+            ctx.sink.onToolEvent(toolName, r.output);
         }
         flushToolImages(ctx.history, pendingImages);
     }
@@ -3422,6 +3423,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         try {
             TLMsg guardMsg = createMsg().setAction("validateOutput")
                     .setParam(AI_P_RESPONSE, response);
+            // llmJudge 的 apiKey 在 agent 的 <providers> 段，按名字 getMyModule 只能拿到
+            // 工厂层声明（无 apiKey）。把本 agent 已解析的 provider 实例带过去，避免静默失效。
+            if (llmProvider != null)
+                guardMsg.setSystemParam("llmProviderInstance", llmProvider);
             TLMsg result = putMsg(guard, guardMsg);
             if (result != null && result.containsParam(AI_P_RESPONSE)) {
                 return result.getStringParam(AI_P_RESPONSE, response);
@@ -3453,12 +3458,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 工具结果写 history（工具消息）+ 把技能声明要投喂的图**攒起来**（不可就地注入：
      *  并行批次里会插进 tool 簇中间，导致 sanitizeToolPairs 把整轮工具消息当孤儿删掉）。
      *  批次结束后由 flushToolImages 统一注入一条 user 消息。 */
-    private void appendToolResult(List<TLConversationHistory> history,
+    private void appendToolResult(List<TLConversationHistory> history, String toolName,
                                   TLToolExecutor.ToolResult r, String sessionId,
                                   String userId, List<TLAttachmentRef> pendingImages) {
         String uid = userId != null ? userId : sessionId;
         List<TLAttachmentRef> imgs = extractDeclaredImages(r.output, uid, history);
-        history.add(new TLConversationHistory(r.toolCallId, r.toolCallId,
+        // second arg 是 tool 消息的 name（函数名），不是 toolCallId
+        String msgToolName = toolName != null && !toolName.isEmpty() ? toolName : r.toolCallId;
+        history.add(new TLConversationHistory(r.toolCallId, msgToolName,
                 imgs != null ? stripImageKeys(r.output) : r.output));
         if (imgs != null && !imgs.isEmpty()) pendingImages.addAll(imgs);
     }

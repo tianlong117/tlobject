@@ -23,6 +23,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  */
 public class TLWebSocketBinaryModule extends TLBaseModule {
     protected int maxSessions = 100;
+    /** getFile 等待数据到达的总超时（毫秒）；checkSessions 也会在 30s 后清会话，这里兜底 */
+    protected long getFileTimeoutMs = 60000L;
     protected String filePath;
     protected String msgHandler = "clientMsgHandler";
     protected ConcurrentHashMap<Integer, HashMap<String, Object>> files = new ConcurrentHashMap<>();
@@ -48,6 +50,8 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
             msgHandler = params.get("msgHandler");
         if (msgHandler != null && params.get("maxSessions") != null)
             maxSessions = Integer.valueOf(params.get("maxSessions"));
+        if (params.get("getFileTimeout") != null)
+            getFileTimeoutMs = Long.parseLong(params.get("getFileTimeout"));
     }
 
     @Override
@@ -115,6 +119,9 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
                     String fileName = (String) channelFile.get("fileName");
                     putLog("file receive timeout:" + fileName, LogLevel.DEBUG, "heckSessions");
                     closeStream(sessionId, false);
+                    // 必须一并移除 files：getFile 的等待循环以 files 是否消失为退出条件，
+                    // 只 closeStream 会让它永远看到非 null 条目，无限循环
+                    cleanupFileSession(sessionId);
                 }
             }
         }
@@ -371,27 +378,54 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         makeFileSessionData(sessionId, msg.getArgs());
         netSession.saveSessionId(String.valueOf(sessionId));
         TLMsg resultMsg = getMsg(this, serverMsg);
-        Boolean result = resultMsg.parseBoolean(RESULT, false);
+        Boolean result = resultMsg != null && resultMsg.parseBoolean(RESULT, false);
         if (result == false)
         {
-            netSession.removeSessionId(String.valueOf(sessionId));
+            cleanupFileSession(sessionId);
             return createMsg().setParam(RESULT, false);
         }
+        long deadline = System.currentTimeMillis() + getFileTimeoutMs;
         do {
             HashMap<String, Object> channelFile = null ;
             try {
                 Thread.sleep(1000);
-                channelFile = files.get(sessionId);
-                if (channelFile == null)
+                if (System.currentTimeMillis() > deadline) {
+                    putLog("getFile timeout: sessionId=" + sessionId, LogLevel.WARN, "getFile");
+                    cleanupFileSession(sessionId);
                     return createMsg().setParam(RESULT, false);
+                }
+                channelFile = files.get(sessionId);
+                if (channelFile == null) {
+                    cleanupFileSession(sessionId);
+                    return createMsg().setParam(RESULT, false);
+                }
             } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 TLMsg returnMsg = netSession.returnServerMsg(String.valueOf(sessionId));
+                if (returnMsg == null) {
+                    cleanupFileSession(sessionId);
+                    return createMsg().setParam(RESULT, false);
+                }
                 if(returnMsg.parseBoolean(WEBSOCKET_P_BINARYDATAIFRETURNSTREAM,false) ==true)
                     return  returnMsg;
                 else
                     return returnFileMsg(returnMsg.getArgs());
             }
         } while (true);
+    }
+
+    /** 清掉文件会话的所有索引（files/netSession/channelSessions），避免 getFile 无限等待与残留 */
+    private void cleanupFileSession(int sessionId) {
+        files.remove(sessionId);
+        if (netSession != null) {
+            netSession.removeSessionId(String.valueOf(sessionId));
+            netSession.removeBinSessionId(sessionId);
+        }
+        for (Map.Entry<String, CopyOnWriteArrayList<Integer>> e : channelSessions.entrySet()) {
+            e.getValue().remove(Integer.valueOf(sessionId));
+            if (e.getValue().isEmpty())
+                channelSessions.remove(e.getKey(), e.getValue());
+        }
     }
 
     private TLMsg returnFileMsg(HashMap fileMap) {
@@ -412,7 +446,8 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
     }
 
     private boolean makeFileSessionData(int sessionId, Map<String, Object> args) {
-        if (files.size() > maxSessions)
+        // 已达上限就拒绝，不能等超过后再拒（原来 > 会多放一个）
+        if (files.size() >= maxSessions)
             return false;
         String realFileName = (String) args.get("fileName");
         realFileName = changeFileName(realFileName);
@@ -517,7 +552,6 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         if (msgid == null)
             return createMsg().setParam(RESULT, true);
         channelFile.remove("outputStream");
-        channelFile.remove("outputStream");
         fmsg.setMsgId(msgid);
         return putMsg(msgHandler, fmsg);
     }
@@ -550,14 +584,16 @@ public class TLWebSocketBinaryModule extends TLBaseModule {
         for (Integer sessionid : sessionList) {
             HashMap<String, Object> channelFile = files.get(sessionid);
             if (channelFile == null)
-                return;
+                continue;       // 不能 return：后面其余会话仍需要清理
             channelFile.put("logout", true);
             String fileName = (String) channelFile.get("fileName");
             closeStream(sessionid, false);
             File file = new File(fileName);
             if (file.exists())
                 file.delete();
+            cleanupFileSession(sessionid);
         }
+        channelSessions.remove(channel);
     }
 
     protected void closeStream(int sessionid, boolean ifEnd) {

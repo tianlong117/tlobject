@@ -39,8 +39,10 @@ public abstract class TLWServModule extends TLBaseModule {
     protected HashMap<String ,String > getAppParams(){
         TLMsg moduleMsg =createMsg().setAction(MODULE_GETPARAM);
         TLMsg paramsMsg= putMsg(M_APPCENTER, moduleMsg);
+        if (paramsMsg == null)
+            return new HashMap<>();
         HashMap<String,String> appParams=paramsMsg.getArgs();
-        return  appParams;
+        return  appParams != null ? appParams : new HashMap<>();
     }
 
     protected String getUserObjName()
@@ -63,7 +65,8 @@ public abstract class TLWServModule extends TLBaseModule {
         TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
-        return (String) returnMsg.getParam(USER_P_USERID);
+        Object v = returnMsg.getParam(USER_P_USERID);
+        return v == null ? null : String.valueOf(v);
     }
     protected String getUserName()
     {
@@ -73,7 +76,8 @@ public abstract class TLWServModule extends TLBaseModule {
         TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
-        return (String) returnMsg.getParam(USER_P_USERNAME);
+        Object v = returnMsg.getParam(USER_P_USERNAME);
+        return v == null ? null : String.valueOf(v);
     }
     protected String getToken()
     {
@@ -83,8 +87,10 @@ public abstract class TLWServModule extends TLBaseModule {
         TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
-        return (String) returnMsg.getParam(TOKENUSER_P_TOKEN);
+        Object v = returnMsg.getParam(TOKENUSER_P_TOKEN);
+        return v == null ? null : String.valueOf(v);
     }
+    @SuppressWarnings("unchecked")
     protected ArrayList<String> getUserRole()
     {
         String userObjName =getUserObjName();
@@ -93,7 +99,12 @@ public abstract class TLWServModule extends TLBaseModule {
         TLMsg returnMsg =putMsg(userObjName,createMsg().setAction(USER_GETLOGINSTATE));
         if(returnMsg ==null)
             return null ;
-        return (ArrayList) returnMsg.getParam(USER_P_ROLE);
+        Object role = returnMsg.getParam(USER_P_ROLE);
+        if (role instanceof ArrayList)
+            return (ArrayList<String>) role;
+        if (role instanceof List)
+            return new ArrayList<>((List<String>) role);
+        return null;
     }
     protected boolean setUserSessionData(String varName,Object varValue)
     {
@@ -242,12 +253,25 @@ public abstract class TLWServModule extends TLBaseModule {
        }
        return putStream(fileName,inputStream) ;
    }
+    /**
+     * Content-Disposition 头：filename= 拼写 + RFC 5987 非 ASCII 文件名。
+     * URLEncoder 把空格编成 '+'（form 语义），HTTP 头里要转回 %20。
+     */
+    private String contentDisposition(String type, String fileName) {
+        String encoded = fileName == null ? "" : fileName;
+        try {
+            encoded = URLEncoder.encode(encoded, "UTF-8").replace("+", "%20");
+        } catch (UnsupportedEncodingException ignored) {
+        }
+        return type + "; filename=\"" + encoded + "\"; filename*=UTF-8''" + encoded;
+    }
+
     protected boolean putStream(String fileName, InputStream inputStream){
         boolean   ifDo =true ;
         String filetype =StringUtils.substringAfterLast(fileName,".");
-        if (filetype == null)             // 文件名无扩展名：substringAfterLast 返回 null
+        if (filetype == null)             // fileName 为 null 时 substringAfterLast 返回 null
             filetype = "";
-        filetype = filetype.toLowerCase();
+        filetype = filetype.toLowerCase(java.util.Locale.ROOT);
         HttpServletResponse response =getResponse();
         if (response == null)             // 非请求线程/上下文未就绪
             return false;
@@ -266,28 +290,32 @@ public abstract class TLWServModule extends TLBaseModule {
         if (length > 0)
             response.setContentLengthLong(length);
         if(filetype.equals("jpg")||filetype.equals("gif")||filetype.equals("jpeg")||filetype.equals("tif")
-                ||filetype.equals("png")||filetype.equals("bmp")){
-            response.setContentType("image/".concat(filetype).concat(";charset=UTF-8"));
-            response.setHeader("Content-Disposition", "inline; filename=\"" + fileName + "\"");
+                ||filetype.equals("tiff")||filetype.equals("png")||filetype.equals("bmp")){
+            // image/jpg、image/tif 不是标准 MIME（标准为 image/jpeg、image/tiff），部分浏览器会改成下载
+            String mime;
+            if (filetype.equals("jpg") || filetype.equals("jpeg"))
+                mime = "image/jpeg";
+            else if (filetype.equals("tif") || filetype.equals("tiff"))
+                mime = "image/tiff";
+            else
+                mime = "image/".concat(filetype);
+            response.setContentType(mime.concat(";charset=UTF-8"));
+            response.setHeader("Content-Disposition", contentDisposition("inline", fileName));
         }
         else if(filetype.equals("js"))
         {
             response.setContentType("application/javascript");
-            response.setHeader("Content-Disposition", "inline; filename=\"" + fileName + "\"");
+            response.setHeader("Content-Disposition", contentDisposition("inline", fileName));
         }
         else if( filetype.equals("css"))
         {
             response.setContentType("text/css");
-            response.setHeader("Content-Disposition", "inline; filename=\"" + fileName + "\"");
+            response.setHeader("Content-Disposition", contentDisposition("inline", fileName));
         }
         else
         {
             response.setContentType("application/octet-stream");
-            try {
-                response.setHeader("Content-Disposition", "attachment;fileName="+ URLEncoder.encode(fileName, "UTF-8"));
-            } catch (UnsupportedEncodingException e) {
-                e.printStackTrace();
-            }
+            response.setHeader("Content-Disposition", contentDisposition("attachment", fileName));
         }
         ServletOutputStream out= null;
         try {
@@ -302,20 +330,21 @@ public abstract class TLWServModule extends TLBaseModule {
                     LogLevel.WARN, "putStream");
             return false;
         }
-        byte[] buf = new byte[4096];
+        byte[] buf = new byte[64 * 1024];
         int size;
         try {
             while (-1 != (size = inputStream.read(buf, 0, buf.length))) {
                 out.write(buf, 0, size);
-                out.flush();
+                // 不要每块 flush：100MB 文件会触发上千次 syscall，吞吐下降一个数量级
             }
+            out.flush();
         }catch (Exception e){
             ifDo =false ;
         }
         try {
             out.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            putLog("putStream: 关闭输出流失败, file:" + fileName, LogLevel.DEBUG, "putStream");
         }
         try {
             inputStream.close();
@@ -411,10 +440,15 @@ public abstract class TLWServModule extends TLBaseModule {
     }
     protected void sendRedirect(String url){
         HttpServletResponse response =getResponse();
+        if (response == null) {
+            putLog("sendRedirect: 无响应上下文, url:" + url, LogLevel.WARN, "sendRedirect");
+            return;
+        }
         try {
             response.sendRedirect(url);
         } catch (IOException e) {
-            e.printStackTrace();
+            putLog("sendRedirect 失败, url:" + url + " err:" + e.getMessage(),
+                    LogLevel.WARN, "sendRedirect");
         }
     }
     protected void sendUrlMap(String url){

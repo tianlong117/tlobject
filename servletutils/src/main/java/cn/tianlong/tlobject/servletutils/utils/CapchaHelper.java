@@ -40,7 +40,8 @@ import java.io.IOException;
  * 产生验证码图片的类
  */
 public class CapchaHelper {
-    private static ImageCaptchaService captchaService;
+    /** volatile：无锁读取（putCaptchaImg 外层判断）与 synchronized 写入之间保证可见性 */
+    private static volatile ImageCaptchaService captchaService;
     private static final Integer MIN_WORD_LENGTH = 4;// 验证码最小长度
     private static final Integer MAX_WORD_LENGTH = 4;// 验证码最大长度
     private static final Integer IMAGE_HEIGHT = 30;// 验证码图片高度

@@ -232,10 +232,12 @@ public class TLSQLiteConnect extends TLBaseModule implements TLBaseConnectorInte
 
     @Override
     public void close(Object conn) {
+        if (!(conn instanceof Connection))
+            return;
         try {
             ((Connection) conn).close();
         } catch (SQLException e) {
-            e.printStackTrace();
+            putLog("close 失败: " + e.getMessage(), LogLevel.WARN, "close");
         }
     }
 }

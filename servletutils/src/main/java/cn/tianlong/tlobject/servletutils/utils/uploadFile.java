@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.servletutils.TLWServModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDateUtils;
 import org.apache.commons.fileupload.FileItem;
 import org.apache.commons.fileupload.FileUploadBase;
@@ -88,10 +89,14 @@ public class uploadFile extends TLWServModule {
 
     private TLMsg parseRequest(Object fromWho, TLMsg msg) {
         HttpServletRequest request = getRequest();
+        if (request == null) {
+            return createMsg().setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam("error", "no request context");
+        }
         try {
             request.setCharacterEncoding(charset);// 设置获取字体
         } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
+            putLog("uploadFile: 设置编码失败 " + charset, LogLevel.WARN, "parseRequest");
         }
         ServletContext ctx = request.getServletContext();// 获取上下文应用
         DiskFileItemFactory factory = new DiskFileItemFactory();// 自动导入类 使用工具 commons-fileupload
@@ -144,8 +149,19 @@ public class uploadFile extends TLWServModule {
         Object newFileName = msg.getParam(UPLOADFILE_P_NEWFILENAME);
         boolean changeName = msg.parseBoolean(UPLOADFILE_P_NOCHANGENAME, true);
         int i = 0;
-        int fileNums = items.size();
         TLMsg returnMsg = createMsg();
+        if (items == null) {
+            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam("error", "no upload items");
+        }
+        // 文件数只统计文件项：items 里还混着普通表单字段（1 文件 + 3 字段会误判成多文件，
+        // 单文件被命名成 xxx_0.ext）
+        int fileNums = 0;
+        for (FileItem item : items) {
+            if (item != null && !item.isFormField()) fileNums++;
+        }
+        // 本次新写入的文件：后续任一文件校验/写入失败时清理，避免"磁盘有文件但业务拿不到"
+        List<File> written = new ArrayList<>();
 
         // 获取目标目录的规范路径（用于后续验证）
         String filepath = (String) msg.getParam(UPLOADFILE_P_FILEPATH);
@@ -153,6 +169,10 @@ public class uploadFile extends TLWServModule {
             filepath = this.filePath;
         }
         HttpServletRequest request = getRequest();
+        if (request == null) {
+            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam("error", "no request context");
+        }
         ServletContext ctx = request.getServletContext();
         String realPath = ctx.getRealPath(filepath);
         if (realPath == null) {
@@ -228,12 +248,14 @@ public class uploadFile extends TLWServModule {
                 if (fileTypesStr != null && !fileTypesStr.isEmpty()) {
                     String[] fileTypes = fileTypesStr.split(FENHAO);
                     if (fileTypes.length > 0 && !ifFileTypePermit(fileTypes, fileType)) {
+                        cleanupWritten(written);
                         return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
                                 .setParam(UPLOADFILE_R_FILETYPE, fileType);
                     }
                 }
-                // 基于文件名后缀二次校验（保持不变）
+                // 基于文件名后缀二次校验：任一扩展名命中危险列表即拒绝（shell.jsp.png 不能只看 png）
                 if (fileName != null && isDangerousExtension(fileName)) {
+                    cleanupWritten(written);
                     return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
                             .setParam(UPLOADFILE_R_FILETYPE, "forbidden");
                 }
@@ -246,16 +268,20 @@ public class uploadFile extends TLWServModule {
                     String fileCanonicalPath = file.getCanonicalPath();
                     if (!fileCanonicalPath.startsWith(targetCanonicalPath + File.separator)) {
                         // 如果不在目标目录内，拒绝保存
+                        cleanupWritten(written);
                         return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
                                 .setParam(UPLOADFILE_R_FILENAME, fileName)
                                 .setParam("error", "Invalid file path");
                     }
-                    // 写入文件
+                    // 写入文件：记录本次新建的文件（覆盖已有文件时不删除用户原文件）
+                    if (!file.exists())
+                        written.add(file);
                     fileItem.write(file);
                     fileNames.put(fieldName, fileName);
                     saveFiles.put(fieldName, saveFilename);
                     i++;
                 } catch (Exception e) {
+                    cleanupWritten(written);
                     return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
                             .setParam(UPLOADFILE_R_FILENAME, fileName);
                 }
@@ -287,13 +313,29 @@ public class uploadFile extends TLWServModule {
     };
 
     private boolean isDangerousExtension(String fileName) {
-        String ext = "";
-        int dot = fileName.lastIndexOf('.');
-        if (dot >= 0) ext = fileName.substring(dot + 1).toLowerCase();
-        for (String dangerous : DANGEROUS_EXTENSIONS) {
-            if (ext.equals(dangerous)) return true;
+        if (fileName == null) return false;
+        // 不能只看最后一个扩展名：shell.jsp.png / shell.jsp;.png / shell.jsp%00.png
+        // 在老容器上仍可能按 jsp 执行。拆开所有段，任一段命中即拒绝。
+        String normalized = fileName.replace(';', '.').replace("%00", ".")
+                .toLowerCase(java.util.Locale.ROOT);
+        for (String part : normalized.split("\\.")) {
+            String p = part.trim();
+            if (p.isEmpty()) continue;
+            for (String dangerous : DANGEROUS_EXTENSIONS) {
+                if (p.equals(dangerous)) return true;
+            }
         }
         return false;
+    }
+
+    /** 上传中途失败：删除本次新建的文件，避免磁盘残留而业务侧拿不到文件名 */
+    private void cleanupWritten(List<File> written) {
+        for (File f : written) {
+            try {
+                if (f != null && f.exists()) f.delete();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     /**

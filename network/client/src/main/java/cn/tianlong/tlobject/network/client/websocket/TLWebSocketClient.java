@@ -38,6 +38,9 @@ public class TLWebSocketClient extends TLHttpClient {
     protected volatile Boolean connected = false;
     private Request request;
     private OkHttpClient client;
+    /** 重连中标志：防止一次失败触发多个 onFailure 时开出多条重连线程 */
+    private final java.util.concurrent.atomic.AtomicBoolean reconnecting =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     protected TLNetSession netSession;
     protected binarySendModule binarySendModule;
     protected TLBaseModule threadPool;
@@ -162,18 +165,14 @@ public class TLWebSocketClient extends TLHttpClient {
                 sslParams = moduleSslParams;
             else
                 return null;
-            client = new OkHttpClient.Builder()
+            OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder()
                     //        .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
                     .pingInterval(pingInterval, TimeUnit.SECONDS)
-                    .hostnameVerifier(new HostnameVerifier() {
-                        @Override
-                        public boolean verify(String hostname, SSLSession session) {
-                            //强行返回true 即验证成功
-                            return true;
-                        }
-                    })
-                    .sslSocketFactory(sslParams.sSLSocketFactory, sslParams.trustManager)
-                    .build();
+                    .sslSocketFactory(sslParams.sSLSocketFactory, sslParams.trustManager);
+            // 与 TLHttpClient 同口径：默认严格校验主机名，trustAllHostnames=true 才放行
+            if (trustAllHostnames)
+                clientBuilder.hostnameVerifier((hostname, session) -> true);
+            client = clientBuilder.build();
         } else
             client = new OkHttpClient.Builder()
                     //     .addInterceptor(new HttpLoggingInterceptor().setLevel(HttpLoggingInterceptor.Level.BODY))
@@ -404,26 +403,45 @@ public class TLWebSocketClient extends TLHttpClient {
         public void onFailure(WebSocket webSocket, Throwable t, Response response) {
             super.onFailure(webSocket, t, response);
             putLog("webSocket failure", LogLevel.DEBUG, "onFailure");
-            mWebSocket.close(1011, "failure");
+            // mWebSocket 可能为 null（connect 时 newWebSocket 失败/尚未赋值）
+            if (mWebSocket != null) {
+                try { mWebSocket.close(1011, "failure"); } catch (Exception ignored) { }
+            }
             connected = false;
             if (response != null) {
                 String message = response.message();
-                if (message.equals(WEBSOCKET_V_AUTHFORBIDDEN))
+                if (message != null && message.equals(WEBSOCKET_V_AUTHFORBIDDEN))
                     reConnect = false;
             }
             TLMsg responseMsg = createMsg().setAction(resultAction).setParam(WEBSOCKET_P_STATUS, WEBSOCKET_R_FAILURE)
                     .setParam(WEBRESPONSE, response).setParam("throwable", t).setParam("socketClient", socketClient);
             TLMsg returnMsg = putMsg(resultFor, responseMsg);
             setByReturnMsg(returnMsg);
-            if (reConnect) {
-                try {
-                    sleep(reConnectTime);
-                    putLog("webSocket reconnect ", LogLevel.DEBUG, "onFailure");
-                    mWebSocket = client.newWebSocket(request, this);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                    mWebSocket.close(1011, "failure");
-                }
+            if (reConnect && reconnecting.compareAndSet(false, true)) {
+                // 不在 OkHttp 回调线程 sleep/重连：会阻塞该 Dispatcher 上所有 WebSocket 回调；
+                // 每次重连用新的 listener，避免旧回调字段覆盖新连接
+                final IObject rf = resultFor;
+                final String ra = resultAction;
+                Thread t2 = new Thread(() -> {
+                    try {
+                        Thread.sleep(reConnectTime);
+                        OkHttpClient c = client;
+                        Request r = request;
+                        if (c == null || r == null) return;
+                        putLog("webSocket reconnect ", LogLevel.DEBUG, "onFailure");
+                        MyWebSocketListener listener = new MyWebSocketListener(rf, ra, true);
+                        webSocketListener = listener;
+                        mWebSocket = c.newWebSocket(r, listener);
+                    } catch (InterruptedException ignored) {
+                        Thread.currentThread().interrupt();
+                    } catch (Exception e) {
+                        putLog("webSocket reconnect failed: " + e, LogLevel.ERROR, "onFailure");
+                    } finally {
+                        reconnecting.set(false);
+                    }
+                }, "ws-reconnect-" + name);
+                t2.setDaemon(true);
+                t2.start();
             }
         }
     }

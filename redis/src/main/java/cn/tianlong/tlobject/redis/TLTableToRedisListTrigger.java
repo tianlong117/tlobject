@@ -41,7 +41,7 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
     }
     @Override
     protected TLMsg onDelete(Object fromWho, TLMsg msg) {
-        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG); msg.getSystemParam(DOWITHMSG);
+        TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
         String rediskey = getRedisKey(sqlParams);
         if(rediskey ==null)
@@ -66,10 +66,15 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
         long result=0L;
         Type type = new TypeToken<Map<String, Object>>() {}.getType();
         Long size =((TLRedisList)redisTable).llen(rediskey);
+        if (size == null)
+            return 0L;
         while (i < size) {
              String value= ((TLRedisList)redisTable).lindex(rediskey,i);
+             if (value == null)
+                 break;
              Map<String ,Object> data = gson.fromJson(value,type);
-             if(data.get(tbMainKey).equals(mainKey))
+             if(data != null && mainKey != null
+                     && mainKey.equals(String.valueOf(data.get(tbMainKey))))
              {
                  result= ((TLRedisList)redisTable).lrem(rediskey,0,value);
                  break;
@@ -167,6 +172,12 @@ public class TLTableToRedisListTrigger extends TLBaseTriggerForTableToRedis {
         if(sqlParams.get(DB_P_LIMITNUMB) !=null)
             end = start + (int)sqlParams.get(DB_P_LIMITNUMB)-1;
         Long tableLen = ((TLRedisList)redisTable).llen(rediskey);
+        if (tableLen == null) {
+            if (ifQueryDb == false)
+                return msg.setSystemParam(MODULE_DONEXTMSG, false);
+            else
+                return null;
+        }
         if(tableLen < end+1)
         {
             if(ifQueryDb==false)

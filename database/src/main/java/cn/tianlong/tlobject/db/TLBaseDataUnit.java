@@ -54,16 +54,22 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
         String dbserverName=params.get("dbserver");
         if(dbserverName ==null || dbserverName.isEmpty())
             dbserverName=params.get("defaultDBserver");
-        dbserver =(TLBaseModule)putMsg(database,createMsg().setAction(DB_GETSERVER).setParam(DB_P_SERVERNAME,dbserverName)).getParam(INSTANCE) ;
-        if(dbserver ==null)
+        TLMsg serverMsg = putMsg(database, createMsg().setAction(DB_GETSERVER).setParam(DB_P_SERVERNAME, dbserverName));
+        dbserver = (serverMsg == null) ? null : (TLBaseModule) serverMsg.getParam(INSTANCE);
+        if(dbserver ==null) {
+            putLog("dbserver 未找到: " + dbserverName, LogLevel.ERROR, "init");
             return null ;
+        }
         String readserverName=params.get("readserver");
         if(readserverName ==null || readserverName.isEmpty())
             readserver =dbserver ;
         else {
-            readserver =(TLBaseModule)putMsg(database,createMsg().setAction(DB_GETSERVER).setParam(DB_P_SERVERNAME,readserverName)).getParam(INSTANCE) ;
-            if(readserver ==null)
+            TLMsg readserverMsg = putMsg(database, createMsg().setAction(DB_GETSERVER).setParam(DB_P_SERVERNAME, readserverName));
+            readserver = (readserverMsg == null) ? null : (TLBaseModule) readserverMsg.getParam(INSTANCE);
+            if(readserver ==null) {
+                putLog("readserver 未找到: " + readserverName, LogLevel.ERROR, "init");
                 return null ;
+            }
         }
         if(ifCache)
             cacheModule= (TLBaseCache) getModule(cacheModuleName);
@@ -154,9 +160,10 @@ public abstract class TLBaseDataUnit extends TLBaseModule {
         {
             if(readConnector ==null) {
                 synchronized (this) {
-                    if (readConnector == null)
-                        readConnector = (TLBaseConnectorInterface) putMsg(readserver, createMsg().setAction(DB_GETCONNECTOR))
-                                .getParam(DB_R_CONNECTOR);
+                    if (readConnector == null) {
+                        TLMsg connMsg = putMsg(readserver, createMsg().setAction(DB_GETCONNECTOR));
+                        readConnector = (connMsg == null) ? null : (TLBaseConnectorInterface) connMsg.getParam(DB_R_CONNECTOR);
+                    }
                 }
             }
             if (readConnector == null) {

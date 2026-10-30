@@ -61,14 +61,15 @@ public class TLHikariCP extends TLBaseModule implements TLBaseConnectorInterface
             params= (HashMap) msg.getParam("params");
         // 原来此处还有一行无条件 params = msg.getParam("params")，把上面的 if 变成死代码；
         // 且调用方没传 params 时 params 为 null → 紧接着 params.get("dburl") 直接 NPE
-        if (params == null || params.get("dburl") == null) {
+        String dburl = params == null ? null : params.get("dburl");
+        if (dburl == null || dburl.trim().isEmpty()) {
             putLog("HikariCP 初始化失败：缺少 params 或 dburl", LogLevel.ERROR, "init");
             return;
         }
         // 改用 HikariConfig：配置在构造时校验（否则要到第一次 getConnection 才报错），
         // 并且池参数可配 —— 原来全部用 Hikari 默认值（maximumPoolSize=10 等），配置里的池参数被忽略
         HikariConfig cfg = new HikariConfig();
-        cfg.setJdbcUrl(params.get("dburl"));//设置连接字符串
+        cfg.setJdbcUrl(dburl.trim());//设置连接字符串
         cfg.setDriverClassName(params.get("driver"));//获取驱动
         cfg.setUsername(params.get("dbuser"));//用户名
         cfg.setPassword(params.get("dbpass"));//密码
@@ -138,10 +139,12 @@ public class TLHikariCP extends TLBaseModule implements TLBaseConnectorInterface
 
     @Override
     public void close(Object conn) {
+        if (!(conn instanceof Connection))
+            return;
         try {
-            ( (Connection)conn).close();
+            ((Connection) conn).close();
         } catch (SQLException e) {
-            e.printStackTrace();
+            putLog("close 失败: " + e.getMessage(), LogLevel.WARN, "close");
         }
     }
 }

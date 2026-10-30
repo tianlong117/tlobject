@@ -32,6 +32,8 @@ public class TLHttpClient extends TLBaseModule {
     protected Long writeTimeOut =0L ;
     protected TLSslUtils.SSLParams moduleSslParams ;
     protected OkHttpClient okHttpClient;     // 实例级 OkHttpClient，替代 OkHttpUtils 全局单例
+    /** 是否信任任意主机名（仅开发/自签名排障用，默认 false=OkHttp 严格校验） */
+    protected boolean trustAllHostnames = false;
 
     public TLHttpClient() {
         super();
@@ -54,6 +56,12 @@ public class TLHttpClient extends TLBaseModule {
                 readTimeOut= Long.valueOf(params.get("readTimeOut"))*1000;
             if( params.get("writeTimeOut")!=null)
                 writeTimeOut= Long.valueOf(params.get("writeTimeOut"))*1000;
+            if (params.get("trustAllHostnames") != null) {
+                trustAllHostnames = Boolean.parseBoolean(params.get("trustAllHostnames"));
+                if (trustAllHostnames)
+                    putLog("trustAllHostnames=true：HTTPS/WSS 主机名校验已关闭，仅限开发/自签名排障",
+                            LogLevel.WARN, "setModuleParams");
+            }
         }
     }
     @Override
@@ -164,15 +172,13 @@ public class TLHttpClient extends TLBaseModule {
             } else {
                 return null;
             }
-            client = new OkHttpClient.Builder()
-                    .hostnameVerifier(new HostnameVerifier() {
-                        @Override
-                        public boolean verify(String hostname, SSLSession session) {
-                            return true;
-                        }
-                    })
-                    .sslSocketFactory(sslParams.sSLSocketFactory, sslParams.trustManager)
-                    .build();
+            OkHttpClient.Builder clientBuilder = new OkHttpClient.Builder()
+                    .sslSocketFactory(sslParams.sSLSocketFactory, sslParams.trustManager);
+            // 默认不覆盖 hostnameVerifier = 使用 OkHttp 严格校验；只有显式配置
+            // trustAllHostnames=true 才关闭（自签名证书调试场景）
+            if (trustAllHostnames)
+                clientBuilder.hostnameVerifier((hostname, session) -> true);
+            client = clientBuilder.build();
         } else {
             client = this.okHttpClient;    // 使用实例级默认 client
         }
@@ -203,11 +209,6 @@ public class TLHttpClient extends TLBaseModule {
         if(pack == null)
             return createMsg().setParam(HTTP_ERROR, true).setParam("msg","url");
         HashMap<String,String> params = (HashMap<String,String>)msg.getMapParam("params",null);
-        if(params != null) {
-            HttpUrl.Builder urlBuilder = pack.builder.build().url().newBuilder();
-            // 重建 builder 的 url（带 query params）
-            // 直接用 HttpUrl 加参数
-        }
         // 将 query params 加到 URL 上
         if(params != null && !params.isEmpty()) {
             HttpUrl httpUrl = HttpUrl.parse(pack.builder.build().url().toString());

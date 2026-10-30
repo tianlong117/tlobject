@@ -708,10 +708,20 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 if (xpp.getEventType() == XmlPullParser.START_TAG) {
                     if (xpp.getName().equals(tag)) {
                         sonMap = new HashMap<>();
-                        findex = xpp.getAttributeValue(0);
-                    }
-                    for (int i = 1; i < xpp.getAttributeCount(); i++) {
-                        sonMap.put(xpp.getAttributeName(i), xpp.getAttributeValue(i));
+                        // 按属性名取 key，不依赖属性顺序（与 TLModuleConfig.getHashMap 对齐）
+                        String keyAttr = "name";
+                        findex = xpp.getAttributeValue(null, "name");
+                        if (findex == null && xpp.getAttributeCount() > 0) {
+                            findex = xpp.getAttributeValue(0);
+                            keyAttr = xpp.getAttributeName(0);
+                        }
+                        // 属性收集必须限定在 <agent> 内：放在 if 外会让嵌套子标签的
+                        // 属性污染父配置；sonMap 为 null 时还会 NPE
+                        for (int i = 0; i < xpp.getAttributeCount(); i++) {
+                            String attrName = xpp.getAttributeName(i);
+                            if (!keyAttr.equals(attrName))
+                                sonMap.put(attrName, xpp.getAttributeValue(i));
+                        }
                     }
                 }
             }

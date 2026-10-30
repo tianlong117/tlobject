@@ -10,6 +10,7 @@ import com.google.gson.GsonBuilder;
 import java.io.*;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
@@ -89,23 +90,24 @@ public class TLFileCache extends TLBaseCache {
         ReentrantReadWriteLock.ReadLock readLock = lock.readLock();
         readLock.lock();
         File file = new File(filePath);
-        if (!file.exists()) {
+        byte[] b;
+        try {
+            if (!file.exists())
+                return this;
+            try (InputStream in = new FileInputStream(file)) {
+                b = new byte[(int) file.length()];
+                int offset = 0;
+                while (offset < b.length) {
+                    int read = in.read(b, offset, b.length - offset);
+                    if (read == -1) break;
+                    offset += read;
+                }
+            }
+        } finally {
+            // 文件打开失败/读异常时也必须归还读锁，否则锁池计数永久泄漏
             readLock.unlock();
             reBackLock();
-            return this;
         }
-        byte[] b;
-        try (InputStream in = new FileInputStream(file)) {
-            b = new byte[(int) file.length()];
-            int offset = 0;
-            while (offset < b.length) {
-                int read = in.read(b, offset, b.length - offset);
-                if (read == -1) break;
-                offset += read;
-            }
-        }
-        readLock.unlock();
-        reBackLock();
         String jsonStr = new String(b, StandardCharsets.UTF_8);
         HashMap<String, Object> cachedata;
         try {
@@ -114,8 +116,16 @@ public class TLFileCache extends TLBaseCache {
             putLog("json 解析错误" + cacheName + " cacheKey:" + cacheKey, LogLevel.ERROR, "getCache");
             return this;
         }
-        Double cacheTime = (Double) cachedata.get(CACHE_P_EXPTTIME);
-        long expTime = cacheTime.longValue();
+        if (cachedata == null) {
+            putLog("缓存内容为空: " + cacheName + " cacheKey:" + cacheKey, LogLevel.WARN, "getCache");
+            return this;
+        }
+        Object cacheTimeObj = cachedata.get(CACHE_P_EXPTTIME);
+        if (!(cacheTimeObj instanceof Number)) {
+            putLog("缓存过期字段缺失/类型错误: " + cacheName + " cacheKey:" + cacheKey, LogLevel.WARN, "getCache");
+            return this;
+        }
+        long expTime = ((Number) cacheTimeObj).longValue();
         if (expTime > System.currentTimeMillis() || expTime == 0L) {
             return cachedata.get(CACHE_R_VALUE);
         } else {
@@ -170,7 +180,13 @@ public class TLFileCache extends TLBaseCache {
                 out.write(jsonString.getBytes(StandardCharsets.UTF_8));
                 out.flush();
             }
-            Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            try {
+                Files.move(tmpFile.toPath(), file.toPath(),
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (AtomicMoveNotSupportedException e) {
+                // FAT32 / 部分 NFS 不支持 ATOMIC_MOVE：退化为普通覆盖，至少保证文件内容完整
+                Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+            }
             return true;
         } catch (IOException e) {
             putLog("缓存文件写错误:" + filePath, LogLevel.ERROR, "cache");

@@ -135,7 +135,9 @@ public class TLWUrlMap extends TLWServModule {
             if(url ==null || url.isEmpty())
              return putError("no url");
         }
-        if(prefixUrl!=null && url.length() >= prefixUrl.length())
+        // 必须先确认前缀真的匹配：appCenter 已剥过 contextPath 时，重复配置同一前缀
+        // 会把 url 再截一刀（甚至截成空串），导致所有请求 no urlmap
+        if(prefixUrl!=null && !prefixUrl.isEmpty() && url.startsWith(prefixUrl))
           url=url.substring(prefixUrl.length());
         ArrayList msgList = urlMapTable.get(url);
         if (msgList == null || msgList.isEmpty())
@@ -196,8 +198,10 @@ public class TLWUrlMap extends TLWServModule {
                 TLMsg dmsg =createMsg().copyFrom(((TLMsg) msgList.get(i)));
                 dmsg.addArgs(msg.getArgs());
                 returnMsg= doWithUrlMsg(dmsg);
-                if(msgListSize >1 && ifDoNextMsg(returnMsg))
-                    continue;
+                // 与 TLBaseModule.doMsgList 同语义：最后一环，或任一环返回 DONEXTMSG=false，
+                // 都必须停止后续处理链（此前 false 只是不 continue，循环仍会继续执行下一环）
+                if(i == msgListSize - 1 || !ifDoNextMsg(returnMsg))
+                    break;
             }
             return returnMsg ;
         }
@@ -240,8 +244,14 @@ public class TLWUrlMap extends TLWServModule {
         {
             dmsg.addArgs(getInputVar(dmsg));
             TLMsg returnMsg=putMsg(this,createMsg().setMsgId(beforeMsgId).setParam("domsg",dmsg));
-            if( ifDoNextMsg(returnMsg))
-               return putMsg(dmsg.getDestination(),dmsg);
+            if( ifDoNextMsg(returnMsg)) {
+                String destination = dmsg.getDestination();
+                if (destination == null || destination.isEmpty()) {
+                    putLog("urlmap 未配置 destination，丢弃消息: " + dmsg.getAction(), LogLevel.ERROR);
+                    return null;
+                }
+                return putMsg(destination,dmsg);
+            }
             else
                 return returnMsg ;
         }

@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLBaseConnectorInterface;
+import cn.tianlong.tlobject.modules.LogLevel;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.math.NumberUtils;
 import redis.clients.jedis.Jedis;
@@ -69,6 +70,10 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
     protected void init(Object fromWho, TLMsg msg) {
 
         params= (HashMap) msg.getParam("params");
+        if (params == null) {
+            putLog("Redis 初始化失败：缺少 params", LogLevel.ERROR, "init");
+            return;
+        }
         initialPool() ;
     }
     private  void initialPool() {
@@ -110,9 +115,11 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
             }
         } catch (Exception e) {
             if(jedisPool != null){
-                jedisPool.close();
+                try { jedisPool.close(); } catch (Exception ignored) { }
+                jedisPool = null;
             }
-            exception(createMsg().setAction("initialPool"),e);
+            // Redis 是可选依赖：本地记录即可，不能走全局 exception 链（可能触发 shutdown(-1)）
+            putLog("Redis 连接池初始化失败: " + e, LogLevel.ERROR, "initialPool");
         }
     }
     private TLMsg getConnection(Object fromWho, TLMsg msg) {
@@ -122,18 +129,19 @@ public class TLRedisconnect extends TLBaseModule implements TLBaseConnectorInter
 
     @Override
     public Object connect() {
-        Jedis jedis = null;
-        if (jedisPool != null)
-            try {
-                jedis = jedisPool.getResource();
-            }catch (Exception e) {
-                throw new RuntimeException("获取Redis连接失败", e);
-            }
-        return jedis;
+        if (jedisPool == null)
+            throw new IllegalStateException("Redis 连接池未初始化（initialPool 失败或未调用）");
+        try {
+            return jedisPool.getResource();
+        } catch (Exception e) {
+            throw new RuntimeException("获取Redis连接失败", e);
+        }
     }
 
     @Override
     public void close(Object conn) {
-        ((Jedis)conn).close();
+        if (!(conn instanceof Jedis))
+            return;
+        try { ((Jedis) conn).close(); } catch (Exception ignored) { }
     }
 }

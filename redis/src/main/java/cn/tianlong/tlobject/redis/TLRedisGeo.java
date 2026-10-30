@@ -36,8 +36,13 @@ public class TLRedisGeo extends TLRedisZSet {
     @Override
     protected TLMsg insert(Object fromWho, TLMsg msg) {
        String key = (String) msg.getParam(REDIS_KEY);
-       double lng = ((Number) msg.getParam("longitude")).doubleValue();
-       double lat = ((Number) msg.getParam("latitude")).doubleValue();
+       Object lngObj = msg.getParam("longitude");
+       Object latObj = msg.getParam("latitude");
+       if (!(lngObj instanceof Number) || !(latObj instanceof Number))
+           return createMsg().setParam(REDIS_RESULT, null)
+                   .setParam("error", "longitude/latitude 必填数字");
+       double lng = ((Number) lngObj).doubleValue();
+       double lat = ((Number) latObj).doubleValue();
        Object result =geoadd(key, lng, lat, (String)msg.getParam("member"));
        return  createMsg().setParam(REDIS_RESULT,result)   ;
     }

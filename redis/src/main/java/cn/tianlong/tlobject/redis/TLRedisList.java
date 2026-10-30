@@ -40,7 +40,7 @@ public class TLRedisList extends TLRedisTable {
         Object result = null;
        if(msg.getParam(REDIS_DATAINDEX) !=null)
        {
-           Long index  = (Long) msg.getParam(REDIS_DATAINDEX);
+           Long index  = toLong(msg.getParam(REDIS_DATAINDEX), 0L);
            result = lset(key,index, (String) values);
            return  createMsg().setParam(REDIS_RESULT,result)   ;
        }
@@ -58,14 +58,14 @@ public class TLRedisList extends TLRedisTable {
            if(values instanceof List)
                result = lpush(key, (List) values);
            else  if(values instanceof String[])
-               result = lpush(key, (String) values);
+               result = lpush(key, (String[]) values);
        }
        else
        {
            if(values instanceof List)
                result =rpush(key, (List) values);
            else  if(values instanceof String[])
-               result = rpush(key, (String) values);
+               result = rpush(key, (String[]) values);
        }
        return  createMsg().setParam(REDIS_RESULT,result)   ;
     }
@@ -78,15 +78,15 @@ public class TLRedisList extends TLRedisTable {
         String key = (String) msg.getParam(REDIS_KEY);
         Object result;
         if(msg.getParam(REDIS_DATAINDEX)!=null){
-            result = lindex(key, (Long) msg.getParam(REDIS_DATAINDEX));
+            result = lindex(key, toLong(msg.getParam(REDIS_DATAINDEX), 0L));
             return createMsg().setParam(REDIS_RESULT,result);
         }
-        Long start = (Long) msg.getParam(REDIS_START);
+        Long start = toLong(msg.getParam(REDIS_START), 0L);
         Long end;
         if(msg.getParam(REDIS_END) ==null)
             end =-1L;
         else
-            end = (Long) msg.getParam(REDIS_END);
+            end = toLong(msg.getParam(REDIS_END), -1L);
         result = lrange(key,start,end);
         return createMsg().setParam(REDIS_RESULT,result);
 
@@ -99,8 +99,8 @@ public class TLRedisList extends TLRedisTable {
         {
             Long count=0L;
             if(msg.getParam(REDIS_COUNT)!=null)
-                count = (Long) msg.getParam(REDIS_COUNT);
-            lrem(key,count,value);
+                count = toLong(msg.getParam(REDIS_COUNT), 0L);
+            result = lrem(key,count,value);
             return createMsg().setParam(REDIS_RESULT,result);
         }
         else if(  msg.getParam(DB_P_POSITION)!=null){

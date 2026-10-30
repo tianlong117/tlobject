@@ -383,7 +383,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         // 检测断点会话
         try {
-            TLMsg incompleteResult = putMsg(serviceModule, createMsg().setAction("resume")
+            TLMsg incompleteResult = putSafe(serviceModule, createMsg().setAction("resume")
                     .setParam("userId", userId));
             if (incompleteResult != null && incompleteResult.parseBoolean("success", false)) {
                 @SuppressWarnings("unchecked")
@@ -892,7 +892,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         String mode = input.substring("/thinking".length()).trim();
                         if (mode.equals("off") || mode.equals("prompt") || mode.equals("native") || mode.equals("auto")) {
                             reasoningMode = mode;
-                            putMsg(serviceModule, createMsg().setAction("setParam")
+                            putSafe(serviceModule, createMsg().setAction("setParam")
                                     .setParam("param", AI_P_REASONING_MODE)
                                     .setParam("value", mode));
                             System.out.println("✓ 推理模式: " + mode);
@@ -1025,7 +1025,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                                 .setParam("resume", true)
                                 .setParam("streamTarget", getName())
                                 .setParam("streamAction", STREAM_ONCHUNK);
-                        putMsg(serviceModule, m);
+                        putSafe(serviceModule, m);
                     } else {
                         TLMsg m = createMsg()
                                 .setAction("chat")
@@ -1035,8 +1035,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                                 .setParam("resume", true);
                         m.setSystemParam(TASKRESULTFOR, this);
                         m.setSystemParam(TASKRESULTACTION, "onChatDone");
-                        TLMsg taskResult = putMsgNoWait(target, m);
-                        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+                        ThreadTask task = submitTask(target, m);
+                        if (task == null) {
+                            busy = false;
+                            return null;
+                        }
+                        currentTask = task;
                     }
                     return null;
                 }
@@ -1505,7 +1509,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // 特殊处理：/resume（无断点，回退到恢复最近会话）
         if ("resume".equals(msg.getAction()) && pendingCheckpointSessionId == null) {
             // 无断点：恢复最近已完成的会话
-            TLMsg result = putMsg(serviceModule, createMsg().setAction("continue"));
+            TLMsg result = putSafe(serviceModule, createMsg().setAction("continue"));
             if (result != null && result.parseBoolean("success", false)) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> data = (Map<String, Object>) result.getParam("data");
@@ -1536,7 +1540,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             return;
         }
 
-        TLMsg result = putMsg(serviceModule, msg);
+        TLMsg result = putSafe(serviceModule, msg);
 
         if (result == null) {
             System.out.println("✗ agentService 无响应");
@@ -2098,8 +2102,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 .setParam("index", idx);
         m.setSystemParam(TASKRESULTFOR, this);
         m.setSystemParam(TASKRESULTACTION, "onChatDone");
-        TLMsg taskResult = putMsgNoWait(target, m);
-        currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+        ThreadTask task = submitTask(target, m);
+        if (task == null) {
+            busy = false;
+            return null;
+        }
+        currentTask = task;
         // 等待期间显示思考动画（结果到达时 stopThinking 清行）
         startThinking("AI >");
         return null;
@@ -2140,12 +2148,18 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
 
         if (streamMode) {
-            putMsg(serviceModule, msg);
+            putSafe(serviceModule, msg);
         } else {
             IObject target = (IObject) getModule(serviceModule);
             if (target != null) {
-                TLMsg taskResult = putMsgNoWait(target, msg);
-                currentTask = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
+                ThreadTask task = submitTask(target, msg);
+                if (task == null) {
+                    busy = false;
+                    printPrompt();
+                    System.out.flush();
+                    return;
+                }
+                currentTask = task;
                 // 等待期间显示思考动画（结果到达时 stopThinking 清行）
                 startThinking("AI >");
             } else {
@@ -2194,7 +2208,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 停止对话 */
     private void stopChat() {
-        putMsg(serviceModule, createMsg().setAction("stopChat")
+        putSafe(serviceModule, createMsg().setAction("stopChat")
                 .setParam(AI_P_SESSIONID, sessionId));
     }
 
@@ -2354,7 +2368,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (error != null && !error.isEmpty()) {
             System.out.println("    (⏹ 已结束: " + (error.length() > 80 ? error.substring(0, 80) + "..." : error) + ")");
         } else {
-            TLMsg usage = putMsg(serviceModule, createMsg().setAction("getTokenUsage")
+            TLMsg usage = putSafe(serviceModule, createMsg().setAction("getTokenUsage")
                     .setParam(AI_P_SESSIONID, sessionId));
             int accTotal = 0;
             if (usage != null && usage.parseBoolean("success", false)) {
@@ -2375,7 +2389,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 tokenInfo += "，总累计 " + procUsage.getLongParam(AI_P_TOTALTOKENS_PROCESS, 0L);
             }
 
-            TLMsg cacheStats = putMsg(serviceModule, createMsg().setAction("getCacheStats")
+            TLMsg cacheStats = putSafe(serviceModule, createMsg().setAction("getCacheStats")
                     .setParam(AI_P_SESSIONID, sessionId));
             StringBuilder cacheInfo = new StringBuilder();
             if (cacheStats != null && cacheStats.parseBoolean("success", false)) {
@@ -2664,6 +2678,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     // ======================== 初始化 ========================
 
+    /** UI 侧转发：模块名来自配置，缺模块时不让框架 shutdown(-1) 关掉整个应用 */
+    private TLMsg putSafe(String moduleName, TLMsg msg) {
+        return putMsg(moduleName, msg.setSystemParam(IGNOREMODULEISNULL, true));
+    }
+
+    /** 异步提交并取 ThreadTask；线程池拒绝/销毁竞态时 putMsgNoWait 返回 null，这里统一兜底 */
+    private ThreadTask submitTask(IObject target, TLMsg msg) {
+        TLMsg taskResult = putMsgNoWait(target, msg);
+        Object task = taskResult == null ? null : taskResult.getParam(THREADPOOL_TASK);
+        if (task instanceof ThreadTask)
+            return (ThreadTask) task;
+        System.out.println("✗ 提交失败（线程池不可用，应用可能正在关闭）");
+        return null;
+    }
+
     /** 从 agentService 获取命令列表用于 Tab 补全 */
     @SuppressWarnings("unchecked")
     private void populateCommandCache() {
@@ -2679,7 +2708,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/img", "登记附件随下一条消息发出（/img list 查看；/file 同义）");
 
         try {
-            TLMsg result = putMsg(serviceModule, createMsg().setAction("listCommands"));
+            TLMsg result = putSafe(serviceModule, createMsg().setAction("listCommands"));
             if (result != null && result.parseBoolean("success", false)) {
                 List<Map<String, String>> cmds = (List<Map<String, String>>) result.getParam("data");
                 if (cmds != null) {
@@ -2701,7 +2730,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     @SuppressWarnings("unchecked")
     /** 启动时打印已注册 Skill 的友好描述（直接查 agent，不走 registry 格式） */
     private void printSkills() {
-        TLMsg result = putMsg(agentModule, createMsg().setAction(AGENT_LISTSKILLS));
+        TLMsg result = putSafe(agentModule, createMsg().setAction(AGENT_LISTSKILLS));
         if (result != null) {
             java.util.List<String> skills = (java.util.List<String>) result.getListParam("skills", java.util.List.of());
             if (skills.isEmpty()) {

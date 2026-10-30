@@ -46,8 +46,12 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
             String[] fieldStr = params.get("tableDefaultValue").split(";");
             for(String field : fieldStr){
                 field =field.trim();
-                String[] fieldArray = field .split(":");
-               tableDefaultValue.put(fieldArray[0],fieldArray[1]);
+                String[] fieldArray = field.split(":");
+                if (fieldArray.length < 2) {
+                    putLog("tableDefaultValue 配置项缺少冒号: " + field, LogLevel.WARN, "initProperty");
+                    continue;
+                }
+                tableDefaultValue.put(fieldArray[0],fieldArray[1]);
             }
         }
 
@@ -121,7 +125,12 @@ public abstract class TLBaseTriggerForTableToRedis extends TLDBTrigger {
                 sb.append(value.toString());
             sb.append(sep);
         }
-        sb.deleteCharAt(sb.lastIndexOf(sep));
+        if (sep == null || sep.isEmpty())
+            return sb.toString();
+        int last = sb.lastIndexOf(sep);
+        // 多字符分隔符要整体删除；lastIndexOf 返回 -1 时 deleteCharAt(-1) 会越界
+        if (last >= 0)
+            sb.delete(last, last + sep.length());
         return sb.toString();
     }
 

@@ -56,6 +56,8 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
             if (value == null)
                 return (TLMsg) msg.getParam(PRERESULT);
             Long result = ((TLRedisZSet) redisTable).zrem(rediskey, value.toString());
+            if (result == null)
+                return (TLMsg) msg.getParam(PRERESULT);
             return msg.setParam(DB_R_RESULT, result.intValue());
         }
         return (TLMsg) msg.getParam(PRERESULT);
@@ -65,42 +67,48 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
         TLMsg nmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
+        insertRedisTable(sqlParams);
+        return (TLMsg) msg.getParam(PRERESULT);
+    }
+
+    protected void insertRedisTable(Map<String, Object> sqlParams) {
+        if (sqlParams == null)
+            return;
         String rediskey = getRedisKey(sqlParams);
         if (rediskey == null)
-            return null;
+            return;
         Double score = 0D;
-        if (scoreField != null) {
-            Object scoreValue = sqlParams.get(scoreField);
-            score = makeScore(scoreValue);
-        }
+        if (scoreField != null)
+            score = makeScore(sqlParams.get(scoreField));
         Long result;
         if (fields != null && fields.size() == 1) {
             String key = fields.keySet().iterator().next();
             Object value = sqlParams.get(key);
             if (value == null)
-                return (TLMsg) msg.getParam(PRERESULT);
+                return;
             result = ((TLRedisZSet) redisTable).zadd(rediskey, score, value.toString());
         } else {
             HashMap<String, Object> redisMap = new HashMap<>();
-            if(fields !=null)
-            {
+            if (fields != null) {
                 for (String field : fields.keySet())
                     redisMap.put(field, sqlParams.get(field));
                 result = ((TLRedisZSet) redisTable).zadd(rediskey, score, redisMap);
-            }
-            else
+            } else
                 result = ((TLRedisZSet) redisTable).zadd(rediskey, score, sqlParams);
         }
-        if (result == 0)
+        if (result == null || result == 0)
             putLog("redis is error" + redisTable.getName(), LogLevel.WARN, "onInsert");
-        return (TLMsg) msg.getParam(PRERESULT);
     }
 
     protected Double makeScore(Object scoreValue) {
-        if (scoreValue instanceof String)
-            return Double.parseDouble((String) scoreValue);
-        else {
-            return Double.parseDouble(String.valueOf(scoreValue));
+        if (scoreValue == null)
+            return 0D;
+        if (scoreValue instanceof Number)
+            return ((Number) scoreValue).doubleValue();
+        try {
+            return Double.parseDouble(String.valueOf(scoreValue).trim());
+        } catch (NumberFormatException e) {
+            return 0D;
         }
     }
 
@@ -250,9 +258,18 @@ public class TLTableToRedisZSetTrigger extends TLBaseTriggerForTableToRedis {
 
     }
 
+    @SuppressWarnings("unchecked")
     protected TLMsg afterQuery(TLMsg preResultMsg) {
         if (ifAutoSaveOnQuery == false)
             return preResultMsg;
+        Object dbresult = preResultMsg.getParam(DB_R_RESULT);
+        if (dbresult instanceof List) {
+            for (Object row : (List) dbresult)
+                if (row instanceof Map)
+                    insertRedisTable((Map<String, Object>) row);
+        } else if (dbresult instanceof Map) {
+            insertRedisTable((Map<String, Object>) dbresult);
+        }
         return preResultMsg;
     }
 }

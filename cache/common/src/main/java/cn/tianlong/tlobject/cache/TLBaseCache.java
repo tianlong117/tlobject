@@ -100,6 +100,9 @@ public abstract class TLBaseCache extends TLBaseModule {
             return true ;
     }
     protected ReentrantReadWriteLock getLock(String lockIndex){
+        if (locksPool == null) {
+            throw new IllegalStateException("locksPool not initialized (ifUseLock=false or pool creation failed)");
+        }
         ReentrantReadWriteLock lock = (ReentrantReadWriteLock) locksPool.getModuleByIndex(lockIndex);
         if (lock == null) {
             throw new IllegalStateException("Failed to get lock for index: " + lockIndex);

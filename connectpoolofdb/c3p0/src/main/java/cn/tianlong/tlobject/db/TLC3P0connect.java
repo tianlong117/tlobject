@@ -67,6 +67,10 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
             dataSource.setDriverClass(params.get("driver"));//获取驱动
         } catch (PropertyVetoException e) {
             putLog("没有发现驱动："+params.get("driver"),LogLevel.ERROR);
+            // 驱动失败继续配置只会把错误推迟到第一次 getConnection，启动期直接失败更可诊断
+            dataSource.close();
+            dataSource = null;
+            return;
         }
         dataSource.setJdbcUrl(params.get("dburl"));//设置连接字符串
         dataSource.setUser(params.get("dbuser"));//用户名
@@ -79,7 +83,9 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
         dataSource.setIdleConnectionTestPeriod(intParam(params, "idleConnectionTestPeriod", 60));
         dataSource.setPreferredTestQuery(params.get("preferredTestQuery") != null
                 ? params.get("preferredTestQuery") : "SELECT 1");
-        dataSource.setTestConnectionOnCheckout(Boolean.parseBoolean(params.get("testConnectionOnCheckout")));
+        // checkout 有效性检测默认开启；显式配置 false 才关闭（MySQL wait_timeout 后死连接的第二道防线）
+        String checkout = params.get("testConnectionOnCheckout");
+        dataSource.setTestConnectionOnCheckout(checkout == null || Boolean.parseBoolean(checkout));
         if (params.get("maxConnectionAge") != null)
             dataSource.setMaxConnectionAge(intParam(params, "maxConnectionAge", 1800));
 
@@ -124,10 +130,12 @@ public class TLC3P0connect extends TLBaseModule implements TLBaseConnectorInterf
 
     @Override
     public void close(Object conn) {
+        if (!(conn instanceof Connection))
+            return;
         try {
-            ( (Connection)conn).close();
+            ((Connection) conn).close();
         } catch (SQLException e) {
-            e.printStackTrace();
+            putLog("close 失败: " + e.getMessage(), LogLevel.WARN, "close");
         }
     }
 }

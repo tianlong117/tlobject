@@ -458,16 +458,20 @@ public class TLUserManagerModule extends TLBaseModule {
         if (userid instanceof String)
             channels = getUserChannelAsList((String) userid);
         else if (userid instanceof String[]) {
+            // channels 此时为 null（getChannelsInMsg 没取到），必须先初始化；否则 getUserChannel 里 addAll NPE
+            channels = new ArrayList<>();
             String[] array = (String[]) userid;
             for (int i = 0; i < array.length; i++) {
-                String toUserid = array[i];
-                getUserChannel(toUserid, channels);
+                if (array[i] != null)
+                    getUserChannel(array[i], channels);
             }
         } else if (userid instanceof List) {
+            channels = new ArrayList<>();
             List array = (List) userid;
             for (int i = 0; i < array.size(); i++) {
-                String toUserid = (String) array.get(i);
-                getUserChannel(toUserid, channels);
+                Object toUserid = array.get(i);
+                if (toUserid != null)
+                    getUserChannel(String.valueOf(toUserid), channels);
             }
         }
         if (channels == null || channels.isEmpty())
@@ -626,7 +630,7 @@ public class TLUserManagerModule extends TLBaseModule {
         if (userChannels == null)
             return null;
         for (HashMap<String, String> channelMap : userChannels) {
-            if (channelMap.get("channel").equals(channel)) {
+            if (channelMap != null && channel != null && channel.equals(channelMap.get("channel"))) {
                 userChannels.remove(channelMap);
                 break;
             }

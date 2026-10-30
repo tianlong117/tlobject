@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.servletutils.clientinterface;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLWServModule;
 
 import javax.servlet.http.HttpServletResponse;
@@ -62,7 +63,7 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
     protected TLMsg responseWrite(String content , String charset){
         if(charset ==null)
             charset =this.charset ;
-        PrintWriter out;
+        PrintWriter out = null;
         HttpServletResponse response =getResponse();
         if (response == null) {
             // 请求上下文已失效（服务关闭瞬间线程回收）：放弃输出，避免 NPE
@@ -71,12 +72,16 @@ public abstract class TLBaseClientDataOutInterface extends TLWServModule {
         response.setContentType(responseContentType() + ";charset=" + (charset != null ? charset : "UTF-8"));
         try {
             out = response.getWriter();
+            out.write(content);
+            out.flush();
         } catch (IOException e) {
-            e.printStackTrace();
-            return createMsg().setParam(CLIENT_R_OUTCONTENT ,null);
+            // 客户端提前断连时写/关流都会抛；响应可能已 commit，不能再让异常冒到框架异常链
+            putLog("response write failed: " + e.getMessage(), LogLevel.WARN, "responseWrite");
+        } finally {
+            if (out != null) {
+                try { out.close(); } catch (Exception ignored) { }
+            }
         }
-        out.write( content);
-        out.close();
         return createMsg().setParam(CLIENT_R_OUTCONTENT ,content);
     }
     protected abstract TLMsg putContentToUser(Object fromWho, TLMsg msg);

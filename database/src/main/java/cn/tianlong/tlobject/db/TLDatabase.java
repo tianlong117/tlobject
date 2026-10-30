@@ -323,20 +323,14 @@ public class TLDatabase extends TLBaseModule {
             putLog("数据库没有连接", LogLevel.ERROR);
             return createMsg().setParam(RESULT, false);
         }
-        Statement stmt= null;
-        try {
-            stmt = conn.createStatement();
+        try (Statement stmt = conn.createStatement()) {
             stmt.execute(sql);
-            result =true ;
-            conn.close();
+            result = true;
         } catch (SQLException e) {
-            result=false ;
-            try {
-                conn.close();
-            } catch (SQLException e1) {
-                e1.printStackTrace();
-            }
-            e.printStackTrace();
+            result = false;
+            putLog("isTableExist 执行 SQL 失败: " + sql + " err=" + e.getMessage(), LogLevel.ERROR);
+        } finally {
+            try { conn.close(); } catch (SQLException ignored) { }
         }
         return createMsg().setParam(RESULT,result);
     }
@@ -474,9 +468,18 @@ public class TLDatabase extends TLBaseModule {
         if(copyTable ==null || copyTable.isEmpty())
             return createMsg().setParam(DB_R_RESULT, false);
         if(dbserver==null || dbserver.isEmpty()) {
-            HashMap<String, String> tableparams = tables.get(copyTable);
+            HashMap<String, String> tableparams = (tables != null) ? tables.get(copyTable) : null;
+            if (tableparams == null)
+                tableparams = runtimeTables.get(copyTable);
+            if (tableparams == null)
+                return createMsg().setParam(DB_R_RESULT, false)
+                        .setParam("error", "copy table not found: " + copyTable);
             dbserver = tableparams.get("dbserver");
+            if (dbserver == null || dbserver.isEmpty())
+                dbserver = params == null ? null : params.get("defaultDBserver");
         }
+        if (dbserver == null || dbserver.isEmpty())
+            return createMsg().setParam(DB_R_RESULT, false).setParam("error", "no dbserver");
         Boolean result = createDBtableFromCopy(tablename, copyTable, dbserver);
         return createMsg().setParam(DB_R_RESULT, result);
     }
@@ -523,7 +526,7 @@ public class TLDatabase extends TLBaseModule {
                     cacheKey =makeCacheKey(sql,sqlParamsMap);
                 Object cacheValue =cacheModule.getCache(cacheName,cacheKey, cacheValueType);
                 if(cacheModule.isCacheValue(cacheValue))
-                    return   returnMsg.setParam(DB_R_RESULT, cacheValue);
+                    return   returnMsg.setParam(DB_R_RESULT, cacheValue).setParam(RESULT, true);
             }
         }
 
@@ -702,11 +705,13 @@ public class TLDatabase extends TLBaseModule {
      }
 
     private TLMsg getViewParams(Object fromWho, TLMsg msg) {
+        if (views == null)
+            return createMsg().setParam(RESULT, false);
         String viewName = (String) msg.getParam("viewName");
         HashMap<String, String> tparams = views.get(viewName);
         if (tparams != null)
         {
-            tparams.put("defaultDBserver", params.get("defaultDBserver"));
+            tparams.put("defaultDBserver", params == null ? null : params.get("defaultDBserver"));
             return createMsg().addMap(tparams);
         }
         else
@@ -721,11 +726,14 @@ public class TLDatabase extends TLBaseModule {
     }
 
     private TLMsg getDbTriggerParams(Object fromWho, TLMsg msg) {
-
+        if (triggers == null)
+            return createMsg();
         return createMsg().addMap(triggers.get((String) msg.getParam("triggerName")));
     }
 
     private TLMsg getDbserverParams(Object fromWho, TLMsg msg) {
+        if (dbservers == null)
+            return createMsg();
         return createMsg().addMap(dbservers.get((String) msg.getParam("serverName")));
     }
     private TLMsg getServer(Object fromWho, TLMsg msg) {
@@ -737,13 +745,19 @@ public class TLDatabase extends TLBaseModule {
         TLBaseModule serverobj = (TLBaseModule) dbObjs.get(prefixServer+serverName);
         if (serverobj != null)
             return serverobj;
-        Object lock = dbLocks.computeIfAbsent(prefixServer + serverName, k -> new Object());
-        synchronized (lock) {
-            serverobj = (TLBaseModule) dbObjs.get(prefixServer+serverName);
-            if (serverobj != null)
-                return serverobj;
-            HashMap<String, String> config = dbservers != null ? dbservers.get(serverName) : null;
-            return createDbServer(serverName, config);
+        String lockKey = prefixServer + serverName;
+        Object lock = dbLocks.computeIfAbsent(lockKey, k -> new Object());
+        try {
+            synchronized (lock) {
+                serverobj = (TLBaseModule) dbObjs.get(prefixServer+serverName);
+                if (serverobj != null)
+                    return serverobj;
+                HashMap<String, String> config = dbservers != null ? dbservers.get(serverName) : null;
+                return createDbServer(serverName, config);
+            }
+        } finally {
+            // 锁只用于首次创建；不删除会随动态表/服务器名无限增长
+            dbLocks.remove(lockKey, lock);
         }
     }
 
@@ -755,19 +769,24 @@ public class TLDatabase extends TLBaseModule {
         if (tableobj != null)
             return createMsg().setParam(INSTANCE, tableobj);
         // 按 key 加锁（原来 synchronized(BeanTable.class) 会让所有 bean 表串行创建）
-        Object lock = dbLocks.computeIfAbsent(prefixBeanTable + tablename, k -> new Object());
-        synchronized (lock)
-        {
-            tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
-            if (tableobj != null)
-                return createMsg().setParam(INSTANCE, tableobj);
-            HashMap<String, String> tableparams =new HashMap<>();
-            tableparams.put(DB_P_PRIMARYKEY, msg.getStringParam(DB_P_PRIMARYKEY,null));
-            tableparams.put(DB_P_IFPRIMARYKEYAUTO, msg.getStringParam(DB_P_IFPRIMARYKEYAUTO,null));
-            tableparams.put("database", name);
-            tableobj = (TLBaseModule) getNewModule(tablename,"beanTable",tableparams);
-            if(tableobj !=null)
-               dbObjs.put(prefixBeanTable+tablename, tableobj);
+        String lockKey = prefixBeanTable + tablename;
+        Object lock = dbLocks.computeIfAbsent(lockKey, k -> new Object());
+        try {
+            synchronized (lock)
+            {
+                tableobj = (TLBaseModule) dbObjs.get(prefixBeanTable+tablename);
+                if (tableobj != null)
+                    return createMsg().setParam(INSTANCE, tableobj);
+                HashMap<String, String> tableparams =new HashMap<>();
+                tableparams.put(DB_P_PRIMARYKEY, msg.getStringParam(DB_P_PRIMARYKEY,null));
+                tableparams.put(DB_P_IFPRIMARYKEYAUTO, msg.getStringParam(DB_P_IFPRIMARYKEYAUTO,null));
+                tableparams.put("database", name);
+                tableobj = (TLBaseModule) getNewModule(tablename,"beanTable",tableparams);
+                if(tableobj !=null)
+                   dbObjs.put(prefixBeanTable+tablename, tableobj);
+            }
+        } finally {
+            dbLocks.remove(lockKey, lock);
         }
         return createMsg().setParam(INSTANCE, tableobj);
     }
@@ -784,13 +803,18 @@ public class TLDatabase extends TLBaseModule {
         if (tableobj != null)
             return tableobj;
         // 按 key 加锁：check-then-act 并发时同一张表只创建一个实例
-        Object lock = dbLocks.computeIfAbsent(prefixTable + tablename, k -> new Object());
-        synchronized (lock) {
-            tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
-            if (tableobj != null)
-                return tableobj;
-            HashMap<String, String> tableparams =  getTableParam(tablename,msg);
-            return makeTable(tablename, tableparams);
+        String lockKey = prefixTable + tablename;
+        Object lock = dbLocks.computeIfAbsent(lockKey, k -> new Object());
+        try {
+            synchronized (lock) {
+                tableobj = (TLBaseModule) dbObjs.get(prefixTable+tablename);
+                if (tableobj != null)
+                    return tableobj;
+                HashMap<String, String> tableparams =  getTableParam(tablename,msg);
+                return makeTable(tablename, tableparams);
+            }
+        } finally {
+            dbLocks.remove(lockKey, lock);
         }
     }
     private HashMap<String, String>  getTableParam(String tablename,TLMsg msg){
@@ -1132,6 +1156,8 @@ public class TLDatabase extends TLBaseModule {
         }
     }
     protected String addPackage(String name) {
+        if (name == null || name.isEmpty())
+            return name;
         if (dbPackageName == null)
             return name;
         String firstCha = (String) name.subSequence(0, 1);

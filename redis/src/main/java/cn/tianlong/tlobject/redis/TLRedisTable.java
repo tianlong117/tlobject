@@ -89,6 +89,13 @@ public abstract class TLRedisTable extends TLBaseDataUnit {
     public String getKey(String key){
         return prefix+key;
     }
+    /** 消息数值参数兼容 Integer/Long/Double/String（Gson 读回数字是 Double，直接 (Long) 会 CCE） */
+    protected static Long toLong(Object v, Long def) {
+        if (v == null) return def;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return def; }
+    }
     public Jedis getRedis(String connType){
        return (Jedis) getConnection( connType);
     }
@@ -114,6 +121,8 @@ public abstract class TLRedisTable extends TLBaseDataUnit {
     public Long del(String key) {
         key=prefix+key;
         Jedis jedis = (Jedis) getConnection(null);
+        if(jedis ==null)
+            return null ;
         Long result =jedis.del(key);
         jedis.close();
         return result ;

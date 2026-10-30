@@ -69,9 +69,9 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
                 LinkedHashMap<String, Object> delP = new LinkedHashMap<>();
                 delP.put("session_id", sessionId);
                 delP.put("round_id", roundId);
-                putMsg(roundsTable, createMsg().setAction(DB_DELETE)
+                checkStoreResult(putMsg(roundsTable, createMsg().setAction(DB_DELETE)
                         .setParam(DB_P_SQL, "delete from [table] where session_id=? and round_id=?")
-                        .setParam(DB_P_PARAMS, delP));
+                        .setParam(DB_P_PARAMS, delP)), "delete round");
             }
 
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
@@ -89,7 +89,8 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             params.put("pending_tool_call", pendingTcJson);
             params.put("approval_id", roundData.getOrDefault(AI_P_APPROVAL_ID, null));
             params.put("created_at", System.currentTimeMillis());
-            putMsg(roundsTable, createMsg().setAction(DB_INSERT).setParam(DB_P_PARAMS, params));
+            checkStoreResult(putMsg(roundsTable,
+                    createMsg().setAction(DB_INSERT).setParam(DB_P_PARAMS, params)), "insert round");
 
             // 2) 会话汇总：UPDATE 已有 → 无命中则 INSERT（保留 created_at）
             if (sessTable != null) {
@@ -100,10 +101,10 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
                 upParams.put("msg_count", msgCount);
                 upParams.put("last_active", System.currentTimeMillis());
                 upParams.put("__sid", sessionId);
-                putMsg(sessTable, createMsg().setAction(DB_UPDATE)
+                checkStoreResult(putMsg(sessTable, createMsg().setAction(DB_UPDATE)
                         .setParam(DB_P_SQL, "update [table] set state=?,agent_name=?,"
                                 + "user_message=?,msg_count=?,last_active=? where session_id=?")
-                        .setParam(DB_P_PARAMS, upParams));
+                        .setParam(DB_P_PARAMS, upParams)), "update session");
 
                 // 新会话：INSERT OR IGNORE（已存在则 UPDATE 已完成，INSERT 静默跳过）
                 LinkedHashMap<String, Object> sessParams = new LinkedHashMap<>();
@@ -115,15 +116,23 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
                 sessParams.put("msg_count", msgCount);
                 sessParams.put("last_active", System.currentTimeMillis());
                 sessParams.put("created_at", System.currentTimeMillis());
-                putMsg(sessTable, createMsg()
+                checkStoreResult(putMsg(sessTable, createMsg()
                         .setAction(DB_INSERT)   // 必须带 action，否则 TLTable 无法分发（历史 bug：新会话行从未由 storeRound 创建）
                         .setParam(DB_P_SQL, "insert or ignore into [table] "
                                 + "(session_id,user_id,agent_name,state,user_message,msg_count,last_active,created_at) "
                                 + "values (?,?,?,?,?,?,?,?)")
-                        .setParam(DB_P_PARAMS, sessParams));
+                        .setParam(DB_P_PARAMS, sessParams)), "insert session");
             }
         } catch (Exception e) {
             putLog("storeRound DB failed: " + e.toString(), LogLevel.WARN);
+        }
+    }
+
+    /** storeRound 是 best-effort：DB 错误通常以 RESULT=false 返回而不抛异常，必须显式检查 */
+    private void checkStoreResult(TLMsg r, String op) {
+        if (r == null || !r.parseBoolean(RESULT, false)) {
+            putLog("storeRound DB " + op + " failed: "
+                    + (r == null ? "null" : r.getStringParam("error", "")), LogLevel.WARN);
         }
     }
 

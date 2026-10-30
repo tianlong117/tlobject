@@ -128,10 +128,16 @@ public class TLDBUtils {
                 break;
             case "BigDecimal":
             case "D":
+                // BigDecimal 语义是任意精度：转 Double 会在金额/科学计算场景丢精度
                 if (value ==null || value.isEmpty())
-                    result =0D ;
-                else
-                    result=parseNumberOrNull(value, Double.class);
+                    result = java.math.BigDecimal.ZERO ;
+                else {
+                    try {
+                        result = new java.math.BigDecimal(value.trim());
+                    } catch (NumberFormatException e) {
+                        result = null ;
+                    }
+                }
                 break;
             default:
                 result=value;
@@ -236,6 +242,8 @@ public class TLDBUtils {
                 .setParam(DB_P_TABLENAME,tableName)
                 .setParam(DB_P_PARAMS, bparams);
         TLMsg returnMsg = fromWho.putMsg(DEFAULTDATABASE, insertmsg);
+        if (returnMsg == null)   // database 模块不可用/已关闭时 putMsg 返回 null
+            return  0;
         int[] result = (int[]) returnMsg.getParam(DB_R_RESULT);
         if(result==null)
             return  0;

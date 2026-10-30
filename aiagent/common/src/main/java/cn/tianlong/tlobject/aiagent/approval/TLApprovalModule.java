@@ -464,12 +464,16 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             toolArgs = new LinkedHashMap<>();
         }
 
+        // 用户可见的根会话：子 agent 的 sessionId 是 "组_成员:根会话"，授权/拒绝记忆必须按根会话，
+        // 否则主会话里做的"本会话免审/拒绝记忆"对子 agent 永远不命中
+        String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
+
         // 0. 会话级拒绝记忆：该（会话+工具+参数）组合已被拒绝过 → 直接返回拒绝，不再弹审批
-        String rejectedKey = rejectionKey(sessionId, toolName, toolArgs);
+        String rejectedKey = rejectionKey(resolveSession(rootSessionId), toolName, toolArgs);
         String rejectedReason = rejectedOps.get(rejectedKey);
         if (rejectedReason != null) {
             putLog("Approval auto-rejected (previously rejected in this session): "
-                    + toolName + " session=" + sessionId, LogLevel.INFO);
+                    + toolName + " session=" + rootSessionId, LogLevel.INFO);
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED)
                     .setParam(AI_P_APPROVAL_REJECTREASON, rejectedReason)
@@ -484,11 +488,11 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         if (!match.required) {
             return createMsg().setParam(AI_P_APPROVAL_STATE, "approved");
         }
-        ApprovalGrant hit = findGrant(sessionId, roundIdStr, match.ruleId, match.operation);
+        ApprovalGrant hit = findGrant(rootSessionId, roundIdStr, match.ruleId, match.operation);
         if (hit != null) {
             putLog("Approval auto-approved by grant: tool=" + toolName + " rule=" + match.ruleId
-                    + " op=" + match.operation + " scope=" + hit.scope + " session=" + sessionId, LogLevel.INFO);
-            traceStage(sessionId, String.valueOf(msg.getSystemParam("rootSessionId", sessionId)),
+                    + " op=" + match.operation + " scope=" + hit.scope + " session=" + rootSessionId, LogLevel.INFO);
+            traceStage(sessionId, rootSessionId,
                     roundIdStr, "approvalDecided",
                     "auto-approved(" + hit.scope + (hit.isAutoRun() ? "/wildcard" : "")
                             + ") rule=" + match.ruleId, 0);
@@ -501,7 +505,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         // 3. 创建审批请求
         TLApprovalRequest request = new TLApprovalRequest(sessionId, toolName, toolArgs, toolCallId);
         request.setRoundId(String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")));
-        request.setRootSessionId(String.valueOf(msg.getSystemParam("rootSessionId", sessionId)));
+        request.setRootSessionId(rootSessionId);
         request.setRuleId(match.ruleId);
         request.setUserId(userId);
         // 命中规则的人可读说明（弹框展示）
@@ -512,6 +516,17 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         request.setRationale(rationale);
         request.setTimeoutMs(approvalTimeoutMs);
         evictDecidedApprovals();       // 先腾地方，避免 pendingApprovals 只增不减
+        // 全是 PENDING 时 evict 清不掉任何东西（approvalTimeoutMs=0 时也没有 TTL），
+        // 达到硬上限后拒绝新请求，防止大量"只创建不决策"把内存撑爆
+        if (pendingApprovals.size() >= MAX_PENDING_APPROVALS) {
+            String busy = "审批请求过多，请稍后重试";
+            putLog("pendingApprovals 达到上限 " + MAX_PENDING_APPROVALS
+                    + "，拒绝新请求 tool=" + toolName + " session=" + sessionId, LogLevel.WARN);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED)
+                    .setParam(AI_P_APPROVAL_REJECTREASON, busy)
+                    .setParam(AI_P_SKILLOUTPUT, buildRejectedOutput(busy));
+        }
         pendingApprovals.put(request.getApprovalId(), request);
 
         // 4. 排期超时
@@ -623,6 +638,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         // 检查-修改必须原子：两个窗口同时点批准、或批准与拒绝并发时，不加锁会让两边都通过
         // PENDING 检查（拒绝后仍写入授权 = 授权与用户拒绝意图矛盾）。同一把 request 锁贯穿
         // handleApprove/handleReject/handleAbandon/markExpired/中断收口。
+        ApprovalGrant granted = null;
         synchronized (request) {
             if (!TLApprovalRequest.PENDING.equals(request.getState())) {
                 // approvalEnded：已决策/已超时——同上，让弹框自愈关闭
@@ -653,13 +669,16 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                     return createMsg().setParam(RESULT, false)
                             .setParam("error", "该请求无轮次信息，无法按轮授权（可用 once/session）");
                 }
-                addGrant(scope, request);
+                granted = addGrant(scope, request);
             }
             request.setState(TLApprovalRequest.APPROVED);
         }
         timeoutTasks.remove(approvalId);   // 已决策：创建时限任务作废（任务体里还有 PENDING 守卫兜底）
         signalDecision(approvalId);  // 唤醒 ConsoleReviewer
         publishApprovalResolved(request);  // 其他窗口/页面打开的弹框立即关闭
+        // 同批多个工具/子 agent 同时申请审批时，后一单在第一单决策前就已排队；
+        // 授权写入后把同规则、同会话（轮次授权还要求同轮）的排队请求一并收口，避免"选了免审还弹"
+        sweepPendingByGrant(granted, approvalId);
         putLog("Approval approved: id=" + approvalId, LogLevel.INFO);
         traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
                 "approvalDecided", "id=" + approvalId + " approved", 0);
@@ -700,7 +719,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             request.setState(TLApprovalRequest.REJECTED);
             // 记入会话级拒绝记忆，防止 LLM 重试同一操作造成连环审批。
             // 放在锁内：只有真正完成 PENDING→REJECTED 迁移民才记（并发批准已生效时不记）
-            rememberRejection(request.getSessionId(), request.getToolName(),
+            String rejectSid = request.getRootSessionId() != null && !request.getRootSessionId().isEmpty()
+                    ? request.getRootSessionId() : request.getSessionId();
+            rememberRejection(resolveSession(rejectSid), request.getToolName(),
                     request.getToolArguments(), reason);
         }
         timeoutTasks.remove(approvalId);   // 已决策：创建时限任务作废（同 handleApprove）
@@ -933,6 +954,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         g.toolName = "";   // toMap 的占位约定：空串（预授权没有"授予时命中的工具名"）
         g.grantedAt = System.currentTimeMillis();
         putGrant(g);
+        // 预授权（/auto、/permissions grant）同样回收已排队的 pending：否则用户点了"自动运行"，
+        // 屏幕上已弹出的审批框仍会要求逐单决策
+        sweepPendingByGrant(g, null);
         putLog("Grant pre-granted: rule=" + ruleId + " op=" + g.operation + " session=" + g.sessionId, LogLevel.INFO);
         return createMsg().setParam(RESULT, true);
     }
@@ -966,7 +990,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     private String resolveSession(String sessionId) {
         if (sessionId == null || sessionId.isEmpty()) return "";
         String parent = taskSessionParents.get(sessionId);
-        return parent != null && !parent.isEmpty() ? parent : sessionId;
+        if (parent != null && !parent.isEmpty())
+            return parent;
+        // 派生会话统一归到用户可见的根会话：组/工作流成员用 "组成员:根会话"，
+        // 授权若按派生会话存取，主会话里点的"本会话免审"对子 agent 永远不命中
+        int idx = sessionId.lastIndexOf(':');
+        if (idx >= 0 && idx < sessionId.length() - 1)
+            return sessionId.substring(idx + 1);
+        return sessionId;
     }
 
     /** 授权键（写入与查询必须走同一构造） */
@@ -1007,10 +1038,13 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         return null;
     }
 
-    /** 写入一条授权（幂等覆盖；超上限驱逐最旧） */
-    private void addGrant(String scope, TLApprovalRequest request) {
+    /** 写入一条授权（幂等覆盖；超上限驱逐最旧）。返回写入的授权，供回收已排队 pending 用。 */
+    private ApprovalGrant addGrant(String scope, TLApprovalRequest request) {
         ApprovalGrant g = new ApprovalGrant();
-        g.sessionId = resolveSession(request.getSessionId());
+        // 授权按根会话存：子 agent（priceTeam_pizzaAgent:root）与主 agent 共用同一份授权
+        String base = request.getRootSessionId();
+        if (base == null || base.isEmpty()) base = request.getSessionId();
+        g.sessionId = resolveSession(base);
         g.scope = scope;
         g.roundId = ApprovalGrant.SCOPE_ROUND.equals(scope)
                 ? (request.getRoundId() == null ? "" : request.getRoundId()) : "";
@@ -1021,6 +1055,54 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         putGrant(g);
         putLog("Grant added: scope=" + scope + " rule=" + g.ruleId + " op=" + g.operation
                 + " session=" + g.sessionId, LogLevel.INFO);
+        return g;
+    }
+
+    /**
+     * 授权写入后回收同批已排队的 pending：
+     * 同一轮里多个工具/子 agent 同时申请审批时，后一单往往在第一单被批准前就已创建。
+     * 用户对第一单选择"本轮/本会话"后，这些已排队的同规则请求应直接收口，不再弹第二个框。
+     * 离线转断点（deferred）的请求不在这里收口——它们由登录后的重放路径处理。
+     */
+    private void sweepPendingByGrant(ApprovalGrant g, String excludeApprovalId) {
+        if (g == null) return;
+        List<TLApprovalRequest> hits = new ArrayList<>();
+        for (TLApprovalRequest r : pendingApprovals.values()) {
+            if (r == null || r.getApprovalId() == null) continue;
+            if (r.getApprovalId().equals(excludeApprovalId)) continue;
+            if (r.isDeferred()) continue;
+            if (matchesGrant(g, r)) hits.add(r);
+        }
+        for (TLApprovalRequest r : hits) {
+            synchronized (r) {
+                if (!TLApprovalRequest.PENDING.equals(r.getState())) continue;
+                r.setState(TLApprovalRequest.APPROVED);
+            }
+            timeoutTasks.remove(r.getApprovalId());
+            signalDecision(r.getApprovalId());
+            publishApprovalResolved(r);
+            putLog("Approval auto-approved (queued pending, scope=" + g.scope + "): id="
+                    + r.getApprovalId() + " tool=" + r.getToolName()
+                    + " rule=" + r.getRuleId(), LogLevel.INFO);
+            traceStage(r.getSessionId(), r.getRootSessionId(), r.getRoundId(), "approvalDecided",
+                    "id=" + r.getApprovalId() + " approved(pending-grant)", 0);
+        }
+    }
+
+    /** 授权是否覆盖一条已排队请求（会话/轮次 + 规则 + 操作，与 findGrant 同口径） */
+    private boolean matchesGrant(ApprovalGrant g, TLApprovalRequest r) {
+        String rBase = r.getRootSessionId();
+        if (rBase == null || rBase.isEmpty()) rBase = r.getSessionId();
+        if (!g.sessionId.equals(resolveSession(rBase))) return false;
+        if (ApprovalGrant.SCOPE_ROUND.equals(g.scope)) {
+            String rRound = r.getRoundId() == null ? "" : r.getRoundId();
+            if (!rRound.equals(g.roundId)) return false;
+        }
+        if (!ApprovalGrant.WILDCARD.equals(g.ruleId)
+                && !g.ruleId.equals(r.getRuleId() == null ? "" : r.getRuleId())) return false;
+        if (!ApprovalGrant.WILDCARD.equals(g.operation)
+                && !g.operation.equals(r.getOperation() == null ? "" : r.getOperation())) return false;
+        return true;
     }
 
     // ======================== 规则匹配 ========================

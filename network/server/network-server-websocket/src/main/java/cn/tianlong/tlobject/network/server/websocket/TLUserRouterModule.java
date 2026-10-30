@@ -43,7 +43,11 @@ public class TLUserRouterModule extends TLBaseModule {
     protected TLBaseModule init() {
         TLMsg serverMsg =createMsg().setAction(SOCKETCLIENTAGENTPOOL_GETSERVER);
         TLMsg returnMsg = putMsg(socketClientAgentPool,serverMsg);
-        servers = (ConcurrentHashMap<String, TLBaseModule>) returnMsg.getParam(RESULT);
+        Object serverObj = returnMsg == null ? null : returnMsg.getParam(RESULT);
+        if (serverObj instanceof ConcurrentHashMap)
+            servers = (ConcurrentHashMap<String, TLBaseModule>) serverObj;
+        else
+            servers = new ConcurrentHashMap<>();
         return  this ;
     }
 

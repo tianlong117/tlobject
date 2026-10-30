@@ -82,6 +82,10 @@ public class TLUrlImageCache extends TLUrlFileCache {
         File input = new File(inputFile);
         if(!input.exists())
             return null ;
+        if (outputFile == null || outputFile.isEmpty())
+            outputFile = inputFile;
+        File output = new File(outputFile);
+        boolean wrote = false;
         try {
             Thumbnails.Builder<File> fileBuilder = Thumbnails.of(input).scale(1.0).outputQuality(1.0);
             BufferedImage src = fileBuilder.asBufferedImage();
@@ -89,13 +93,22 @@ public class TLUrlImageCache extends TLUrlFileCache {
                 Thumbnails.Builder<File> builder = Thumbnails.of(input);
                 builder.size(height, width); //取最大的尺寸变成size，然后等比缩放
                 builder.outputQuality(quality).toFile(outputFile);
+                wrote = true;
             } else if(quality <1.0){
                 Thumbnails.of(input).scale(1.0).outputQuality(quality).toFile(outputFile);
+                wrote = true;
             }
-            return outputFile;
+            // 没走压缩分支且输出路径不存在（OUT_FILE 指定了别的路径）→ 回退原图，
+            // 不能让调用方拿到一个不存在的文件路径
+            if (wrote || output.exists())
+                return outputFile;
+            return inputFile;
         } catch (IOException e) {
           putLog("compress image is error:"+inputFile,LogLevel.ERROR,"compressPic");
+          if (!output.equals(input)) {
+              try { output.delete(); } catch (Exception ignored) { }
+          }
         }
-        return outputFile;
+        return inputFile;
     }
 }

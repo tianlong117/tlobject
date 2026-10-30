@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.aiagent.approval;
 
+import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLParamString;
 
@@ -174,7 +175,7 @@ public class ConsoleReviewer implements IApprovalReviewer, TLParamString {
     private TLMsg buildResult(String approvalId, String state,
                                java.util.Map<String, Object> modifiedArgs, String rejectReason) {
         TLMsg result = new TLMsg();
-        result.setParam("_approvalState", state);
+        result.setParam(TLAiAgentParamString.AI_P_APPROVAL_STATE, state);
         result.setParam("approvalId", approvalId);
         if (modifiedArgs != null) {
             result.setParam("approvalModifiedArguments", new java.util.LinkedHashMap<>(modifiedArgs));

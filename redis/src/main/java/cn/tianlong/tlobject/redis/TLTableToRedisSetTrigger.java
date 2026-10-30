@@ -56,19 +56,22 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
     protected TLMsg onInsert(Object fromWho, TLMsg msg) {
         TLMsg nmsg=(TLMsg) msg.getSystemParam(DOWITHMSG);
         LinkedHashMap<String ,Object> sqlParams = (LinkedHashMap<String, Object>) nmsg.getParam(DB_P_PARAMS);
-        String rediskey = getRedisKey(sqlParams);
-        if(rediskey ==null)
-            return null;
-        if(fields !=null && fields.size() ==1)
-        {
-            String key = fields.keySet().iterator().next();
-            Object value =sqlParams.get(key);
-            if(value ==null)
-                return (TLMsg) msg.getParam(PRERESULT);
-            ((TLRedisSet)redisTable).sadd(rediskey,  value.toString());
-        }
-
+        insertRedisTable(sqlParams);
         return (TLMsg) msg.getParam(PRERESULT);
+    }
+
+    protected void insertRedisTable(Map<String, Object> sqlParams) {
+        if (sqlParams == null)
+            return;
+        String rediskey = getRedisKey(sqlParams);
+        if (rediskey == null)
+            return;
+        if (fields != null && fields.size() == 1) {
+            String key = fields.keySet().iterator().next();
+            Object value = sqlParams.get(key);
+            if (value != null)
+                ((TLRedisSet) redisTable).sadd(rediskey, value.toString());
+        }
     }
 
     @Override
@@ -134,9 +137,18 @@ public class TLTableToRedisSetTrigger extends TLBaseTriggerForTableToRedis {
         return (TLMsg) msg.getParam(PRERESULT);
     }
 
+    @SuppressWarnings("unchecked")
     protected TLMsg afterQuery(TLMsg preResultMsg) {
         if (ifAutoSaveOnQuery == false)
             return preResultMsg;
+        Object dbresult = preResultMsg.getParam(DB_R_RESULT);
+        if (dbresult instanceof List) {
+            for (Object row : (List) dbresult)
+                if (row instanceof Map)
+                    insertRedisTable((Map<String, Object>) row);
+        } else if (dbresult instanceof Map) {
+            insertRedisTable((Map<String, Object>) dbresult);
+        }
         return preResultMsg;
     }
 }

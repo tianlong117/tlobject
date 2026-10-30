@@ -93,6 +93,10 @@ public class TLWUserByToken extends TLWAbstractUser {
 
     protected TLMsg loginBeforeGsonMap(Object fromWho, TLMsg msg) {
         TLMsg doWithmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
+        if (doWithmsg == null) {     // 直接 putMsg 调用（未经 beforeMsgTable 注入）
+            putLog("loginBeforeGsonMap 缺少 DOWITHMSG，拒绝登录", LogLevel.WARN, "login");
+            return null;
+        }
         TLMsg dmsg = (TLMsg) doWithmsg.getParam("domsg");
         return login(fromWho, dmsg);
     }

@@ -9,8 +9,10 @@ import java.security.KeyStore;
 public class SslUtil {
     public static SSLContext createSSLContext(String type , String path , String password) throws Exception {
         KeyStore ks = KeyStore.getInstance(type); /// "JKS"
-        InputStream ksInputStream = new FileInputStream(path); /// 证书存放地址
-        ks.load(ksInputStream, password.toCharArray());
+        /// 证书存放地址：try-with-resources 保证加载后关闭流
+        try (InputStream ksInputStream = new FileInputStream(path)) {
+            ks.load(ksInputStream, password.toCharArray());
+        }
         //KeyManagerFactory充当基于密钥内容源的密钥管理器的工厂。
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());//getDefaultAlgorithm:获取默认的 KeyManagerFactory 算法名称。
         kmf.init(ks, password.toCharArray());

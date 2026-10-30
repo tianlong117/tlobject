@@ -96,7 +96,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long append(String key, String str) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.append(key, str);
@@ -112,7 +112,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long setnx(String key, String value) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.setnx(key, value);
@@ -146,7 +146,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long setrange(String key, int offset, String str) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.setrange(key, offset, str);
@@ -180,7 +180,7 @@ public class TLRedisString extends TLRedisTable {
             if(i+1 < keysValues.length)
                 keysValues[i]=prefix+keysValues[i];
         }
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         String result = jedis.mset(keysValues);
@@ -199,7 +199,7 @@ public class TLRedisString extends TLRedisTable {
             if(i+1 < keysValues.length)
                 keysValues[i]=prefix+keysValues[i];
         }
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.msetnx(keysValues);
@@ -216,7 +216,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public String getSet(String key, String value) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         String result = jedis.getSet(key, value);
@@ -250,7 +250,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long incr(String key) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.incr(key);
@@ -267,7 +267,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long incrBy(String key, long integer) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.incrBy(key, integer);
@@ -283,7 +283,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long decr(String key) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.decr(key);
@@ -300,7 +300,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long decrBy(String key, long integer) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result =  jedis.decrBy(key, integer);
@@ -334,7 +334,7 @@ public class TLRedisString extends TLRedisTable {
      */
     public Long hsetnx(String key, String field, String value) {
         key=prefix+key;
-        Jedis jedis = (Jedis) getConnection("read");
+        Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
         Long result = jedis.hsetnx(key, field, value);

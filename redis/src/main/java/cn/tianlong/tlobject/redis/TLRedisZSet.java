@@ -35,7 +35,12 @@ public class TLRedisZSet extends TLRedisTable {
     protected TLMsg insert(Object fromWho, TLMsg msg) {
        String key = (String) msg.getParam(REDIS_KEY);
        String value = (String) msg.getParam(REDIS_VALUE);
-       Long score = (Long) msg.getParam(REDIS_SCORE);
+       Object scoreObj = msg.getParam(REDIS_SCORE);
+       if (scoreObj == null)
+           return createMsg().setParam(REDIS_RESULT, null).setParam("error", "score 必填");
+       double score = scoreObj instanceof Number
+               ? ((Number) scoreObj).doubleValue()
+               : Double.parseDouble(String.valueOf(scoreObj));
        Object result = zadd(key,score,value);
        return  createMsg().setParam(REDIS_RESULT,result)   ;
     }

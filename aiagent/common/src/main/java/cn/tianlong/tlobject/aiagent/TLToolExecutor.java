@@ -234,8 +234,18 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     execMsg.setSystemParam(AI_P_APPROVAL_DECISION, TLApprovalRequest.APPROVED);
                 }
                 TLMsg taskResult = putMsgNoWait(this, execMsg);
-                ThreadTask tt = (ThreadTask) taskResult.getParam(THREADPOOL_TASK);
-                if (tt != null) state.activeTasks.add(tt);
+                Object ttObj = taskResult == null ? null : taskResult.getParam(THREADPOOL_TASK);
+                if (ttObj instanceof ThreadTask) {
+                    state.activeTasks.add((ThreadTask) ttObj);
+                } else {
+                    // 线程池拒绝/销毁竞态时 TLThreadPool.execute 显式 return null。
+                    // 不兜底会 NPE，且该任务的 latch 永远不会 countDown → 整批挂到执行超时。
+                    String failText = "工具任务提交失败（线程池不可用，应用可能正在关闭）";
+                    putLog(failText + ", executionId=" + executionId + " idx=" + idx
+                            + " tool=" + task.functionName, LogLevel.ERROR, "executeTools");
+                    state.results.put(idx, new ToolResult(task.toolCallId, failText));
+                    state.latch.countDown();
+                }
                 // 全链追踪：工具开始执行
                 taskStartTs.put(idx, System.currentTimeMillis());
                 traceStage(fromWho, sessionId, rootSessionId, roundId, "toolStart",

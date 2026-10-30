@@ -117,6 +117,10 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         putMsg(serverObj,msg) ;
     }
     protected TLBaseModule addServer(String serverName ,HashMap<String, String> serverParams){
+        // 已存在则复用：重复调用会创建多份同 name 实例（各自连接/线程池）
+        TLBaseModule existing = serversModule.get(serverName);
+        if (existing != null)
+            return existing;
         // 调用方传进来的是配置解析出的共享 Map（servers.get(serverName)），
         // 直接改会污染配置对象；拷贝一份再补默认值
         serverParams = new HashMap<>(serverParams);
@@ -195,16 +199,26 @@ public class TLSocketClientAgentPool extends TLBaseModule {
         HashMap<String,String>    serverParams =servers.get(serverName) ;
         if(serverParams ==null || serverName.isEmpty())
             return createMsg().setParam(RESULT,false);
+        // 同名 server 并发 connect：后来者复用已在途的 latch，不能覆盖。
+        // 覆盖会让先到的线程永远等不到 fromAgent 的 countDown（只能吃满 4s 超时）。
         CountDownLatch latch = new CountDownLatch(1);
-        connectLatches.put(serverName, latch);
-        connectToServer(serverName) ;
+        CountDownLatch existing = connectLatches.putIfAbsent(serverName, latch);
+        boolean owner = existing == null;
+        if (!owner)
+            latch = existing;
         boolean success = false;
         try {
+            if (owner)
+                connectToServer(serverName);
             success = latch.await(4000, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            putLog("connectServer failed: " + serverName + " err=" + e, LogLevel.ERROR, "connectServer");
+        } finally {
+            if (owner)
+                connectLatches.remove(serverName, latch);
         }
-        connectLatches.remove(serverName);
         return createMsg().setParam(RESULT, success);
     }
 

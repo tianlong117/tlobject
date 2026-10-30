@@ -8,11 +8,13 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 public class TLCaffeine extends TLBaseCache {
 
-    private HashMap<String ,Cache<Object, Object>> caches =new HashMap<>();
+    // writeCache 会并发动态创建条目，HashMap 非线程安全
+    private final ConcurrentHashMap<String ,Cache<Object, Object>> caches = new ConcurrentHashMap<>();
     public TLCaffeine(){
         super();
     }
@@ -42,18 +44,16 @@ public class TLCaffeine extends TLBaseCache {
         int maximumSize =TLDataUtils.parseInt(config.get("maximumSize"),0) ;
         if(maximumSize >0) caffeine.maximumSize(maximumSize);
         int expireAfterAccess =TLDataUtils.parseInt(config.get("expireAfterAccess"),0) ;
+        int expireAfterWrite =TLDataUtils.parseInt(config.get("expireAfterWrite"),0) ;
         if(expireAfterAccess >0)
             caffeine.expireAfterAccess(expireAfterAccess,TimeUnit.SECONDS);
-        else {
-            int expireAfterWrite =TLDataUtils.parseInt(config.get("expireAfterWrite"),0) ;
-            if(expireAfterWrite >0)
-                caffeine.expireAfterWrite(expireAfterWrite,TimeUnit.SECONDS);
-            else {
-                int refreshAfterWrite =TLDataUtils.parseInt(config.get("refreshAfterWrite"),0) ;
-                if(refreshAfterWrite >0)
-                    caffeine.refreshAfterWrite(refreshAfterWrite,TimeUnit.SECONDS);
-            }
-        }
+        else if(expireAfterWrite >0)
+            caffeine.expireAfterWrite(expireAfterWrite,TimeUnit.SECONDS);
+        // refresh 与 expire 是正交配置：Caffeine 允许 expire 后再配 refresh，
+        // 原来放在 else 里导致配了 expireAfterWrite/Access 时 refresh 被静默忽略
+        int refreshAfterWrite =TLDataUtils.parseInt(config.get("refreshAfterWrite"),0) ;
+        if(refreshAfterWrite >0)
+            caffeine.refreshAfterWrite(refreshAfterWrite,TimeUnit.SECONDS);
         return caffeine.build() ;
     }
 

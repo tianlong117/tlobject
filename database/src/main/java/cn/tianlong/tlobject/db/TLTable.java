@@ -106,13 +106,22 @@ public class TLTable extends TLBaseDataUnit {
 
     private TLMsg startTransaction(Object fromWho, TLMsg msg) {
         Connection conn = (Connection) getConnection(null);
+        if (conn == null) {
+            putLog("startTransaction: no connection", LogLevel.ERROR, "startTransaction");
+            return createMsg().setParam(RESULT, false).setParam("error", "no connection");
+        }
+        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getParam(DB_P_MSGLIST);
+        if (msgList == null || msgList.isEmpty()) {
+            try { conn.close(); } catch (SQLException ignored) { }
+            return createMsg().setParam(RESULT, false).setParam("error", "empty transaction msgList");
+        }
         try {
              conn.setAutoCommit(false);
         } catch (SQLException e) {
-            e.printStackTrace();
+            putLog("startTransaction: setAutoCommit failed: " + e.getMessage(), LogLevel.ERROR, "startTransaction");
+            try { conn.close(); } catch (SQLException ignored) { }
             return createMsg().setParam(RESULT, false);
         }
-        ArrayList<TLMsg> msgList = (ArrayList<TLMsg>) msg.getParam(DB_P_MSGLIST);
         boolean   flag = false;
         try {
             for (TLMsg tMsg : msgList)
@@ -187,13 +196,15 @@ public class TLTable extends TLBaseDataUnit {
 
     protected TLMsg find(Object fromWho, TLMsg msg) {
         LinkedHashMap<String, Object> params = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
+        if (params == null || params.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "find: empty params");
         Set<String> paramsSet = params.keySet();
         String[] paramsArray = paramsSet.toArray(new String[paramsSet.size()]);
         String condition;
         if (paramsArray.length == 1)
-            condition = paramsArray[0] + " =? ";
+            condition = paramsArray[0] + " = ? ";
         else {
-            condition = StringUtils.join(paramsArray, " =? and ");
+            condition = StringUtils.join(paramsArray, " = ? and ");
             condition = condition + " = ?";
         }
         Object fields = msg.getParam(DB_P_FIELDS);
@@ -235,8 +246,12 @@ public class TLTable extends TLBaseDataUnit {
         TLMsg amsg = createMsg().copyFrom(msg).setAction(DB_QUERY).setParam(DB_P_SQL, sql);
         amsg.setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP);
         TLMsg returnMsg = getMsg(fromWho, amsg);
-        Map<String, Object> result = (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
-        return createMsg().setParam(DB_R_RESULT, result.get("total"));
+        Map<String, Object> result = returnMsg == null ? null : (Map<String, Object>) returnMsg.getParam(DB_R_RESULT);
+        if (result == null || result.isEmpty())
+            return createMsg().setParam(DB_R_RESULT, 0L).setParam(RESULT, false);
+        Object total = result.get("total");
+        return createMsg().setParam(DB_R_RESULT,
+                total instanceof Number ? ((Number) total).longValue() : 0L);
     }
 
     protected TLMsg findAll(Object fromWho, TLMsg msg) {
@@ -272,7 +287,7 @@ public class TLTable extends TLBaseDataUnit {
         if (msg.getParam(DB_P_SQL) != null)
             return query(msg);
         TLDBSqlCondition sqlconditon =makeSqlConditionByMsg( msg);
-        String condition = makeSqlCondition(sqlconditon);
+        String condition = (sqlconditon == null) ? "" : makeSqlCondition(sqlconditon);
         Object fields = msg.getParam(DB_P_FIELDS);
         String queryfields = makeSqlField(fields);
         StringBuilder sb = new StringBuilder();
@@ -282,11 +297,10 @@ public class TLTable extends TLBaseDataUnit {
         sb.append(condition);
         String sql = sb.toString();
         LinkedHashMap<String, Object> sqlParams = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS,LinkedHashMap.class);
-        LinkedHashMap<String, Object> csSqlParam = sqlconditon.getSqlParam();
+        LinkedHashMap<String, Object> csSqlParam = (sqlconditon == null) ? null : sqlconditon.getSqlParam();
         if (sqlParams == null && csSqlParam!=null)
         {
-            sqlParams =new LinkedHashMap<>();
-            sqlParams =csSqlParam;
+            sqlParams =new LinkedHashMap<>(csSqlParam);
         }
         else  if (sqlParams != null && csSqlParam!=null) {
             sqlParams.putAll(csSqlParam);
@@ -324,7 +338,7 @@ public class TLTable extends TLBaseDataUnit {
             if(isCacheValue(cacheValue))
             {
                 putLog("获取缓存，cacheName: "+cacheName+" ，cacheKey: "+cacheKey, LogLevel.DEBUG, "cache");
-                return   msg.setParam(DB_R_RESULT, cacheValue);
+                return   msg.setParam(DB_R_RESULT, cacheValue).setParam(RESULT, true);
             }
         }
        Connection rconn = (Connection) msg.getParam(DB_P_CONNECTION);
@@ -468,9 +482,12 @@ public class TLTable extends TLBaseDataUnit {
         TLDBSqlCondition sqlconditon = (TLDBSqlCondition) msg.getParam(DB_P_SQLCONDITION,TLDBSqlCondition.class);
         if (sqlconditon == null)
             return createMsg().setParam(RESULT,false);
+        Object paramsObj = msg.getParam(DB_P_PARAMS);
+        if (!(paramsObj instanceof Map) || ((Map) paramsObj).isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "update: empty params");
+        Map<String, Object> params = (Map<String, Object>) paramsObj;
         String condition = makeSqlCondition(sqlconditon);
         String sql = "update [table] set ";
-        LinkedHashMap<String, Object> params = (LinkedHashMap<String, Object>) msg.getParam(DB_P_PARAMS);
         LinkedHashMap<String, Object> sqlParams = new LinkedHashMap<>();
         String[] dbfields = new String[params.size()];
         StringBuilder sb = new StringBuilder();
@@ -491,9 +508,17 @@ public class TLTable extends TLBaseDataUnit {
             i++;
         }
         LinkedHashMap<String, Object> csSqlParam = sqlconditon.getSqlParam();
-        sqlParams.putAll(csSqlParam);
+        if (csSqlParam != null)
+            sqlParams.putAll(csSqlParam);
 
-        sb.deleteCharAt(sb.lastIndexOf(","));
+        // 空 params / 全字段表达式时 sb 可能为空，lastIndexOf 返回 -1 会越界
+        if (sb.length() > 0) {
+            int lastComma = sb.lastIndexOf(",");
+            if (lastComma >= 0)
+                sb.deleteCharAt(lastComma);
+        }
+        if (sb.length() == 0)
+            return createMsg().setParam(RESULT, false).setParam("error", "update: no set fields");
         String sqlfields = sb.toString();
         sql = sql + sqlfields + condition;
         msg.setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, sqlParams).setParam(DB_P_FIELDS, dbfields);
@@ -509,11 +534,18 @@ public class TLTable extends TLBaseDataUnit {
         if(datas instanceof  Map)
            keySet = ((Map)datas).keySet();
         else if( datas instanceof  List){
-            Map firstitem = (Map) ((List)datas).get(0);
-            keySet = firstitem.keySet();
+            List<?> list = (List<?>) datas;
+            if (list.isEmpty())
+                return createMsg().setParam(RESULT, false).setParam("error", "insert: empty list");
+            Object first = list.get(0);
+            if (!(first instanceof Map))
+                return createMsg().setParam(RESULT, false).setParam("error", "insert: first element not a Map");
+            keySet = ((Map) first).keySet();
         }
         else
             return createMsg().setParam(RESULT,false);
+        if (keySet == null || keySet.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "insert: no fields");
         String[] keyArray = keySet.toArray(new String[keySet.size()]);
         String keys = StringUtils.join(keyArray, ",");
         String QuestionMark = makeQuestionMark(keyArray.length);
@@ -669,14 +701,23 @@ public class TLTable extends TLBaseDataUnit {
     }
 
     protected String makeSqlField(Object fields) {
-        String queryfields = "";
         if (fields == null)
-            queryfields = " * ";
-        else if (fields instanceof String[])
-            queryfields = StringUtils.join((String[]) fields, ",");
-        else if (fields instanceof String)
-            queryfields = (String) fields;
-        return queryfields;
+            return " * ";
+        if (fields instanceof String[])
+            return StringUtils.join((String[]) fields, ",");
+        if (fields instanceof String)
+            return (String) fields;
+        if (fields instanceof java.util.Collection) {
+            StringBuilder sb = new StringBuilder();
+            for (Object f : (java.util.Collection<?>) fields) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(f);
+            }
+            return sb.length() == 0 ? " * " : sb.toString();
+        }
+        putLog("makeSqlField: unsupported type " + fields.getClass().getName(),
+                LogLevel.WARN, "makeSqlField");
+        return " * ";
     }
 
     public static String makeQuestionMark(int number) {
@@ -699,6 +740,7 @@ public class TLTable extends TLBaseDataUnit {
     protected List<ColumnModel> getTableStructureFromDB() {
         List<ColumnModel> columnModelList = new ArrayList<ColumnModel>();
         Connection connection = null;
+        ResultSet columnSet = null;
         try {
             //TODO 表相关
             //ResultSet tableSet = metaData.getTables(null, "%",tableName,new String[]{"TABLE"});
@@ -709,7 +751,7 @@ public class TLTable extends TLBaseDataUnit {
             DatabaseMetaData metaData = connection.getMetaData();
             // schemaPattern 传 "%" 在 MySQL（schema=null）匹配不到、在 PG 会跨 schema：
             // 用当前 catalog + 不限定 schema，取本库同名表的列
-            ResultSet columnSet = metaData.getColumns(connection.getCatalog(), null, dbtable, "%");
+            columnSet = metaData.getColumns(connection.getCatalog(), null, dbtable, "%");
             ColumnModel columnModel = null;
             while (columnSet.next()) {
                 columnModel = new ColumnModel();
@@ -742,6 +784,10 @@ public class TLTable extends TLBaseDataUnit {
             e.printStackTrace();
             return null;
         } finally {
+            // 显式关闭 ResultSet：Oracle 等驱动下游标不会随 connection.close 立即回收
+            if (columnSet != null) {
+                try { columnSet.close(); } catch (SQLException ignored) {}
+            }
             if (connection != null) {
                 try { connection.close(); } catch (Exception ignored) {}
             }

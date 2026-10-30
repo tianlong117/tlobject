@@ -171,6 +171,10 @@ public class TLServerManagerModule extends TLBaseServiceModule {
         if(serverInfo ==null || serverInfo.isEmpty())
             return  ;
         String serverType = (String) serverInfo.get("serverType");
+        if (serverType == null) {
+            putLog("serverlogin: serverType 缺失, server=" + loginServer, LogLevel.WARN, "serverlogin");
+            return;
+        }
         switch (serverType){
             case  "web":
             case "socket":

@@ -128,17 +128,33 @@ public class TLDBServer extends TLBaseModule {
             conn = connector.connect();
         else {
             TLMsg returnmsg = putMsg((IObject) connector, createMsg().setAction(DB_GETCONN));
-            conn =  returnmsg.getParam(DB_R_CONN);
+            conn = (returnmsg == null) ? null : returnmsg.getParam(DB_R_CONN);
         }
         return msg.setParam(DB_R_CONN, conn);
     }
 
     private class selfConnector implements TLBaseConnectorInterface {
+        private volatile boolean driverLoaded = false;
+
         public Connection connect() {
-            try {
-                Class.forName(params.get("driver"));
-            } catch (ClassNotFoundException e) {
-                return null;
+            // driver 只需加载一次：原来每次 connect 都走一遍 Class.forName
+            if (!driverLoaded) {
+                synchronized (this) {
+                    if (!driverLoaded) {
+                        String driver = params.get("driver");
+                        if (driver == null || driver.isEmpty()) {
+                            putLog("dbserver 未配置 driver", LogLevel.ERROR, "connect");
+                            return null;
+                        }
+                        try {
+                            Class.forName(driver);
+                            driverLoaded = true;
+                        } catch (ClassNotFoundException e) {
+                            putLog("数据库驱动未找到: " + driver, LogLevel.ERROR, "connect");
+                            return null;
+                        }
+                    }
+                }
             }
             Connection conn;
             try {
@@ -151,10 +167,12 @@ public class TLDBServer extends TLBaseModule {
 
         @Override
         public void close(Object conn) {
+            if (conn == null)
+                return;
             try {
                 ( (Connection)conn).close();
             } catch (SQLException e) {
-                e.printStackTrace();
+                putLog("关闭连接失败: " + e.getMessage(), LogLevel.ERROR, "close");
             }
         }
 

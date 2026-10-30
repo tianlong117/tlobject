@@ -22,6 +22,12 @@ public class TLUrlFileCache extends TLFileCache {
 
     protected String getFileMsgid ;
     protected String msgidOnProxy ="getUrlFile" ;
+    /** per-缓存文件锁：同一 URL 并发 miss 时只允许一个线程下载/写文件（否则互相覆盖导致缓存损坏） */
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> cacheLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private Object cacheLock(String key) {
+        return cacheLocks.computeIfAbsent(key, k -> new Object());
+    }
     public TLUrlFileCache() {
         super();
     }
@@ -70,48 +76,65 @@ public class TLUrlFileCache extends TLFileCache {
         if (cacheName != null)
             cacheFileName = cacheName + "_" + cacheFileName;
         cacheFileName =filePath +File.separator+cacheFileName ;
-        File cacheFile = new File(cacheFileName);//获取缓存文件
-        if (!cacheFile.exists() || cacheFile.length()==0L)              //判断文件是否存在
-           return getFileFromHost(urlStr, filePath,cacheFileName, msg).setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
-         if (cacheName == null)
-        {
-            InputStream inputStream = null;
-            try {
-                inputStream = new FileInputStream(cacheFile);
-            } catch (FileNotFoundException e) {
-                return getFileFromHost(urlStr, filePath,cacheFileName, msg);
-            }
-            return createMsg().setParam(CACHE_P_VALUE, inputStream).setParam(URLFILE_R_CACHEFILE,cacheFileName)
-                    .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
-        }
-        String cacheConfFile = cacheFileName + ".conf";
-        File conffile = new File(cacheConfFile);//获取缓存文件
-        if (conffile.exists())
-        {
-            String exptimeStr = null;
-            try {
-                exptimeStr = FileUtils.readFileToString(conffile, "UTF-8");
-            } catch (IOException e) {
-                return getFileFromHost(urlStr, filePath,cacheFileName, msg);
-            }
-            Long now = System.currentTimeMillis();
-            Long exptime = Long.valueOf(exptimeStr);//判断文件缓存是否过期
-            if (exptimeStr.equals("0") || exptime > now)
+        // 同一缓存文件串行化：检查存在性 → 下载 → 写文件 必须在同一把锁里，
+        // 否则并发 miss 的多个线程会同时写同一路径，产生"前半段 A + 后半段 B"的损坏文件
+        synchronized (cacheLock(cacheFileName)) {
+            File cacheFile = new File(cacheFileName);//获取缓存文件
+            if (!cacheFile.exists() || cacheFile.length()==0L)              //判断文件是否存在
+               return getFileFromHost(urlStr, filePath,cacheFileName, msg).setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
+             if (cacheName == null)
             {
                 InputStream inputStream = null;
                 try {
                     inputStream = new FileInputStream(cacheFile);
                 } catch (FileNotFoundException e) {
-                    return  getFileFromHost(urlStr, filePath,cacheFileName, msg);
+                    return getFileFromHost(urlStr, filePath,cacheFileName, msg);
                 }
                 return createMsg().setParam(CACHE_P_VALUE, inputStream).setParam(URLFILE_R_CACHEFILE,cacheFileName)
                         .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
             }
-            else
-                cacheFile.delete() ;
+            String cacheConfFile = cacheFileName + ".conf";
+            File conffile = new File(cacheConfFile);//获取缓存文件
+            if (conffile.exists())
+            {
+                String exptimeStr = null;
+                try {
+                    exptimeStr = FileUtils.readFileToString(conffile, "UTF-8");
+                } catch (IOException e) {
+                    return getFileFromHost(urlStr, filePath,cacheFileName, msg);
+                }
+                if (exptimeStr != null && !exptimeStr.isEmpty() && exptimeStr.charAt(0) == 0xFEFF)
+                    exptimeStr = exptimeStr.substring(1);       // UTF-8 BOM
+                long now = System.currentTimeMillis();
+                long exptime;
+                try {
+                    exptime = Long.parseLong(exptimeStr == null ? "" : exptimeStr.trim());
+                } catch (NumberFormatException e) {
+                    // .conf 被手动改坏：按过期处理，删缓存+conf 重新拉，避免整个请求 500
+                    putLog("cache conf invalid: [" + exptimeStr + "] " + cacheConfFile,
+                            LogLevel.WARN, "getCache");
+                    try { cacheFile.delete(); } catch (Exception ignored) { }
+                    try { conffile.delete(); } catch (Exception ignored) { }
+                    return getFileFromHost(urlStr, filePath,cacheFileName, msg)
+                            .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
+                }
+                if (exptime == 0L || exptime > now)
+                {
+                    InputStream inputStream = null;
+                    try {
+                        inputStream = new FileInputStream(cacheFile);
+                    } catch (FileNotFoundException e) {
+                        return  getFileFromHost(urlStr, filePath,cacheFileName, msg);
+                    }
+                    return createMsg().setParam(CACHE_P_VALUE, inputStream).setParam(URLFILE_R_CACHEFILE,cacheFileName)
+                            .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
+                }
+                else
+                    cacheFile.delete() ;
+            }
+             return  getFileFromHost(urlStr, filePath,cacheFileName, msg)
+                     .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
         }
-         return  getFileFromHost(urlStr, filePath,cacheFileName, msg)
-                 .setParam(URLFILE_P_FILEPATH,(String) msg.getParam(URLFILE_P_FILENAME));
     }
 
     protected TLMsg getFileFromHost(String urlStr,String filePath, String cacheFileName, TLMsg msg) {

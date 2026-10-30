@@ -3,6 +3,7 @@ package cn.tianlong.tlobject.servletutils.application;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 
 import javax.servlet.ServletContext;
 import javax.servlet.http.HttpServletRequest;
@@ -77,6 +78,8 @@ public  class TLWUserInSession extends TLWAbstractUser {
         }
         HashMap <String ,Object> datas =msg.getArgs();
         TLMsg returnMsg =createMsg();
+        if (datas == null)          // 没带参数名清单：返回空，不 NPE
+            return returnMsg;
         for(String key:datas.keySet())
         {
             returnMsg.setParam(key,sessionDatas.get(key));
@@ -170,7 +173,15 @@ public  class TLWUserInSession extends TLWAbstractUser {
     @Override
     protected void logOut(Object fromWho, TLMsg msg) {
         HttpSession session =getSesstion();
-        session.invalidate();
+        if (session == null) {      // 非请求线程 / 上下文已失效
+            putLog("logOut: 无 session 上下文", LogLevel.DEBUG, "logOut");
+            return;
+        }
+        try {
+            session.invalidate();
+        } catch (IllegalStateException ignored) {
+            // 已被其他线程/超时失效
+        }
     }
     @Override
     protected void auToLogin(Object fromWho, TLMsg msg) {

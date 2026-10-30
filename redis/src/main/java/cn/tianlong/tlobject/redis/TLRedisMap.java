@@ -56,7 +56,7 @@ public class TLRedisMap extends TLRedisTable {
         Object result = null;
         switch (redisAction) {
             case REDIS_HINCRBY:
-                result = hincrby(redisKey,(String)redisField,(Long) redisValue);
+                result = hincrby(redisKey,(String)redisField,toLong(redisValue, 0L));
                 break;
             default:               ;
         }
@@ -105,7 +105,8 @@ public class TLRedisMap extends TLRedisTable {
         Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
-         long result = jedis.hsetnx(key, field, value);
+        Long result = jedis.hsetnx(key, field, value);
+        if (result == null) { jedis.close(); return null; }
         if(expire > 0)
             jedis.expire(key,expire);
         jedis.close();
@@ -125,7 +126,8 @@ public class TLRedisMap extends TLRedisTable {
         Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
-        long result = jedis.hset(key, field, value);
+        Long result = jedis.hset(key, field, value);
+        if (result == null) { jedis.close(); return null; }
         if(expire > 0)
             jedis.expire(key,expire);
         jedis.close();
@@ -213,7 +215,8 @@ public class TLRedisMap extends TLRedisTable {
      */
     public   List hmgetToMap( List<String> keys,String preFix )
     {
-
+        if (keys == null || keys.isEmpty())
+            return new ArrayList();
         Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;
@@ -232,7 +235,8 @@ public class TLRedisMap extends TLRedisTable {
     }
     public   List hmgetToMapOrderByKeys( List<String> keys,String preFix )
     {
-
+        if (keys == null || keys.isEmpty())
+            return new ArrayList();
         Jedis jedis = (Jedis) getConnection(null);
         if(jedis ==null)
             return null ;

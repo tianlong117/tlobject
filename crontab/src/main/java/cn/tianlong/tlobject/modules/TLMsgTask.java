@@ -56,7 +56,7 @@ public class TLMsgTask extends TLBaseModule {
     private static class TaskRuntime {
         final String taskId;
         final TLMsg config;                    // 配置引用
-        final ScheduledFuture<?> future;       // 调度 Future
+        volatile ScheduledFuture<?> future;     // 调度 Future（cron 续跑会替换）
         final AtomicInteger executedCount = new AtomicInteger(0);
         volatile String status;
         volatile Date lastExecuteTime;
@@ -256,7 +256,8 @@ public class TLMsgTask extends TLBaseModule {
 
     // ======================== 消息处理 ========================
 
-    private TLMsg doRegistTask(TLMsg msg) {
+    // 与 generateTaskId 同一把锁：生成 id 与 put 之间不能被另一个注册线程插队
+    private synchronized TLMsg doRegistTask(TLMsg msg) {
         TLMsg config = (TLMsg) msg.getParam(TASK_P_TASKMSG);
         if (config == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "缺少 TASK_P_TASKMSG");
@@ -384,15 +385,14 @@ public class TLMsgTask extends TLBaseModule {
         int maxTimes = getIntParam(config, TASK_P_RUNTIMES, defaultMaxTimes);
         TimeUnit timeUnit = parseTimeUnit(config.getStringParam(TASK_P_TIMEUNIT, TASK_V_TIMEUNIT_S));
 
-        // 计算初始延迟
-        long initialDelay = delay;
+        // 计算初始延迟：统一先换算成毫秒，避免 begin(毫秒) 与 delay(timeUnit)、
+        // cron 首次延迟(毫秒) 在调度器里被当成 timeUnit 解释（默认秒 → 放大 1000 倍）
+        long initialDelayMs = timeUnit.toMillis(delay);
         String beginStr = config.getStringParam(TASK_P_BEGINTIME, null);
         if (beginStr != null) {
             try {
                 long begin = Long.parseLong(beginStr);
-                long now = System.currentTimeMillis();
-                if (begin > now) initialDelay = Math.max(0, begin - now);
-                else initialDelay = 0;
+                initialDelayMs = Math.max(0, begin - System.currentTimeMillis());
             } catch (NumberFormatException ignored) {}
         }
 
@@ -404,22 +404,23 @@ public class TLMsgTask extends TLBaseModule {
         if (cronExp != null && !cronExp.isEmpty()) {
             // Cron 模式：动态调度。
             // initialDelay 只在调用方**显式**给了 delay/begin 时才作为"首个触发提前量"——
-            // 否则 defaultDelay(60s) 会漏进 initialDelay，scheduleCronTask 取"较短者"后变成
+            // 否则 defaultDelay(60s) 会漏进 initialDelay，取"较短者"后变成
             // "每次注册后约 1 分钟补跑一次"：schedule_task 的 cron 任务不带 delay，
             // 每次应用启动 runStartMsg 重新注册就多跑一次（2026-10-06 lunch_reminder 重复执行事故）
             boolean explicitFirst = config.getStringParam(TASK_P_DELAYTIME, null) != null
                     || config.getStringParam(TASK_P_BEGINTIME, null) != null;
-            long cronInitialDelay = explicitFirst ? initialDelay : 0;
-            future = scheduleCronTask(taskId, config, cronExp, cronInitialDelay, timeUnit, maxTimes);
+            long cronInitialDelayMs = explicitFirst ? initialDelayMs : 0;
+            future = scheduleCronTask(taskId, config, cronExp, cronInitialDelayMs, maxTimes);
             nextFire = nextCronFire(cronExp, config);
         } else {
-            // 固定延迟模式
+            // 固定延迟模式：scheduleAtFixedRate 的 initialDelay 必须用 timeUnit
             if (period <= 0) period = 60;
+            long fixedInitial = ceilToUnit(initialDelayMs, timeUnit);
             future = executor.scheduleAtFixedRate(
                     createTaskRunnable(taskId, config, maxTimes),
-                    initialDelay, period, timeUnit
+                    fixedInitial, period, timeUnit
             );
-            nextFire = nextFixedFireAt(initialDelay, timeUnit, config);
+            nextFire = System.currentTimeMillis() + initialDelayMs;
         }
 
         // 保存运行时状态
@@ -457,24 +458,21 @@ public class TLMsgTask extends TLBaseModule {
         return fallback;
     }
 
-    /**
-     * 固定间隔任务的首次触发时间（= startTask 的 initialDelay 之后）。
-     * initialDelay 通常是 delay 的时间单位值；begin 路径已写入毫秒差，此时按毫秒处理。
-     */
-    private long nextFixedFireAt(long initialDelay, TimeUnit timeUnit, TLMsg config) {
-        Object begin = config.getParam(TASK_P_BEGINTIME);
-        long delayMs = (begin != null)
-                ? initialDelay                                    // begin 路径已是毫秒差
-                : TimeUnit.MILLISECONDS.convert(initialDelay, timeUnit);
-        return System.currentTimeMillis() + delayMs;
+    /** 毫秒向上取整到 timeUnit（scheduleAtFixedRate 的 initialDelay 单位必须与 period 一致） */
+    private static long ceilToUnit(long ms, TimeUnit unit) {
+        if (ms <= 0) return 0;
+        long unitMs = unit.toMillis(1);
+        if (unitMs <= 1) return ms;
+        return (ms + unitMs - 1) / unitMs;
     }
 
     /**
-     * Cron 模式调度：每次执行后重新调度下一次
+     * Cron 模式调度：首次延迟统一用毫秒（Quartz 的 firstExec 与 begin 都是毫秒），
+     * 之后每次执行后由同一任务自己递归调度，不再经过全局 runCronCycle。
      */
     private ScheduledFuture<?> scheduleCronTask(String taskId, TLMsg config,
-                                                String cronExp, long initialDelay,
-                                                TimeUnit timeUnit, int maxTimes) {
+                                                String cronExp, long initialDelayMs,
+                                                int maxTimes) {
         CronExpression cron;
         try {
             cron = new CronExpression(cronExp);
@@ -493,12 +491,19 @@ public class TLMsgTask extends TLBaseModule {
             return null;
         }
 
-        long firstDelay = Math.max(0, firstExec.getTime() - System.currentTimeMillis());
-        if (initialDelay > 0 && initialDelay < firstDelay) {
-            firstDelay = initialDelay;
+        long firstDelayMs = Math.max(0, firstExec.getTime() - System.currentTimeMillis());
+        if (initialDelayMs > 0 && initialDelayMs < firstDelayMs) {
+            firstDelayMs = initialDelayMs;
         }
+        return scheduleCronRunnable(taskId, config, cron, firstDelayMs, maxTimes);
+    }
 
-        // 用单次调度 + 递归调度实现 Cron
+    /**
+     * 调度一次 cron 执行；执行完成后为**同一个 taskId** 计算下一次并递归调度。
+     * 相比旧 runCronCycle "遍历取第一个 cron 任务"，多 cron 任务各自续跑、不会互相覆盖/重复。
+     */
+    private ScheduledFuture<?> scheduleCronRunnable(String taskId, TLMsg config, CronExpression cron,
+                                                    long delayMs, int maxTimes) {
         return executor.schedule(() -> {
             // 检查是否应该停止
             if (!isTaskRunning(taskId)) return;
@@ -526,39 +531,18 @@ public class TLMsgTask extends TLBaseModule {
                 rt.nextExecuteTime = next;
                 config.setParam("nextDatetime", next);
 
-                // 如果任务还在运行，调度下一次
+                // 同一任务自调度下一次；future 回写到 runtime，stop/reload 时能 cancel 掉
                 if (isTaskRunning(taskId)) {
-                    long delayMs = Math.max(cronCheckInterval, next.getTime() - System.currentTimeMillis());
-                    executor.schedule(this::runCronCycle, delayMs, TimeUnit.MILLISECONDS);
+                    long nextDelayMs = Math.max(cronCheckInterval, next.getTime() - System.currentTimeMillis());
+                    ScheduledFuture<?> nextFuture =
+                            scheduleCronRunnable(taskId, config, cron, nextDelayMs, maxTimes);
+                    rt.future = nextFuture;
                 }
 
             } catch (Exception e) {
                 handleTaskError(taskId, e);
             }
-        }, firstDelay, timeUnit);
-    }
-
-    /**
-     * Cron 单次执行循环
-     */
-    private void runCronCycle() {
-        String taskId = null;
-        // 遍历找到第一个需要执行的 Cron 任务
-        for (Map.Entry<String, TaskRuntime> entry : taskRuntimes.entrySet()) {
-            TaskRuntime rt = entry.getValue();
-            if (rt.status.equals(STATUS_RUNNING) && rt.config.getStringParam(TASK_P_CRON, null) != null) {
-                taskId = entry.getKey();
-                break;
-            }
-        }
-        if (taskId != null) {
-            TLMsg config = taskConfigs.get(taskId);
-            if (config != null) {
-                String cronExp = config.getStringParam(TASK_P_CRON, null);
-                int maxTimes = getIntParam(config, TASK_P_RUNTIMES, defaultMaxTimes);
-                scheduleCronTask(taskId, config, cronExp, 0, TimeUnit.MILLISECONDS, maxTimes);
-            }
-        }
+        }, Math.max(0, delayMs), TimeUnit.MILLISECONDS);
     }
 
     // ======================== 任务执行 ========================
@@ -617,7 +601,15 @@ public class TLMsgTask extends TLBaseModule {
         taskMsg.setParam("execDatetime", new Date());
         taskMsg.setParam("execTimes", getExecutedCount(taskId) + 1);
 
-        // 发送消息执行任务（使用非阻塞方式，防止任务阻塞调度）
+        // 无 destination 时 getMsg 会按"发给自己"处理，业务 action 落到 default 被静默丢弃
+        String destination = taskMsg.getDestination();
+        if (destination == null || destination.isEmpty()) {
+            putLog("定时任务缺少 destination，无法投递: " + taskId, LogLevel.ERROR);
+            return;
+        }
+
+        // 发送消息执行任务（使用非阻塞方式，防止任务阻塞调度）；
+        // TLBaseModule.getMsg 会按 taskMsg.destination 转发到目标模块
         putMsgNoWait(this, taskMsg);
 
         putLog("任务 [" + taskId + "] 执行中，第 " + (getExecutedCount(taskId) + 1) + " 次",
@@ -707,7 +699,7 @@ public class TLMsgTask extends TLBaseModule {
         return rt != null ? rt.executedCount.get() : 0;
     }
 
-    private String generateTaskId(TLMsg config) {
+    private synchronized String generateTaskId(TLMsg config) {
         String taskId = config.getStringParam(TASK_P_TASKID, null);
         if (taskId != null && !taskId.isEmpty()) return taskId;
 
@@ -733,16 +725,19 @@ public class TLMsgTask extends TLBaseModule {
     }
 
     private long getLongParam(TLMsg msg, String key, long defaultValue) {
-        String val = msg.getStringParam(key, null);
-        if (val == null) return defaultValue;
-        try { return Long.parseLong(val); }
+        // 不能只用 getStringParam：调用方（LLM/JSON）传 Number 时会被当成缺失，配置静默失效
+        Object v = msg.getParam(key);
+        if (v == null) return defaultValue;
+        if (v instanceof Number) return ((Number) v).longValue();
+        try { return Long.parseLong(String.valueOf(v).trim()); }
         catch (NumberFormatException e) { return defaultValue; }
     }
 
     private int getIntParam(TLMsg msg, String key, int defaultValue) {
-        String val = msg.getStringParam(key, null);
-        if (val == null) return defaultValue;
-        try { return Integer.parseInt(val); }
+        Object v = msg.getParam(key);
+        if (v == null) return defaultValue;
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v).trim()); }
         catch (NumberFormatException e) { return defaultValue; }
     }
 

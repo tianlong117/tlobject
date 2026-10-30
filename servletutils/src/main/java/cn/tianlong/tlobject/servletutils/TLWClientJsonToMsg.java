@@ -53,8 +53,12 @@ public class TLWClientJsonToMsg extends TLWServModule {
     }
     private TLMsg toServlet(Object fromWho, TLMsg msg) {
         TLMsg dmsg =(TLMsg) msg.getParam("domsg");
+        if (dmsg == null) {
+            putLog("toServlet 缺少 domsg", LogLevel.WARN, "toServlet");
+            return null;
+        }
         dmsg.removeParam("token");
-        return   putMsg(this, (TLMsg) msg.getParam("domsg"));
+        return putMsg(this, dmsg);
     }
     private TLMsg fromClient(Object fromWho, TLMsg msg) {
         if (inInterface == null)          // init 时 M_DIRECTININTERFACE 未注册/创建失败

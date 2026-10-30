@@ -115,6 +115,8 @@ public class TLTomcat extends TLBaseModule {
         if (connectorList.contains("http")) {
             Connector httpConnector = new Connector();
             httpConnector.setPort(port);
+            // 配置的 host 必须落到 Connector 上；原来只读了字段没设置，实际永远绑 0.0.0.0
+            httpConnector.setProperty("address", host);
             httpConnector.setProperty("connectionTimeout", String.valueOf(idleTimeout));
             httpConnector.setProperty("maxThreads", String.valueOf(maxThreads));
             httpConnector.setProperty("minSpareThreads", String.valueOf(minThreads));
@@ -154,6 +156,7 @@ public class TLTomcat extends TLBaseModule {
     private Connector createSslConnector() throws Exception {
         Connector httpsConnector = new Connector();
         httpsConnector.setPort(httpsPort);
+        httpsConnector.setProperty("address", host);
         httpsConnector.setSecure(true);
         httpsConnector.setScheme("https");
 

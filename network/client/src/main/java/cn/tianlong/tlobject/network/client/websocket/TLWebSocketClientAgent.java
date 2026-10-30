@@ -79,6 +79,10 @@ public class TLWebSocketClientAgent extends TLBaseModule {
         if (mclient != null)
             mclient.release();
         TLWebSocketClient mclient = (TLWebSocketClient) getNewModule("webSocketClient","webSocketClient");
+        if (mclient == null) {
+            putLog("webSocketClient 模块创建失败，无法连接", LogLevel.ERROR, "connect");
+            return;
+        }
         this.mclient = mclient;     // 记录当前实例，供下次 connect 释放（否则只靠 loginResult 回调赋值，首连之后仍是旧引用）
         String curl =(params.get(URL)!=null)? params.get(URL):url ;
         String ccerFile =(params.get("cerFile")!=null)? params.get("cerFile"):cerFile ;

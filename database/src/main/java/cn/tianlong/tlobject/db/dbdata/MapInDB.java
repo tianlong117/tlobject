@@ -19,6 +19,9 @@ public class MapInDB extends TLBaseTableModel {
     private  String  defaultTable ="tldataunits";
     protected  Long cacheExptime =0L ;   //缓存过期时间毫秒
     protected Map<String, Object> cacheMap ;
+    /** 已验证"表存在/已创建"的表名，按工厂弱引用分区：避免每次 new MapInDB 都查一次元数据 */
+    private static final Map<TLObjectFactory, Set<String>> verifiedTables =
+            Collections.synchronizedMap(new WeakHashMap<>());
     private  String tableSql ="-- table definition\n" +
             "\n" +
             "CREATE TABLE `tldataunits` (\n" +
@@ -52,6 +55,9 @@ public class MapInDB extends TLBaseTableModel {
         isTableExist();
     }
     private boolean isTableExist() {
+        // 同一工厂下同一张表只确认/创建一次：原来每次 new MapInDB 都要走一遍元数据查询
+        if (isTableVerified())
+            return true;
         String sql = tableSql.replace("tldataunits", tableName);
         TLMsg  domsg =createMsg().setAction(DB_ISTABLEEXIST)
                 .setParam(DB_P_SQL,sql)
@@ -66,7 +72,22 @@ public class MapInDB extends TLBaseTableModel {
         // 原来返回值被调用方直接丢弃 → 建表失败后所有后续操作持续失败却没有任何提示
         if (!result)
             putLog("表不存在或建表失败：" + tableName, LogLevel.ERROR, "isTableExist");
+        else
+            markTableVerified();
         return result ;
+    }
+
+    private boolean isTableVerified() {
+        if (moduleFactory == null)
+            return false;
+        Set<String> tables = verifiedTables.get(moduleFactory);
+        return tables != null && tables.contains(tableName);
+    }
+
+    private void markTableVerified() {
+        if (moduleFactory == null)
+            return;
+        verifiedTables.computeIfAbsent(moduleFactory, k -> ConcurrentHashMap.newKeySet()).add(tableName);
     }
 
     public MapInDB(String name , TLObjectFactory moduleFactory ,Long minute){
@@ -162,9 +183,12 @@ public class MapInDB extends TLBaseTableModel {
     }
 
     public boolean putAll(Map<String,Object> map){
-
-        if(map instanceof  LinkedHashMap)
-            return putAllByOneByOne( map) ;
+        if(map == null || map.isEmpty())
+            return true ;
+        // LinkedHashMap 也走批量：putAllByOneByOne 对每个 key 都要 SELECT 一次并清一次缓存，
+        // 嵌套 Map/List 批量保存 N 条时就是 N 次查询
+        if (!(table instanceof TLTable))
+            return putAllByOneByOne(map);
         ArrayList<LinkedHashMap> datas= new ArrayList<>();
         for(String key : map.keySet()){
             Object value =map.get(key);
@@ -181,12 +205,15 @@ public class MapInDB extends TLBaseTableModel {
             datas.add(unit);
         }
         int datasize =datas.size();
+        if(datasize == 0)
+            return true ;
         String sql = " replace into  [table] ( id ,mid,mkey,value,type ) values(?,?,?,?,?)";
         int result =TLDBUtils.batchInsertList(sql,datas, (TLTable) table);
         if(result==datasize)
         {
+            // 批量写入后本地缓存已与库不一致：清空，下次读取重新加载
             if(cacheExptime > 0L)
-                writeCache(map);
+                cacheMap.clear();
             return  true ;
         }
         else
@@ -208,7 +235,8 @@ public class MapInDB extends TLBaseTableModel {
         if(cacheExptime > 0L)
         {
             Object value =getCache(key);
-            if(!value.equals(this))
+            // 未命中时 getCache 返回 this（继续查库）；命中时返回实际值（缓存层不存 null）
+            if(value != this)
                 return value ;
         }
         Map<String,String> result =queryMapUnits(key);
@@ -228,7 +256,7 @@ public class MapInDB extends TLBaseTableModel {
         if(cacheExptime > 0L)
         {
             Object value = getCache(null);
-            if(!value.equals(this))
+            if(value != this)
                 return ( LinkedHashMap) value ;
         }
         String sql = " select *  from [table]  where mid=? order by dbid ";
@@ -239,6 +267,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
+        if (resultMsg == null)
+            return null;
         ArrayList<Map<String,String>> result = (ArrayList<Map<String, String>>) resultMsg.getParam(DB_R_RESULT);
         if (result ==null || result.isEmpty())
             return null ;
@@ -285,6 +315,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAP)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
+        if (resultMsg == null)
+            return null;
         Map<String,String> result = (Map<String, String>) resultMsg.getMapParam(DB_R_RESULT,null);
         return result ;
     }
@@ -298,6 +330,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
+        if (resultMsg == null)
+            return null;
         ArrayList<Map<String,String>> result = (ArrayList<Map<String, String>>) resultMsg.getParam(DB_R_RESULT);
         return result ;
     }
@@ -374,6 +408,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.ARRAYLIST)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
+        if (resultMsg == null)
+            return false;
         int result = (int) resultMsg.getParam(DB_R_RESULT);
         return (result==0)?false : true ;
     }
@@ -411,6 +447,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_SQL,sql)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table,sqlmsg);
+        if (resultMsg == null)
+            return 0;
         int result = (int) resultMsg.getParam(DB_R_RESULT);
         return result ;
     }
@@ -425,6 +463,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, updateMsg);
+        if (resultMsg == null)
+            return 0;
         int result = (int) resultMsg.getParam(DB_R_RESULT);
         return result ;
     }
@@ -440,6 +480,8 @@ public class MapInDB extends TLBaseTableModel {
                 .setParam(DB_P_SQL, sql)
                 .setParam(DB_P_PARAMS, sqlparams);
         TLMsg resultMsg = putMsg(table, insertmsg);
+        if (resultMsg == null)
+            return 0;
         int result = (int) resultMsg.getParam(DB_R_RESULT);
         return result ;
     }
@@ -475,7 +517,8 @@ public class MapInDB extends TLBaseTableModel {
         if(map ==null)
             return this ;
         if(key !=null)
-             return map.get(key) ;
+            // 未命中必须返回 this：map.get 返回 null 会被 get() 当成缓存命中，跳过数据库回查
+            return map.containsKey(key) ? map.get(key) : this ;
         LinkedHashMap<String,Object> tmpmap =new LinkedHashMap<>() ;
         tmpmap.putAll(map);
         return tmpmap ;

@@ -22,7 +22,7 @@ import java.net.URL;
  */
 public class TLEhcache extends TLBaseCache {
 
-    private CacheManager macacheManagerager;
+    private CacheManager cacheManager;
     public TLEhcache(){
         super();
     }
@@ -50,23 +50,31 @@ public class TLEhcache extends TLBaseCache {
         Configuration xmlConfig = new XmlConfiguration(myUrl);
         //3、使用静态的org.ehcache.config.builders.CacheManagerBuilder.newCacheManager(org.ehcache.config.Configuration)
         //使用XmlConfiguration的Configuration创建你的CacheManager实例。
-        macacheManagerager = CacheManagerBuilder.newCacheManager(xmlConfig);
-        macacheManagerager.init();
+        cacheManager = CacheManagerBuilder.newCacheManager(xmlConfig);
+        if (cacheManager == null) {
+            putLog("Ehcache Manager 创建失败", LogLevel.ERROR, "init");
+            return null;
+        }
+        cacheManager.init();
         return this;
     }
     @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
-        if (macacheManagerager != null) {
-            macacheManagerager.close();
-            macacheManagerager = null;
+        if (cacheManager != null) {
+            cacheManager.close();
+            cacheManager = null;
         }
         return super.destroy(fromWho, msg);
     }
 
     @Override
     public Object getCache(String cacheName, String cacheKey,String valueType) {
+        if (cacheManager == null) {
+            putLog("Ehcache Manager 未初始化", LogLevel.WARN, "getCache");
+            return this;
+        }
         Class<?>  valueTypeClass =getValueType(valueType);
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
+        Cache cache = cacheManager.getCache(cacheName,String.class,valueTypeClass);
         if(cache ==null)
             return this;
         if(cache.containsKey(cacheKey))
@@ -77,8 +85,12 @@ public class TLEhcache extends TLBaseCache {
 
     @Override
     public boolean deleteCache(String cacheName, String cacheKey,String valueType) {
+        if (cacheManager == null) {
+            putLog("Ehcache Manager 未初始化", LogLevel.WARN, "deleteCache");
+            return false;
+        }
         Class<?>  valueTypeClass =getValueType(valueType);
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
+        Cache cache = cacheManager.getCache(cacheName,String.class,valueTypeClass);
         if(cache ==null)
             return false;
         try {
@@ -93,8 +105,12 @@ public class TLEhcache extends TLBaseCache {
 
     @Override
     public boolean writeCache(String cacheName, String cacheKey, Object cacheValue, int exptime, String valueType) {
+        if (cacheManager == null) {
+            putLog("Ehcache Manager 未初始化", LogLevel.WARN, "writeCache");
+            return false;
+        }
         Class<?>  valueTypeClass =getValueType(valueType);
-        Cache cache = macacheManagerager.getCache(cacheName,String.class,valueTypeClass);
+        Cache cache = cacheManager.getCache(cacheName,String.class,valueTypeClass);
         if(cache ==null)
             return false ;
         try {

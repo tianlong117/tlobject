@@ -53,13 +53,15 @@ public class TLIntentCacheProvider extends TLLlmProvider {
     private static final String NUM_SLOT = "{num}";
     private static final Pattern NUM_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)?");
 
-    /** 缓存条目：工具调用模板 + 槽位数 */
+    /** 缓存条目：工具调用模板 + 槽位数 + 每个槽位的原值类型（true=JSON number） */
     private static class CacheEntry {
         final List<TLToolCall> template;
         final int slotCount;
-        CacheEntry(List<TLToolCall> template, int slotCount) {
+        final List<Boolean> numericSlots;
+        CacheEntry(List<TLToolCall> template, int slotCount, List<Boolean> numericSlots) {
             this.template = template;
             this.slotCount = slotCount;
+            this.numericSlots = numericSlots;
         }
     }
 
@@ -103,6 +105,9 @@ public class TLIntentCacheProvider extends TLLlmProvider {
 
     /** pendingLearn 上限防护（并发/异常残留） */
     private static final int MAX_PENDING = 1000;
+
+    /** inFlight 上限：phaseTwo 未到达（中断/异常/进程静默）时条目会残留，加硬上限防止无限增长 */
+    private static final int MAX_IN_FLIGHT = 1000;
 
     // ======================== 构造器 ========================
     public TLIntentCacheProvider() { super(); }
@@ -256,8 +261,13 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             // 槽位数校验 + 函数有效性校验。不符只按 miss 处理、不删条目：
             // 共享缓存实例下其他 agent 的校验失败不应销毁本 agent 学到的映射
             if (entry.slotCount == nums.size() && functionsStillValid(entry.template, msg)) {
-                List<TLToolCall> calls = fillArgsSlots(entry.template, nums);
-                inFlight.add(key);
+                List<TLToolCall> calls = fillArgsSlots(entry.template, nums, entry.numericSlots);
+                // 超过上限不再记录：phaseTwo 的 remove 会返回 false，走正常 forward，不影响正确性
+                if (inFlight.size() < MAX_IN_FLIGHT)
+                    inFlight.add(key);
+                else
+                    putLog("[INTENT-CACHE] inFlight 达到上限 " + MAX_IN_FLIGHT
+                            + "，本次命中不再登记（phaseTwo 将走正常转发）", LogLevel.WARN);
                 putLog("[INTENT-CACHE] hit key=" + key + " → " + calls.size() + " tool call(s)", LogLevel.DEBUG);
                 return createMsg().setParam(RESULT, true)
                         .setParam("hasToolCalls", true)
@@ -281,7 +291,7 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                 }
                 if (!clarify) {
                     if (pendingLearn.size() < MAX_PENDING) {
-                        pendingLearn.put(key, new PendingEntry(key, makeTemplate(calls)));
+                        pendingLearn.put(key, new PendingEntry(key, makeTemplate(calls, nums)));
                     }
                     putLog("[INTENT-CACHE] pending learn key=" + key, LogLevel.DEBUG);
                 }
@@ -372,10 +382,11 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         return nums;
     }
 
-    /** 学习模板：深拷贝 tool calls，args 字符串值数字归一化 + 统计槽位数 */
-    private CacheEntry makeTemplate(List<TLToolCall> calls) {
+    /** 学习模板：深拷贝 tool calls，args 数字归一化 + 统计槽位数（记录每个槽位原值是否为 JSON number） */
+    private CacheEntry makeTemplate(List<TLToolCall> calls, List<String> nums) {
         List<TLToolCall> tpl = new ArrayList<>();
         int slots = 0;
+        List<Boolean> numericSlots = new ArrayList<>();
         for (TLToolCall tc : calls) {
             Map<String, Object> args = new LinkedHashMap<>();
             for (Map.Entry<String, Object> e : tc.getArguments().entrySet()) {
@@ -383,21 +394,38 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                 if (v instanceof String) {
                     Matcher m = NUM_PATTERN.matcher((String) v);
                     StringBuffer sb = new StringBuffer();
-                    while (m.find()) { m.appendReplacement(sb, NUM_SLOT); slots++; }
+                    while (m.find()) {
+                        m.appendReplacement(sb, NUM_SLOT);
+                        slots++;
+                        numericSlots.add(Boolean.FALSE);
+                    }
                     m.appendTail(sb);
                     args.put(e.getKey(), sb.toString());
+                } else if (v instanceof Number) {
+                    // 结构化输出常见原生数字（{"count":3}）。只有确实来自本轮消息的数字才做槽位，
+                    // 否则把一个与消息无关的字面量也替换掉，会改变工具语义/槽位对齐。
+                    String s = numberToString((Number) v);
+                    if (nums != null && nums.contains(s)) {
+                        args.put(e.getKey(), NUM_SLOT);
+                        slots++;
+                        numericSlots.add(Boolean.TRUE);
+                    } else {
+                        args.put(e.getKey(), v);
+                    }
                 } else {
                     args.put(e.getKey(), v);
                 }
             }
             tpl.add(new TLToolCall(tc.getId(), tc.getFunctionName(), args));
         }
-        return new CacheEntry(tpl, slots);
+        return new CacheEntry(tpl, slots, numericSlots);
     }
 
-    /** 命中回填：模板 args 中的占位符按序替换为新消息数字 */
-    private static List<TLToolCall> fillArgsSlots(List<TLToolCall> template, List<String> nums) {
+    /** 命中回填：模板 args 中的占位符按序替换为新消息数字；数字槽位回填为原生 JSON number */
+    private static List<TLToolCall> fillArgsSlots(List<TLToolCall> template, List<String> nums,
+                                                  List<Boolean> numericSlots) {
         List<TLToolCall> filled = new ArrayList<>();
+        int globalSlot = 0;   // 跨 tool call / 跨参数共用，与 makeTemplate 的登记顺序一致
         for (TLToolCall tc : template) {
             Map<String, Object> args = new LinkedHashMap<>();
             for (Map.Entry<String, Object> e : tc.getArguments().entrySet()) {
@@ -405,16 +433,26 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                 if (v instanceof String && ((String) v).contains(NUM_SLOT)) {
                     String s = (String) v;
                     StringBuilder sb = new StringBuilder();
-                    int pos = 0, slotIdx = 0;
+                    boolean wholeNumeric = false;
+                    int pos = 0, occ = 0;
                     while (true) {
                         int p = s.indexOf(NUM_SLOT, pos);
                         if (p < 0) { sb.append(s.substring(pos)); break; }
                         sb.append(s, pos, p);
-                        sb.append(slotIdx < nums.size() ? nums.get(slotIdx) : NUM_SLOT);
-                        slotIdx++;
+                        boolean numeric = numericSlots != null && globalSlot < numericSlots.size()
+                                && Boolean.TRUE.equals(numericSlots.get(globalSlot));
+                        if (occ == 0 && NUM_SLOT.equals(s)) wholeNumeric = numeric;
+                        sb.append(globalSlot < nums.size() ? nums.get(globalSlot) : NUM_SLOT);
+                        globalSlot++;
+                        occ++;
                         pos = p + NUM_SLOT.length();
                     }
-                    args.put(e.getKey(), sb.toString());
+                    // 整个值就是单个数字槽位 → 还原成 number，避免把 schema 的 number 变成 string
+                    if (wholeNumeric && !NUM_SLOT.equals(sb.toString())) {
+                        args.put(e.getKey(), toNumber(sb.toString()));
+                    } else {
+                        args.put(e.getKey(), sb.toString());
+                    }
                 } else {
                     args.put(e.getKey(), v);
                 }
@@ -422,6 +460,27 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             filled.add(new TLToolCall(tc.getId(), tc.getFunctionName(), args));
         }
         return filled;
+    }
+
+    /** 数字文本 → 原生 Number（整数 Long，小数 Double）；解析失败保留字符串 */
+    private static Object toNumber(String raw) {
+        try {
+            if (raw.matches("-?\\d+"))
+                return Long.parseLong(raw);
+            return Double.parseDouble(raw);
+        } catch (NumberFormatException e) {
+            return raw;
+        }
+    }
+
+    /** JSON number 去掉无意义的 .0（3.0 → "3"），与消息里提取的数字文本对齐 */
+    private static String numberToString(Number n) {
+        if (n instanceof Double || n instanceof Float) {
+            double d = n.doubleValue();
+            if (!Double.isInfinite(d) && !Double.isNaN(d) && d == Math.rint(d))
+                return String.valueOf((long) d);
+        }
+        return String.valueOf(n);
     }
 
     /** 函数失效保护：模板中的 functionName 必须仍在当前工具定义里 */

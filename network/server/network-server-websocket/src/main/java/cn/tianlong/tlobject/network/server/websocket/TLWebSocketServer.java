@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.network.server.websocket;
 
 
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -26,6 +27,7 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -132,7 +134,8 @@ public class TLWebSocketServer extends TLBaseServer {
     }
 
     public boolean login(TLMsg loginMsg,Channel clientChannel){
-        if(maxClient > 0 && currentChannelNumbs.intValue() > maxClient)
+        // "最大 N 个"：已有 N 个连接时就不能再接受第 N+1 个（原来用 > 会多放进来一个）
+        if(maxClient > 0 && currentChannelNumbs.intValue() >= maxClient)
             return false ;
         TLMsg authMsg = createMsg().setMsgId(USERMANAGER_LOGIN).setArgs(loginMsg.getArgs()).setParam(USERMANAGER_P_SERVERNAME,serverName);
         TLMsg returnMsg = clientMsgHandler.getMsg(this, authMsg);
@@ -151,11 +154,37 @@ public class TLWebSocketServer extends TLBaseServer {
              HashMap<String, Object> serverData = returnMsg.getArgs();
             if(serverData !=null && !serverData.isEmpty())
             {
-                String jsonString = gson.toJson(serverData);
+                String jsonString = safeToJson(serverData);
                 TextWebSocketFrame tws = new TextWebSocketFrame(jsonString);
                 clientChannel.writeAndFlush(tws);
                 putLog(serverName+" 服务器发送:" + clientChannel.remoteAddress().toString() +" " +jsonString, LogLevel.DEBUG, "handleClientMsg");
             }
+        }
+    }
+
+    /**
+     * 回执序列化：业务返回值里常带 TLMsg/IObject/Channel 等对象引用，
+     * Gson 直接序列化会展开 Netty 内部结构产生巨大 JSON，甚至 StackOverflow。
+     * 只保留可安全序列化的标量/集合字段，失败时返回错误 JSON 而不是打挂回执线程。
+     */
+    private String safeToJson(Map<String, Object> data) {
+        Map<String, Object> filtered = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> e : data.entrySet()) {
+            String key = e.getKey();
+            if ("domsg".equals(key) || "dmsg".equals(key) || "socketClient".equals(key)
+                    || "webSocket".equals(key) || "channel".equals(key)
+                    || "channelObject".equals(key) || "taskInstance".equals(key))
+                continue;
+            Object v = e.getValue();
+            if (v instanceof TLMsg || v instanceof IObject || v instanceof Channel || v instanceof ByteBuf)
+                continue;
+            filtered.put(key, v);
+        }
+        try {
+            return gson.toJson(filtered);
+        } catch (StackOverflowError | RuntimeException ex) {
+            putLog("handleClientMsg: JSON serialize failed: " + ex, LogLevel.ERROR, "handleClientMsg");
+            return "{\"error\":\"serialize_failed\"}";
         }
     }
 
@@ -208,7 +237,9 @@ public class TLWebSocketServer extends TLBaseServer {
         else if (chanaelName instanceof String[])
         {
             result = putGroupToClient(tws, (String[]) chanaelName);
-            putLog(serverName+" 服务器发送:" +result+"通道:"+ chanaelName.toString() +" " +content.toString(), LogLevel.DEBUG, "handleClientMsg");
+            putLog(serverName+" 服务器发送:" +result+"通道:"
+                    + java.util.Arrays.toString((String[]) chanaelName) +" " +content.toString(),
+                    LogLevel.DEBUG, "handleClientMsg");
         }
         return createMsg().setParam(RESULT, result);
     }
