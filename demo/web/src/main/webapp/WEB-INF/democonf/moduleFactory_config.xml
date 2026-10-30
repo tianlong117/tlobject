@@ -9,7 +9,9 @@
     <params>
         <name    value="demo"/>
         <ifLog value="true"/>
-        <loglevel value="info"/>
+        <logWait value="false" />
+        <loglevel value="debug"/>
+        <defaultLogModule value="log4j"/>
         <verison value="1"/>
         <!-- 模块默认包前缀 -->
         <package value="cn.tianlong.java"/>

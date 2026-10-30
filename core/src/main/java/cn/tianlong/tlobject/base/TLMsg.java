@@ -82,11 +82,12 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public Boolean getWaitFlag()
     {
-        return waitFlag ;
+        // waitFlag 是包装类型，反序列化或外部 API 可能置 null，而调用方普遍直接 == true 拆箱
+        return waitFlag == null ? Boolean.TRUE : waitFlag ;
     }
     public TLMsg setWaitFlag(Boolean value)
     {
-        this.waitFlag=value ;
+        this.waitFlag = value == null ? Boolean.TRUE : value ;
         return this;
     }
     public String getPrevious()
@@ -530,6 +531,10 @@ public class TLMsg implements Serializable , Cloneable{
         nmsg.setWaitFlag(waitFlag);
         nmsg.setNextMsg(nextMsg);
         nmsg.setPrevious(previous);
+        nmsg.setMsgId(msgId);
+        nmsg.setDescription(description);
+        // copyFrom 会拷贝 systemArgs，copyTo 此前漏了，导致 WAIT/线程池/超时等系统参数丢失
+        nmsg.addSystemArgs(systemArgs);
         return nmsg;
     }
     @Override

@@ -689,10 +689,10 @@ public class TLAuthModule extends TLBaseModule {
             // 先检查否定: !userid 命中则拒绝
             if (userPolicy.contains("!" + userid))
                 return new String[]{"user", userid};
-            // 正向匹配
-            if (userPolicy.contains(userid))
-                return null;
-            if (!userPolicy.contains("*"))
+            // 正向匹配。命中后继续下沉检查 role/group —— policy 各维度是 AND 关系
+            // （配置注释：所有规则 AND 关系，不配的维度跳过）。此处提前 return null
+            // 会让"具体 user + role/group"组合退化成 OR，按配置意图属越权。
+            if (!userPolicy.contains(userid) && !userPolicy.contains("*"))
                 return new String[]{"user", userid};
         }
 

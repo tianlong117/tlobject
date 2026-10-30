@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<moduleConfig>
+    <modules>
+        <!-- 系统模块 -->
+        <!-- aiagent-->
+        <module name="aiagent" classfile="cn.tianlong.tlobject.aiagent.TLAiAgent" singleton="true"/>
+        <module name="aiContext" classfile="cn.tianlong.tlobject.aiagent.TLAiContext" singleton="true"/>
+        <module name="openAiProvider" classfile="cn.tianlong.tlobject.aiagent.provider.openai.TLOpenAiProvider"
+                singleton="true"/>
+        <module name="claudeProvider" classfile="cn.tianlong.tlobject.aiagent.provider.claude.TLClaudeProvider"
+                singleton="true"/>
+        <module name="routingProvider" classfile="cn.tianlong.tlobject.aiagent.TLRoutingProvider"
+                singleton="true"/>
+        <module name="intentCacheProvider" classfile="cn.tianlong.tlobject.aiagent.TLIntentCacheProvider"
+                singleton="true"/>
+        <!-- 工具执行器。超时参数在各应用配置目录的 toolExecutor_config.xml 中设置：
+             executionTimeoutMs=单次工具执行超时毫秒(0=不限)，staleStateTimeoutMs=残留状态
+             清理阈值毫秒(默认600000=10分钟，0=禁用)，详见 toolExecutor_config.xml 注释 -->
+        <module name="toolExecutor" classfile="cn.tianlong.tlobject.aiagent.TLToolExecutor"
+                singleton="true"/>
+        <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.TLAppAuthModule"
+                singleton="true"    />
+        <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
+                singleton="true"/>
+        <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
+                singleton="true"/>
+        <module name="viewImageSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLViewImageSkill"
+                singleton="true"/>
+        <!-- 任务清单技能（函数名 todo）：write 全量重写 / read 读回；落盘 data/{userId}/tasks/{sessionId}.md -->
+        <module name="todoSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLTodoSkill"
+                singleton="true"/>
+        <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
+                singleton="true"/>
+        <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"
+                singleton="true"/>
+        <!-- Java 版 desktop skill（纯 JDK Robot，零外部依赖；无 Python 子进程）；
+             切换=把 agent 配置里的 sameClassAs="scriptExecutionSkill" 改成 "desktopJavaSkill" -->
+        <module name="desktopJavaSkill" classfile="cn.tianlong.tlobject.aiagent.desktop.TLDesktopJavaSkill"
+                singleton="true"/>
+        <!-- Word 文档处理技能（进程内 POI，无子进程）；仅 .docx，.doc 需先另存 -->
+        <module name="wordJavaSkill" classfile="cn.tianlong.tlobject.aiagent.word.TLWordJavaSkill"
+                singleton="true"/>
+        <module name="scheduleTaskSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScheduleTaskSkill"
+                singleton="true"/>
+        <module name="browserSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBrowserSkill"
+                singleton="true"/>
+        <!-- Java 版 browser skill（进程内 Playwright Java，无 Python 子进程）；
+             切换=把 agent 配置里的 sameClassAs="browserSkill" 改成 "browserJavaSkill" -->
+        <module name="browserJavaSkill" classfile="cn.tianlong.tlobject.aiagent.browser.TLBrowserJavaSkill"
+                singleton="true"/>
+        <module name="mcpAgent" classfile="cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent" singleton="false"/>
+        <module name="agentGroup" classfile="cn.tianlong.tlobject.aiagent.TLAgentGroup" singleton="false"/>
+        <module name="agentWorkflow" classfile="cn.tianlong.tlobject.aiagent.workflow.TLAgentWorkflow"
+                singleton="false"/>
+        <module name="planTask" classfile="cn.tianlong.tlobject.aiagent.agent.builtin.TLPlanTaskAgent"
+                singleton="false"/>
+        <!-- 每 agent 私有函数表管理模块（TLAiAgent 经 getMyModule 自建实例，家族名=agent:toolManager） -->
+        <module name="toolManager" classfile="cn.tianlong.tlobject.aiagent.TLToolManager"
+                singleton="false"/>
+        <module name="skillInstallerSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLSkillInstallerSkill"
+                singleton="true"/>
+        <module name="shortTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLShortTermMemoryModule"
+                singleton="true"/>
+        <module name="longTermMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLLongTermMemoryModule"
+                singleton="true"/>
+        <module name="dbMemory" classfile="cn.tianlong.tlobject.aiagent.memory.TLDatabaseMemoryModule"
+                singleton="true"/>
+        <module name="agentMonitor" classfile="cn.tianlong.tlobject.aiagent.TLAgentMonitor" singleton="true"/>
+        <!-- 附件登记：落盘/去重/元数据/清理。agent 与其调用方都经消息访问 -->
+        <module name="attachmentStore" classfile="cn.tianlong.tlobject.aiagent.TLAttachmentStore"
+                singleton="true"/>
+        <module name="streamCallback" classfile="cn.tianlong.tlobject.aiagent.TLStreamCallback" singleton="true"/>
+        <module name="agentService" classfile="cn.tianlong.tlobject.aiagent.TLAgentService" singleton="true"/>
+        <module name="sessionManager" classfile="cn.tianlong.tlobject.aiagent.TLSessionManager" singleton="true"/>
+        <module name="dbSessionManager" classfile="cn.tianlong.tlobject.aiagent.TLDatabaseSessionManager" singleton="true"/>
+        <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
+        <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"/>
+        <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"/>
+        <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"/>
+        <module name="evalCaseGenerator" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalCaseGenerator" singleton="true"/>
+
+        <!-- 测试模块：Mock Provider + 辅助 Skill + 测试编排 -->
+        <module name="mockProvider" classfile="cn.tianlong.tlobject.aiagent.TLMockProvider"
+                singleton="true" defaultModel="mock-model"/>
+        <module name="testEchoSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLEchoSkill"
+                singleton="true"/>
+        <module name="testSleepSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLSleepSkill"
+                singleton="true"/>
+        <module name="agentTestModule" classfile="cn.tianlong.tlobject.aiagent.test.TLAgentTestModule"
+                singleton="true"/>
+    </modules>
+</moduleConfig>

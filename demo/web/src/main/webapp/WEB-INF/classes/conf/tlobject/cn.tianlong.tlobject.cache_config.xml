@@ -6,5 +6,6 @@
         <module name="fileCache"    classfile="cn.tianlong.tlobject.cache.TLFileCache" />
         <module name="EhCache"      classfile="cn.tianlong.tlobject.cache.TLEhcache" />
         <module name="memoryCache"  classfile="cn.tianlong.tlobject.cache.TLMemoryCache"  />
+        <module name="caffeine"     classfile="cn.tianlong.tlobject.cache.TLCaffeine" />
     </modules>
 </moduleConfig>

@@ -40,8 +40,11 @@ public class TLMonitorConfigModule extends TLBaseModule {
     protected void initModulesMap(){
         moduleConfigFiles=new ConcurrentHashMap<>();
         fileLasttime=new ConcurrentHashMap<>();
-        moduleConfigFiles.put(name,configFile);
-        fileLasttime.put(name, Long.valueOf(0));
+        // 模块可能没有独立配置文件（configFile 为 null）；ConcurrentHashMap 禁 null value
+        if (configFile != null) {
+            moduleConfigFiles.put(name, configFile);
+            fileLasttime.put(name, Long.valueOf(0));
+        }
         // modules 未配置时只监听自身配置文件，而不是 NPE 掉整个模块启动
         String modulesStr = params.get("modules");
         if(modulesStr ==null || modulesStr.trim().isEmpty())

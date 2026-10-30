@@ -52,7 +52,6 @@ public abstract class TLBaseCache extends TLBaseModule {
         myConfig config=new myConfig(configFile,moduleFactory.getConfigDir());
         mconfig=config;
         super.setConfig();
-        cacheTables= new ConcurrentHashMap<>(config.getCacheTables());
         return config;
     }
     @Override
@@ -60,7 +59,10 @@ public abstract class TLBaseCache extends TLBaseModule {
         super.initProperty();
         if( params!=null && params.get("ifUseLock")!=null)
             ifUseLock=Boolean.parseBoolean(params.get("ifUseLock")) ;
-        if(cacheTables==null)
+        HashMap<String, HashMap<String, String>>  mcacheTable =((myConfig)mconfig).getCacheTables();
+        if (mcacheTable !=null)
+            cacheTables= new ConcurrentHashMap<>(mcacheTable);
+        else
             cacheTables=new ConcurrentHashMap<>() ;
     }
     @Override

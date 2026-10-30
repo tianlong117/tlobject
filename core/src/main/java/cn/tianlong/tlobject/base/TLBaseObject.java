@@ -46,9 +46,14 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
             int waitTime = TLDataUtils.getIntParam(msg.getSystemParam(TASKWAITTIME),0) ;
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
+            // IFTASKJOIN（join 后直接返回结果）等同步路径没有 THREADPOOL_TASK，
+            // 继续 sleep 会白等到超时，waitTime=0 时更是 MAX_VALUE（约 24 天）。
+            Object taskObj = returnMsg == null ? null : returnMsg.getParam(THREADPOOL_TASK);
+            if (!(taskObj instanceof ThreadTask))
+                return returnMsg;
             if (waitTime <=0 )
                 waitTime =Integer.MAX_VALUE ;
-            ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
+            ThreadTask threadTask = (ThreadTask) taskObj;
             try {
                 sleep(waitTime);
             } catch (InterruptedException e) {

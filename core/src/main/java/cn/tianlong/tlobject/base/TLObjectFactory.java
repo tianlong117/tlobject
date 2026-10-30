@@ -253,7 +253,7 @@ public class TLObjectFactory extends TLBaseModule {
         this.factoryConfigFile = factoryConfigFile;
     }
     public String getParam(String paramName){
-        return params.get(paramName);
+        return params == null ? null : params.get(paramName);
     }
     public void boot() {
         if (factoryBoot == null)
@@ -588,6 +588,8 @@ public class TLObjectFactory extends TLBaseModule {
     }
     public  String getConfigRealPath(String configFile){
         String realPath ;
+        if (configFile == null || configFile.isEmpty())
+            return null;
         if(configFile.length() >9 && configFile.substring(0, 9).equals(CLASSPATH))
             realPath =classPath+configFile.substring(9) ;
         else
@@ -602,6 +604,8 @@ public class TLObjectFactory extends TLBaseModule {
     }
     public  static String getConfigRealPath(String configFile ,String classPath ,String configDir){
         String realPath ;
+        if (configFile == null || configFile.isEmpty())
+            return null;
         if(configFile.length() >9 && configFile.substring(0, 9).equals(CLASSPATH))
             realPath =classPath+configFile.substring(9) ;
         else
@@ -854,8 +858,8 @@ public class TLObjectFactory extends TLBaseModule {
     }
 
     protected String addPackage(String name) {
-        if (name == null)
-            return null;
+        if (name == null || name.isEmpty())
+            return name;
         String firstCha = (String) name.subSequence(0, 1);
         if (firstCha.equals(".")) {
             return packageName + name;

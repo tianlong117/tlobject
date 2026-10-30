@@ -4,6 +4,9 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.utils.TLMsgUtils;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -45,6 +48,7 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
  * <p>配置参数:
  * <pre>
  * &lt;param name="checkpointDir" value="data/checkpoint/"/&gt;
+ * &lt;param name="shutdownWaitMs" value="30000"/&gt;  关闭时等待在途断点收尾的上限
  * </pre>
  *
  * @author tianlong
@@ -52,6 +56,9 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
 public class TLCheckpointModule extends TLBaseModule {
 
     private String checkpointDir;
+    /** 在途断点数（save 与 clear 的差值）。用计数而非 bool，避免多会话并发时 clear 提前放行关闭 */
+    private final AtomicInteger pendingCheckpoints = new AtomicInteger();
+    private long maxShutdownWaitMs = 30000L;
     private final ConcurrentHashMap<String, Object> moduleLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicInteger> seqCounters = new ConcurrentHashMap<>();
 
@@ -74,6 +81,13 @@ public class TLCheckpointModule extends TLBaseModule {
         } else {
             checkpointDir = "data/checkpoint/";
         }
+        if (params != null && params.get("shutdownWaitMs") != null) {
+            try {
+                maxShutdownWaitMs = Long.parseLong(params.get("shutdownWaitMs").trim());
+            } catch (NumberFormatException e) {
+                putLog("shutdownWaitMs 配置非法，使用默认值 " + maxShutdownWaitMs, LogLevel.WARN, "init");
+            }
+        }
         File dir = new File(checkpointDir);
         if (!dir.exists()) {
             dir.mkdirs();
@@ -81,6 +95,33 @@ public class TLCheckpointModule extends TLBaseModule {
         // 扫描已有历史文件，恢复 seq 计数器
         initSeqCounters();
         return this;
+    }
+
+    /**
+     * 关闭前等待在途断点收尾，但有上限。
+     * <p>
+     * 基类 destroy 会 {@code while(!shutdownable) sleep(1000)} 无限等待；若 after 钩子
+     * 因 {@code MODULE_DONEXTMSG=false} / Error 级异常被跳过，标志会永久为 false，
+     * 整个应用无法优雅关闭。超时后放行（断点文件保留，下次启动按断点恢复）。
+     */
+    @Override
+    protected TLMsg destroy(Object fromWho, TLMsg msg) {
+        long deadline = System.currentTimeMillis() + maxShutdownWaitMs;
+        while (pendingCheckpoints.get() > 0 && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        int left = pendingCheckpoints.get();
+        if (left > 0) {
+            putLog("shutdown 时仍有 " + left + " 个未收尾断点，超过 " + maxShutdownWaitMs
+                    + "ms，放行关闭（下次启动将按断点文件恢复）", LogLevel.WARN, "destroy");
+        }
+        shutdownable = true;
+        return super.destroy(fromWho, msg);
     }
 
     @Override
@@ -123,6 +164,7 @@ public class TLCheckpointModule extends TLBaseModule {
         if (originalMsg != null) {
             // 保存断点文件（覆盖写），标记不可关闭
             saveToFile(moduleName, originalMsg);
+            pendingCheckpoints.incrementAndGet();
             shutdownable = false;
             // 如果配置了 ifHistory=true，追加历史记录
             if ("true".equals(msg.getStringParam(CHECKPOINT_P_IFHISTORY, "false"))) {
@@ -154,7 +196,8 @@ public class TLCheckpointModule extends TLBaseModule {
             } else {
                 deleteFile(moduleName);
             }
-            shutdownable = true;
+            int left = pendingCheckpoints.updateAndGet(v -> v > 0 ? v - 1 : 0);
+            shutdownable = left == 0;
         }
         return createMsg();
     }
@@ -266,13 +309,19 @@ public class TLCheckpointModule extends TLBaseModule {
                 String time = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new Date());
                 String previous = msg.getPrevious() != null ? msg.getPrevious() : "";
                 String msgJson = TLMsgUtils.msgToJson(msg);
+                // 用 Gson 序列化整个记录：action/module/previous 里含引号或换行时不会破坏 JSONL
                 // previous 表示谁把这条 msg 传过来的，与 module(处理者) 组成 previous→module 跳关系
-                writer.write("{\"seq\":" + seq
-                        + ",\"time\":\"" + time
-                        + "\",\"module\":\"" + moduleName
-                        + "\",\"previous\":\"" + previous
-                        + "\",\"action\":\"" + msg.getAction()
-                        + "\",\"msg\":" + (msgJson != null ? msgJson : "{}") + "}\n");
+                JsonObject record = new JsonObject();
+                record.addProperty("seq", seq);
+                record.addProperty("time", time);
+                record.addProperty("module", moduleName);
+                record.addProperty("previous", previous);
+                record.addProperty("action", msg.getAction());
+                if (msgJson != null && !msgJson.isEmpty())
+                    record.add("msg", JsonParser.parseString(msgJson));
+                else
+                    record.add("msg", new JsonObject());
+                writer.write(TLMsgUtils.getGson().toJson(record) + "\n");
             } catch (IOException e) {
                 putLog("appendHistory failed for " + moduleName + ": " + e.getMessage(),
                         LogLevel.ERROR, "saveCheckpoint");
@@ -288,15 +337,22 @@ public class TLCheckpointModule extends TLBaseModule {
             File file = new File(checkpointDir, moduleName + ".history.jsonl");
             if (!file.exists()) return null;
             try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
-                String prefix = "\"seq\":" + targetSeq + ",";
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if (line.contains(prefix)) {
-                        // 从 JSONL 行中提取 msg 字段
-                        int msgStart = line.indexOf("\"msg\":");
-                        if (msgStart < 0) continue;
-                        String msgJson = line.substring(msgStart + 6, line.length() - 1);
-                        return TLMsgUtils.jsonToMsg(msgJson);
+                    line = line.trim();
+                    if (line.isEmpty()) continue;
+                    JsonObject record;
+                    try {
+                        record = JsonParser.parseString(line).getAsJsonObject();
+                    } catch (RuntimeException e) {
+                        continue;   // 单行损坏不影响整次恢复
+                    }
+                    if (record.has("seq") && !record.get("seq").isJsonNull()
+                            && record.get("seq").getAsInt() == targetSeq) {
+                        JsonElement msgEl = record.get("msg");
+                        if (msgEl != null && msgEl.isJsonObject())
+                            return TLMsgUtils.jsonToMsg(msgEl.toString());
+                        return null;
                     }
                 }
             } catch (IOException e) {
@@ -329,13 +385,8 @@ public class TLCheckpointModule extends TLBaseModule {
                 while ((line = reader.readLine()) != null) {
                     line = line.trim();
                     if (line.isEmpty()) continue;
-                    Map<String, Object> record = new HashMap<>();
-                    record.put("seq", extractJsonInt(line, "seq"));
-                    record.put("time", extractJsonString(line, "time"));
-                    record.put("module", extractJsonString(line, "module"));
-                    record.put("previous", extractJsonString(line, "previous"));
-                    record.put("action", extractJsonString(line, "action"));
-                    records.add(record);
+                    Map<String, Object> record = parseHistoryRecord(line);
+                    if (record != null) records.add(record);
                 }
             } catch (IOException e) {
                 putLog("getHistory failed for " + moduleName + ": " + e.getMessage(),
@@ -359,13 +410,8 @@ public class TLCheckpointModule extends TLBaseModule {
                     while ((line = reader.readLine()) != null) {
                         line = line.trim();
                         if (line.isEmpty()) continue;
-                        Map<String, Object> record = new HashMap<>();
-                        record.put("seq", extractJsonInt(line, "seq"));
-                        record.put("time", extractJsonString(line, "time"));
-                        record.put("module", extractJsonString(line, "module"));
-                        record.put("previous", extractJsonString(line, "previous"));
-                        record.put("action", extractJsonString(line, "action"));
-                        allRecords.add(record);
+                        Map<String, Object> record = parseHistoryRecord(line);
+                        if (record != null) allRecords.add(record);
                     }
                 } catch (IOException e) {
                     putLog("getGlobalHistory read failed: " + file.getName(), LogLevel.ERROR, "getGlobalHistory");
@@ -381,22 +427,26 @@ public class TLCheckpointModule extends TLBaseModule {
         return createMsg().setParam(RESULT, allRecords);
     }
 
-    private int extractJsonInt(String json, String key) {
-        int idx = json.indexOf("\"" + key + "\":");
-        if (idx < 0) return 0;
-        int start = idx + key.length() + 3;
-        int end = json.indexOf(",", start);
-        if (end < 0) end = json.indexOf("}", start);
-        try { return Integer.parseInt(json.substring(start, end).trim()); } catch (Exception e) { return 0; }
+    /** 解析一行历史记录；损坏行返回 null（跳过而不是中断整份历史） */
+    private Map<String, Object> parseHistoryRecord(String line) {
+        try {
+            JsonObject rec = JsonParser.parseString(line).getAsJsonObject();
+            Map<String, Object> record = new HashMap<>();
+            JsonElement seqEl = rec.get("seq");
+            record.put("seq", seqEl == null || seqEl.isJsonNull() ? 0 : seqEl.getAsInt());
+            record.put("time", getJsonString(rec, "time"));
+            record.put("module", getJsonString(rec, "module"));
+            record.put("previous", getJsonString(rec, "previous"));
+            record.put("action", getJsonString(rec, "action"));
+            return record;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
-    private String extractJsonString(String json, String key) {
-        int idx = json.indexOf("\"" + key + "\":\"");
-        if (idx < 0) return null;
-        int start = idx + key.length() + 4;
-        int end = json.indexOf("\"", start);
-        if (end > start) return json.substring(start, end);
-        return null;
+    private String getJsonString(JsonObject rec, String key) {
+        JsonElement el = rec.get(key);
+        return el == null || el.isJsonNull() ? null : el.getAsString();
     }
 
     // ==================== 内部文件操作 ====================

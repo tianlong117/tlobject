@@ -71,7 +71,7 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
                 returnMsg= addMsgInQueue(fromWho, msg);
                 break;
             case "getMsgInQueue":
-                getMsgInQueue(fromWho,msg);
+                returnMsg= getMsgInQueue(fromWho,msg);
                 break;
             case "autoTask":
                 autoTask(fromWho,msg);
@@ -103,7 +103,9 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
             try {
                 TLMsg qmsg =msgQueue.take();
                 putLog("take a queue",LogLevel.DEBUG,"task");
-                putMsg(qmsg.getDestination(),qmsg.setParam(IGNOREBEFORE,true)) ;
+                // 必须走 systemArgs：TLBaseModule.getMsg 用 getSystemParam(IGNOREBEFORE) 判定，
+                // 写成 setParam 会无效，before 钩子会把消息再次入队（无限重入）
+                putMsg(qmsg.getDestination(),qmsg.setSystemParam(IGNOREBEFORE,true)) ;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 putLog("autoTask interrupted",LogLevel.WARN,"task");

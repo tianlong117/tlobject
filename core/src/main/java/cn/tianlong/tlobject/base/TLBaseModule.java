@@ -582,7 +582,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             TLMsg actionReturnMsg = doMsgList(msgList, msg, null);
             if (!ifDoNextMsg(actionReturnMsg))
                 return selectReturnMsg(msg, actionReturnMsg);
-            msgListReturnMsg = actionReturnMsg;
+            // action 钩子无返回值时保留 "*" 钩子的结果，否则通配钩子（如记忆召回）的结果被 null 覆盖
+            if (actionReturnMsg != null)
+                msgListReturnMsg = actionReturnMsg;
         }
         return selectReturnMsg( msg, msgListReturnMsg);
     }
@@ -1100,10 +1102,13 @@ public abstract class TLBaseModule extends TLBaseObject {
             ms =((Number) time).intValue();
         else
             return ;
+        if (ms <= 0)
+            return;
         try {
             sleep(ms);
         } catch (InterruptedException e) {
-            e.printStackTrace();
+            Thread.currentThread().interrupt();
+            putLog("msleep interrupted", LogLevel.DEBUG, "msleep");
         }
     }
 
