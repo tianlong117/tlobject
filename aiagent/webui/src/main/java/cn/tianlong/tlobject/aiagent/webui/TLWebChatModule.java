@@ -1298,7 +1298,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
         Map<String, Object> evt = new LinkedHashMap<>();
         evt.put("type", WORKFLOW_PROGRESS_TOPIC);
-        evt.put("source", "workflow");
+        evt.put("source", msg.getStringParam("source", "workflow"));
+        evt.put("groupName", msg.getStringParam("groupName", ""));
+        evt.put("groupFamilyName", msg.getStringParam("groupFamilyName", ""));
+        evt.put("attempt", msg.getIntParam("attempt", 1));
         evt.put("workflowName", msg.getStringParam("workflowName", ""));
         evt.put("workflowFamilyName", msg.getStringParam("workflowFamilyName", ""));
         evt.put("runId", msg.getStringParam("runId", ""));

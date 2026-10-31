@@ -516,6 +516,8 @@ function workflowStatusIcon(status) {
  * 与工具进度分开，避免父子 executionId 交替清屏；只在这条链路 busy 的已知会话渲染。
  */
 function applyWorkflowProgress(evt) {
+  const isGroup = evt.source === 'group';
+  const attempt = evt.attempt || 1;
   const known = s => s && (s === state.sessionId || !!(state.sessions && state.sessions[s]));
   // 工作流节点可能用合成会话（wf_nid:父sid）；rootSessionId 才是父会话时用它兜底
   const sid = known(evt.sessionId) ? evt.sessionId
@@ -545,7 +547,7 @@ function applyWorkflowProgress(evt) {
   }
   if (evt.totalNodes) panel._total = evt.totalNodes;
 
-  if (evt.nodeId === '_workflow') {
+  if (evt.nodeId === '_workflow' || (isGroup && evt.nodeId === '_group')) {
     panel._wfStatus = evt.status || '';
   } else {
     const nodeId = evt.nodeId || 'node';
@@ -556,6 +558,14 @@ function applyWorkflowProgress(evt) {
       panel.appendChild(row);
       panel._rows[nodeId] = row;
       row._terminal = false;
+      row._attempt = 1;
+    }
+    if (attempt > (row._attempt || 1)) {
+      if (row._terminal) {   // 重跑：允许终态行复位，计数回退
+        row._terminal = false;
+        panel._done = Math.max(0, (panel._done || 0) - 1);
+      }
+      row._attempt = attempt;
     }
     const terminal = isWorkflowTerminal(evt.status);
     if (!(row._terminal && !terminal)) {   // 终态优先：迟到的非终态不降级
@@ -566,16 +576,24 @@ function applyWorkflowProgress(evt) {
       const error = evt.status && (evt.status.startsWith('FAILED:')
           || evt.status === 'INTERRUPTED' || evt.status === 'WORKFLOW_TIMEOUT');
       row.className = 'tp-row ' + (terminal ? (error ? 'tp-error' : 'tp-done') : 'tp-running');
-      row.textContent = workflowStatusIcon(evt.status) + ' ' + nodeId + ' '
-          + workflowStatusText(evt.status) + (dur ? ' ' + dur : '');
+      const label = (isGroup && evt.nodeType === 'SUPERVISOR') ? '监理 ' + nodeId : nodeId;
+      const statusText = (isGroup && evt.nodeType === 'SUPERVISOR' && evt.status === 'RUNNING')
+          ? '审核中（第' + attempt + '轮）'
+          : workflowStatusText(evt.status);
+      const attemptText = (isGroup && attempt > 1
+          && !(evt.nodeType === 'SUPERVISOR' && evt.status === 'RUNNING'))
+          ? '（第' + attempt + '次）' : '';
+      row.textContent = workflowStatusIcon(evt.status) + ' ' + label + ' '
+          + statusText + (dur ? ' ' + dur : '') + attemptText;
     }
   }
 
   if (panel._head) {
-    let head = '⇄ 工作流 ' + (evt.workflowName || 'workflow');
+    let head = (isGroup ? '⇄ Agent 组 ' : '⇄ 工作流 ')
+        + (evt.groupName || evt.workflowName || 'workflow');
     if (panel._total > 0) head += ' · ' + panel._done + '/' + panel._total;
-    const wfText = { DONE: '完成', PARTIAL: '部分完成', INTERRUPTED: '已中断',
-      WORKFLOW_TIMEOUT: '超时', CYCLE_DETECTED: '检测到环' }[panel._wfStatus];
+    const wfText = { DONE: '完成', PARTIAL: '部分完成', FAILED: '失败',
+      INTERRUPTED: '已中断', WORKFLOW_TIMEOUT: '超时', CYCLE_DETECTED: '检测到环' }[panel._wfStatus];
     if (wfText) head += ' · ' + wfText;
     panel._head.textContent = head;
   }

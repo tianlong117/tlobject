@@ -97,7 +97,44 @@ public class TLWebChatModuleProgressSelfTest implements TLAiAgentParamString {
                 && ch.json.contains("\"status\":\"RUNNING\"")
                 && ch.json.contains("\"runId\":\"wf_1\"")
                 && ch.json.contains("\"totalNodes\":3"));
+        // 工作流缺省值不能因组字段接入而漂移（前端按 source 分流）
+        check("工作流默认 source/attempt", ch.json != null
+                && ch.json.contains("\"source\":\"workflow\"")
+                && ch.json.contains("\"attempt\":1")
+                && ch.json.contains("\"groupName\":\"\""));
         check("事件不含节点产出", ch.json != null && !ch.json.contains("\"output\""));
+
+        // Agent 组事件：source/groupName/attempt 必须透传到 SSE JSON
+        BlockingChannel gch = new BlockingChannel(800);
+        module.registerEventsChannel("u4", gch);
+        TLMsg groupEvt = new TLMsg()
+                .setAction(WORKFLOW_PROGRESS_TOPIC)
+                .setParam("source", "group")
+                .setParam("groupName", "priceTeam")
+                .setParam("groupFamilyName", "app:priceTeam")
+                .setParam("workflowName", "priceTeam")
+                .setParam("runId", "g_1")
+                .setParam("nodeId", "hamburgerAgent")
+                .setParam("nodeType", "MEMBER")
+                .setParam("status", "DONE")
+                .setParam("durationMs", 1200L)
+                .setParam("attempt", 2)
+                .setParam("totalNodes", 2)
+                .setParam("sessionId", "webchat_u4_1")
+                .setParam("rootSessionId", "webchat_u4_1")
+                .setParam("userId", "u4")
+                .setParam("roundId", "r1");
+        m.invoke(module, null, groupEvt);
+        long gDeadline = System.currentTimeMillis() + 3000;
+        while (gch.json == null && System.currentTimeMillis() < gDeadline) Thread.sleep(20);
+        check("组事件透传 source/groupName/attempt",
+                gch.json != null
+                        && gch.json.contains("\"source\":\"group\"")
+                        && gch.json.contains("\"groupName\":\"priceTeam\"")
+                        && gch.json.contains("\"groupFamilyName\":\"app:priceTeam\"")
+                        && gch.json.contains("\"attempt\":2"));
+        check("组事件不含产出",
+                gch.json != null && !gch.json.contains("\"output\""));
     }
 
     /** 广播：一条通道写失败不能中断其他通道；失败/已关闭的通道要被摘除 */

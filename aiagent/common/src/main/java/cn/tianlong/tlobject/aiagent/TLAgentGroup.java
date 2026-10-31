@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.aiagent;
 
+import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -12,10 +13,11 @@ import org.xmlpull.v1.XmlPullParser;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -68,6 +70,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
     /** 监理审核最大重跑轮次（params maxReviewRounds，默认 1） */
     protected int maxReviewRounds = 1;
 
+    /** 进度是否发布到 msgBus（配置 progressToBus，默认 true） */
+    protected boolean progressToBus = true;
+
     /** 本组描述（XML description 参数 + md frontmatter 合并），master 经 AGENT_GETDESCRIPTION 消息读取 */
     protected String agentDescription;
 
@@ -104,11 +109,15 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 try { maxReviewRounds = Integer.parseInt(params.get("maxReviewRounds")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("progressToBus") != null)
+                progressToBus = "true".equals(params.get("progressToBus"));
             if (params.get("description") != null)
                 agentDescription = params.get("description");
             if (params.get("agentMd") != null)
                 agentMdPath = params.get("agentMd");
         }
+        // 误配负数会让审核循环语义不成立，统一按 0 轮处理
+        if (maxReviewRounds < 0) maxReviewRounds = 0;
         // 自动加载本组的 md 文件（组自己读，与 TLAiAgent 对称）
         loadAgentMd();
     }
@@ -455,15 +464,107 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         return ret;
     }
 
+    /** 一次 chat 的运行上下文：会话/追踪参数 + 进度发布器 + 失败成员集合 */
+    protected static final class RunContext {
+        final String baseSession;
+        final String rootSessionId;
+        final String roundId;
+        final String userId;
+        final TLAgentGroupProgressPublisher progress;
+        final long startTs = System.currentTimeMillis();
+        /** only the group's chat orchestration thread mutates these (single-threaded) */
+        final Set<String> failedMembers = new HashSet<>();
+        /** 监理是否已产出终态行（DONE / FAILED:*），已终态则中止补跑时不再发 SKIPPED */
+        boolean supervisorTerminal;
+
+        RunContext(String baseSession, String rootSessionId, String roundId, String userId,
+                   TLAgentGroupProgressPublisher progress) {
+            this.baseSession = baseSession;
+            this.rootSessionId = rootSessionId;
+            this.roundId = roundId;
+            this.userId = userId;
+            this.progress = progress;
+        }
+
+        long elapsed() { return System.currentTimeMillis() - startTs; }
+    }
+
+    /** 本次 chat 的进度发布器；关闭开关/无 msgBus 时返回 null（进度是旁路，异常一律降级为不发） */
+    protected TLAgentGroupProgressPublisher createProgressPublisher(TLMsg input) {
+        if (!progressToBus) return null;
+        try {
+            Object bus = getModuleInFactory("msgBus");
+            if (!(bus instanceof IObject)) return null;
+            int total = 0;
+            if (memberNames != null)
+                for (String m : memberNames)
+                    if (m != null && !m.trim().isEmpty()) total++;
+            // 无成员时 supervise 不会被调用，不把监理算进总数
+            if (total > 0 && supervisorName != null) total++;
+            return new TLAgentGroupProgressPublisher((IObject) bus, input, getName(), getFamilyName(),
+                    getName() + "_" + System.nanoTime(), total);
+        } catch (Throwable t) {
+            putLog("create group progress publisher failed: " + t, LogLevel.DEBUG);
+            return null;
+        }
+    }
+
+    private void markMemberDone(RunContext ctx, String member, int attempt, long durationMs) {
+        if (ctx == null) return;
+        ctx.failedMembers.remove(member);
+        if (ctx.progress != null)
+            ctx.progress.member(member, TLAgentGroupProgressPublisher.TYPE_MEMBER,
+                    "DONE", attempt, durationMs, "");
+    }
+
+    /**
+     * 标记成员失败。reason 只允许固定短语（timeout / not found / failed / exception）：
+     * 进度事件会渲染到控制台和 WebUI，成员原始响应可能含任意内容，绝不能进事件；
+     * 完整错误文本只留在返回的 TLMsg 与日志里。
+     */
+    private void markMemberFailed(RunContext ctx, String member, int attempt,
+                                  long durationMs, String reason) {
+        if (ctx == null) return;
+        ctx.failedMembers.add(member);
+        if (reason == null || reason.isEmpty()) reason = "failed";
+        if (ctx.progress != null)
+            ctx.progress.member(member, TLAgentGroupProgressPublisher.TYPE_MEMBER,
+                    "FAILED:" + reason, attempt, durationMs, "");
+    }
+
+    /** sequential 中止：剩余成员与尚未终态的监理补 SKIPPED，保证面板计数收齐 */
+    private void skipRemainingMembers(RunContext ctx, int fromIndex, int attempt) {
+        if (ctx == null || ctx.progress == null) return;
+        for (int i = fromIndex; i < memberNames.length; i++) {
+            String mName = memberNames[i] != null ? memberNames[i].trim() : "";
+            if (!mName.isEmpty())
+                ctx.progress.member(mName, TLAgentGroupProgressPublisher.TYPE_MEMBER,
+                        "SKIPPED", attempt, 0, "");
+        }
+        if (supervisorName != null && !ctx.supervisorTerminal)
+            ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                    "SKIPPED", attempt, 0, "");
+    }
+
     protected TLMsg chat(Object fromWho, TLMsg msg) {
+        TLAgentGroupProgressPublisher progress = createProgressPublisher(msg);
         if (memberNames == null || memberNames.length == 0) {
+            if (progress != null)
+                progress.overall("FAILED", "no members", 0);
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Error: group " + name + " has no members");
         }
         String task = msg.getStringParam(AI_P_USERMESSAGE, "");
-        String baseSession = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, String.valueOf(System.currentTimeMillis())));
+        String baseSession = String.valueOf(msg.getSystemParam(AI_P_SESSIONID,
+                String.valueOf(System.currentTimeMillis())));
         String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", baseSession));
         String gUserId = String.valueOf(msg.getSystemParam(AI_P_USERID, ""));
+
+        RunContext ctx = new RunContext(baseSession, rootSessionId,
+                String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")), gUserId, progress);
+        if (progress != null)
+            progress.overall("RUNNING",
+                    "mode=" + mode + " members=" + memberNames.length, 0);
 
         putLog(">>> [Group " + name + "] mode=" + mode + " members=" + String.join(";", memberNames)
                 + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.INFO);
@@ -481,27 +582,38 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         putMsg(M_AGENTMONITOR, monitorReg);
         try {
             LinkedHashMap<String, String> results;
-            String plainAnswer;   // 无监理时的返回内容
-            // 全链追踪：上游 roundId 透传给成员/监理——组的一轮就是上游的一轮
-            String roundId = String.valueOf(msg.getSystemParam(AI_P_ROUNDID, ""));
+            String plainAnswer;
             if ("parallel".equals(mode)) {
                 LinkedHashMap<String, String> tasks = new LinkedHashMap<>();
-                for (String mName : memberNames) tasks.put(mName, task);
-                results = runParallel(tasks, baseSession, rootSessionId, roundId, gUserId);
+                for (String mName : memberNames) {
+                    if (mName == null || mName.trim().isEmpty()) continue;
+                    tasks.put(mName.trim(), task);
+                }
+                results = runParallel(tasks, ctx, 1);
                 plainAnswer = mergeResults(results);
             } else {
                 results = new LinkedHashMap<>();
-                TLMsg err = runSequential(task, baseSession, rootSessionId, roundId, results, gUserId);
-                if (err != null) return err;
-                // sequential 无监理时维持原语义：返回链条最后一步输出
+                TLMsg err = runSequential(task, results, ctx, 1);
+                if (err != null) {
+                    if (progress != null)
+                        progress.overall("FAILED", "sequential aborted", ctx.elapsed());
+                    return err;
+                }
                 String last = "";
                 for (String v : results.values()) last = v;
                 plainAnswer = last;
             }
             if (supervisorName != null)
-                return supervise(task, results, baseSession, rootSessionId, roundId, gUserId);
+                return supervise(task, results, ctx);
+            if (progress != null) {
+                boolean partial = !ctx.failedMembers.isEmpty();
+                progress.overall(partial ? "PARTIAL" : "DONE",
+                        partial ? "member failed" : "", ctx.elapsed());
+            }
             return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, plainAnswer);
         } finally {
+            if (progress != null)
+                progress.ensureTerminal("INTERRUPTED", "aborted", ctx.elapsed());
             putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                     .setParam(AI_P_SESSIONID, baseSession)
                     .setSystemParam(IGNOREMODULEISNULL, true));
@@ -512,31 +624,61 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      * 串行执行全部成员：前一步输出 → 下一步输入，各步结果按序存入 results。
      * @return 成员失败时返回错误 TLMsg，全部成功返回 null
      */
-    protected TLMsg runSequential(String task, String baseSession, String rootSessionId,
-                                  String roundId, LinkedHashMap<String, String> results, String userId) {
+    protected TLMsg runSequential(String task, LinkedHashMap<String, String> results,
+                                  RunContext ctx, int attempt) {
         String currentInput = task;
-        for (String mName : memberNames) {
-            mName = mName.trim();
+        for (int i = 0; i < memberNames.length; i++) {
+            String mName = memberNames[i] != null ? memberNames[i].trim() : "";
             if (mName.isEmpty()) continue;
-            TLBaseModule member = (TLBaseModule) getModule(mName);
+            if (ctx.progress != null)
+                ctx.progress.member(mName, TLAgentGroupProgressPublisher.TYPE_MEMBER,
+                        "RUNNING", attempt, 0, "");
+            long t0 = System.currentTimeMillis();
+            TLBaseModule member;
+            try {
+                member = (TLBaseModule) getModule(mName);
+            } catch (Throwable t) {
+                // 已发过 RUNNING，必须补终态，否则面板成员行永久停在运行中
+                putLog("Group member [" + mName + "] getModule exception: " + t, LogLevel.WARN);
+                markMemberFailed(ctx, mName, attempt, System.currentTimeMillis() - t0, "exception");
+                skipRemainingMembers(ctx, i + 1, attempt);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_RESPONSE, "Group step [" + mName + "] failed: exception");
+            }
             if (member == null) {
+                markMemberFailed(ctx, mName, attempt, 0, "not found");
+                skipRemainingMembers(ctx, i + 1, attempt);
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_RESPONSE, "Group member not found: " + mName);
             }
-            String sid = name + "_" + mName + ":" + baseSession;
+            String sid = name + "_" + mName + ":" + ctx.baseSession;
             putLog("  → [Group-seq] " + mName, LogLevel.DEBUG);
-            TLMsg result = putMsg(member, createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, currentInput).setSystemParam(AI_P_SESSIONID, sid)
-                    .setSystemParam("rootSessionId", rootSessionId)
-                    .setSystemParam(AI_P_ROUNDID, roundId)
-                    .setSystemParam(AI_P_USERID, userId));
+            TLMsg result;
+            boolean threw = false;
+            try {
+                result = putMsg(member, createMsg().setAction(AGENT_CHAT)
+                        .setParam(AI_P_USERMESSAGE, currentInput)
+                        .setSystemParam(AI_P_SESSIONID, sid)
+                        .setSystemParam("rootSessionId", ctx.rootSessionId)
+                        .setSystemParam(AI_P_ROUNDID, ctx.roundId)
+                        .setSystemParam(AI_P_USERID, ctx.userId));
+            } catch (Throwable t) {
+                threw = true;
+                result = null;
+                putLog("Group member [" + mName + "] exception: " + t, LogLevel.WARN);
+            }
+            long duration = System.currentTimeMillis() - t0;
             if (result == null || !result.parseBoolean(RESULT, false)) {
-                String err = result != null ? result.getStringParam(AI_P_RESPONSE, "unknown") : "no response";
+                String err = result != null
+                        ? result.getStringParam(AI_P_RESPONSE, "unknown") : "no response";
+                markMemberFailed(ctx, mName, attempt, duration, threw ? "exception" : "failed");
+                skipRemainingMembers(ctx, i + 1, attempt);
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_RESPONSE, "Group step [" + mName + "] failed: " + err);
             }
             String resp = result.getStringParam(AI_P_RESPONSE, "");
             results.put(mName, resp);
+            markMemberDone(ctx, mName, attempt, duration);
             if (!resp.isEmpty())
                 currentInput = resp;
             putLog("  ✓ [Group-seq] " + mName + " done", LogLevel.DEBUG);
@@ -551,24 +693,38 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      */
     @SuppressWarnings("unchecked")
     protected LinkedHashMap<String, String> runParallel(LinkedHashMap<String, String> memberTasks,
-                                                        String baseSession, String rootSessionId,
-                                                        String roundId, String userId) {
+                                                        RunContext ctx, int attempt) {
         List<String> order = new ArrayList<>(memberTasks.keySet());
         List<TLMsg> msgList = new ArrayList<>();
         for (String mName : order) {
-            String sid = name + "_" + mName + ":" + baseSession;
+            String sid = name + "_" + mName + ":" + ctx.baseSession;
             msgList.add(createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, memberTasks.get(mName)).setSystemParam(AI_P_SESSIONID, sid)
-                    .setSystemParam("rootSessionId", rootSessionId)
-                    .setSystemParam(AI_P_ROUNDID, roundId)
-                    .setSystemParam(AI_P_USERID, userId)
-                    // 成员表与实例表若脱节，putMsg 找不到模块默认会 shutdown(-1) 把整个应用带走；
-                    // 这里降级成"该成员失败"，其余成员照常执行
+                    .setParam(AI_P_USERMESSAGE, memberTasks.get(mName))
+                    .setSystemParam(AI_P_SESSIONID, sid)
+                    .setSystemParam("rootSessionId", ctx.rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, ctx.roundId)
+                    .setSystemParam(AI_P_USERID, ctx.userId)
+                    // 成员表与实例表脱节时不关停应用
                     .setSystemParam(IGNOREMODULEISNULL, true)
                     .setDestination(mName));
+            if (ctx.progress != null)
+                ctx.progress.member(mName, TLAgentGroupProgressPublisher.TYPE_MEMBER,
+                        "RUNNING", attempt, 0, "");
         }
 
-        TLMsg groupResult = putMsgGroupByThread(msgList, waitTime);
+        TLMsg groupResult;
+        try {
+            groupResult = putMsgGroupByThread(msgList, waitTime);
+        } catch (Throwable t) {
+            // 派发异常时成员行已全部 RUNNING，必须逐个补终态
+            putLog("Group parallel dispatch exception: " + t, LogLevel.WARN);
+            LinkedHashMap<String, String> failed = new LinkedHashMap<>();
+            for (String mn : order) {
+                markMemberFailed(ctx, mn, attempt, 0, "exception");
+                failed.put(mn, "[错误] exception");
+            }
+            return failed;
+        }
         List<TLMsg> resultList = (List<TLMsg>) groupResult.getParam(RESULT, List.class);
 
         LinkedHashMap<String, String> results = new LinkedHashMap<>();
@@ -576,12 +732,15 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             String mn = order.get(i);
             TLMsg r = (resultList != null && i < resultList.size()) ? resultList.get(i) : null;
             if (r != null && Boolean.FALSE.equals(r.getParam(IGNOREMODULEISNULL))) {
-                // putMsg 找不到成员时返回的占位消息：给出明确原因，别让上层只看到 "failed"
                 results.put(mn, "[错误] group member not found: " + mn);
+                markMemberFailed(ctx, mn, attempt, 0, "not found");
             } else if (r != null && r.parseBoolean(RESULT, false)) {
                 results.put(mn, r.getStringParam(AI_P_RESPONSE, ""));
+                markMemberDone(ctx, mn, attempt, 0);
             } else {
-                results.put(mn, "[错误] " + (r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout"));
+                String err = r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout";
+                results.put(mn, "[错误] " + err);
+                markMemberFailed(ctx, mn, attempt, 0, r != null ? "failed" : "timeout");
             }
         }
         return results;
@@ -603,63 +762,130 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
      *   sequential 整链重跑，任务追加全部反馈），更新结果后再审
      * - 轮次用尽仍不达标 / 监理不可用 → 返回当前拼接结果（不把 JSON 指令返给 master），WARN
      */
-    protected TLMsg supervise(String task, LinkedHashMap<String, String> results,
-                              String baseSession, String rootSessionId, String roundId, String userId) {
+    protected TLMsg supervise(String task, LinkedHashMap<String, String> results, RunContext ctx) {
         TLBaseModule supervisor = (TLBaseModule) getModule(supervisorName);
         if (supervisor == null) {
-            putLog("Group supervisor not found: " + supervisorName + ", fallback to merged results", LogLevel.WARN);
+            putLog("Group supervisor not found: " + supervisorName
+                    + ", fallback to merged results", LogLevel.WARN);
+            if (ctx.progress != null) {
+                ctx.supervisorTerminal = true;
+                ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                        "FAILED:missing", 1, 0, "supervisor not found");
+                ctx.progress.overall("PARTIAL", "supervisor missing", ctx.elapsed());
+            }
             return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
         }
-        String sid = name + "_" + supervisorName + ":" + baseSession;
+        String sid = name + "_" + supervisorName + ":" + ctx.baseSession;
 
         for (int round = 0; round <= maxReviewRounds; round++) {
+            int attempt = round + 1;
+            if (ctx.progress != null)
+                ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                        "RUNNING", attempt, 0, "round=" + attempt);
             String reviewInput = "任务：" + task
                     + "\n\n各成员执行结果：\n" + mergeResults(results)
                     + "\n\n请按你的审核标准逐个检查成员结果："
                     + "全部达标则直接输出面向用户的最终统一结果（不要提及审核过程）；"
                     + "若有成员结果不达标，只输出JSON（不要任何其他文字）："
                     + "{\"retry\":{\"成员名\":\"具体反馈意见\"}}";
-            putLog("  → [Group-supervisor] " + supervisorName + " 审核 (round " + (round + 1) + ")", LogLevel.DEBUG);
-            TLMsg r = putMsg(supervisor, createMsg().setAction(AGENT_CHAT)
-                    .setParam(AI_P_USERMESSAGE, reviewInput).setSystemParam(AI_P_SESSIONID, sid)
-                    .setSystemParam("rootSessionId", rootSessionId)
-                    .setSystemParam(AI_P_ROUNDID, roundId)
-                    .setSystemParam(AI_P_USERID, userId));
+            putLog("  → [Group-supervisor] " + supervisorName
+                    + " 审核 (round " + (round + 1) + ")", LogLevel.DEBUG);
+            long t0 = System.currentTimeMillis();
+            TLMsg r;
+            try {
+                r = putMsg(supervisor, createMsg().setAction(AGENT_CHAT)
+                        .setParam(AI_P_USERMESSAGE, reviewInput)
+                        .setSystemParam(AI_P_SESSIONID, sid)
+                        .setSystemParam("rootSessionId", ctx.rootSessionId)
+                        .setSystemParam(AI_P_ROUNDID, ctx.roundId)
+                        .setSystemParam(AI_P_USERID, ctx.userId));
+            } catch (Throwable t) {
+                r = null;
+                putLog("Group supervisor exception: " + t, LogLevel.WARN);
+            }
+            long duration = System.currentTimeMillis() - t0;
             if (r == null || !r.parseBoolean(RESULT, false)) {
                 putLog("Group supervisor chat failed, fallback to merged results", LogLevel.WARN);
-                return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, mergeResults(results));
+                if (ctx.progress != null) {
+                    ctx.supervisorTerminal = true;
+                    ctx.progress.member(supervisorName,
+                            TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                            "FAILED:fallback", attempt, duration, "");
+                    ctx.progress.overall("PARTIAL", "supervisor fallback", ctx.elapsed());
+                }
+                return createMsg().setParam(RESULT, true)
+                        .setParam(AI_P_RESPONSE, mergeResults(results));
             }
             String resp = r.getStringParam(AI_P_RESPONSE, "");
             Map<String, String> retry = parseRetryDirective(resp);
             if (retry == null || retry.isEmpty()) {
                 putLog("  ✓ [Group-supervisor] 审核通过，输出统一结果", LogLevel.DEBUG);
+                if (ctx.progress != null) {
+                    ctx.supervisorTerminal = true;
+                    ctx.progress.member(supervisorName,
+                            TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                            "DONE", attempt, duration, "");
+                    boolean partial = !ctx.failedMembers.isEmpty();
+                    ctx.progress.overall(partial ? "PARTIAL" : "DONE",
+                            partial ? "review approved" : "", ctx.elapsed());
+                }
                 return createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, resp);
             }
             if (round == maxReviewRounds) {
-                putLog("Group " + name + " review rounds exhausted, still failing: " + retry.keySet(), LogLevel.WARN);
+                putLog("Group " + name + " review rounds exhausted, still failing: "
+                        + retry.keySet(), LogLevel.WARN);
+                if (ctx.progress != null) {
+                    ctx.supervisorTerminal = true;
+                    ctx.progress.member(supervisorName,
+                            TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                            "DONE", attempt, duration, "exhausted");
+                    ctx.progress.overall("PARTIAL", "review exhausted", ctx.elapsed());
+                }
                 break;
             }
 
-            putLog("  ↻ [Group-supervisor] 要求重跑: " + retry.keySet() + " 反馈: " + retry.values(), LogLevel.DEBUG);
+            putLog("  ↻ [Group-supervisor] 要求重跑: " + retry.keySet()
+                    + " 反馈: " + retry.values(), LogLevel.DEBUG);
+            int retryAttempt = round + 2;
             if ("parallel".equals(mode)) {
-                // 只重发被点名且在结果集中的成员，输入 = 原任务 + 监理反馈
                 LinkedHashMap<String, String> retryTasks = new LinkedHashMap<>();
                 for (Map.Entry<String, String> e : retry.entrySet()) {
                     if (results.containsKey(e.getKey()))
                         retryTasks.put(e.getKey(), task + "\n\n[监理反馈] " + e.getValue());
                 }
                 if (retryTasks.isEmpty()) {
-                    putLog("Group supervisor named unknown members: " + retry.keySet(), LogLevel.WARN);
+                    putLog("Group supervisor named unknown members: "
+                            + retry.keySet(), LogLevel.WARN);
+                    if (ctx.progress != null) {
+                        ctx.supervisorTerminal = true;
+                        ctx.progress.member(supervisorName,
+                                TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                                "DONE", attempt, duration, "unknown members");
+                        ctx.progress.overall("PARTIAL", "unknown members", ctx.elapsed());
+                    }
                     break;
                 }
-                results.putAll(runParallel(retryTasks, baseSession, rootSessionId, roundId, userId));
+                if (ctx.progress != null) {
+                    ctx.supervisorTerminal = true;
+                    ctx.progress.member(supervisorName,
+                            TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                            "DONE", attempt, duration, "retry");
+                }
+                results.putAll(runParallel(retryTasks, ctx, retryAttempt));
             } else {
-                // sequential 链条有依赖，整链重跑，任务追加全部反馈
                 String fbTask = task + "\n\n[监理反馈] " + String.join("；", retry.values());
                 LinkedHashMap<String, String> rerun = new LinkedHashMap<>();
-                TLMsg err = runSequential(fbTask, baseSession, rootSessionId, roundId, rerun, userId);
+                if (ctx.progress != null) {
+                    ctx.supervisorTerminal = true;
+                    ctx.progress.member(supervisorName,
+                            TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                            "DONE", attempt, duration, "retry");
+                }
+                TLMsg err = runSequential(fbTask, rerun, ctx, retryAttempt);
                 if (err != null) {
                     putLog("Group sequential rerun failed, keep previous results", LogLevel.WARN);
+                    if (ctx.progress != null)
+                        ctx.progress.overall("PARTIAL", "rerun failed", ctx.elapsed());
                     break;
                 }
                 results.clear();

@@ -89,6 +89,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private final List<Map<String, Object>> toolProgressEvents =
             java.util.Collections.synchronizedList(new ArrayList<>());
 
+    /** groupProgress 场景捕获的事件（msgBus 回调写入） */
+    private final List<TLMsg> groupProgressEvents =
+            java.util.Collections.synchronizedList(new ArrayList<>());
+
     /** 测试报告输出目录（与 trace 同属 data/aitest/ 命名空间） */
     private String reportOutputDir = "data/aitest/reports/";
 
@@ -217,6 +221,14 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 evt.put("agentName", msg.getStringParam("agentName", ""));
                 evt.put("hasOutput", msg.containsParam("output") || msg.containsParam("toolOutput"));
                 toolProgressEvents.add(evt);
+                returnMsg = createMsg().setParam(RESULT, true);
+                break;
+            }
+            case WORKFLOW_PROGRESS_TOPIC: {
+                if (cn.tianlong.tlobject.aiagent.TLAgentGroupProgressPublisher.SOURCE_GROUP
+                        .equals(msg.getStringParam("source", ""))) {
+                    groupProgressEvents.add(msg);
+                }
                 returnMsg = createMsg().setParam(RESULT, true);
                 break;
             }
@@ -497,6 +509,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("approvalPendingCheckpoint", new String[]{"28-待批断点生命周期", null});
         TEST_CASES.put("truncToolArgs",    new String[]{"29-截断工具参数不可执行", "test_echo 未注册"});
         TEST_CASES.put("emptyAnswer",      new String[]{"30-空终答占位", null});
+        TEST_CASES.put("groupProgress",   new String[]{"31-Agent组进度", null});
     }
 
     /**
@@ -577,6 +590,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "toolprogress":    return this::testToolProgress;
             case "trunctoolargs":   return this::testToolArgsTruncated;
             case "emptyanswer":     return this::testEmptyAnswer;
+            case "groupprogress":   return this::testGroupProgress;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -1239,6 +1253,179 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
         }
+    }
+
+    // ======================== 场景 31: Agent 组进度 ========================
+
+    protected TLMsg testGroupProgress(Object fromWho, TLMsg msg) {
+        groupProgressEvents.clear();
+        TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
+        if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT)))
+            return createMsg().setParam(RESULT, false).setParam("error", "订阅 workflowProgress 失败");
+
+        List<String> errors = new ArrayList<>();
+        try {
+            checkParallelGroup(errors);
+            checkSequentialFailure(errors);
+            checkSupervisorRetry(errors);
+        } catch (Exception e) {
+            errors.add("异常: " + e);
+        }
+        if (errors.isEmpty()) return createMsg().setParam(RESULT, true);
+        return createMsg().setParam(RESULT, false)
+                .setParam("error", String.join("；", errors));
+    }
+
+    private void checkParallelGroup(List<String> errors) {
+        groupProgressEvents.clear();
+        String sid = "test_group_progress_parallel";
+        TLTestAgentGroup group = newTestGroup("testGroupP_" + System.nanoTime(), "parallel");
+        registerFake(group, "m1", mapOf("sleepMs", "30", "finalText", "A"));
+        registerFake(group, "m2", mapOf("finalText", "B"));
+        TLMsg r = group.testChat(groupChatMsg(sid, "并行任务"));
+        expect(errors, r != null && r.parseBoolean(RESULT, false), "parallel 组返回成功");
+        List<TLMsg> evts = eventsFor(sid);
+        expect(errors, !evts.isEmpty(), "parallel 收到进度事件");
+        expect(errors, !evts.isEmpty()
+                && "_group".equals(evts.get(0).getStringParam("nodeId", "")), "首事件是 _group");
+        expect(errors, countStatus(evts, "m1", "RUNNING") == 1, "m1 RUNNING");
+        expect(errors, countStatus(evts, "m1", "DONE") == 1, "m1 DONE");
+        expect(errors, countStatus(evts, "m2", "DONE") == 1, "m2 DONE");
+        TLMsg last = lastOverall(evts);
+        expect(errors, last != null && "DONE".equals(last.getStringParam("status", "")),
+                "parallel 整体 DONE");
+        expect(errors, last != null && last.getIntParam("totalNodes", 0) == 2,
+                "parallel totalNodes=2");
+        for (TLMsg e : evts) {
+            expect(errors, "group".equals(e.getStringParam("source", "")), "source=group");
+            expect(errors, TEST_USER_ID.equals(e.getStringParam("userId", "")), "userId 透传");
+            expect(errors, sid.equals(e.getStringParam("rootSessionId", "")), "rootSessionId 透传");
+            expect(errors, "group_r1".equals(e.getStringParam("roundId", "")), "roundId 透传");
+            expect(errors, !e.containsParam(AI_P_SKILLOUTPUT) && !e.containsParam("output"),
+                    "事件无产出");
+        }
+    }
+
+    private void checkSequentialFailure(List<String> errors) {
+        groupProgressEvents.clear();
+        String sid = "test_group_progress_seq_fail";
+        TLTestAgentGroup group = newTestGroup("testGroupS_" + System.nanoTime(), "sequential");
+        registerFake(group, "s1", mapOf("finalText", "ok"));
+        registerFake(group, "s2", mapOf("fail", "true", "failText", "SECRET_MEMBER_OUTPUT"));
+        registerFake(group, "s3", mapOf("finalText", "never"));
+        TLMsg r = group.testChat(groupChatMsg(sid, "顺序任务"));
+        expect(errors, r != null && !r.parseBoolean(RESULT, true), "sequential 失败如实返回");
+        expect(errors, r != null && r.getStringParam(AI_P_RESPONSE, "").contains("SECRET_MEMBER_OUTPUT"),
+                "失败原因仍返回给调用方");
+        List<TLMsg> evts = eventsFor(sid);
+        expect(errors, countStatus(evts, "s1", "DONE") == 1, "s1 DONE");
+        expect(errors, countStatus(evts, "s2", "FAILED:failed") == 1, "s2 FAILED 固定原因");
+        expect(errors, countStatus(evts, "s3", "SKIPPED") == 1, "s3 SKIPPED");
+        for (TLMsg e : evts) {
+            expect(errors, !e.getStringParam("status", "").contains("SECRET_MEMBER_OUTPUT"),
+                    "事件 status 不含成员响应");
+            expect(errors, !e.getStringParam("detail", "").contains("SECRET_MEMBER_OUTPUT"),
+                    "事件 detail 不含成员响应");
+        }
+        TLMsg last = lastOverall(evts);
+        expect(errors, last != null && "FAILED".equals(last.getStringParam("status", "")),
+                "sequential 整体 FAILED");
+    }
+
+    private void checkSupervisorRetry(List<String> errors) {
+        groupProgressEvents.clear();
+        String sid = "test_group_progress_supervisor";
+        TLTestAgentGroup group = newTestGroup("testGroupR_" + System.nanoTime(), "parallel");
+        registerFake(group, "r1", mapOf("finalText", "first"));
+        registerFake(group, "r2", mapOf("finalText", "second"));
+        registerFake(group, "reviewer", mapOf(
+                "role", "supervisor", "retryOnce", "true",
+                "retryMember", "r1", "finalText", "approved"));
+        TLMsg r = group.testChat(groupChatMsg(sid, "监理任务"));
+        expect(errors, r != null && r.parseBoolean(RESULT, false), "监理组返回成功");
+        expect(errors, r != null && "approved".equals(r.getStringParam(AI_P_RESPONSE, "")),
+                "返回监理终答");
+        List<TLMsg> evts = eventsFor(sid);
+        expect(errors, maxAttempt(evts, "r1") == 2, "被点名成员重跑 attempt=2");
+        expect(errors, maxAttempt(evts, "reviewer") == 2, "监理第二轮 attempt=2");
+        expect(errors, countStatus(evts, "reviewer", "DONE") == 2, "监理两轮 DONE");
+        TLMsg last = lastOverall(evts);
+        expect(errors, last != null && "DONE".equals(last.getStringParam("status", "")),
+                "监理整体 DONE");
+        expect(errors, last != null && last.getIntParam("totalNodes", 0) == 3,
+                "totalNodes=3（含监理）");
+    }
+
+    private TLTestAgentGroup newTestGroup(String groupName, String mode) {
+        TLTestAgentGroup group = new TLTestAgentGroup(groupName, getFactory());
+        HashMap<String, String> params = new HashMap<>();
+        params.put("mode", mode);
+        params.put("progressToBus", "true");
+        params.put("waitTime", "5000");
+        group.start(null, params);
+        return group;
+    }
+
+    private void registerFake(TLTestAgentGroup group, String memberName,
+                              Map<String, String> extra) {
+        HashMap<String, String> cfg = new HashMap<>();
+        cfg.put(MODULE_CLASSFILE, "cn.tianlong.tlobject.aiagent.test.TLTestGroupMember");
+        if (extra != null) cfg.putAll(extra);
+        TLMsg r = group.testRegister(memberName, cfg);
+        if (r == null || !r.parseBoolean(RESULT, false))
+            throw new IllegalStateException("注册假成员失败: " + memberName);
+    }
+
+    private TLMsg groupChatMsg(String sid, String text) {
+        return createMsg().setAction(AGENT_CHAT)
+                .setParam(AI_P_USERMESSAGE, text)
+                .setSystemParam(AI_P_SESSIONID, sid)
+                .setSystemParam("rootSessionId", sid)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setSystemParam(AI_P_ROUNDID, "group_r1");
+    }
+
+    private List<TLMsg> eventsFor(String sid) {
+        List<TLMsg> list = new ArrayList<>();
+        synchronized (groupProgressEvents) {
+            for (TLMsg e : groupProgressEvents)
+                if (sid.equals(e.getStringParam("sessionId", ""))) list.add(e);
+        }
+        return list;
+    }
+
+    private static int countStatus(List<TLMsg> evts, String nodeId, String status) {
+        int n = 0;
+        for (TLMsg e : evts)
+            if (nodeId.equals(e.getStringParam("nodeId", ""))
+                    && status.equals(e.getStringParam("status", ""))) n++;
+        return n;
+    }
+
+    private static TLMsg lastOverall(List<TLMsg> evts) {
+        TLMsg last = null;
+        for (TLMsg e : evts)
+            if ("_group".equals(e.getStringParam("nodeId", ""))) last = e;
+        return last;
+    }
+
+    private static int maxAttempt(List<TLMsg> evts, String nodeId) {
+        int max = 0;
+        for (TLMsg e : evts)
+            if (nodeId.equals(e.getStringParam("nodeId", "")))
+                max = Math.max(max, e.getIntParam("attempt", 1));
+        return max;
+    }
+
+    private static Map<String, String> mapOf(String... kv) {
+        Map<String, String> m = new HashMap<>();
+        for (int i = 0; i + 1 < kv.length; i += 2) m.put(kv[i], kv[i + 1]);
+        return m;
+    }
+
+    private static void expect(List<String> errors, boolean ok, String label) {
+        if (!ok) errors.add(label);
     }
 
     // ======================== 场景 5: Tool 执行超时 ========================

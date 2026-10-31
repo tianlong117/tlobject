@@ -54,6 +54,59 @@ public class TLChatConsoleWorkflowProgressSelfTest implements TLAiAgentParamStri
                 msg("_workflow", "WORKFLOW_TIMEOUT", 3, 0));
         check("工作流超时", timeout.contains("超时"));
 
+        String groupStart = console.formatWorkflowProgress(
+                groupMsg("_group", "GROUP", "RUNNING", 0, "mode=parallel members=2", 2, 1));
+        check("组开始带成员数与模式",
+                groupStart.contains("[组 priceTeam]") && groupStart.contains("开始（2 成员 · parallel）"));
+
+        String groupDone = console.formatWorkflowProgress(
+                groupMsg("_group", "GROUP", "DONE", 1500, "", 2, 1));
+        check("组完成", groupDone.contains("[组 priceTeam]") && groupDone.contains("完成")
+                && !groupDone.contains("_group"));
+
+        String groupPartial = console.formatWorkflowProgress(
+                groupMsg("_group", "GROUP", "PARTIAL", 0, "member failed", 2, 1));
+        check("组部分完成", groupPartial.contains("部分完成"));
+
+        String groupFailed = console.formatWorkflowProgress(
+                groupMsg("_group", "GROUP", "FAILED", 0, "sequential aborted", 2, 1));
+        check("组失败带原因", groupFailed.contains("失败") && groupFailed.contains("sequential aborted"));
+
+        String groupInterrupted = console.formatWorkflowProgress(
+                groupMsg("_group", "GROUP", "INTERRUPTED", 0, "", 2, 1));
+        check("组已中断", groupInterrupted.contains("[组 priceTeam]")
+                && groupInterrupted.contains("已中断") && !groupInterrupted.contains("_group"));
+
+        String memberDone = console.formatWorkflowProgress(
+                groupMsg("hamburgerAgent", "MEMBER", "DONE", 1200, "", 2, 1));
+        check("组成员完成带耗时",
+                memberDone.contains("hamburgerAgent") && memberDone.contains("[priceTeam]")
+                        && memberDone.contains("完成") && memberDone.contains("1.2s"));
+
+        String memberFailed = console.formatWorkflowProgress(
+                groupMsg("pizzaAgent", "MEMBER", "FAILED:timeout", 0, "", 2, 1));
+        check("组成员失败带原因",
+                memberFailed.contains("pizzaAgent") && memberFailed.contains("[priceTeam]")
+                        && memberFailed.contains("（timeout）"));
+
+        String memberFailedRetry = console.formatWorkflowProgress(
+                groupMsg("pizzaAgent", "MEMBER", "FAILED:timeout", 0, "", 2, 2));
+        check("组成员重试失败带次数", memberFailedRetry.contains("（timeout）（第2次）"));
+
+        String memberSkipped = console.formatWorkflowProgress(
+                groupMsg("dessertAgent", "MEMBER", "SKIPPED", 0, "", 2, 1));
+        check("组成员跳过", memberSkipped.contains("跳过"));
+
+        String supervisorRun = console.formatWorkflowProgress(
+                groupMsg("priceReviewer", "SUPERVISOR", "RUNNING", 0, "round=1", 3, 1));
+        check("监理审核中",
+                supervisorRun.contains("监理 priceReviewer") && supervisorRun.contains("审核中（第1轮）"));
+
+        String memberRetry = console.formatWorkflowProgress(
+                groupMsg("hamburgerAgent", "MEMBER", "RUNNING", 0, "", 2, 2));
+        check("成员重试第2次",
+                memberRetry.contains("↻") && memberRetry.contains("重试（第2次）"));
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }
@@ -65,6 +118,21 @@ public class TLChatConsoleWorkflowProgressSelfTest implements TLAiAgentParamStri
                 .setParam("status", status)
                 .setParam("totalNodes", totalNodes)
                 .setParam("durationMs", durationMs);
+    }
+
+    private static TLMsg groupMsg(String nodeId, String nodeType, String status,
+                                  long durationMs, String detail, int totalNodes, int attempt) {
+        return new TLMsg()
+                .setParam("source", "group")
+                .setParam("groupName", "priceTeam")
+                .setParam("workflowName", "priceTeam")
+                .setParam("nodeId", nodeId)
+                .setParam("nodeType", nodeType)
+                .setParam("status", status)
+                .setParam("durationMs", durationMs)
+                .setParam("detail", detail)
+                .setParam("totalNodes", totalNodes)
+                .setParam("attempt", attempt);
     }
 
     private static void check(String name, boolean ok) {

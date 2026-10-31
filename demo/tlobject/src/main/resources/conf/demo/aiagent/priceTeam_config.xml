@@ -10,6 +10,7 @@
            maxReviewRounds : 监理审核最大重跑轮次，默认1（配了 supervisor 才生效）
            agentMd         : 组 md 文件路径（未配则自动发现 {configDir}md/{name}.md，
                              frontmatter description 合并进组描述）
+           progressToBus   : 进度是否发布到 msgBus（workflowProgress/source=group），默认 true；静默配 false
 
          <agents> 列表即成员名单（保序，名单顺序即 sequential 执行顺序）：
            条目只含创建所需项（sameClassAs/classfile/statup 等），

@@ -315,6 +315,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     String formatWorkflowProgress(TLMsg msg) {
+        if (TLAgentGroupProgressPublisher.SOURCE_GROUP
+                .equals(msg.getStringParam("source", "")))
+            return formatGroupProgress(msg);
         String wf = msg.getStringParam("workflowName", "workflow");
         String nodeId = msg.getStringParam("nodeId", "");
         String status = msg.getStringParam("status", "");
@@ -357,6 +360,73 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case "INTERRUPTED":      return "  ⏹ " + tag + " 已中断";
             case "WORKFLOW_TIMEOUT": return "  ⏱ " + tag + " 超时";
             default:                 return "  · " + tag + " " + status;
+        }
+    }
+
+    String formatGroupProgress(TLMsg msg) {
+        String group = msg.getStringParam("groupName",
+                msg.getStringParam("workflowName", "group"));
+        String nodeId = msg.getStringParam("nodeId", "");
+        String status = msg.getStringParam("status", "");
+        String nodeType = msg.getStringParam("nodeType", "");
+        long ms = msg.getLongParam("durationMs", 0L);
+        int total = msg.getIntParam("totalNodes", 0);
+        int attempt = msg.getIntParam("attempt", 1);
+        String detail = msg.getStringParam("detail", "");
+        String dur = ms >= 1000
+                ? String.format(java.util.Locale.ROOT, "%.1fs", ms / 1000.0)
+                : (ms > 0 ? ms + "ms" : "");
+
+        if ("_group".equals(nodeId)) {
+            String label;
+            switch (status) {
+                case "RUNNING": {
+                    String mode = "";
+                    int members = total;
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("mode=(\\S+)\\s+members=(\\d+)").matcher(detail);
+                    if (m.find()) {
+                        mode = m.group(1);
+                        try { members = Integer.parseInt(m.group(2)); }
+                        catch (NumberFormatException ignored) {}
+                    }
+                    label = "开始" + (members > 0
+                            ? "（" + members + " 成员"
+                            + (mode.isEmpty() ? "" : " · " + mode) + "）" : "");
+                    break;
+                }
+                case "DONE":        label = "完成"; break;
+                case "PARTIAL":     label = "部分完成"; break;
+                case "FAILED":      label = "失败"
+                        + (detail.isEmpty() ? "" : "（" + detail + "）"); break;
+                case "INTERRUPTED": label = "已中断"; break;
+                default:            label = status;
+            }
+            return "  ⇄ [组 " + group + "] " + label;
+        }
+
+        String tag = "[" + group + "] "
+                + ("SUPERVISOR".equals(nodeType) ? "监理 " : "") + nodeId;
+        String attemptText = attempt > 1 ? "（第" + attempt + "次）" : "";
+        if (status.startsWith("FAILED:")) {
+            String reason = status.substring("FAILED:".length());
+            return "  ✗ " + tag + " 失败" + (reason.isEmpty() ? "" : "（" + reason + "）")
+                    + attemptText;
+        }
+        switch (status) {
+            case "RUNNING":
+                if ("SUPERVISOR".equals(nodeType))
+                    return "  ⚙ " + tag + " 审核中（第" + attempt + "轮）";
+                return attempt > 1
+                        ? "  ↻ " + tag + " 重试（第" + attempt + "次） 运行中"
+                        : "  ⚙ " + tag + " 运行中";
+            case "DONE":
+                return "  ✓ " + tag + " 完成" + (dur.isEmpty() ? "" : " " + dur)
+                        + attemptText;
+            case "SKIPPED":
+                return "  ⏭ " + tag + " 跳过" + attemptText;
+            default:
+                return "  · " + tag + " " + status;
         }
     }
 
