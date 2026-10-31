@@ -280,8 +280,11 @@ public class TLAuthModule extends TLBaseModule {
 
     private void deny(Object fromWho, TLMsg msg) {
         String content = "no auth";
-        TLMsg emsg = createMsg().setAction(OUTINTERFACE_PUTCONTENTTOUSER).setParam(CLIENT_P_CONTENT, content);
-        putMsg(M_DIRECTOUTNTERFACE, emsg);
+        TLMsg emsg = createMsg().setAction(OUTINTERFACE_PUTCONTENTTOUSER).setParam(CLIENT_P_CONTENT, content)
+                .setSystemParam(IGNOREMODULEISNULL, true);   // directOutInterface 是 Web 可选模块
+        TLMsg r = putMsg(M_DIRECTOUTNTERFACE, emsg);
+        if (r != null && Boolean.FALSE.equals(r.getParam(IGNOREMODULEISNULL)))
+            putLog("directOutInterface not configured, deny content not sent", LogLevel.WARN, "deny");
     }
 
     private void deleteProliy(Object fromWho, TLMsg msg) {
@@ -800,6 +803,8 @@ public class TLAuthModule extends TLBaseModule {
             v = stateMsg.getParam(AUTH_P_CLIENTIP);
             if (v != null) auditMsg.setParam(AUTH_P_CLIENTIP, v);
         }
+        // 审计是可选项：配置了名字但模块缺失时只降级，不能把整个认证链路 shutdown(-1)
+        auditMsg.setSystemParam(IGNOREMODULEISNULL, true);
         putMsg(auditModule, auditMsg);
     }
 

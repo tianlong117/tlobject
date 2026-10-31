@@ -43,30 +43,30 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             msg.setWaitFlag(true);
             if (msg.systemParamIsNull(TASKWAITTIME))
                 return  putMsgNoWait( toWho, msg) ;
-            msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
             int waitTime = TLDataUtils.getIntParam(msg.getSystemParam(TASKWAITTIME),0) ;
             TLMsg returnMsg =  putMsgNoWait( toWho, msg) ;
             // IFTASKJOIN（join 后直接返回结果）等同步路径没有 THREADPOOL_TASK，
-            // 继续 sleep 会白等到超时，waitTime=0 时更是 MAX_VALUE（约 24 天）。
+            // 继续等待会白等到超时，waitTime=0 时更是约 24 天。
             Object taskObj = returnMsg == null ? null : returnMsg.getParam(THREADPOOL_TASK);
             if (!(taskObj instanceof ThreadTask))
                 return returnMsg;
-            if (waitTime <=0 )
-                waitTime =Integer.MAX_VALUE ;
             ThreadTask threadTask = (ThreadTask) taskObj;
+            // 用 latch 等完成，而不是 sleep + 让 ThreadTask 在完成时 interrupt 调用方：
+            // 超时返回后任务才完成的话，遗留的 interrupt 会打在调用方后续的 IO/锁上。
+            // ThreadTask.finally 必 countDown（含异常路径），setDoneSignal 兜底"先完成、后挂 latch"。
+            CountDownLatch latch = new CountDownLatch(1);
+            threadTask.setDoneSignal(latch);
             try {
-                sleep(waitTime);
+                if (waitTime > 0)
+                    latch.await(waitTime, TimeUnit.MILLISECONDS);
+                else
+                    latch.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();   // 恢复中断标志，交由上层决定是否退出
-                // 任务完成时 run() 会先置 isThreadOver 再 interrupt；外部中断（池 shutdown、
-                // 调用方被 cancel）时任务可能还在跑，getResult() 只会拿到 null。
-                // 只有任务确实结束才返回结果，否则如实按超时/未完成返回。
-                if (threadTask.isThreadOver())
-                    return threadTask.getResult();
-                return createMsg().setParam(TASKRESULTTIMEOUT,true);
             }
-            if (threadTask != null && threadTask.isThreadOver())
+            if (threadTask.isThreadOver())
                 return threadTask.getResult();
+            // 超时/外部中断：任务可能仍在跑，不返回半成品
             return createMsg().setParam(TASKRESULTTIMEOUT,true);
         }
     }
@@ -105,10 +105,10 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
         private IObject taskResultFor ;
         private  Object taskSessionData ;
         private String taskResultAction ;
-        private Thread mainThread ;
         protected volatile boolean isThreadOver =false ;
         protected Boolean ifTaskResult =false ;
-        private CountDownLatch doneSignal;
+        /** 等待方在 putMsg 返回后挂上；volatile 保证任务线程在 finally 一定能看到（可见性配对 isThreadOver） */
+        private volatile CountDownLatch doneSignal;
         /** 暂停标志，pauseTask() 置 true，resumeTask() 置 false */
         volatile boolean paused = false;
         /** 暂停等待锁 */
@@ -125,8 +125,6 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             this.msg =msg ;
             this.fromWho=fromWho;
             exceptionMsg = (TLMsg) msg.getSystemParam(EXCEPTIONMSG);
-            if (!msg.systemParamIsNull(TASKMAINTHREAD) )
-                mainThread = (Thread) msg.getAndRemoveSystemParam(TASKMAINTHREAD);
             taskResultFor = (IObject) msg.getAndRemoveSystemParam(TASKRESULTFOR);
             taskResultAction = (String) msg.getAndRemoveSystemParam(TASKRESULTACTION);
             if(taskResultAction==null )
@@ -177,8 +175,6 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                if(ifTaskResult)
                    msg.setSystemParam(TASKRESULT,returnMsg);
                isThreadOver =true ;
-               if(mainThread !=null)
-                   mainThread.interrupt();
                if(taskResultFor !=null)
                {
                    if(taskResultMsg ==null)
@@ -203,6 +199,8 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                if(exceptionMsg!=null )
                    fromWho.getMsg(this,exceptionMsg.setParam("exception",e));
            } finally {
+               // 异常路径也必须标记结束：否则等待方（latch / 旧 sleep 逻辑）永远等不到完成信号。
+               isThreadOver = true;
                currentTask.remove();
                executingThread = null;
                if (doneSignal != null)

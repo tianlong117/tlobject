@@ -269,14 +269,15 @@ public class TLObjectFactory extends TLBaseModule {
 
     public void destroyModule() {
         Object module;
-        TLMsg msg = createMsg().setAction(MODULE_DESTROY).setWaitFlag(true);
+        // 每个模块一条独立消息：putMsg 会就地改写 previous/source，
+        // 复用同一个 TLMsg 会让后一个模块看到前一个模块的上下文。
         // 先销毁普通模块，跳过日志相关模块（留到最后）
         for (String key : modules.keySet()) {
             if (key.equals(DEFAULTLOGTTHREADPOOL) || key.equals(DEFAULTLOG))
                 continue;
             module = modules.get(key);
             if (module instanceof IObject) {
-                putMsg((IObject) module, msg);
+                putMsg((IObject) module, createMsg().setAction(MODULE_DESTROY).setWaitFlag(true));
                 putLog(((IObject) module).getName() + " is destroyed", LogLevel.DEBUG);
             }
         }
@@ -286,7 +287,7 @@ public class TLObjectFactory extends TLBaseModule {
                 continue;
             module = modules.get(key);
             if (module instanceof IObject) {
-                putMsg((IObject) module, msg);
+                putMsg((IObject) module, createMsg().setAction(MODULE_DESTROY).setWaitFlag(true));
             }
         }
     }

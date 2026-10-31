@@ -126,14 +126,15 @@ public   class TLModulePool extends TLBaseModule {
     protected TLMsg getModuleInPool(Object fromWho, TLMsg msg) {
         IObject  module= (IObject) modulePool.poll();
         if(module ==null){
-            if(nowNumbs.intValue() < maxNumbs)
-            {
-                nowNumbs.incrementAndGet();
+            // 容量检查与占位必须原子（旧实现 check-then-act 并发下会超过 maxNumbs）
+            if (tryAcquireSlot()) {
                 module= makeModuleInPool();
-                putLog("创建新对象",LogLevel.DEBUG,"createModule");
+                if (module == null)
+                    nowNumbs.decrementAndGet();     // 创建失败回滚占位，否则计数只增不减
+                else
+                    putLog("创建新对象",LogLevel.DEBUG,"createModule");
             }
-            else
-            {
+            if (module == null) {
                 try {
                     sleep(waitTime);
                     module= (IObject) modulePool.poll();
@@ -147,5 +148,16 @@ public   class TLModulePool extends TLBaseModule {
             }
         }
         return  createMsg().setParam(MODULEPOOL_P_MODULE,module) ;
+    }
+
+    /** CAS 占一个容量位：当前数 >= maxNumbs 时返回 false */
+    private boolean tryAcquireSlot() {
+        while (true) {
+            int current = nowNumbs.get();
+            if (current >= maxNumbs)
+                return false;
+            if (nowNumbs.compareAndSet(current, current + 1))
+                return true;
+        }
     }
 }

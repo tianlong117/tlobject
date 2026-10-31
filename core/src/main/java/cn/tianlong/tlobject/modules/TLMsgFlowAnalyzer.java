@@ -158,8 +158,8 @@ public class TLMsgFlowAnalyzer extends TLBaseModule {
             }
         }
 
-        // 按时间排序
-        records.sort(Comparator.comparing(r -> r.time));
+        // 按时间排序（旧/手写 JSONL 可能缺 time 字段，Comparator 直接取会 NPE）
+        records.sort(Comparator.comparing(r -> r.time == null ? "" : r.time));
 
         putLog("analyzeFlow: " + records.size() + " records from "
                 + files.length + " files", LogLevel.INFO);
@@ -222,8 +222,9 @@ public class TLMsgFlowAnalyzer extends TLBaseModule {
                 sb.append("    Note over ").append(r.to != null ? r.to : r.from)
                         .append(": seq=").append(r.seq).append(" ").append(r.time).append("\n");
             } else {
-                // normal/simple: 按秒分组加 Note
-                String datePart = r.time.length() >= 19 ? r.time.substring(0, 19) : r.time;
+                // normal/simple: 按秒分组加 Note（time 可能缺失，按空串分组）
+                String time = r.time == null ? "" : r.time;
+                String datePart = time.length() >= 19 ? time.substring(0, 19) : time;
                 if (!datePart.equals(lastDate)) {
                     lastDate = datePart;
                     // 使用第一个和最后一个参与者做 Note 范围

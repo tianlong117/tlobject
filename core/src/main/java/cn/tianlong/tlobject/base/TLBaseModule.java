@@ -407,14 +407,26 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected void setParamsFromMsg(ArrayList<TLMsg> msgList){
         for (int i = 0; i <  msgList.size(); i++){
             TLMsg msg =msgList.get(i) ;
-            String paramsFromMsg = (String) msg.getSystemParam(PARAMSFROMMSG,null);
-            if(paramsFromMsg !=null )
-            {
-                String[] paramskey =(paramsFromMsg.trim().split(";"));
-                if(paramskey !=null && paramskey.length >0)
-                    msg.setSystemParam(PARAMSFROMMSG,paramskey) ;
-            }
+            String[] paramskey = resolveParamsFromMsg(msg);
+            if(paramskey !=null)
+                msg.setSystemParam(PARAMSFROMMSG,paramskey) ;
         }
+    }
+
+    /**
+     * PARAMSFROMMSG 兼容两种形态：XML 解析出来是 "a;b" 字符串，
+     * reMakeProperty 归一化后是 String[]。msgTable / startMsgTable 不经过
+     * setParamsFromMsg，直接强转会在使用处 CCE。
+     */
+    private static String[] resolveParamsFromMsg(TLMsg msg) {
+        if (msg == null)
+            return null;
+        Object value = msg.getSystemParam(PARAMSFROMMSG);
+        if (value instanceof String[])
+            return (String[]) value;
+        if (value instanceof String && !((String) value).trim().isEmpty())
+            return TLDataUtils.splitStrToArray(((String) value).trim(), ";");
+        return null;
     }
 
     private void setParamsFromMsg(ConcurrentHashMap<String, ArrayList<TLMsg>> msgHashMap){
@@ -634,7 +646,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             }
             else
                 {
-                    String[] paramKeys = (String[]) msgInMsgList.getSystemParam(PARAMSFROMMSG);
+                    String[] paramKeys = resolveParamsFromMsg(msgInMsgList);
                     if (msgTableUserType !=null && msgTableUserType.equals(USEMSG))
                     {
                         cmsg =msg ;
@@ -694,7 +706,7 @@ public abstract class TLBaseModule extends TLBaseObject {
             // 从原始消息注入参数，遵循 MSGTABLEONLY 外的 copyMsgFromMsgTable 语义
             String useType = (String) template.getSystemParam(MSGTABLEUSETYPE);
             if (useType == null || !useType.equals(MSGTABLEONLY)) {
-                String[] paramKeys = (String[]) template.getSystemParam(PARAMSFROMMSG);
+                String[] paramKeys = resolveParamsFromMsg(template);
                 // 与 doMsgList 对齐：useInputMsg=false 时不注入原始消息参数/系统参数。
                 // 旧实现无条件 copyParams 一次、再按开关复制一次——开关形同虚设且重复拷贝。
                 if (msg != null && TLDataUtils.parseBoolean(template.getSystemParam(USEINPUTMSG), true) == true) {
@@ -714,6 +726,9 @@ public abstract class TLBaseModule extends TLBaseObject {
     protected   boolean ifToMySelf(String destination ){
         if(destination ==null)
             return true ;
+        // 无工厂（单元测试/独立使用）时没有 "name@factory" 形式可比，按"不是自己"处理
+        if(moduleFactory ==null)
+            return false ;
         int index =destination.indexOf("@");
         if(index <0 && destination.equals(name))
           return true ;
@@ -793,7 +808,7 @@ public abstract class TLBaseModule extends TLBaseObject {
        if (returnMsg != null)
        {
            if (TLDataUtils.parseBoolean(msg.getSystemParam(USEPRERETURNMSG),false)==true) {
-               msg.copyParams((String[]) msg.getSystemParam(PARAMSFROMMSG,null),returnMsg);
+               msg.copyParams(resolveParamsFromMsg(msg),returnMsg);
                if(returnMsg.getParam(RESULT) !=null)
                    msg.setParam(INPUT,returnMsg.getParam(RESULT)) ;
                else
@@ -1420,7 +1435,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     private TLMsg copyMsgFromMsgTable(TLMsg msg, TLMsg fromMsg) {
-        String[] paramsKey = (String[]) fromMsg.getSystemParam(PARAMSFROMMSG,null);
+        String[] paramsKey = resolveParamsFromMsg(fromMsg);
         msg.copyParams(paramsKey,fromMsg);
         msg.setAction(fromMsg.getAction());
         msg.setMsgId(fromMsg.getMsgId());
@@ -1541,6 +1556,12 @@ public abstract class TLBaseModule extends TLBaseObject {
             return putMsg(module, msg);
         }
         else {
+            // 无工厂（单元测试 / 独立使用）：没有可关停的应用，且 putLog 自身也要经工厂，
+            // 直接走到默认分支会 NPE/递归。按"模块缺失"返回忽略标记。
+            if (moduleFactory == null) {
+                System.err.println("module is not exist and no factory available: " + moduleName);
+                return createMsg().setParam(IGNOREMODULEISNULL,false);
+            }
             putLog("module is not exist " + moduleName, LogLevel.ERROR);
             if(TLDataUtils.parseBoolean(msg.getSystemParam(IGNOREMODULEISNULL),false))
                 return createMsg().setParam(IGNOREMODULEISNULL,false);
@@ -1743,8 +1764,8 @@ public abstract class TLBaseModule extends TLBaseObject {
             return super.putMsgNoWait(toWho, msg);
         }
         msg.removeSystemParam(INTHREADPOOL);
-        if (!msg.systemParamIsNull(TASKWAITTIME))
-            msg.setSystemParam(TASKMAINTHREAD,Thread.currentThread());
+        // 等待方用 ThreadTask.doneSignal（latch）唤醒，不再依赖完成时 interrupt 调用方线程：
+        // 超时返回后任务才完成会污染调用方的中断标志（遗留 interrupt）。
         TLMsg tmsg = createMsg().setAction(THREADPOOL_EXECUTE).setParam(THREADPOOL_P_TASKMSG, msg).setParam(THREADPOOL_P_TASKMODULE, toWho);
         Object threadPool = msg.getAndRemoveSystemParam(THREADPOOLNAME);
         if (threadPool == null)
@@ -1980,6 +2001,9 @@ public abstract class TLBaseModule extends TLBaseObject {
         if (ifSaveModule ==true && modules.get(newModuleName) != null)
             return modules.get(newModuleName);
         else {
+            // 无工厂（单元测试/独立使用）：本地没有就是没有，不能 NPE 在 putMsg(null,...)
+            if (moduleFactory == null)
+                return null;
             TLMsg msg = createMsg()
                     .setAction(FACTORY_GETMODULE)
                     .setParam(MODULE_SINGLETON, ifSingleton)
@@ -2019,6 +2043,8 @@ public abstract class TLBaseModule extends TLBaseObject {
             return modules.get(moduleName);
         else
         {
+            if (moduleFactory == null)
+                return null;
             Object module =getModuleInFactory(moduleName);
             if (module != null)
                 modules.put(moduleName, module);
@@ -2027,6 +2053,8 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
     //从工厂已经存在的模块中获取模块，不创建模块
     protected Object getModuleInFactory(String moduleName) {
+        if (moduleFactory == null)
+            return null;
         TLMsg returnMsg = putMsg(moduleFactory, createMsg()
                 .setAction("getModuleInFactory").setParam(FACTORY_P_MODULENAME, moduleName));
         return returnMsg.getParam(FACTORY_R_MODULEINSTANCE);    }
