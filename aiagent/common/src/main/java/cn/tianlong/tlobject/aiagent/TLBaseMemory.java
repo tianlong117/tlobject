@@ -324,8 +324,11 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
         }
         if (agentName != null && !agentName.isEmpty()) {
             try {
+                // IGNOREMODULEISNULL：store 是工厂共享单例，agentName 可能是私有子 agent
+                // （不在工厂实例表里）；缺模块时默认分支会 shutdown(-1)，一次摘要就带走整个应用。
                 TLMsg refResult = putMsg(agentName,
-                        createMsg().setAction("getLlmProvider").setParam("provName", ""));
+                        createMsg().setAction("getLlmProvider").setParam("provName", "")
+                                .setSystemParam(IGNOREMODULEISNULL, true));
                 Object ref = refResult != null ? refResult.getParam("provider") : null;
                 if (ref instanceof TLLlmProvider) {
                     putLog("Summary provider borrowed from agent: " + agentName, LogLevel.DEBUG);

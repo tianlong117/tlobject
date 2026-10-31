@@ -695,10 +695,12 @@ public abstract class TLBaseModule extends TLBaseObject {
             String useType = (String) template.getSystemParam(MSGTABLEUSETYPE);
             if (useType == null || !useType.equals(MSGTABLEONLY)) {
                 String[] paramKeys = (String[]) template.getSystemParam(PARAMSFROMMSG);
-                step.copyParams(paramKeys, msg);
-                if (msg != null && TLDataUtils.parseBoolean(template.getSystemParam(USEINPUTMSG), true) == true)
+                // 与 doMsgList 对齐：useInputMsg=false 时不注入原始消息参数/系统参数。
+                // 旧实现无条件 copyParams 一次、再按开关复制一次——开关形同虚设且重复拷贝。
+                if (msg != null && TLDataUtils.parseBoolean(template.getSystemParam(USEINPUTMSG), true) == true) {
                     step.copyParams(paramKeys, msg);
-                step.addSystemArgs(msg != null ? msg.getSystemArgs() : null);
+                    step.addSystemArgs(msg.getSystemArgs());
+                }
             }
             step.setSource(name);
             if (step.getDestination() == null || step.getDestination().isEmpty())
@@ -1468,14 +1470,15 @@ public abstract class TLBaseModule extends TLBaseObject {
         ArrayList<TLMsg> msgList = tableVar.get(key);
         if (msgList == null) {
             msgList = new ArrayList<TLMsg>();
-            // position 越界（如 position="3" 而表为空）时退化为追加，避免 IndexOutOfBoundsException
-            if (position < 0 || position > msgList.size())
-                msgList.add(msg);
-            else
-                msgList.add(position, msg);
             tableVar.put(key, msgList);
-        } else
+        }
+        // position 对"表已存在"同样生效（TLMsgLog.startLogOnRun 用 position=0 把日志监听
+        // 插到最前）；旧实现只在首次建表时看 position，后续 addBeforeMsg/addAfterMsg 全部退化成追加。
+        // 越界（如 position=3 而表为空）退化为追加，避免 IndexOutOfBoundsException。
+        if (position < 0 || position >= msgList.size())
             msgList.add(msg);
+        else
+            msgList.add(position, msg);
     }
 
     private void  addModuleClass(Object fromWho, TLMsg msg) {
@@ -1610,17 +1613,21 @@ public abstract class TLBaseModule extends TLBaseObject {
             TLMsg msg = msgList.get(j);
             msg.setWaitFlag(false);
             TLMsg returnMsg= putMsg(msg);
-            if(returnMsg !=null && !returnMsg.isNull(THREADPOOL_TASK))
+            Object taskObj = returnMsg == null ? null : returnMsg.getParam(THREADPOOL_TASK);
+            if(taskObj instanceof ThreadTask)
             {
-                ThreadTask threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
+                ThreadTask threadTask = (ThreadTask) taskObj;
                 threadTask.setDoneSignal(latch);
                 threadTaskList.add(j,threadTask);
+                resultMsgList.add(j,null);       // 由 task 结束后回填
             }
             else {
+                // 同步路径（IFTASKJOIN 等）putMsg 已经拿到真实结果：保留结果并视为完成。
+                // 旧实现把结果丢成 null 并归入 UNCOMPLETEDMSGLIST。
                 threadTaskList.add(j,null);
-                latch.countDown();  // 无法获取 ThreadTask 的任务直接视为完成
+                resultMsgList.add(j,returnMsg);
+                latch.countDown();
             }
-            resultMsgList.add(j,null);
         }
         try {
             if (waitTime > 0)
@@ -1638,8 +1645,11 @@ public abstract class TLBaseModule extends TLBaseObject {
             if (task != null && task.isThreadOver()) {
                 resultMsgList.set(i, task.getResult());
                 completedMsgList.add(msgList.get(i));
+            } else if (task == null && resultMsgList.get(i) != null) {
+                // 同步完成：结果已在上面的发送循环里入位
+                completedMsgList.add(msgList.get(i));
             } else {
-                // 未完成（超时）或提交失败（task==null），都放入未完成列表
+                // 未完成（超时）、提交失败（task==null 且无返回），都放入未完成列表
                 // 保留原始 msg，调用方可以直接用这个列表重试
                 uncompletedMsgList.add(msgList.get(i));
             }
@@ -1658,15 +1668,18 @@ public abstract class TLBaseModule extends TLBaseObject {
      */
     public TLMsg putMsgByThread(TLMsg msg, int waitTime) {
         msg.setWaitFlag(false);
-        CountDownLatch latch = new CountDownLatch(1);
         TLMsg returnMsg = putMsg(msg);
-        ThreadTask threadTask = null;
-        if (returnMsg != null && !returnMsg.isNull(THREADPOOL_TASK)) {
-            threadTask = (ThreadTask) returnMsg.getParam(THREADPOOL_TASK);
-            threadTask.setDoneSignal(latch);
-        } else {
-            latch.countDown();
+        if (returnMsg == null)
+            return createMsg().setParam(TASKRESULTTIMEOUT, true);
+        Object taskObj = returnMsg.getParam(THREADPOOL_TASK);
+        if (!(taskObj instanceof ThreadTask)) {
+            // 同步路径（IFTASKJOIN 等）putMsg 已经拿到真实结果，直接返回；
+            // 旧实现丢弃它并按超时返回。
+            return returnMsg;
         }
+        ThreadTask threadTask = (ThreadTask) taskObj;
+        CountDownLatch latch = new CountDownLatch(1);
+        threadTask.setDoneSignal(latch);
         try {
             if (waitTime > 0)
                 latch.await(waitTime, TimeUnit.MILLISECONDS);
@@ -1675,7 +1688,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        if (threadTask != null && threadTask.isThreadOver())
+        if (threadTask.isThreadOver())
             return threadTask.getResult();
         return createMsg().setParam(TASKRESULTTIMEOUT, true);
     }

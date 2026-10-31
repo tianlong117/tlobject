@@ -130,38 +130,44 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         List<TLConversationHistory> history = getOrCreateSession(sessionId);
 
-        // 支持直接传入TLConversationHistory对象
-        TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
-        if (entry != null) {
-            capToolResult(entry);
-            entry.setSeq(nextSeq(sessionId));
-            history.add(entry);
-        } else {
-            // 从args中构造
-            String roleStr = msg.getStringParam("role", "user");
-            TLConversationHistory.Role role;
-            try {
-                role = TLConversationHistory.Role.valueOf(roleStr);
-            } catch (IllegalArgumentException e) {
-                role = TLConversationHistory.Role.user;
+        // 会话列表锁：读侧（getMessages/getView）在拷贝/遍历，写侧在 add/trim。
+        // ArrayList 结构变更会让并发读抛 CME——读路径（后台任务快照、evals 查询）不持 chatThreads 锁。
+        int turnCount;
+        synchronized (history) {
+            // 支持直接传入TLConversationHistory对象
+            TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
+            if (entry != null) {
+                capToolResult(entry);
+                entry.setSeq(nextSeq(sessionId));
+                history.add(entry);
+            } else {
+                // 从args中构造
+                String roleStr = msg.getStringParam("role", "user");
+                TLConversationHistory.Role role;
+                try {
+                    role = TLConversationHistory.Role.valueOf(roleStr);
+                } catch (IllegalArgumentException e) {
+                    role = TLConversationHistory.Role.user;
+                }
+                String content = msg.getStringParam("content", "");
+                TLConversationHistory h = new TLConversationHistory(role, content);
+                capToolResult(h);
+                if (msg.containsParam("toolCalls")) {
+                    h.setToolCalls((List<TLToolCall>) msg.getListParam("toolCalls", null));
+                }
+                if (msg.containsParam("toolCallId")) {
+                    h.setToolCallId(msg.getStringParam("toolCallId", null));
+                    h.setName(msg.getStringParam("name", null));
+                }
+                h.setSeq(nextSeq(sessionId));
+                history.add(h);
             }
-            String content = msg.getStringParam("content", "");
-            TLConversationHistory h = new TLConversationHistory(role, content);
-            capToolResult(h);
-            if (msg.containsParam("toolCalls")) {
-                h.setToolCalls((List<TLToolCall>) msg.getListParam("toolCalls", null));
-            }
-            if (msg.containsParam("toolCallId")) {
-                h.setToolCallId(msg.getStringParam("toolCallId", null));
-                h.setName(msg.getStringParam("name", null));
-            }
-            h.setSeq(nextSeq(sessionId));
-            history.add(h);
-        }
 
-        // 裁剪超长历史
-        trimHistory(history);
-        return createMsg().setParam(RESULT, true).setParam("turnCount", history.size());
+            // 裁剪超长历史
+            trimHistory(history);
+            turnCount = history.size();
+        }
+        return createMsg().setParam(RESULT, true).setParam("turnCount", turnCount);
     }
 
     /**
@@ -174,8 +180,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         // 历史 bug：prepareChat 的 {{date}}/{{sessionId}} 模板替换在浅拷贝列表的元素上
         // setContent，改的是 context 持有的同一对象，随后 REPLACE 回存造成历史污染。
         // content 是 String（不可变），copy() 足够隔离模板替换；集合字段不在此处修改。
-        List<TLConversationHistory> copy = new ArrayList<>(history.size());
-        for (TLConversationHistory h : history) copy.add(h.copy());
+        // 锁：与 addMessage/replace 的写侧互斥，避免拷贝途中列表被 trim 抛 CME。
+        List<TLConversationHistory> copy;
+        synchronized (history) {
+            copy = new ArrayList<>(history.size());
+            for (TLConversationHistory h : history) copy.add(h.copy());
+        }
         return createMsg().setParam(AI_P_MESSAGEHISTORY, copy);
     }
 
@@ -203,14 +213,18 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             if (toolResultCharLimit > 0) {
                 for (TLConversationHistory h : copy) capToolResult(h);
             }
-            sessions.put(sessionId, copy);
-            trimHistory(sessions.get(sessionId));
-            // 更新 seq 计数器为 max(seq)，之后的递增从恢复点继续
-            long maxSeq = 0;
-            for (TLConversationHistory h : sessions.get(sessionId)) {
-                if (h.getSeq() > maxSeq) maxSeq = h.getSeq();
+            // put 与 trim 在同一把列表锁内：读侧拿到新列表后会等锁，不会看到"刚换上、
+            // 正在被 trim 删元素"的中间状态。
+            synchronized (copy) {
+                sessions.put(sessionId, copy);
+                trimHistory(copy);
+                // 更新 seq 计数器为 max(seq)，之后的递增从恢复点继续
+                long maxSeq = 0;
+                for (TLConversationHistory h : copy) {
+                    if (h.getSeq() > maxSeq) maxSeq = h.getSeq();
+                }
+                seqCounter.put(sessionId, maxSeq);
             }
-            seqCounter.put(sessionId, maxSeq);
         } else {
             sessions.remove(sessionId);
             seqCounter.remove(sessionId);
@@ -225,7 +239,10 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         // msgTool 链路：executeMsgTool 已将 sessionId 复制进 systemArgs（msgTable 路由时 systemArgs 会传播）
         String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
         List<TLConversationHistory> history = sessions.get(sessionId);
-        int count = (history != null) ? history.size() : 0;
+        int count = 0;
+        if (history != null) {
+            synchronized (history) { count = history.size(); }
+        }
         return createMsg().setParam("turnCount", count);
     }
 
@@ -241,36 +258,38 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         if (limit <= 0) limit = 40;
         List<TLConversationHistory> history = getOrCreateSession(sessionId);
 
-        List<TLConversationHistory> filtered = new ArrayList<>();
-        for (TLConversationHistory h : history) {
-            if (h.getSeq() > fromSeq) filtered.add(h);
-        }
-        int startIdx = Math.max(0, filtered.size() - limit);
-        // 孤儿 tool 修正（单次补簇）：视图开头是 tool（其 assistant 被 fromSeq 截掉）时，
-        // 向前在完整历史中借回 [assistant..簇起点) 段插到该 tool 前；同簇只需补一次。
-        // ⚠ 勿改回循环补：addAll(0,prefix)+startIdx 同幅前进会让 startIdx 停在同一个 tool 上
-        // 无限插入同一前缀 → 死循环。
-        if (startIdx < filtered.size()
-                && filtered.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
-            TLConversationHistory first = filtered.get(startIdx);
-            int idxInFull = history.indexOf(first);
-            if (idxInFull > 0) {
-                for (int i = idxInFull - 1; i >= 0; i--) {
-                    TLConversationHistory h = history.get(i);
-                    if (h.isAssistantWithToolCalls()) {
-                        List<TLConversationHistory> prefix =
-                                new ArrayList<>(history.subList(i, idxInFull));
-                        filtered.addAll(startIdx, prefix);
-                        // ⚠ 不推进 startIdx：补回的前缀必须留在视图内——推进会把刚借回的
-                        //   assistant 又切出视图，孤儿 tool 被下游净化删掉，等于白补。
-                        //   （与 TLAiAgent.buildSendList 同一不变量）
-                        break;
+        List<TLConversationHistory> result;
+        synchronized (history) {
+            List<TLConversationHistory> filtered = new ArrayList<>();
+            for (TLConversationHistory h : history) {
+                if (h.getSeq() > fromSeq) filtered.add(h);
+            }
+            int startIdx = Math.max(0, filtered.size() - limit);
+            // 孤儿 tool 修正（单次补簇）：视图开头是 tool（其 assistant 被 fromSeq 截掉）时，
+            // 向前在完整历史中借回 [assistant..簇起点) 段插到该 tool 前；同簇只需补一次。
+            // ⚠ 勿改回循环补：addAll(0,prefix)+startIdx 同幅前进会让 startIdx 停在同一个 tool 上
+            // 无限插入同一前缀 → 死循环。
+            if (startIdx < filtered.size()
+                    && filtered.get(startIdx).getRole() == TLConversationHistory.Role.tool) {
+                TLConversationHistory first = filtered.get(startIdx);
+                int idxInFull = history.indexOf(first);
+                if (idxInFull > 0) {
+                    for (int i = idxInFull - 1; i >= 0; i--) {
+                        TLConversationHistory h = history.get(i);
+                        if (h.isAssistantWithToolCalls()) {
+                            List<TLConversationHistory> prefix =
+                                    new ArrayList<>(history.subList(i, idxInFull));
+                            filtered.addAll(startIdx, prefix);
+                            // ⚠ 不推进 startIdx：补回的前缀必须留在视图内——推进会把刚借回的
+                            //   assistant 又切出视图，孤儿 tool 被下游净化删掉，等于白补。
+                            //   （与 TLAiAgent.buildSendList 同一不变量）
+                            break;
+                        }
                     }
                 }
             }
+            result = new ArrayList<>(filtered.subList(Math.max(0, startIdx), filtered.size()));
         }
-        List<TLConversationHistory> result =
-                new ArrayList<>(filtered.subList(Math.max(0, startIdx), filtered.size()));
         return createMsg().setParam(AI_P_MESSAGEHISTORY, result);
     }
 
@@ -289,10 +308,13 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         String systemMsg = msg.getStringParam(AI_P_SYSTEMMESSAGE, null);
         if (systemMsg != null) {
             List<TLConversationHistory> history = getOrCreateSession(sessionId);
-            // 移除旧的system消息
-            history.removeIf(h -> h.getRole() == TLConversationHistory.Role.system);
-            // 在开头插入新的system消息
-            history.add(0, new TLConversationHistory(TLConversationHistory.Role.system, systemMsg));
+            // 与读侧共用列表锁（removeIf + add 是两次结构变更，中间态不应被读到）
+            synchronized (history) {
+                // 移除旧的system消息
+                history.removeIf(h -> h.getRole() == TLConversationHistory.Role.system);
+                // 在开头插入新的system消息
+                history.add(0, new TLConversationHistory(TLConversationHistory.Role.system, systemMsg));
+            }
         }
         return createMsg().setParam(RESULT, true);
     }
@@ -377,6 +399,13 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
      * 保证不破坏 OpenAI API 消息顺序约束：tool 消息必须紧跟其 assistant(tool_calls)。
      */
     protected void trimHistory(List<TLConversationHistory> history) {
+        // 写侧统一走列表锁；addMessage/replace 调用时已持锁（可重入）
+        synchronized (history) {
+            trimHistoryLocked(history);
+        }
+    }
+
+    private void trimHistoryLocked(List<TLConversationHistory> history) {
         if (maxContextMessages < 0) return;   // 全量保留模式
         if (history.size() <= maxContextMessages) return;
 

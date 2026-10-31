@@ -120,22 +120,25 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
-        // 从总线注销订阅，否则模块卸载/重载后旧实例仍留在 receivers 里，继续 ack 审批事件
+        // 从总线注销订阅，否则模块卸载/重载后旧实例仍留在 receivers 里，继续 ack 审批事件。
+        // IGNOREMODULEISNULL：缺 msgBus 时 putMsg 默认走 moduleFactory.shutdown(-1)——
+        // 那是 System.exit，catch 不到；控制台热卸载/最小化部署会顺带退出整个应用。
         try {
-            putMsg("msgBus", createMsg().setAction("unRegistBus")
-                    .setParam("destination", "approvalEvent").setParam("object", this));
-            putMsg("msgBus", createMsg().setAction("unRegistBus")
-                    .setParam("destination", "taskResult").setParam("object", this));
-            putMsg("msgBus", createMsg().setAction("unRegistBus")
-                    .setParam("destination", "todoEvent").setParam("object", this));
-            putMsg("msgBus", createMsg().setAction("unRegistBus")
-                    .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
-            putMsg("msgBus", createMsg().setAction("unRegistBus")
-                    .setParam("destination", WORKFLOW_PROGRESS_TOPIC).setParam("object", this));
+            unregBus("approvalEvent");
+            unregBus("taskResult");
+            unregBus("todoEvent");
+            unregBus(TOOL_PROGRESS_TOPIC);
+            unregBus(WORKFLOW_PROGRESS_TOPIC);
         } catch (Exception e) {
             putLog("msgBus 注销事件订阅失败: " + e, cn.tianlong.tlobject.modules.LogLevel.DEBUG);
         }
         return super.destroy(fromWho, msg);
+    }
+
+    private void unregBus(String destination) {
+        putMsg("msgBus", createMsg().setAction("unRegistBus")
+                .setParam("destination", destination).setParam("object", this)
+                .setSystemParam(IGNOREMODULEISNULL, true));
     }
 
     @Override

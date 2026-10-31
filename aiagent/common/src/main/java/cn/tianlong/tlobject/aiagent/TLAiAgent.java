@@ -1304,17 +1304,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         ctx.cancelled = cancelFlags.computeIfAbsent(sessionId,
                 k -> new java.util.concurrent.atomic.AtomicBoolean());
 
-        // 同会话锁：先拿锁，再写任何会话状态（防止锁失败的并发方覆盖活跃方）
-        Thread existing = chatThreads.putIfAbsent(sessionId, Thread.currentThread());
-        if (existing != null && existing.isAlive()) {
+        // 同会话锁：先拿锁，再写任何会话状态（防止锁失败的并发方覆盖活跃方）。
+        // 原实现 putIfAbsent + 发现死线程后 put 覆盖不是原子的：两个并发方都看到同一个
+        // 死线程时会各自 put 成功，双双认为自己拿到锁，同会话被两条流水线同时处理。
+        // compute 把"判活 + 抢占"压成一个原子操作。
+        final Thread me = Thread.currentThread();
+        Thread winner = chatThreads.compute(sessionId, (k, cur) ->
+                (cur == null || !cur.isAlive()) ? me : cur);
+        if (winner != me) {
             ctx.terminalResult = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "会话使用中：该会话已有对话正在进行，请等待其完成")
                     .setParam(AI_P_SESSIONID, sessionId);
             return;
-        }
-        if (existing != null) {
-            // 死亡残留线程：putIfAbsent 不更新 map——覆盖登记，保证 stopChat 拿到正确 worker
-            chatThreads.put(sessionId, Thread.currentThread());
         }
         ctx.lockAcquired = true;
 
@@ -2553,8 +2554,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (providerName.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "provider name required");
         }
-        TLBaseModule module = getModule(providerName) instanceof TLLlmProvider
-                ? (TLBaseModule) getModule(providerName) : null;
+        // getModule 有创建副作用：取一次即可，instanceof 与强转用同一个实例
+        Object providerModule = getModule(providerName);
+        TLBaseModule module = providerModule instanceof TLLlmProvider
+                ? (TLBaseModule) providerModule : null;
         if (module instanceof TLLlmProvider) {
             llmProvider = (TLLlmProvider) module;
             defaultLlmProvider = providerName;

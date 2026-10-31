@@ -45,10 +45,10 @@ import static cn.tianlong.tlobject.base.TLParamString.*;
  * &lt;/startMsg&gt;
  * </pre>
  *
- * <p>配置参数:
+ * <p>配置参数（&lt;params&gt; 段的条目以标签名为参数名，不是 &lt;param name="..."&gt; 写法）:
  * <pre>
- * &lt;param name="checkpointDir" value="data/checkpoint/"/&gt;
- * &lt;param name="shutdownWaitMs" value="30000"/&gt;  关闭时等待在途断点收尾的上限
+ * &lt;checkpointDir value="data/checkpoint/"/&gt;
+ * &lt;shutdownWaitMs value="30000"/&gt;  关闭时等待在途断点收尾的上限
  * </pre>
  *
  * @author tianlong
@@ -217,7 +217,16 @@ public class TLCheckpointModule extends TLBaseModule {
         // 检查 seq 参数：有 seq 则从历史定位，无 seq 则从断点文件恢复
         String seqStr = msg.getStringParam(CHECKPOINT_P_SEQ, null);
         if (seqStr != null && !seqStr.isEmpty()) {
-            int seq = Integer.parseInt(seqStr);
+            int seq;
+            try {
+                seq = Integer.parseInt(seqStr.trim());
+            } catch (NumberFormatException e) {
+                // 配置里 seq 写错（如占位符未替换、非数字）：明确告知并跳过历史重放，
+                // 不能把 NumberFormatException 抛到 init/startMsg 阶段。
+                putLog("restoreCheckpoint: invalid seq '" + seqStr + "', skip history replay",
+                        LogLevel.WARN, "restoreCheckpoint");
+                return createMsg();
+            }
             TLMsg historyMsg = findBySeq(moduleName, seq);
             if (historyMsg != null) {
                 putLog("replaying from history seq=" + seq + " for module: " + moduleName

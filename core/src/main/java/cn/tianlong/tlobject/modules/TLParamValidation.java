@@ -165,6 +165,8 @@ public class TLParamValidation extends TLBaseModule {
        }
     }
     protected void setValidationOnMsgTable(){
+        if(paramsTable ==null)      // 配置无 <paramsTable> 段：无校验规则，不是启动失败
+            return;
         for(String key :paramsTable.keySet())
         {
             ArrayList<TLMsg> msgList =paramsTable.get(key);
@@ -174,16 +176,23 @@ public class TLParamValidation extends TLBaseModule {
                 TLMsg msg =msgList.get(i) ;
                 if(!msg.isNull("validations") )
                 {
-                    ArrayList<String> validationsList =TLDataUtils.splitStrToList((String)msg.getParam("validations"),";");
-                    if(validationsList !=null && validationsList.size() >0)
-                        msg.setParam("validations",validationsList) ;
+                    // XML 配置里是 "Integer;Notempty" 字符串；代码直接 setParam 时可能已经是 List，
+                    // 不做 instanceof 判断会 CCE（这里的强转和 validate 链的强转同族）。
+                    Object validations = msg.getParam("validations");
+                    if (validations instanceof String) {
+                        ArrayList<String> validationsList = TLDataUtils.splitStrToList((String) validations, ";");
+                        if (validationsList != null && validationsList.size() > 0)
+                            msg.setParam("validations", validationsList);
+                    }
                 }
             }
         }
     }
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
-        String paramValue = (String) msg.getParam("paramValue");
+        // TLMsg.setParam 接受任意 Object；Integer/Long 等直接强转 String 会 CCE
+        Object paramValueObj = msg.getParam("paramValue");
+        String paramValue = paramValueObj == null ? null : String.valueOf(paramValueObj);
         Map<String,Object> conditon =msg.getArgs();
         Map<String,String> result = null;
         switch (msg.getAction()) {
@@ -217,7 +226,9 @@ public class TLParamValidation extends TLBaseModule {
                validattionMsgList =paramsTable.get(paramName);
            if(validattionMsgList ==null || validattionMsgList.size() ==0)
                continue;
-           String value = (String) msgParams.get(paramName);
+           // 同上：参数值可能是 Integer/Long 等，不能直接强转 String
+           Object rawValue = msgParams.get(paramName);
+           String value = rawValue == null ? null : String.valueOf(rawValue);
            HashMap<String,String> result = validateParam(paramName,value,validattionMsgList);
            if(result !=null )
            {
@@ -351,9 +362,10 @@ public class TLParamValidation extends TLBaseModule {
      */
     public static Map<String,String> validate2_Length(String value, Map<String,Object> conditon){
         HashMap <String,String> result =new HashMap<>();
-        int maxLength = (conditon.get("maxLength")!=null)?Integer.parseInt((String) conditon.get("maxLength")):0;
-        int minLength =  (conditon.get("minLength")!=null)?Integer.parseInt((String) conditon.get("minLength")):0;
-        int length =value.length();
+        // 条件值可能来自 XML（String）或代码（Integer），统一走 parseInt，避免 CCE
+        int maxLength = TLDataUtils.parseInt(conditon.get("maxLength"), 0);
+        int minLength = TLDataUtils.parseInt(conditon.get("minLength"), 0);
+        int length = value == null ? 0 : value.length();
         if ( maxLength >0 && length > maxLength)
         {
             result.put("maxLenght","超过最大长度:"+maxLength);
@@ -686,6 +698,8 @@ public class TLParamValidation extends TLBaseModule {
      */
     private static boolean match(String regex, String str)
     {
+        if (str == null)      // 参数缺失时各 pattern 都无法匹配；validate_NotNull 自己处理 null
+            return false;
         Pattern pattern = Pattern.compile(regex);
         Matcher matcher = pattern.matcher(str);
         boolean result = matcher.matches();

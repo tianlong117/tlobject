@@ -270,6 +270,12 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
        }
        public void setDoneSignal(CountDownLatch latch) {
            this.doneSignal = latch;
+           // 任务可能在挂上 latch 之前就已结束：putMsg 返回时线程已经 start()，短任务
+           // （或 IFTASKJOIN 同步路径）可能跑完 run() 的 finally 时 doneSignal 还是 null，
+           // 之后挂上的 latch 就永远等不到 countDown（waitTime=0 时永久挂起）。
+           // isThreadOver 在 finally 之前置位，这里补一次倒计数；重复 countDown 无害。
+           if (isThreadOver)
+               latch.countDown();
        }
        /**
         * 暂停检查点 — 若当前任务被暂停则阻塞等待，直到 resume 或 cancel

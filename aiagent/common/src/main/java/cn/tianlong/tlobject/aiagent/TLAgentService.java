@@ -906,7 +906,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         data.put("agentName", incompleteResult.getStringParam("agentName", ""));
         data.put("userMessage", incompleteResult.getStringParam("userMessage", ""));
         data.put("savedAt", incompleteResult.getLongParam("savedAt", 0L));
-        data.put("iteration", incompleteResult.getIntParam("round", 0));
+        // TLBaseSessionManager.doFindIncomplete 写入的键是 "iteration"（值取 roundSeq）；
+        // 旧代码读 "round"，断点提示恒显示"第 0 轮"（控制台与 webui 都读这个 data.iteration）。
+        data.put("iteration", incompleteResult.getIntParam("iteration", 0));
         // 断点态（前端据此显示「放弃该操作」并区分待批语义）
         data.put("state", incompleteResult.getStringParam("state", ""));
         data.put("approvalId", incompleteResult.getStringParam(AI_P_APPROVAL_ID, ""));

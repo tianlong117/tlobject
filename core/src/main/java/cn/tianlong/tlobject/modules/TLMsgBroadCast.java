@@ -123,6 +123,8 @@ public class TLMsgBroadCast extends TLBaseModule {
 
     protected synchronized TLMsg registReceiver(Object fromWho, TLMsg msg) {
         String messageType = (String) msg.getParam(MSGBROADCAST_P_MESSAGETYPE);
+        if(messageType ==null || messageType.isEmpty())   // ConcurrentHashMap 禁 null key
+            return createMsg().setParam(RESULT,false);
         TLMsg receiverMsg ;
         String receiver ;
         if(!msg.isNull(MSGBROADCAST_P_RECEIVEACTION))

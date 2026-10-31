@@ -419,6 +419,8 @@ public class TLMsg implements Serializable , Cloneable{
     }
     public TLMsg copyParams(String[] paramsKey ,TLMsg msg)
     {
+        if(msg ==null)          // 公共方法：来源消息可能为 null（initMsg/startMsg 等无触发消息的场景）
+            return this;
         if(args ==null)
             args= new HashMap<>() ;
        if(paramsKey==null || paramsKey.length==0)

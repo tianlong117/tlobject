@@ -12,7 +12,8 @@ import java.util.Map;
 public class TLWorkflowNode {
 
     /**
-     * 字段级合并策略的配置前缀：{@code <param name="merge.<字段>" value="<策略>"/>}。
+     * 字段级合并策略的配置前缀：{@code <merge.<字段> value="<策略>"/>}（标签名即参数名，
+     * 不是 &lt;param name="..."&gt; 写法——后者会被 TLModuleConfig 解析成同一个 key="param"）。
      * 这是图级配置不是消息参数——runAgentNode 会按此前缀过滤，不往下游透传。
      */
     public static final String MERGE_KEY_PREFIX = "merge.";
