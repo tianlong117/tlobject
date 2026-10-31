@@ -522,10 +522,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             String busy = "审批请求过多，请稍后重试";
             putLog("pendingApprovals 达到上限 " + MAX_PENDING_APPROVALS
                     + "，拒绝新请求 tool=" + toolName + " session=" + sessionId, LogLevel.WARN);
+            // 这是系统侧过载，不是用户拒绝：REJECTED 会让 agent 往 history 写
+            // "用户已拒绝，不要重试"，把本可重试的调用永久放弃。用 UNAVAILABLE
+            // 走普通工具错误结果（执行器不认识该控制态 → 结果回喂、LLM 可重试）。
             return createMsg().setParam(RESULT, false)
-                    .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED)
+                    .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.UNAVAILABLE)
                     .setParam(AI_P_APPROVAL_REJECTREASON, busy)
-                    .setParam(AI_P_SKILLOUTPUT, buildRejectedOutput(busy));
+                    .setParam(AI_P_SKILLOUTPUT,
+                            "⚠️ 审批系统繁忙，本次未执行（不是用户拒绝），请稍后重试。");
         }
         pendingApprovals.put(request.getApprovalId(), request);
 
@@ -1171,6 +1175,13 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         RuleMatch r = new RuleMatch();
         if (approvalRules.isEmpty() && approvalRulePrefixes.isEmpty()) {
             return r;  // 未配置规则，全部放行
+        }
+        // 配了规则但拿不到工具名：无法判断危险等级，按安全侧放行到审批（不能静默绕过）
+        if (toolName == null || toolName.isEmpty()) {
+            r.required = true;
+            r.ruleId = "(unknown)";
+            r.operation = "";
+            return r;
         }
         // 1. 通配前缀匹配（tool:* 命中 "tool:xxx" 冒号风格函数名；tool* 命中任意前缀，如 MCP 的 agentName_toolName）
         for (String prefix : approvalRulePrefixes) {

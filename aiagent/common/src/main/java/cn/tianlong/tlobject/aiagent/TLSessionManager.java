@@ -68,14 +68,20 @@ public class TLSessionManager extends TLBaseSessionManager {
             // 读计数→写计数→追加落盘必须在同一把文件锁内：并发时两个线程会读到同一个
             // lineCount，都写 lineCount+1，产生重复 roundSeq（恢复时消息顺序错乱）。
             synchronized (lockOf(counterKey)) {
-                Integer lineCount = roundSeqCounters.computeIfAbsent(counterKey, k -> {
-                    if (!file.exists()) return 0;
-                    try (java.util.stream.Stream<String> lines = java.nio.file.Files.lines(file.toPath())) {
-                        return (int) lines.count();      // try-with-resources：原来这里不关会泄漏句柄
-                    } catch (Exception e) {
-                        return 0;
+                Integer lineCount = roundSeqCounters.get(counterKey);
+                if (lineCount == null) {
+                    // 文件扫描放 computeIfAbsent 外：CHM 的 mapping 函数在 bin 锁内执行，
+                    // 首次全文件读会阻塞同桶其他 key（历史文件大时写会话抖动）
+                    int n = 0;
+                    if (file.exists()) {
+                        try (java.util.stream.Stream<String> lines = java.nio.file.Files.lines(file.toPath())) {
+                            n = (int) lines.count();      // try-with-resources：原来这里不关会泄漏句柄
+                        } catch (Exception ignored) {
+                        }
                     }
-                });
+                    Integer prev = roundSeqCounters.putIfAbsent(counterKey, n);
+                    lineCount = prev != null ? prev : n;
+                }
                 roundData.put("roundSeq", lineCount + 1);
                 roundSeqCounters.put(counterKey, lineCount + 1);
                 roundData.put("timestamp", System.currentTimeMillis());

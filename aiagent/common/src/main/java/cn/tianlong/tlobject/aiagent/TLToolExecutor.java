@@ -250,11 +250,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     state.results.put(idx, new ToolResult(task.toolCallId, failText));
                     state.latch.countDown();
                 }
-                // 全链追踪：工具开始执行
+                // 全链追踪：工具开始执行（内建/预计算任务可能两个名字都为空，别拼出 "null execId="）
                 taskStartTs.put(idx, System.currentTimeMillis());
+                String toolDisplay = task.functionName != null && !task.functionName.isEmpty()
+                        ? task.functionName
+                        : (task.moduleName != null && !task.moduleName.isEmpty()
+                                ? task.moduleName : "(internal)");
                 traceStage(fromWho, sessionId, rootSessionId, roundId, "toolStart",
-                        (task.functionName != null && !task.functionName.isEmpty()
-                                ? task.functionName : task.moduleName) + " execId=" + executionId, 0);
+                        toolDisplay + " execId=" + executionId, 0);
             }
 
             // 等待全部完成（executionTimeoutMs=0 则一直等待，>0 超时后中断剩余任务）
@@ -561,15 +564,25 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 return null;
             }
 
-            String output;
             if (result == null) {
-                output = "done";
-            } else if (result.containsParam(AI_P_SKILLOUTPUT)) {
+                // 目标模块无响应（崩溃/超时/不可达）不能记成 "done"：LLM 会以为操作成功
+                String target = task.moduleName != null && !task.moduleName.isEmpty()
+                        ? task.moduleName : task.module.getName();
+                String noResp = "[无响应] " + target + " 未返回结果（模块可能崩溃/不可用）";
+                putLog("<<< [Function] " + functionName + " 无响应: " + target, LogLevel.ERROR);
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId, noResp, "error", "no response"),
+                        TOOL_STATUS_ERROR, elapsed, "工具模块无响应");
+                return null;
+            }
+
+            String output;
+            if (result.containsParam(AI_P_SKILLOUTPUT)) {
                 output = result.getStringParam(AI_P_SKILLOUTPUT, "");
             } else {
                 output = result.getStringParam(AI_P_RESPONSE, "");
             }
-            if (output.isEmpty()) output = result != null ? TLMsgUtils.msgToSimpleStr(result) : "";
+            if (output.isEmpty()) output = TLMsgUtils.msgToSimpleStr(result);
 
             if (result != null && result.parseBoolean("rejected", false)) {
                 String reason = result.getStringParam("rejectReason", "用户拒绝");

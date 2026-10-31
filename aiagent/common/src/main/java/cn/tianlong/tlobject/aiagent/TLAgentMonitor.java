@@ -95,14 +95,17 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
      * 超过上限时做有界淘汰。注意：ConcurrentHashMap 的迭代顺序是哈希桶顺序，
      * **不是插入/访问时间顺序**，所以这不是"淘汰最旧"，而是"淘汰哈希序靠前的一部分"。
      * 行为上只保证有界；若需要真正的 LRU 语义要另存时间戳/LinkedHashMap。
+     * <p>keepKey 是刚 computeIfAbsent 出来的会话：不能在同一轮淘汰里删掉它，
+     * 否则该会话后续 /trace /stats 全部 miss（表现为"刚建的会话立刻查不到"）。
      */
-    private static <V> void evictOldest(ConcurrentHashMap<String, V> map, int max) {
+    private static <V> void evictOldest(ConcurrentHashMap<String, V> map, int max, String keepKey) {
         if (map.size() <= max)
             return;
         java.util.Iterator<String> it = map.keySet().iterator();
         while (map.size() > max && it.hasNext()) {
-            it.next();
-            it.remove();
+            String key = it.next();
+            if (!key.equals(keepKey))
+                it.remove();
         }
     }
 
@@ -305,7 +308,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 msg.getStringParam("payload", ""));
 
         latestRounds.computeIfAbsent(rootSid, k -> new LatestRound()).record(rec);
-        evictOldest(latestRounds, MAX_TRACKED_SESSIONS);   // 这些 map 以 rootSessionId 为键且从不删除
+        evictOldest(latestRounds, MAX_TRACKED_SESSIONS, rootSid);   // 这些 map 以 rootSessionId 为键且从不删除
 
         if (enableTrace) {
             try {
@@ -349,7 +352,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         SessionStats ss = sessionStats.computeIfAbsent(sid,
                 k -> new SessionStats(msg.getStringParam(AI_P_USERID, ""),
                         msg.getStringParam(AI_P_ROOTSESSIONID, sid)));
-        evictOldest(sessionStats, MAX_TRACKED_SESSIONS);
+        evictOldest(sessionStats, MAX_TRACKED_SESSIONS, sid);
         ss.promptTokens.addAndGet(p);
         ss.completionTokens.addAndGet(c);
         ss.totalTokens.addAndGet(t);
@@ -361,7 +364,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         // 最后一轮 per-agent 用量（轮次信号来自 latestRounds——recordStage 已带 roundId 且先于 LLM 循环到达）
         String root = msg.getStringParam(AI_P_ROOTSESSIONID, sid);
         LastRoundUsage lr = lastRoundStats.computeIfAbsent(root, k -> new LastRoundUsage());
-        evictOldest(lastRoundStats, MAX_TRACKED_SESSIONS);
+        evictOldest(lastRoundStats, MAX_TRACKED_SESSIONS, root);
         String curRound = currentRoundId(root);
         if (curRound != null && !curRound.isEmpty() && !curRound.equals(lr.roundId)) {
             synchronized (lr) {
@@ -734,7 +737,7 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         runningAgents.put(sid, new RunEntry(rootSid, agentName, fromWho, thread));
         procChatRounds.incrementAndGet();
         SessionStats ss = sessionStats.computeIfAbsent(sid, k -> new SessionStats(userId, rootSid));
-        evictOldest(sessionStats, MAX_TRACKED_SESSIONS);
+        evictOldest(sessionStats, MAX_TRACKED_SESSIONS, sid);
         if (userId != null && !userId.isEmpty()) ss.userId = userId;
         ss.rootSessionId = rootSid;
         ss.chatRounds.incrementAndGet();

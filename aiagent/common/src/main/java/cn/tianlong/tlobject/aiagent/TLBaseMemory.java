@@ -399,8 +399,13 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
 
     /**
      * 持久化摘要条目（子类实现：文件 JSONL / DB 表）。默认空实现（短记忆等不需要摘要的模块）。
+     * <p>只有开启 summaryEnabled 才会被调用；走到这里说明子类忘了 override——摘要会生成但不落盘。
+     * 不改成 abstract：短记忆模块本来就不需要摘要实现，强制实现会制造无意义空方法。
      */
     protected void storeSummaryEntry(TLMemoryEntry entry) {
+        if (summaryEnabled)
+            putLog("storeSummaryEntry not overridden in " + getClass().getName()
+                    + "; summary entry will not be persisted", LogLevel.WARN);
     }
 
     // ======================== 历史碎片补批（开启摘要后, 后台一次性增量） ========================

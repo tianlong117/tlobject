@@ -1750,6 +1750,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     formatHistoryForTrace(history), null);
             long llmStartTs = System.currentTimeMillis();
             TLMsg llmResponse = llmCall.invoke(ctx, llmMsg, iteration);
+            if (llmResponse == null) {
+                // Provider 无响应（内部异常/提交失败）：保留真实错误语义，别让下一行 NPE
+                // 把原因吞成 "Agent error"。
+                if (cancelled.get()) {
+                    aborted = true;
+                    userStop = true;
+                    break;
+                }
+                String errMsg = "LLM Provider 无响应（provider 内部错误或提交失败）";
+                handleRunError(ctx, errMsg);
+                return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, errMsg);
+            }
             // 取消优先：/stop 置标志 或 Provider 报告 HTTP 被取消 → 干净退出，不当错误处理
             if (cancelled.get() || llmResponse.parseBoolean(AI_P_CANCELLED, false)) {
                 aborted = true;

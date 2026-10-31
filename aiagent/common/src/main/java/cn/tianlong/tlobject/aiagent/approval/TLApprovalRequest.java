@@ -19,6 +19,8 @@ public class TLApprovalRequest {
     public static final String APPROVED = "approved";
     public static final String REJECTED = "rejected";
     public static final String EXPIRED = "expired";
+    /** 系统侧不可用（审批积压/限流等）：不是用户拒绝，语义上允许稍后重试 */
+    public static final String UNAVAILABLE = "unavailable";
 
     // ======================== 风险级别 ========================
     public static final String LOW = "LOW";

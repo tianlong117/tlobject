@@ -825,6 +825,19 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         for (TLToolCall tc : toolCalls) {
             String functionName = tc.getFunctionName();
 
+            // 畸形 tool_call（function.name 缺失）：functions.get(null) 会 NPE，
+            // 被上层当成"内部错误"；这里转成可回喂的明确结果，让模型重新生成。
+            if (functionName == null || functionName.isEmpty()) {
+                putLog("Tool call without function name, skipped", LogLevel.WARN);
+                TLToolExecutor.ToolTask badNameTask = new TLToolExecutor.ToolTask(
+                        tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>());
+                badNameTask.precomputedOutput = "Error: tool_call 缺少 function.name（LLM 输出畸形），"
+                        + "本次未执行。请重新生成合法的工具调用。";
+                badNameTask.functionName = "invalid_tool_call";
+                tasks.add(badNameTask);
+                continue;
+            }
+
             // 参数在 LLM 输出时被截断（arguments 非空但 JSON 不完整）：不执行。
             // 把明确原因作为该 tool_call 的结果回喂给模型，让它重新生成合法参数（过长则分批）后重试；
             // 若照旧执行，agent 工具会报 missing userMessage、code_execution 可能只跑半个脚本。

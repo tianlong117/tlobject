@@ -209,9 +209,13 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
         List<TLConversationHistory> newHistory = (List<TLConversationHistory>)
                 msg.getListParam(AI_P_MESSAGEHISTORY, null);
         if (newHistory != null) {
-            List<TLConversationHistory> copy = new ArrayList<>(newHistory);
-            if (toolResultCharLimit > 0) {
-                for (TLConversationHistory h : copy) capToolResult(h);
+            // 逐个 copy 再 capToolResult：只复制列表容器的话，capToolResult 会原地改写
+            // 调用方传入的 entry（内容截断/剥 base64），replace 之后调用方仍读到被改过的版本。
+            List<TLConversationHistory> copy = new ArrayList<>(newHistory.size());
+            for (TLConversationHistory h : newHistory) {
+                TLConversationHistory c = h.copy();
+                if (toolResultCharLimit > 0) capToolResult(c);
+                copy.add(c);
             }
             // put 与 trim 在同一把列表锁内：读侧拿到新列表后会等锁，不会看到"刚换上、
             // 正在被 trim 删元素"的中间状态。

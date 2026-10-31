@@ -136,7 +136,9 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
 
     protected TLMsg clearStreamBuffer(Object fromWho, TLMsg msg) {
         synchronized (bufferLock) {
+            // getStreamBuffer/waitForStream 同时返回 reasoning，只清正文会读到上一轮的残留推理
             streamBuffer = new StringBuilder();
+            reasoningBuffer = new StringBuilder();
         }
         return createMsg().setParam(RESULT, true);
     }
