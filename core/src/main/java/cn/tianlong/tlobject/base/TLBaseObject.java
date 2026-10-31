@@ -89,7 +89,11 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
             }
-            return threadTask.getResult() ;
+            // join 超时/被中断时线程可能仍在跑，getResult() 还是 null。与 putMsg 的等待路径保持一致：
+            // 用 TASKRESULTTIMEOUT 标记"没等到"，调用方才能区分超时和任务真的无结果。
+            if (threadTask.isThreadOver())
+                return threadTask.getResult() ;
+            return createMsg().setParam(TASKRESULTTIMEOUT, true);
         }
         else
            return createMsg().setParam(THREADPOOL_TASK,threadTask);

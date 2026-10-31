@@ -668,9 +668,17 @@ public  class TLModuleConfig extends TLBaseModule {
     protected TLMsg getMsg(XmlPullParser xpp) throws Throwable {
         TLMsg msg =null;
         while (true) {
-            if ((xpp.getEventType() == XmlPullParser.END_TAG && xpp.getName().equals("msg")))
+            int eventType = xpp.getEventType();
+            // kxml2 到达 END_DOCUMENT 后 next() 仍只返回 END_DOCUMENT，不会抛异常。
+            // 配置文件在 <msg> 内被截断时这里会原地空转，启动直接挂死且无任何日志；
+            // 与配对错误一样走 parseconfig 的 XmlPullParserException 失败路径。
+            if (eventType == XmlPullParser.END_DOCUMENT) {
+                throw new XmlPullParserException(
+                        "unexpected END_DOCUMENT inside <msg>, config file: " + configFile, xpp, null);
+            }
+            if ((eventType == XmlPullParser.END_TAG && xpp.getName().equals("msg")))
                 return msg;
-            if (xpp.getEventType() == XmlPullParser.START_TAG) {
+            if (eventType == XmlPullParser.START_TAG) {
                 String name = xpp.getName();
                 if (name.equals("msg")) {
                     msg = new TLMsg();

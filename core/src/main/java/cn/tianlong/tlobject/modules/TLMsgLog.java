@@ -67,7 +67,7 @@ public  class TLMsgLog extends TLBaseModule {
         TLMsg  returnMsg = (TLMsg) msg.getSystemParam(PRERESULT);
         if(returnMsg ==null || returnMsg.getParam("new")==null) return msg;
         String moduleName= (String) returnMsg.getParam("moduleName");
-        if(moduleName ==null || moduleName==name) return msg;
+        if(moduleName ==null || moduleName.equals(name)) return msg;
         HashMap<String, Object> entry = msgTable.get(moduleName);
         ArrayList<TLMsg> msgList = entry != null ? (ArrayList<TLMsg>) entry.get("msglist") : null;
         if (msgList == null) return msg;

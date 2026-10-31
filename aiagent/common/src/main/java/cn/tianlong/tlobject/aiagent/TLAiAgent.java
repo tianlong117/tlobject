@@ -1699,6 +1699,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         // ==== LLM请求 ====
         String finalResponse = null;
+        // 本轮终答在 history 中的下标（-1=本轮没有可回写的终答）。
+        // guardOutput 在持久化前执行；护栏改写文本时必须同步这一条，否则 context/会话/记忆存的是未净化版本。
+        int finalAssistantIdx = -1;
 
         // 非流式: tool-call循环（流式入口由 chatStream 独立处理）
         while (iteration < maxIterations) {
@@ -1853,6 +1856,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 String stored = streamRun ? finalResponse : rawResponse;
                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
                         stored.isEmpty() ? emptyHistoryPlaceholder(turnFinish) : stored));
+                finalAssistantIdx = history.size() - 1;
                 break;
             }
 
@@ -1966,6 +1970,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // 空响应放占位符（空 assistant 消息会被 DeepSeek 拒绝，且随上下文存续污染后续回合）
                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
                         finalResponse.isEmpty() ? "（无输出）" : finalResponse));
+                finalAssistantIdx = history.size() - 1;
                 finalDirect = true;
                 break;
             }
@@ -2024,11 +2029,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_TOTALTOKENS_TOTAL, (int) accCancel[2]);
         }
 
+        // 输出护栏必须在持久化之前执行：否则 context、会话轮次（chatFinished.response）、长期记忆
+        // 三处存的都是未净化文本，重登/下一轮 LLM 看到的是护栏本该拦住的内容，而 UI 流式看到的是
+        // 净化后的版本——两套真相。trace 的 roundEnd payload 仍保留原文，便于复盘护栏改了什么。
+        String rawFinalResponse = finalResponse;
+        finalResponse = guardOutput(finalResponse);
+        boolean guardedChanged = finalResponse != null && !finalResponse.equals(rawFinalResponse);
+        if (guardedChanged && finalAssistantIdx >= 0 && finalAssistantIdx < history.size()
+                && history.get(finalAssistantIdx).getRole() == TLConversationHistory.Role.assistant) {
+            // 只回写本轮终答（下标在写入时记录）；控制态分支（rejected/pending/clarified）没有终答下标，
+            // 不能倒序随便找一条 assistant，否则会改掉上一轮的回复。
+            history.get(finalAssistantIdx).setContent(finalResponse);
+        }
+
         // 迭代上限截断：提示必须作为 assistant 消息落 history。
         // 此前只回 UI，重开会话末尾停在工具结果上——用户看到"任务清单停在第二项"却没有停因。
         // 正常循环耗尽时末条是 tool 消息，可安全追加；末条若是孤立的 assistant(tool_calls)
         //（execResult==null 等错误路径），追加会破坏 tool 配对，保持原样不追加。
-        if (truncated) appendTruncatedFinalToHistory(history, finalResponse);
+        if (truncated) finalAssistantIdx = appendTruncatedFinalToHistory(history, finalResponse);
 
         // ==== 后处理: 保存上下文 + 长期记忆 + 通知 SessionManager ====
         if (!noHistory) saveContextHistory(sessionId, history);   // noHistory 模式不往 context 存消息
@@ -2052,9 +2070,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         else if (pendingApproval) roundOutcome = "pendingApproval";
         else if (clarified) roundOutcome = "clarified";
         else if (truncated) roundOutcome = "truncated";
-        // payload = agent 最终输出（finalResponse 各分支恒赋值；guardOutput 在打点之后，此处为原始值）
+        // payload = agent 最终输出（护栏前的原文；guardOutput 已前移到持久化之前，此处显式用 rawFinalResponse）
         traceStage(sessionId, rootSid, roundId, "roundEnd", roundOutcome, 0,
-                finalResponse != null ? finalResponse : "", null);
+                rawFinalResponse != null ? rawFinalResponse : "", null);
         if (!pendingApproval) {
             try {
                 TLMsg saveMsg = createMsg().setAction(AGENT_SAVEMEMORY)
@@ -2072,8 +2090,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
 
         putLog("Chat completed: sessionId=" + sessionId, LogLevel.DEBUG);
-        // 输出护栏：检查并净化回复
-        finalResponse = guardOutput(finalResponse);
         long[] acc = accumulateTokenUsage(sessionId, turn);
         TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_RESPONSE, finalResponse)
                 .setParam(AI_P_SESSIONID, sessionId).setParam("iterations", iteration)
@@ -2166,10 +2182,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                    List<TLToolExecutor.ToolTask> tasks,
                                    List<TLToolExecutor.ToolResult> results) {
         if (results == null) return;
+        // 以 toolCallId 配对，index 只作兜底：results 一旦缺项，按 index 会把后面的工具名
+        // 串到错误的结果上（tool_call_id 正确、name 错误），污染下一轮请求。
+        Map<String, TLToolExecutor.ToolTask> taskById = new HashMap<>();
+        if (tasks != null) {
+            for (TLToolExecutor.ToolTask t : tasks) {
+                if (t != null && t.toolCallId != null)
+                    taskById.putIfAbsent(t.toolCallId, t);
+            }
+        }
         List<TLAttachmentRef> pendingImages = new ArrayList<>();
         for (int i = 0; i < results.size(); i++) {
             TLToolExecutor.ToolResult r = results.get(i);
-            String toolName = i < tasks.size() ? tasks.get(i).functionName : r.toolCallId;
+            if (r == null) continue;
+            TLToolExecutor.ToolTask task = r.toolCallId != null ? taskById.get(r.toolCallId) : null;
+            if (task == null && tasks != null && i < tasks.size()) task = tasks.get(i);
+            String toolName = task != null ? task.functionName : r.toolCallId;
             appendToolResult(ctx.history, toolName, r, ctx.sessionId, ctx.userId, pendingImages);
             // 必须喂原始 output（webui 渲染路径要从里面取 base64），不能喂 stripImageKeys 后的文本
             ctx.sink.onToolEvent(toolName, r.output);
@@ -3472,18 +3500,20 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 迭代上限截断提示落 history（assistant 消息）。
      * 安全性：末条若是带 tool_calls 的 assistant（没有对应 tool 结果），直接追加 assistant
      * 会破坏 tool 配对（下轮 400），此时放弃追加，保历史可发送。
+     * @return 追加后的终答在 history 中的下标；未追加（空文本/悬空 tool_calls）返回 -1
      */
-    private void appendTruncatedFinalToHistory(List<TLConversationHistory> history, String text) {
-        if (text == null || text.isEmpty()) return;
+    private int appendTruncatedFinalToHistory(List<TLConversationHistory> history, String text) {
+        if (text == null || text.isEmpty()) return -1;
         if (!history.isEmpty()) {
             TLConversationHistory last = history.get(history.size() - 1);
             if (last.getRole() == TLConversationHistory.Role.assistant
                     && last.getToolCalls() != null && !last.getToolCalls().isEmpty()) {
                 putLog("Skip truncation notice in history: dangling assistant tool_calls", LogLevel.WARN);
-                return;
+                return -1;
             }
         }
         history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, text));
+        return history.size() - 1;
     }
 
     /** 工具结果写 history（工具消息）+ 把技能声明要投喂的图**攒起来**（不可就地注入：

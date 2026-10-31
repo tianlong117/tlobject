@@ -60,7 +60,10 @@ public class TLSessionData extends TLBaseSessionData {
     private void restart(Object fromWho, TLMsg msg) {
         Throwable e = (Throwable) msg.getParam("throwable");
         putLog("发生异常，sessiondata模块重启",LogLevel.ERROR);
-        putLog(e.getMessage() +e.getCause(),LogLevel.ERROR);
+        if (e != null)
+            putLog(e.getMessage() + e.getCause(), LogLevel.ERROR);
+        else
+            putLog("restart without exception info", LogLevel.ERROR, "restart");
         putMsg(this,createMsg().setAction("checkTask")
                 .setSystemParam(IFTASKDEAMON,true)
                 .setSystemParam(EXCEPTIONHANDLER,new MyUncheckedExceptionhandler(this,createMsg().setAction("restart")))

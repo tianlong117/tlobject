@@ -103,14 +103,15 @@ public   class TLModulePool extends TLBaseModule {
         TLMsg domsg = (TLMsg) msg.getParam(MSG);
         TLMsg returnMsg =getModuleInPool(fromWho,null);
         IObject module = (IObject) returnMsg.getParam(MODULEPOOL_P_MODULE);
-        if(module !=null)
-        {
-            TLMsg doreturnMsg =putMsg(module,domsg);
-            putModuleInPool(null,msg.setParam(MODULEPOOL_P_MODULE,module));
-            return doreturnMsg ;
-        }
-        else
+        if(module ==null)
             return null ;
+        try {
+            return putMsg(module,domsg);
+        } finally {
+            // 归还必须用独立消息：调用方的业务 msg 不能被写入池参数；
+            // 且执行抛异常时也要把模块放回池，否则 nowNumbs 只增不减。
+            putModuleInPool(null, createMsg().setParam(MODULEPOOL_P_MODULE, module));
+        }
     }
 
     private TLMsg getPoolNumb(Object fromWho, TLMsg msg) {

@@ -289,7 +289,23 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
             for (int i = 0; i < n; i++) {
                 ToolResult tr = state.results.get(i);
-                if (tr == null) continue;
+                if (tr == null) {
+                    // 超时强制唤醒 / Error 级异常等路径可能没写结果。缺一条会让上层按 index 配对整体错位，
+                    // 下一次请求还会被 sanitizeToolPairs 把整轮工具消息丢弃。补一条**普通结果**
+                    //（state 留空，不能标 "timeout"——那会让上层把整轮当超时分支丢弃）。
+                    ToolTask missTask = tasks.get(i);
+                    String missName = missTask.functionName != null && !missTask.functionName.isEmpty()
+                            ? missTask.functionName
+                            : (missTask.moduleName != null && !missTask.moduleName.isEmpty()
+                                    ? missTask.moduleName : "tool");
+                    String missReason = state.aborted
+                            ? (state.abortReason != null && !state.abortReason.isEmpty()
+                                    ? state.abortReason : "执行中断")
+                            : "执行未返回结果";
+                    tr = new ToolResult(missTask.toolCallId,
+                            "[未完成] " + missName + " 未返回结果（" + missReason + "）");
+                    finishTask(state, missTask, i, tr, TOOL_STATUS_ERROR, 0L, "未返回结果");
+                }
                 if (tr.state == null) {
                     results.add(tr);
                 } else if ("pending".equals(tr.state)) {
@@ -455,6 +471,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         }
 
         if (state.aborted) {
+            // 中断也要留一条结果：保证 results 与 tasks 一一对应。
+            // 控制态留空（超时/中断由批次级 aborted 标志收口），否则调用方可能把整轮当超时丢弃。
+            String abortedName = task.functionName != null && !task.functionName.isEmpty()
+                    ? task.functionName
+                    : (task.moduleName != null && !task.moduleName.isEmpty() ? task.moduleName : "tool");
+            finishTask(state, task, idx,
+                    new ToolResult(task.toolCallId, "[未完成] " + abortedName + " 未执行（已中断）"),
+                    TOOL_STATUS_ABORTED, 0L, "已中断");
             state.latch.countDown();
             return null;
         }

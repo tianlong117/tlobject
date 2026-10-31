@@ -108,17 +108,33 @@ public class TLDataUtils {
             return defaultValue ;
     }
     // 数值参数统一按 Number 转换：Java 调用传 Integer/Long，webui JSON 经 Gson 解析为 Double——
-    // 严格类型匹配（只认 Integer/Long/Double）会误返默认值，是"参数丢失"类 bug 的常见根因
+    // 严格类型匹配（只认 Integer/Long/Double）会误返默认值，是"参数丢失"类 bug 的常见根因。
+    // 另：XML/CLI 来的参数是 String（strToMsg 的 systemArgs 不做类型转换），get*Param 必须
+    // 与 parse* 一样能读字符串，否则配置的超时/数量会静默回落默认值。非法字符串仍回落默认值。
     public static Long getLongParam( Object value ,Long defaultValue)
     {
        if (value instanceof Number )
             return ((Number) value).longValue();
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                try { return Long.parseLong(text); }
+                catch (NumberFormatException ignored) { }
+            }
+        }
         return defaultValue ;
     }
     public static Double getDoubleParam( Object value ,Double defaultValue)
     {
        if (value instanceof Number )
             return ((Number) value).doubleValue();
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                try { return Double.parseDouble(text); }
+                catch (NumberFormatException ignored) { }
+            }
+        }
         return defaultValue ;
     }
     public static String getStringParam( Object value ,String defaultValue)
@@ -131,6 +147,13 @@ public class TLDataUtils {
     {
         if (value instanceof Number )
             return ((Number) value).intValue();
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (!text.isEmpty()) {
+                try { return Integer.parseInt(text); }
+                catch (NumberFormatException ignored) { }
+            }
+        }
         return defaultValue ;
     }
     public static boolean getBooleanParam( Object value ,boolean defaultValue)

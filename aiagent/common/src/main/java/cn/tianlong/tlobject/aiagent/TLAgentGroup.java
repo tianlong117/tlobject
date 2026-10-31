@@ -167,15 +167,17 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             HashMap<String, String> cfg = membersConfig.get(mName);
             if (!TLDataUtils.parseBoolean(cfg.get("statup"), true)) continue;
             boolean isSupervisor = "supervisor".equals(cfg.get("role"));
+            // putIfAbsent 可能是"沿用既有配置"：失败时必须还原成原值，不能把别处注册的有效配置删掉。
+            HashMap<String, String> prevClassCfg = modulesClass.putIfAbsent(mName, cfg);
+            HashMap<String, String> prevParamsCfg = modulesParams.putIfAbsent(mName, cfg);
             try {
-                modulesClass.putIfAbsent(mName, cfg);
-                modulesParams.putIfAbsent(mName, cfg);
                 TLBaseModule module = (TLBaseModule) getMyModule(mName);
-                registerToRegistry(mName, module, "agent");
                 if (module == null) {
+                    restoreMemberConfig(mName, prevClassCfg, prevParamsCfg);
                     putLog("Failed to create group member: " + mName + " (group " + name + ")", LogLevel.ERROR);
                     continue;
                 }
+                registerToRegistry(mName, module, "agent");
                 if (isSupervisor) {
                     if (supervisorName == null) {
                         supervisorName = mName;
@@ -189,6 +191,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     putLog("Group member initialized: " + mName + " (group " + name + ")", LogLevel.DEBUG);
                 }
             } catch (Exception e) {
+                restoreMemberConfig(mName, prevClassCfg, prevParamsCfg);
                 putLog("Failed to init group member: " + mName + " error: " + e.toString(), LogLevel.ERROR);
             }
         }
@@ -196,6 +199,16 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         putLog("Group [" + name + "] mode=" + mode
                 + " members=[" + String.join(";", created) + "]"
                 + (supervisorName != null ? " supervisor=" + supervisorName : ""), LogLevel.DEBUG);
+    }
+
+    /** initMembers 失败回滚：prev 为 null 表示配置是本次插入的（移除）；否则还原原配置 */
+    private void restoreMemberConfig(String mName,
+                                     HashMap<String, String> prevClassCfg,
+                                     HashMap<String, String> prevParamsCfg) {
+        if (prevClassCfg != null) modulesClass.put(mName, prevClassCfg);
+        else modulesClass.remove(mName);
+        if (prevParamsCfg != null) modulesParams.put(mName, prevParamsCfg);
+        else modulesParams.remove(mName);
     }
 
     @Override
@@ -549,6 +562,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     .setSystemParam("rootSessionId", rootSessionId)
                     .setSystemParam(AI_P_ROUNDID, roundId)
                     .setSystemParam(AI_P_USERID, userId)
+                    // 成员表与实例表若脱节，putMsg 找不到模块默认会 shutdown(-1) 把整个应用带走；
+                    // 这里降级成"该成员失败"，其余成员照常执行
+                    .setSystemParam(IGNOREMODULEISNULL, true)
                     .setDestination(mName));
         }
 
@@ -559,7 +575,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         for (int i = 0; i < order.size(); i++) {
             String mn = order.get(i);
             TLMsg r = (resultList != null && i < resultList.size()) ? resultList.get(i) : null;
-            if (r != null && r.parseBoolean(RESULT, false)) {
+            if (r != null && Boolean.FALSE.equals(r.getParam(IGNOREMODULEISNULL))) {
+                // putMsg 找不到成员时返回的占位消息：给出明确原因，别让上层只看到 "failed"
+                results.put(mn, "[错误] group member not found: " + mn);
+            } else if (r != null && r.parseBoolean(RESULT, false)) {
                 results.put(mn, r.getStringParam(AI_P_RESPONSE, ""));
             } else {
                 results.put(mn, "[错误] " + (r != null ? r.getStringParam(AI_P_RESPONSE, "failed") : "timeout"));

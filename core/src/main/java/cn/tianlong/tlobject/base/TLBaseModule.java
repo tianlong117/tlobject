@@ -832,7 +832,9 @@ public abstract class TLBaseModule extends TLBaseObject {
         sb.append(TLToolsUtils.exceptionToString(exception));
         sb.append("\n");
         String content = sb.toString();
-        putLog(content, LogLevel.ERROR,msg.getAction());
+        // 上面的拼装已按 msg 可能为 null 处理，这里不能再直接解引用（before 钩子返回 null 等路径）
+        String logTag = (msg == null || msg.getAction() == null) ? "exception" : msg.getAction();
+        putLog(content, LogLevel.ERROR, logTag);
         if(ifExceptionHandle==false)
             return createMsg().setParam(EXCEPTIONHANDLER_P_MSG,msg);
         TLMsg  handlerMsg =createMsg().setAction(EXCEPTIONHANDLER_HANDLER).setParam(EXCEPTIONHANDLER_P_MODULE,name)
@@ -1840,6 +1842,13 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     public void putContentLog(String content, LogLevel logLevel, String tag,Boolean ifWait ,String threadPool,String module) {
+        // 日志模块缺失（或工厂 init 尚未注册）时不能走 putMsg("log")：
+        // 那里找不到模块会先 putLog 再 shutdown(-1)，而 putLog 又回到本方法 —— 无限递归到 StackOverflowError。
+        // containsModule 只查实例表，不会触发类加载/错误日志。降级 stderr 至少保证启动可诊断。
+        if (moduleFactory != null && !moduleFactory.containsModule(DEFAULTLOG)) {
+            System.err.println("[" + logLevel + "][" + tag + "][" + module + "] " + content);
+            return;
+        }
         TLMsg msg =createMsg()
                 .setParam(LOG_P_LOGMODULE, module)
                 .setParam("thread",Thread.currentThread().getName())

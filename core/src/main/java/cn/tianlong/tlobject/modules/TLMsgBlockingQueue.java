@@ -89,6 +89,12 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
 
     private TLMsg beforeModuleAction(Object fromWho, TLMsg msg) {
         TLMsg qmsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
+        // DOWITHMSG 只在 doMsgList 的默认分支注入；直接发 action 或钩子用 useMsg="true" 时为 null。
+        // 此时没有"被拦截的原始消息"，放行后续动作（返回 null = 不改写返回值、不阻断）。
+        if (qmsg == null) {
+            putLog("beforeModuleAction: missing DOWITHMSG, skip", LogLevel.WARN, "beforeModuleAction");
+            return null;
+        }
         addMsgInQueue( qmsg.setDestination(msg.getPrevious()),true);
         return createMsg().setParam(MODULE_DONEXTMSG ,false);
     }
