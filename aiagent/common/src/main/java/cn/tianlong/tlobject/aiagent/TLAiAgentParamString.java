@@ -170,6 +170,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String SKILL_EXECUTE = "skillExecute";
     /** 校验输入参数 */
     String SKILL_VALIDATE = "skillValidate";
+    /** 校验工具/技能输出（执行器 → outputValidator；也用于技能自校验） */
+    String OUTPUT_VALIDATE_ACTION = "validateOutput";
 
     // ======================== Memory动作 ========================
     /** 存储记忆条目 */

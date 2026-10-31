@@ -92,6 +92,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     /** groupProgress 场景捕获的事件（msgBus 回调写入） */
     private final List<TLMsg> groupProgressEvents =
             java.util.Collections.synchronizedList(new ArrayList<>());
+    /** test_bad_output 是否注册成功（输出校验场景用） */
+    private boolean badOutputSkillRegistered;
+    /** test_bad_final_output 是否注册成功（直出输出校验场景用） */
+    private boolean badFinalOutputSkillRegistered;
 
     /** 测试报告输出目录（与 trace 同属 data/aitest/ 命名空间） */
     private String reportOutputDir = "data/aitest/reports/";
@@ -103,6 +107,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String FN_ECHO = "test_echo";
     /** testSleepSkill 的函数名 */
     private static final String FN_SLEEP = "test_sleep";
+    /** testBadOutputSkill 的函数名（输出校验场景） */
+    private static final String FN_BAD_OUTPUT = "test_bad_output";
+    /** testBadFinalOutputSkill 的函数名（直出输出校验场景） */
+    private static final String FN_BAD_FINAL_OUTPUT = "test_bad_final_output";
 
     /** 内置场景用的会话 id（agent 的上下文按会话驻留进程，跨运行留存，见 resetTestSessions） */
     private static final String SID_BASIC        = "test_mock_basic";
@@ -121,12 +129,15 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_TOOLPROGRESS = "test_mock_toolprogress";
     private static final String SID_TRUNCARGS    = "test_mock_truncargs";
     private static final String SID_EMPTY        = "test_mock_emptyanswer";
+    private static final String SID_OUTPUTVALIDATION = "test_mock_outputvalidation";
+    private static final String SID_FINALOUTPUTVALIDATION = "test_mock_finaloutputvalidation";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
-            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY);
+            SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY,
+            SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION);
 
     // ======================== 构造器 ========================
 
@@ -219,6 +230,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 evt.put("executionId", msg.getStringParam("executionId", ""));
                 evt.put("sessionId", msg.getStringParam("sessionId", ""));
                 evt.put("agentName", msg.getStringParam("agentName", ""));
+                evt.put("message", msg.getStringParam("message", ""));
                 evt.put("hasOutput", msg.containsParam("output") || msg.containsParam("toolOutput"));
                 toolProgressEvents.add(evt);
                 returnMsg = createMsg().setParam(RESULT, true);
@@ -509,6 +521,8 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("approvalPendingCheckpoint", new String[]{"28-待批断点生命周期", null});
         TEST_CASES.put("truncToolArgs",    new String[]{"29-截断工具参数不可执行", "test_echo 未注册"});
         TEST_CASES.put("emptyAnswer",      new String[]{"30-空终答占位", null});
+        TEST_CASES.put("outputValidation", new String[]{"32-输出客观校验", "test_bad_output 未注册"});
+        TEST_CASES.put("finalOutputValidation", new String[]{"33-直出输出校验", "test_bad_final_output 未注册"});
         TEST_CASES.put("groupProgress",   new String[]{"31-Agent组进度", null});
     }
 
@@ -590,6 +604,8 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "toolprogress":    return this::testToolProgress;
             case "trunctoolargs":   return this::testToolArgsTruncated;
             case "emptyanswer":     return this::testEmptyAnswer;
+            case "outputvalidation": return this::testOutputValidation;
+            case "finaloutputvalidation": return this::testFinalOutputValidation;
             case "groupprogress":   return this::testGroupProgress;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
@@ -1252,6 +1268,93 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         } finally {
             putMsg("msgBus", createMsg().setAction("unRegistBus")
                     .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+        }
+    }
+
+    // ======================== 场景 32: 输出客观校验 ========================
+
+    protected TLMsg testOutputValidation(Object fromWho, TLMsg msg) {
+        if (!badOutputSkillRegistered)
+            return createMsg().setParam(RESULT, true).setParam("skipped", true)
+                    .setParam("skipReason", "test_bad_output 未注册");
+        TLMockProvider mp = getMockProvider();
+        if (mp == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "mockProvider not found");
+        mp.clearAllResponses();
+        toolProgressEvents.clear();
+        TLMsg reg = putMsg("msgBus", createMsg().setAction("registBus")
+                .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+        if (reg == null || !Boolean.TRUE.equals(reg.getParam(RESULT)))
+            return createMsg().setParam(RESULT, false).setParam("error", "订阅 toolProgress 失败");
+        try {
+            TLToolCall tc = TLMockProvider.createToolCall("call_bad_1", FN_BAD_OUTPUT,
+                    new HashMap<String, Object>());
+            mp.enqueueResponse(mp.toolCallResponse(tc));
+            mp.enqueueResponse(mp.textResponse("工具返回了输出校验错误。"));
+            TLMsg chatMsg = createMsg().setAction(AGENT_CHAT)
+                    .setSystemParam(AI_P_SESSIONID, SID_OUTPUTVALIDATION)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "测试输出校验");
+            TLMsg response = putMsg(M_AIAGENT, chatMsg);
+            boolean ok = response != null && response.parseBoolean(RESULT, false);
+            boolean found = false;
+            synchronized (toolProgressEvents) {
+                for (Map<String, Object> e : toolProgressEvents) {
+                    if (FN_BAD_OUTPUT.equals(e.get("toolName"))
+                            && TOOL_STATUS_ERROR.equals(e.get("status"))
+                            && "输出校验失败".equals(e.get("message"))) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            if (ok && found) {
+                log("[TEST]   输出校验: 工具失败事件与原因齐全");
+                return createMsg().setParam(RESULT, true);
+            }
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "ok=" + ok + " foundValidationError=" + found
+                            + " events=" + toolProgressEvents);
+        } finally {
+            putMsg("msgBus", createMsg().setAction("unRegistBus")
+                    .setParam("destination", TOOL_PROGRESS_TOPIC).setParam("object", this));
+        }
+    }
+
+    // ======================== 场景 33: 直出输出校验 ========================
+
+    protected TLMsg testFinalOutputValidation(Object fromWho, TLMsg msg) {
+        if (!badFinalOutputSkillRegistered)
+            return createMsg().setParam(RESULT, true).setParam("skipped", true)
+                    .setParam("skipReason", "test_bad_final_output 未注册");
+        TLMockProvider mp = getMockProvider();
+        if (mp == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "mockProvider not found");
+        mp.clearAllResponses();
+        try {
+            TLToolCall tc = TLMockProvider.createToolCall("call_bad_final_1",
+                    FN_BAD_FINAL_OUTPUT, new HashMap<String, Object>());
+            mp.enqueueResponse(mp.toolCallResponse(tc));
+            TLMsg chatMsg = createMsg().setAction(AGENT_CHAT)
+                    .setSystemParam(AI_P_SESSIONID, SID_FINALOUTPUTVALIDATION)
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setParam(AI_P_USERMESSAGE, "测试直出校验");
+            TLMsg response = putMsg(M_AIAGENT, chatMsg);
+            boolean ok = response != null && response.parseBoolean(RESULT, false);
+            String resp = response != null ? response.getStringParam(AI_P_RESPONSE, "") : "";
+            boolean finalFlag = response != null
+                    && response.parseBoolean(AI_P_FINALANSWER, false);
+            boolean replaced = resp.contains("输出校验失败")
+                    && !resp.contains("bad final output");
+            if (ok && finalFlag && replaced) {
+                log("[TEST]   直出校验: 原始输出被替换为校验错误，且未再调 LLM");
+                return createMsg().setParam(RESULT, true);
+            }
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "ok=" + ok + " final=" + finalFlag
+                            + " replaced=" + replaced + " resp=" + resp);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false).setParam("error", "异常: " + e);
         }
     }
 
@@ -3045,6 +3148,30 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             TLMsg r2 = putMsg(M_AIAGENT, regSleep);
             log("[TEST_MODULE] Register " + FN_SLEEP + ": " + (r2 != null && r2.parseBoolean(RESULT, false)));
 
+            // 注册 test_bad_output（输出客观校验场景；单独记录，失败只跳过该场景）
+            HashMap<String, String> badCfg = new HashMap<>();
+            badCfg.put("sameClassAs", "testBadOutputSkill");
+            badCfg.put("description", "Return an invalid total for output validation testing.");
+            TLMsg regBad = createMsg()
+                    .setAction(AGENT_REGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_BAD_OUTPUT)
+                    .setParam(AI_P_AGENTCONFIG, badCfg);
+            TLMsg r3 = putMsg(M_AIAGENT, regBad);
+            badOutputSkillRegistered = r3 != null && r3.parseBoolean(RESULT, false);
+            log("[TEST_MODULE] Register " + FN_BAD_OUTPUT + ": " + badOutputSkillRegistered);
+
+            // 注册 test_bad_final_output（直出输出校验场景）
+            HashMap<String, String> badFinalCfg = new HashMap<>();
+            badFinalCfg.put("sameClassAs", "testBadFinalOutputSkill");
+            badFinalCfg.put("description", "Return a final invalid total for final output validation testing.");
+            TLMsg regBadFinal = createMsg()
+                    .setAction(AGENT_REGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_BAD_FINAL_OUTPUT)
+                    .setParam(AI_P_AGENTCONFIG, badFinalCfg);
+            TLMsg r4 = putMsg(M_AIAGENT, regBadFinal);
+            badFinalOutputSkillRegistered = r4 != null && r4.parseBoolean(RESULT, false);
+            log("[TEST_MODULE] Register " + FN_BAD_FINAL_OUTPUT + ": " + badFinalOutputSkillRegistered);
+
             boolean ok = (r1 != null && r1.parseBoolean(RESULT, false))
                     && (r2 != null && r2.parseBoolean(RESULT, false));
             return ok;
@@ -3066,6 +3193,16 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                     .setAction(AGENT_UNREGISTERSKILL)
                     .setParam(AI_P_SKILLNAME, FN_SLEEP);
             putMsg(M_AIAGENT, unregSleep);
+
+            TLMsg unregBad = createMsg()
+                    .setAction(AGENT_UNREGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_BAD_OUTPUT);
+            putMsg(M_AIAGENT, unregBad);
+
+            TLMsg unregBadFinal = createMsg()
+                    .setAction(AGENT_UNREGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_BAD_FINAL_OUTPUT);
+            putMsg(M_AIAGENT, unregBadFinal);
             log("[TEST_MODULE] Test skills unregistered");
         } catch (Exception e) {
             log("[TEST_MODULE] Unregister test skills failed: " + e.getMessage());

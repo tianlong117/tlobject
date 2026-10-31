@@ -20,6 +20,8 @@
              危险工具只在子 agent 上，天然审批下沉）；会话/用户隔离由审批请求消息携带的
              sessionId/userId 保证。不配置 = 全应用不启用审批。 -->
         <approvalModule value="approvalGate"/>
+        <!-- 工具输出客观校验：规则见 outputValidator_config.xml；不配置 = 不校验 -->
+        <outputValidator value="outputValidator"/>
     </params>
     <beforeMsgTable>
         <action name="toolExecBatch">

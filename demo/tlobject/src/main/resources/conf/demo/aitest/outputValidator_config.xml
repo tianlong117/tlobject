@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- /test outputValidation 专用规则：测试技能返回非数字 total，必须被拒绝 -->
+    <rules>
+        <rule tool="test_bad_output"
+              checks="total:number"
+              retryable="false"/>
+        <rule tool="test_bad_final_output"
+              checks="total:number"
+              retryable="false"/>
+    </rules>
+</moduleConfig>

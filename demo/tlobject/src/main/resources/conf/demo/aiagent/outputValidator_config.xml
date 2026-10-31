@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- 工具/技能输出客观校验规则（TLOutputValidator）。
+         由 toolExecutor_config.xml 的 outputValidator=outputValidator 启用；不配置或 rules 为空 = 默认通过。
+
+         rule 属性：
+           tool      LLM 函数名优先，其次模块名；* 为兜底
+           agent     可选，限定某个 agent
+           checks    声明式通用检查：field:type / field op literal / field==算术表达式
+           validator 复杂校验目标：self（本次执行的实例）或工厂模块名
+           action    目标模块 action（默认 validateOutput）
+           retryable 失败后是否允许 LLM 修正重试（默认 false：确定性技能不可重试）
+
+         这里的示例：汉堡价格技能必须返回数字 total，且 total == quantity*unitPrice。 -->
+    <rules>
+        <rule tool="calculate_price"
+              checks="total:number; total>=0; total==quantity*unitPrice"
+              retryable="false"/>
+        <!-- /test outputValidation 专用：测试技能返回非数字 total -->
+        <rule tool="test_bad_output"
+              checks="total:number"
+              retryable="false"/>
+        <!-- /test finalOutputValidation 专用：直出结果也要校验 -->
+        <rule tool="test_bad_final_output"
+              checks="total:number"
+              retryable="false"/>
+    </rules>
+</moduleConfig>

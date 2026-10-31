@@ -9,5 +9,7 @@
              与"调用线程存活"两道跳过守卫） -->
         <executionTimeoutMs value="0"/>
         <staleStateTimeoutMs value="600000"/>
+        <!-- 输出客观校验：场景 outputValidation 依赖执行器真的把结果交给 outputValidator -->
+        <outputValidator value="outputValidator"/>
     </params>
 </moduleConfig>

@@ -156,10 +156,23 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
                     return execute(fromWho, msg);
                 case SKILL_VALIDATE:
                     return validate(fromWho, msg);
+                case OUTPUT_VALIDATE_ACTION:
+                    return validateOutput(fromWho, msg);
                 default:
                     return null;
             }
         });
+    }
+
+    /**
+     * 技能输出自校验（由 outputValidator 的 validator="self" 规则调用）。
+     * 默认通过；子类按需覆盖。msg.getParam("result") 是本次执行的完整 TLMsg。
+     *
+     * <p>这是"组件自检"，不替代独立校验：不要用同一份产出逻辑自证（Bug 会共享），
+     * 关键值优先用标准校验器的声明式 checks 或独立校验模块。
+     */
+    protected TLMsg validateOutput(Object fromWho, TLMsg msg) {
+        return createMsg().setParam("valid", true);
     }
 
     /**

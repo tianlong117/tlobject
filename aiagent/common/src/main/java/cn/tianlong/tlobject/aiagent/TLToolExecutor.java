@@ -145,6 +145,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     /** 审批模块名（共享执行器自身 XML 配置的全局默认，未配置 = 全 app 不启用审批） */
     private String approvalModuleName;
 
+    // ======================== 输出校验 ========================
+
+    /** 输出校验模块名（未配置 = 不校验；配置了才懒解析） */
+    private String outputValidatorName;
+    private volatile IObject outputValidator;
+
     // ======================== 构造函数 ========================
 
     public TLToolExecutor() { super(); }
@@ -156,6 +162,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         if (params != null) {
             if (params.get("approvalModule") != null)
                 approvalModuleName = params.get("approvalModule");
+            if (params.get("outputValidator") != null)
+                outputValidatorName = params.get("outputValidator");
             if (params.get("executionTimeoutMs") != null)
                 executionTimeoutMs = Long.parseLong(params.get("executionTimeoutMs"));
             if (params.get("staleStateTimeoutMs") != null)
@@ -165,6 +173,68 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
     @Override
     protected TLBaseModule init() { return this; }
+
+    /** 懒解析输出校验模块（按名；模块不存在时记录 ERROR 并跳过） */
+    private IObject resolveOutputValidator() {
+        if (outputValidator != null) return outputValidator;
+        if (outputValidatorName == null || outputValidatorName.isEmpty()) return null;
+        synchronized (this) {
+            if (outputValidator == null) {
+                Object m = moduleFactory != null ? moduleFactory.getModule(outputValidatorName) : null;
+                if (m instanceof IObject) {
+                    outputValidator = (IObject) m;
+                    putLog("Output validator resolved: " + outputValidatorName, LogLevel.INFO);
+                } else {
+                    putLog("Output validator not found: " + outputValidatorName
+                            + " → 跳过输出校验", LogLevel.ERROR);
+                    return null;
+                }
+            }
+        }
+        return outputValidator;
+    }
+
+    private static class OutputCheck {
+        boolean valid = true;
+        String reason = "";
+        boolean retryable = false;
+        String correctedOutput;
+    }
+
+    /**
+     * 工具结果客观校验：把完整 result TLMsg + 任务元数据交给 outputValidator。
+     * 校验器缺失/异常返回 null（fail-open，保持原行为）。
+     */
+    private OutputCheck validateToolOutput(ExecutionState state, ToolTask task, TLMsg result) {
+        // 执行失败（RESULT=false）已有明确错误语义，不再用校验规则覆盖它
+        if (result.containsParam(RESULT) && !result.parseBoolean(RESULT, true)) return null;
+        IObject validator = resolveOutputValidator();
+        if (validator == null) return null;
+        try {
+            String agentName = state.fromWho instanceof IObject
+                    ? ((IObject) state.fromWho).getName() : "";
+            TLMsg req = createMsg().setAction(OUTPUT_VALIDATE_ACTION)
+                    .setParam("functionName", task.functionName != null ? task.functionName : "")
+                    .setParam("moduleName", task.moduleName != null ? task.moduleName : "")
+                    .setParam("toolCallId", task.toolCallId)
+                    .setParam("args", task.args)
+                    .setParam("result", result)
+                    .setParam("agentName", agentName)
+                    .setParam("targetModule", task.module);
+            TLMsg resp = putMsg(validator, req);
+            if (resp == null) return null;
+            OutputCheck c = new OutputCheck();
+            if (resp.containsParam("valid")) c.valid = resp.parseBoolean("valid", true);
+            else if (resp.containsParam(RESULT)) c.valid = resp.parseBoolean(RESULT, true);
+            c.reason = resp.getStringParam("reason", "");
+            c.retryable = resp.parseBoolean("retryable", false);
+            c.correctedOutput = resp.getStringParam("correctedOutput", null);
+            return c;
+        } catch (Throwable t) {
+            putLog("output validator exception: " + t, LogLevel.ERROR);
+            return null;
+        }
+    }
 
     // ======================== 消息分发 ========================
 
@@ -616,7 +686,32 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         TOOL_STATUS_REJECTED, elapsed, reason);
                 return null;
             }
-            if (result != null && result.parseBoolean(AI_P_FINALANSWER, false)) {
+            boolean finalResult = result != null
+                    && result.parseBoolean(AI_P_FINALANSWER, false);
+
+            OutputCheck check = validateToolOutput(state, task, result);
+            if (check != null && !check.valid) {
+                String reason = check.reason != null && !check.reason.isEmpty()
+                        ? check.reason : "未知原因";
+                String failure = "输出校验失败：" + reason
+                        + (check.retryable
+                            ? "（可修正后重试）"
+                            : "（不可重试；请检查输入或实现，不要用相同参数重试）");
+                putLog("<<< [Function] " + functionName + " 输出校验失败: " + reason, LogLevel.WARN);
+                // final 也要校验：失败时仍按直出短路，把明确错误作为终答给用户，不再调 LLM
+                ToolResult tr = finalResult
+                        ? new ToolResult(task.toolCallId, failure, "final", null)
+                        : new ToolResult(task.toolCallId, failure);
+                finishTask(state, task, idx, tr, TOOL_STATUS_ERROR, elapsed, "输出校验失败");
+                return null;
+            }
+            if (check != null && check.correctedOutput != null
+                    && !check.correctedOutput.isEmpty()) {
+                output = check.correctedOutput;
+                putLog("<<< [Function] " + functionName + " 输出已被校验器修正", LogLevel.WARN);
+            }
+
+            if (finalResult) {
                 putLog("<<< [Function] " + functionName + " 返回: FINAL(直出)", LogLevel.DEBUG);
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId, output, "final", null),

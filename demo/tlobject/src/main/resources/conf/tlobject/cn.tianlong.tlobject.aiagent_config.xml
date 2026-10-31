@@ -76,6 +76,8 @@
         <module name="chatConsole" classfile="cn.tianlong.tlobject.aiagent.TLChatConsole" singleton="true"/>
         <module name="errorSupervisor" classfile="cn.tianlong.tlobject.aiagent.TLErrorSupervisorAgent" singleton="true"/>
         <module name="approvalGate" classfile="cn.tianlong.tlobject.aiagent.approval.TLApprovalModule" singleton="true"/>
+        <!-- 工具输出客观校验（可选）：执行器配置 outputValidator 才启用；规则见应用目录 outputValidator_config.xml -->
+        <module name="outputValidator" classfile="cn.tianlong.tlobject.aiagent.TLOutputValidator" singleton="true"/>
         <module name="evals" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalsModule" singleton="true"/>
         <module name="evalCaseGenerator" classfile="cn.tianlong.tlobject.aiagent.evals.TLEvalCaseGenerator" singleton="true"/>
 
@@ -85,6 +87,10 @@
         <module name="testEchoSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLEchoSkill"
                 singleton="true"/>
         <module name="testSleepSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLSleepSkill"
+                singleton="true"/>
+        <module name="testBadOutputSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLBadOutputSkill"
+                singleton="true"/>
+        <module name="testBadFinalOutputSkill" classfile="cn.tianlong.tlobject.aiagent.test.TLBadFinalOutputSkill"
                 singleton="true"/>
         <module name="agentTestModule" classfile="cn.tianlong.tlobject.aiagent.test.TLAgentTestModule"
                 singleton="true"/>
