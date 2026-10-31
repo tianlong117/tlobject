@@ -167,8 +167,13 @@ public class TLObjectFactory extends TLBaseModule {
     protected TLBaseModule init() {
         if (ifModuleMonitor)
             moduleMonitor = (IObject) getModule(DEFAULTMODULEMONITOR);
-         Object log =getModule(defaultLogModule);
-         modules.put(DEFAULTLOG,log);
+         Object log = getModule(defaultLogModule);
+         // ConcurrentHashMap 禁 null value；日志模块缺失（如 log4j jar 未引入）时
+         // 不能在这里 NPE 把工厂启动直接炸掉，至少留下可读的启动错误。
+         if (log != null)
+             modules.put(DEFAULTLOG, log);
+         else
+             System.err.println("[TLObjectFactory] defaultLogModule not found: " + defaultLogModule);
         return this;
     }
 
@@ -1004,7 +1009,10 @@ public class TLObjectFactory extends TLBaseModule {
                         commonParams = getParam(xpp, "commonParams");
                 }
             } catch (Throwable t) {
-
+                // 此前静默吞掉：factoryBoot/commonParams 变 null 后，启动"成功"但配置全失效，
+                // 排查时没有任何线索。解析阶段日志模块可能尚未创建，直接 stderr 最稳。
+                System.err.println("parse factory config error: " + t);
+                t.printStackTrace();
             }
             return returnObj;
         }

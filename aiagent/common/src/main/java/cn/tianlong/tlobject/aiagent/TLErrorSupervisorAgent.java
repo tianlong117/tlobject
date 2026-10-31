@@ -141,7 +141,11 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
             TLMsg reviewResult = putMsg(this,
                     createMsg().setAction(AGENT_CHAT)
                             .setParam(AI_P_USERMESSAGE, reviewPrompt)
-                            .setSystemParam(AI_P_SESSIONID, sessionId + "_review_" + round));
+                            .setSystemParam(AI_P_SESSIONID, sessionId + "_review_" + round)
+                            // 监管调用自身也要跳过 before/after 钩子，否则 supervisor
+                            // 若被配置进 beforeMsgTable 会递归触发 reviewChat。
+                            .setSystemParam(IGNOREBEFORE, true)
+                            .setSystemParam(IGNOREAFTER, true));
 
             String verdict = reviewResult != null
                     ? reviewResult.getStringParam(AI_P_RESPONSE, "") : "";
@@ -173,6 +177,7 @@ public class TLErrorSupervisorAgent extends TLAiAgent {
                     .setAction(AGENT_CHAT)
                     .setParam(AI_P_USERMESSAGE, correctionPrompt)
                     .setSystemParam(AI_P_SESSIONID, sessionId + "_fix_" + round);
+            correctionMsg.setSystemParam(IGNOREBEFORE, true);
             correctionMsg.setSystemParam(IGNOREAFTER, true);
 
             TLMsg corrected = putMsg(targetAgent, correctionMsg);

@@ -100,9 +100,15 @@ public class TLMsgBroadCast extends TLBaseModule {
         if(messageType ==null)
             return;
         lastBroadcastMsg.put(messageType,createMsg().copyFrom(msg)) ;
-        ArrayList<TLMsg> msgLists =receivers.get(messageType);
-        if(msgLists==null || msgLists.isEmpty())
-            return;
+        ArrayList<TLMsg> msgLists;
+        synchronized (this) {
+            ArrayList<TLMsg> registered = receivers.get(messageType);
+            if (registered == null || registered.isEmpty())
+                return;
+            // 快照后再发送：regist/unregist 是 synchronized 的，但它们改的是同一个
+            // ArrayList；广播直接遍历会 CME 或漏发。锁内只拷贝，避免 putMsg 阻塞注册。
+            msgLists = new ArrayList<>(registered);
+        }
         for(int i=0; i<msgLists.size();i++){
             TLMsg rmsg =msgLists.get(i);
             TLMsg bmsg=createMsg().copyFrom(rmsg);

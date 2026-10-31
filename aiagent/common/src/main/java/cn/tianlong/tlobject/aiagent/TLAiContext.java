@@ -170,7 +170,13 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     protected TLMsg getMessages(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         List<TLConversationHistory> history = getOrCreateSession(sessionId);
-        return createMsg().setParam(AI_P_MESSAGEHISTORY, new ArrayList<>(history));
+        // 读语义：返回深拷贝，调用方不应改写 context 内部对象。
+        // 历史 bug：prepareChat 的 {{date}}/{{sessionId}} 模板替换在浅拷贝列表的元素上
+        // setContent，改的是 context 持有的同一对象，随后 REPLACE 回存造成历史污染。
+        // content 是 String（不可变），copy() 足够隔离模板替换；集合字段不在此处修改。
+        List<TLConversationHistory> copy = new ArrayList<>(history.size());
+        for (TLConversationHistory h : history) copy.add(h.copy());
+        return createMsg().setParam(AI_P_MESSAGEHISTORY, copy);
     }
 
     /**

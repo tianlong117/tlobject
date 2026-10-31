@@ -32,7 +32,7 @@
                statup="true"
                skillName="code_execution"
                maxExecutionTime="300"
-               skillDescription="Execute inline code snippets in Python or JavaScript."/>
+               skillDescription="Execute inline code snippets in Python or JavaScript. Python stdout is UTF-8; when reading files, pass the correct encoding to open() (e.g. encoding='gbk' for GBK files)."/>
         <!-- allowedScriptDir：注意相对路径（含默认 "."）是相对**配置目录**解析（不是进程工作目录）——
              要让编码 Agent 跑你项目里的脚本，请改成项目根目录的绝对路径，如
              allowedScriptDir="D:/myproject"（不改则模型会退回 code_execution 子进程方式执行，仍可用但多绕一步） -->

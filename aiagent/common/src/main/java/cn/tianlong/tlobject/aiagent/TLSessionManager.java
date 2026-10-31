@@ -44,6 +44,14 @@ public class TLSessionManager extends TLBaseSessionManager {
     private final java.util.concurrent.ConcurrentHashMap<String, Integer> roundSeqCounters =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** 会话文件级锁：roundSeq 读-改-写 + 追加落盘必须串行，否则并发会写出重复 roundSeq */
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> fileLocks =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    private Object lockOf(String key) {
+        return fileLocks.computeIfAbsent(key, k -> new Object());
+    }
+
     @Override
     protected void storeRound(Map<String, Object> roundData) {
         if (!enableCheckpoint) return;
@@ -56,22 +64,26 @@ public class TLSessionManager extends TLBaseSessionManager {
 
             java.io.File file = new java.io.File(dir, sessionFileName(agentName, sessionId));
             String counterKey = file.getAbsolutePath();
-            // 首次见到该文件时才扫一次（进程重启后重新计数），之后走内存计数
-            Integer lineCount = roundSeqCounters.computeIfAbsent(counterKey, k -> {
-                if (!file.exists()) return 0;
-                try (java.util.stream.Stream<String> lines = java.nio.file.Files.lines(file.toPath())) {
-                    return (int) lines.count();      // try-with-resources：原来这里不关会泄漏句柄
-                } catch (Exception e) {
-                    return 0;
-                }
-            });
-            roundData.put("roundSeq", lineCount + 1);
-            roundSeqCounters.put(counterKey, lineCount + 1);
-            roundData.put("timestamp", System.currentTimeMillis());
+            // 首次见到该文件时才扫一次（进程重启后重新计数），之后走内存计数。
+            // 读计数→写计数→追加落盘必须在同一把文件锁内：并发时两个线程会读到同一个
+            // lineCount，都写 lineCount+1，产生重复 roundSeq（恢复时消息顺序错乱）。
+            synchronized (lockOf(counterKey)) {
+                Integer lineCount = roundSeqCounters.computeIfAbsent(counterKey, k -> {
+                    if (!file.exists()) return 0;
+                    try (java.util.stream.Stream<String> lines = java.nio.file.Files.lines(file.toPath())) {
+                        return (int) lines.count();      // try-with-resources：原来这里不关会泄漏句柄
+                    } catch (Exception e) {
+                        return 0;
+                    }
+                });
+                roundData.put("roundSeq", lineCount + 1);
+                roundSeqCounters.put(counterKey, lineCount + 1);
+                roundData.put("timestamp", System.currentTimeMillis());
 
-            String json = gson.toJson(roundData);
-            java.nio.file.Files.write(file.toPath(), (json + "\n").getBytes("UTF-8"),
-                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                String json = gson.toJson(roundData);
+                java.nio.file.Files.write(file.toPath(), (json + "\n").getBytes("UTF-8"),
+                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            }
         } catch (Exception e) {
             putLog("storeRound failed: " + e.toString(), cn.tianlong.tlobject.modules.LogLevel.WARN);
         }
@@ -404,14 +416,29 @@ public class TLSessionManager extends TLBaseSessionManager {
             }
             if (lastLine == null) return null;
             com.google.gson.JsonObject obj = gson.fromJson(lastLine, com.google.gson.JsonObject.class);
+            if (obj == null) return null;
             TLMsg result = new TLMsg();
-            result.setParam("sessionId", obj.get("sessionId").getAsString());
-            result.setParam("state", obj.get("state").getAsString());
-            result.setParam("agentName", obj.has("agentName") ? obj.get("agentName").getAsString() : "");
-            result.setParam("userMessage", obj.has("userMessage") ? obj.get("userMessage").getAsString() : "");
-            result.setParam("roundSeq", obj.has("roundSeq") ? obj.get("roundSeq").getAsInt() : 0);
-            if (obj.has("messages")) result.setParam("count", obj.getAsJsonArray("messages").size());
+            // 旧格式/半截写入可能缺字段：直接 get(...).getAsString() 会 NPE，
+            // 被 catch 吞掉后该会话会在列表/断点查找里静默消失。
+            result.setParam("sessionId", getStr(obj, "sessionId"));
+            result.setParam("state", getStr(obj, "state"));
+            result.setParam("agentName", getStr(obj, "agentName"));
+            result.setParam("userMessage", getStr(obj, "userMessage"));
+            result.setParam("roundSeq", getInt(obj, "roundSeq"));
+            if (obj.has("messages") && obj.get("messages").isJsonArray())
+                result.setParam("count", obj.getAsJsonArray("messages").size());
             return result;
         } catch (Exception e) { return null; }
+    }
+
+    private static String getStr(com.google.gson.JsonObject obj, String key) {
+        if (obj == null || !obj.has(key)) return "";
+        com.google.gson.JsonElement el = obj.get(key);
+        return (el == null || el.isJsonNull()) ? "" : el.getAsString();
+    }
+
+    private static int getInt(com.google.gson.JsonObject obj, String key) {
+        if (obj == null || !obj.has(key) || obj.get(key).isJsonNull()) return 0;
+        try { return obj.get(key).getAsInt(); } catch (Exception e) { return 0; }
     }
 }

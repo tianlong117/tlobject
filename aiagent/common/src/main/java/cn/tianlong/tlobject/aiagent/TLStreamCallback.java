@@ -26,7 +26,8 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
     private final Object bufferLock = new Object();
     private StringBuilder streamBuffer = new StringBuilder();
     private StringBuilder reasoningBuffer = new StringBuilder();
-    private CountDownLatch streamLatch;
+    /** volatile：wait 侧在锁外 snapshot，reset 侧在锁内换代 */
+    private volatile CountDownLatch streamLatch;
     private volatile boolean streamDone = false;
     private volatile String streamError = null;
     /** done 事件携带的 finish_reason（stop/tool_calls/length）——供同步流式入口判断"被截断" */
@@ -100,18 +101,21 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
             if (msg.containsParam(AI_P_RESPONSE) && streamBuffer.length() == 0) {
                 streamBuffer.append(msg.getStringParam(AI_P_RESPONSE, ""));
             }
+            // 与 reset 共用 bufferLock：避免 reset 换 latch 后 done 打向另一代
+            CountDownLatch latch = streamLatch;
+            if (latch != null) latch.countDown();
         }
-        if (streamLatch != null) streamLatch.countDown();
         putLog("Stream completed: " + streamBuffer.length() + " chars", LogLevel.DEBUG);
         return null;
     }
 
     protected TLMsg onStreamError(Object fromWho, TLMsg msg) {
-        streamError = msg.getStringParam(AI_P_STREAMERROR, "Unknown stream error");
         synchronized (bufferLock) {
+            streamError = msg.getStringParam(AI_P_STREAMERROR, "Unknown stream error");
             streamDone = true;
+            CountDownLatch latch = streamLatch;
+            if (latch != null) latch.countDown();
         }
-        if (streamLatch != null) streamLatch.countDown();
         putLog("Stream error: " + streamError, LogLevel.ERROR);
         return null;
     }
@@ -144,9 +148,18 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
 
     protected TLMsg waitForStream(Object fromWho, TLMsg msg) {
         int timeoutSeconds = msg.getIntParam("timeout", 60);
+        // snapshot 当前代：reset 换 latch 时会 countDown 旧 latch（见 resetStreamState），
+        // 所以旧代的等待者不会永久挂起；completed 还要与 streamDone 取交，防止 reset 的
+        // countDown 被误判成"流正常完成"。
+        CountDownLatch latch = streamLatch;
+        if (latch == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_STREAMERROR, "stream latch not initialized");
+        }
         try {
-            boolean completed = streamLatch.await(timeoutSeconds, TimeUnit.SECONDS);
+            boolean completed = latch.await(timeoutSeconds, TimeUnit.SECONDS);
             synchronized (bufferLock) {
+                completed = completed && streamDone;
                 return createMsg().setParam(RESULT, completed)
                         .setParam("content", streamBuffer.toString())
                         .setParam("streamDone", streamDone)
@@ -171,8 +184,12 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
             streamDone = false;
             streamError = null;
             finishReason = null;
+            CountDownLatch old = streamLatch;
+            streamLatch = new CountDownLatch(1);
+            // 释放等上一代的等待者：否则换 latch 后旧 latch 永远没人 countDown，
+            // waitForStream 会一直等到超时（甚至无超时配置下永久挂起）。
+            if (old != null) old.countDown();
         }
-        streamLatch = new CountDownLatch(1);
     }
 
     public String getContent() {

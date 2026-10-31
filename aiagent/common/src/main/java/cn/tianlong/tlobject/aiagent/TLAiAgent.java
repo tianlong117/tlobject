@@ -667,8 +667,17 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (params.get("agentMd") != null)
                 agentMdPath = params.get("agentMd");
             if (params.get("maxToolCallIterations") != null) {
-                try { maxToolCallIterations = Integer.parseInt(params.get("maxToolCallIterations")); }
-                catch (NumberFormatException ignored) {}
+                try {
+                    int v = Integer.parseInt(params.get("maxToolCallIterations").trim());
+                    // 0/负数会让 runChatLoop 的 while 一次都不进，直接返回"已达上限 0"；
+                    // 视为配置错误，保留默认值并留痕。
+                    if (v > 0)
+                        maxToolCallIterations = v;
+                    else
+                        putLog("maxToolCallIterations must be > 0, keep default "
+                                + maxToolCallIterations + " (got " + v + ")", LogLevel.WARN);
+                } catch (NumberFormatException ignored) {
+                }
             }
             if (params.get("defaultSkillPackageName") != null)
                 defaultSkillPackageName = params.get("defaultSkillPackageName");
@@ -921,8 +930,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // owner:name → 借引用
                 String ownerName = defaultLlmProvider.substring(0, colon);
                 String provName = defaultLlmProvider.substring(colon + 1);
-                TLMsg refResult = putMsg(ownerName,
-                        createMsg().setAction("getLlmProvider").setParam("provName", provName));
+                // 缺模块必须静默：默认 putMsg 会 moduleFactory.shutdown(-1)，
+                // owner 名拼错就把整个应用退掉，borrow 失败应走下面的 fallback。
+                TLMsg borrowMsg = createMsg().setAction("getLlmProvider").setParam("provName", provName);
+                borrowMsg.setSystemParam(IGNOREMODULEISNULL, true);
+                TLMsg refResult = putMsg(ownerName, borrowMsg);
                 Object ref = refResult != null ? refResult.getParam("provider") : null;
                 if (ref instanceof TLLlmProvider) {
                     llmProvider = (TLLlmProvider) ref;
@@ -2928,7 +2940,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     if (h.isAssistantWithToolCalls()) {
                         List<TLConversationHistory> prefix = copyList(full.subList(i, idxInFull));
                         rest.addAll(startIdx, prefix);
-                        for (int k = 0; k < prefix.size(); k++) restOrigIdx.add(startIdx + k, i + k);
+                        // 与 rest 同位置一次性插入整段下标；逐项 add(startIdx+k) 会
+                        // 把已有元素不断后移，导致 restOrigIdx 与 rest 错位。
+                        List<Integer> prefixIdx = new ArrayList<>(prefix.size());
+                        for (int k = 0; k < prefix.size(); k++) prefixIdx.add(i + k);
+                        restOrigIdx.addAll(startIdx, prefixIdx);
                         // ⚠ 不推进 startIdx：补回的前缀必须留在窗口内——推进会把刚借回的 assistant
                         //   又切出视图，孤儿 tool 被下方 sanitizeToolPairs 删掉，等于白补。
                         //   单次 if（非循环）不存在补簇死循环，安全。

@@ -9,6 +9,8 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import javax.script.ScriptEngine;
 import javax.script.ScriptEngineManager;
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -46,7 +48,9 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
         if (skillName == null || skillName.isEmpty())
             skillName = "code_execution";
         if (skillDescription == null || skillDescription.isEmpty())
-            skillDescription = "Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine).";
+            skillDescription = "Execute code snippets in a sandboxed environment. Supports Python (via python3 command) "
+                    + "and JavaScript (via built-in ScriptEngine). Python stdout/stderr is UTF-8; when reading files, "
+                    + "pass the correct encoding to open() (e.g. encoding='gbk' for GBK files).";
 
         if (params != null) {
             if (params.get("maxExecutionTime") != null) {
@@ -147,16 +151,22 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
     private TLMsg executePython(String code) {
         File tempFile = null;
         try {
-            // 将代码写入临时文件
+            // 将代码写入临时文件（固定 UTF-8）：Python 3 按 UTF-8 解析源码，
+            // 不能依赖 JVM 默认字符集——无 -Dfile.encoding=UTF-8 时 Windows 默认 GBK，
+            // 含中文的脚本会被 Python 当成非法 UTF-8 而 SyntaxError。
             tempFile = File.createTempFile("tl_ai_py_", ".py");
-            try (FileWriter writer = new FileWriter(tempFile)) {
-                writer.write(code);
-            }
+            Files.writeString(tempFile.toPath(), code, StandardCharsets.UTF_8);
 
             // 兼容Windows (python) 和 Linux/Mac (python3)
             String pythonCmd = findPythonCommand();
             ProcessBuilder pb = new ProcessBuilder(pythonCmd, tempFile.getAbsolutePath());
             pb.redirectErrorStream(true);
+            // 强制子进程 stdout/stderr 用 UTF-8：Windows 下 Python 管道输出默认是 GBK(cp936)，
+            // 而本类按 UTF-8 解码，中文会变成 U+FFFD——模型看到的工具结果成了乱码，会误判
+            // 执行失败并反复重跑（2026-10-31 真机会话 codeAgent 烧满 10 轮的疑似主因）。
+            // 注意：PYTHONIOENCODING 只影响 stdio，不改变 open() 的文件编码；
+            // GBK 文章仍由脚本用 encoding='gbk' 读取，不会被转坏。
+            pb.environment().put("PYTHONIOENCODING", "utf-8");
 
             Process process = pb.start();
             Thread owner = Thread.currentThread();
@@ -169,7 +179,7 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             // （ScriptExecution / Browser 都有 drainer，这里此前漏了）
             Thread drainer = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(process.getInputStream()))) {
+                        new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         boolean over;

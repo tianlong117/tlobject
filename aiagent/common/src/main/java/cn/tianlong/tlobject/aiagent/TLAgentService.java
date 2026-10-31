@@ -1276,8 +1276,14 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         boolean on = false;
         List<?> grants = r.getListParam("grants", new ArrayList<>());
         for (Object o : grants) {
-            if (o instanceof Map && "*".equals(String.valueOf(((Map<String, Object>) o).get("ruleId")))) {
-                on = true; break;
+            if (!(o instanceof Map)) continue;
+            Map<?, ?> g = (Map<?, ?>) o;
+            // 自动运行只认 ruleId="*" 且 operation="*" 的通配授权——findGrant 也要求
+            // operation 匹配，仅凭 ruleId=* 会把"永不命中的存量授权"误显示为开启。
+            if ("*".equals(String.valueOf(g.get("ruleId")))
+                    && "*".equals(String.valueOf(g.get("operation")))) {
+                on = true;
+                break;
             }
         }
         Map<String, Object> d = new LinkedHashMap<>();

@@ -361,7 +361,9 @@ public class TLDataUtils {
             return null ;
         if(separator ==null)
             separator=FENHAO  ;
-        String strArray[] = str.trim().split(separator);
+        // 分隔符是字面量（调用方传的都是 ; @ : = 等），不能当正则：
+        // 传 "." / "|" / "*" 时 split 会按正则元字符解析，结果错乱。
+        String strArray[] = str.trim().split(Pattern.quote(separator));
         if(strArray.length ==0)
             return null ;
         for (int i = 0; i < strArray.length; i++)

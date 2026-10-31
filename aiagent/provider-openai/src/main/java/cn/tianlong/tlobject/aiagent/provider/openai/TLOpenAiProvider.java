@@ -285,7 +285,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
             // 解析tool_calls
             if (message.has("tool_calls") && !message.get("tool_calls").isJsonNull()) {
                 JsonArray tcArray = message.getAsJsonArray("tool_calls");
-                List<TLToolCall> toolCalls = parseToolCalls(tcArray);
+                List<TLToolCall> toolCalls = parseToolCalls(tcArray, finishReason);
                 result.setParam(AI_P_TOOLCALLS, toolCalls);
                 result.setParam("hasToolCalls", !toolCalls.isEmpty());
             } else {
@@ -341,9 +341,12 @@ public class TLOpenAiProvider extends TLLlmProvider {
 
     /**
      * 解析OpenAI tool_calls格式
+     *
+     * @param finishReason 响应末块的 finish_reason（stop/tool_calls/length）——
+     *                     只有明确为 length 时才能把解析失败归类为 max_tokens 截断
      */
     @SuppressWarnings("unchecked")
-    protected List<TLToolCall> parseToolCalls(JsonArray tcArray) {
+    protected List<TLToolCall> parseToolCalls(JsonArray tcArray, String finishReason) {
         List<TLToolCall> toolCalls = new ArrayList<>();
         for (JsonElement element : tcArray) {
             JsonObject tcObj = element.getAsJsonObject();
@@ -368,16 +371,37 @@ public class TLOpenAiProvider extends TLLlmProvider {
                     // 非空但解析失败 = 参数被截断（典型 finish_reason=length）或模型输出损坏。
                     // 绝不能静默当空参数：那会把"无参调用"执行成一次真实工具调用
                     // （子 agent 报 missing userMessage 白烧一轮；code_execution 可能只跑半个脚本）。
+                    // 归类只用于日志：Gson 对重复键/非法转义等同样抛 JsonSyntaxException，
+                    // 那些与 max_tokens 无关，不能一律说成"截断"。
                     tc.setArguments(new LinkedHashMap<>());
                     tc.setArgumentsInvalid(true);
-                    putLog("Tool call arguments 不完整（可能被 max_tokens 截断）: function="
-                            + tc.getFunctionName() + ", len=" + argsStr.length()
-                            + ", error=" + e, LogLevel.WARN);
+                    putLog("Tool call arguments 解析失败（" + classifyToolArgsFailure(finishReason, e)
+                            + "）: function=" + tc.getFunctionName() + ", len=" + argsStr.length()
+                            + ", finish_reason=" + finishReason + ", error=" + e, LogLevel.WARN);
                 }
             }
             toolCalls.add(tc);
         }
         return toolCalls;
+    }
+
+    /**
+     * 归类 tool_call arguments 的 JSON 解析失败（仅用于日志/诊断，不影响执行决策）。
+     *
+     * <p>为什么不能一律写"被 max_tokens 截断"：Gson 的 Map 适配器对重复键、非法转义、
+     * 非法字面量等都会抛 JsonSyntaxException——这些与输出长度无关。2026-10-31 真机
+     * code_execution 参数 len=2888（max_tokens=8192）报的却是 {@code duplicate key: language}，
+     * 按旧文案排查会被引向"减少单次输出"，南辕北辙。finish_reason 只在接口明确给出
+     * length 时才能作为截断证据。
+     */
+    protected static String classifyToolArgsFailure(String finishReason, Exception e) {
+        String msg = e == null || e.getMessage() == null ? "" : e.getMessage();
+        if (msg.contains("duplicate key")) return "JSON 非法：重复键";
+        if ("length".equals(finishReason)) return "被 max_tokens 截断";
+        // Gson 的 EOF 类报错（Unterminated string / End of input）通常意味着输出中途断了
+        if (msg.contains("Unterminated") || msg.contains("End of input")
+                || msg.contains("Unexpected end")) return "JSON 不完整（疑似输出中断）";
+        return "JSON 格式错误";
     }
 
     // ======================== 核心动作实现 ========================
@@ -598,9 +622,10 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                             // 与非流式同一守卫：截断的参数不能当空参数执行
                                             tc.setArguments(new LinkedHashMap<>());
                                             tc.setArgumentsInvalid(true);
-                                            putLog("Streamed tool call arguments 不完整（可能被 max_tokens 截断）: function="
+                                            putLog("Streamed tool call arguments 解析失败（"
+                                                    + classifyToolArgsFailure(finishReason, e) + "）: function="
                                                     + tc.getFunctionName() + ", len=" + rawArgs.length()
-                                                    + ", error=" + e, LogLevel.WARN);
+                                                    + ", finish_reason=" + finishReason + ", error=" + e, LogLevel.WARN);
                                         }
                                     }
                                 }

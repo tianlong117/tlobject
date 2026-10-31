@@ -317,20 +317,26 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         // 一个会话按停止会把其他会话正在进行的 LLM 调用一起打断（对方那轮被记为"已中断"）。
         // 请求在构建时用 sessionId 打了 tag（见 buildRequest）。
         String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        // 缺失 sessionId 时不能退化成"取消全部"：Provider 跨会话/跨 agent 共享，
+        // 一个漏传参数的调用会把所有在途 LLM 请求一起打断。
+        if (sessionId == null || sessionId.isEmpty()) {
+            putLog("cancel: missing sessionId，不执行取消（避免跨会话误杀）", LogLevel.WARN);
+            return createMsg().setParam(RESULT, false).setParam("error", "missing sessionId");
+        }
         int cancelled = 0;
         for (Call call : okHttpClient.dispatcher().queuedCalls()) {
-            if (sessionId == null || sessionId.equals(call.request().tag())) {
+            if (sessionId.equals(call.request().tag())) {
                 call.cancel();
                 cancelled++;
             }
         }
         for (Call call : okHttpClient.dispatcher().runningCalls()) {
-            if (sessionId == null || sessionId.equals(call.request().tag())) {
+            if (sessionId.equals(call.request().tag())) {
                 call.cancel();
                 cancelled++;
             }
         }
-        if (sessionId != null && cancelled == 0)
+        if (cancelled == 0)
             putLog("cancel: 本会话无在途请求 session=" + sessionId, LogLevel.DEBUG);
         return createMsg().setParam(RESULT, true);
     }

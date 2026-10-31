@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.aiagent.TLToolCall;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonSyntaxException;
 import okhttp3.MediaType;
 import okhttp3.Protocol;
 import okhttp3.Request;
@@ -97,6 +98,17 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
                 json("", null, noArgsToolCalls(), "tool_calls"), new TLMsg()));
         check("非流式 无参工具（tool_calls 收尾）：不误标",
                 noArgOk != null && !noArgOk.isArgumentsInvalid());
+
+        // 重复键 ≠ 截断：finish_reason=tool_calls、参数长度正常，也必须标记 invalid；
+        // 2026-10-31 真机 codeAgent 的 code_execution arguments 里 language 出现两次，
+        // 旧日志却统一写成"可能被 max_tokens 截断"，把排查引向输出长度。
+        TLToolCall dupTc = firstToolCall(pTrunc.parseResponse(
+                json("", null, duplicateKeyToolCalls(), "tool_calls"), new TLMsg()));
+        check("非流式 重复键 tool args：标记 argumentsInvalid",
+                dupTc != null && dupTc.isArgumentsInvalid());
+        check("重复键归类不误报截断",
+                TLOpenAiProvider.classifyToolArgsFailure("tool_calls",
+                        new JsonSyntaxException("duplicate key: language")).contains("重复键"));
 
         TestProvider sTrunc = new TestProvider();
         sTrunc.feedStream(sse(
@@ -250,6 +262,13 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
     private static String truncatedToolCalls() {
         return "[{\"id\":\"c2\",\"type\":\"function\",\"function\":{\"name\":\"f\","
                 + "\"arguments\":\"{\\\"task\\\":\\\"abc\"}}]";
+    }
+
+    /** arguments 对象里 language 键重复（Gson Map 适配器抛 duplicate key，与长度/截断无关） */
+    private static String duplicateKeyToolCalls() {
+        return "[{\"id\":\"c4\",\"type\":\"function\",\"function\":{\"name\":\"code_execution\","
+                + "\"arguments\":\"{\\\"language\\\":\\\"python\\\",\\\"code\\\":\\\"print(1)\\\","
+                + "\\\"language\\\":\\\"python\\\"}\"}}]";
     }
 
     /** 合法的无参工具（function 里没有 arguments 字段） */

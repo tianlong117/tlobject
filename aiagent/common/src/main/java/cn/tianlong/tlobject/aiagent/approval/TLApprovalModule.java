@@ -761,6 +761,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
             request.setRejectionReason("用户放弃该操作");
             request.setState(TLApprovalRequest.REJECTED);
         }
+        timeoutTasks.remove(approvalId);   // 已决策：创建时限任务作废（同 handleApprove/Reject）
         signalDecision(approvalId);
         publishApprovalResolved(request);   // 其他窗口的弹框立即关闭
         putLog("Approval abandoned: id=" + approvalId + " tool=" + request.getToolName(), LogLevel.INFO);
@@ -1477,17 +1478,22 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         if (request == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "approval not found: " + approvalId);
         }
-        if (!TLApprovalRequest.PENDING.equals(request.getState())) {
-            return createMsg().setParam(RESULT, true);   // 已决策/已失效：defer 无意义，幂等成功
+        // 检查-修改必须与 handleApprove/handleReject/handleAbandon/markExpired 用同一把
+        // request 锁：否则 defer 可能读到 PENDING 后，批准线程把状态改成 APPROVED，
+        // defer 再把 deferred 置上（或反之），断点态/批准态互相覆盖。
+        synchronized (request) {
+            if (!TLApprovalRequest.PENDING.equals(request.getState())) {
+                return createMsg().setParam(RESULT, true);   // 已决策/已失效：defer 无意义，幂等成功
+            }
+            request.setDeferred(true);
+            // 创建时排期的超时任务随 defer 作废：阻塞等待已结束，残留的创建时限会把断点态审批
+            // 在 approvalTimeoutMs 到点杀掉（重登后可批准的时间就只剩该窗口；现配置为 0=不限时、
+            // 本不排期，但非零配置下这一步仍是必要的）；断点期改由 TTL 管
+            java.util.concurrent.ScheduledFuture<?> creationTimer = timeoutTasks.remove(approvalId);
+            if (creationTimer != null) creationTimer.cancel(false);
+            armPendingTtl(request);
         }
-        request.setDeferred(true);
-        // 创建时排期的超时任务随 defer 作废：阻塞等待已结束，残留的创建时限会把断点态审批
-        // 在 approvalTimeoutMs 到点杀掉（重登后可批准的时间就只剩该窗口；现配置为 0=不限时、
-        // 本不排期，但非零配置下这一步仍是必要的）；断点期改由 TTL 管
-        java.util.concurrent.ScheduledFuture<?> creationTimer = timeoutTasks.remove(approvalId);
-        if (creationTimer != null) creationTimer.cancel(false);
-        armPendingTtl(request);
-        signalDecision(approvalId);
+        signalDecision(approvalId);   // 唤醒等待线程放到锁外，避免锁内回调
         putLog("Approval deferred: id=" + approvalId + " tool=" + request.getToolName(), LogLevel.INFO);
         return createMsg().setParam(RESULT, true);
     }
@@ -1642,6 +1648,16 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         if (timeoutScheduler != null && !timeoutScheduler.isShutdown()) {
             timeoutScheduler.shutdownNow();
+        }
+        // 先把仍 PENDING 的请求终结为 EXPIRED，再唤醒等待线程：否则等待方醒来看到 PENDING，
+        // 会在应用关闭过程中按"待审批"路径继续落断点/写会话记录。
+        for (TLApprovalRequest req : pendingApprovals.values()) {
+            synchronized (req) {
+                if (TLApprovalRequest.PENDING.equals(req.getState())) {
+                    req.setState(TLApprovalRequest.EXPIRED);
+                    req.setRejectionReason("应用关闭");
+                }
+            }
         }
         // 先把挂在 waitForDecision 上的线程全部唤醒：调度器被 shutdown 后超时任务不会再触发。
         // 默认配置（approvalTimeoutMs=0）下 latch 是无超时的，本循环是这些线程唯一的释放路径——

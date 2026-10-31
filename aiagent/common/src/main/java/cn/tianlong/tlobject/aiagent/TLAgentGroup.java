@@ -244,7 +244,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         for (String mName : targets) {
             mName = mName.trim();
             if (mName.isEmpty()) continue;
-            TLBaseModule member = (TLBaseModule) getModule(mName);
+            // 只取现成实例：stop 是停止操作，不能因为成员不存在/未创建就
+            // 用 getModule 触发一次实例化（会消耗 Provider、线程等资源）。
+            TLBaseModule member = (TLBaseModule) getExistintModule(mName);
             if (member == null) continue;
             TLMsg stopMsg = createMsg().setAction(AGENT_STOPCHAT)
                     .setParam(AI_P_SESSIONID, name + "_" + mName + ":" + sid)
@@ -316,6 +318,10 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             }
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
         } catch (Exception e) {
+            // getMyModule 抛异常时会跳过上面的 module==null 清理分支，残留半条 cfg
+            // 会让后续 getMyModule(agentName) 反复命中坏配置。
+            modulesClass.remove(agentName);
+            modulesParams.remove(agentName);
             putLog("Failed to register group member: " + agentName + " error: " + e.toString(), LogLevel.ERROR);
             return createMsg().setParam(RESULT, false).setParam("error", "register failed: " + e);
         }
@@ -372,15 +378,17 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
 
     /**
      * 重载成员：按 modulesClass 中保留的配置重建实例并换入（与 TLToolManager 重载同构：
-     * getNewModule 全新创建 → modules 换入 → registry 重新注册）。
-     * 成员无 functions 表（组按 memberNames 调度），重载即换新实例；老实例在换入后被 GC。
+     * getNewModule 全新创建 → 退役旧实例 → modules 换入 → registry 重新注册）。
+     * 成员无 functions 表（组按 memberNames 调度）；旧实例必须显式 destroy——
+     * GC 只回收内存，不会停线程/杀子进程/关连接，且旧实例常被 shutdown hook/线程引用。
      */
     protected synchronized TLMsg reloadMember(Object fromWho, TLMsg msg) {
         String agentName = msg.getStringParam(AI_P_AGENTNAME, "");
         if (agentName.isEmpty()) {
             return createMsg().setParam(RESULT, false).setParam("error", "agentName required");
         }
-        if (modules.get(agentName) == null
+        TLBaseModule oldModule = (TLBaseModule) modules.get(agentName);
+        if (oldModule == null
                 || modulesClass == null || modulesClass.get(agentName) == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "member not found: " + agentName);
         }
@@ -388,6 +396,14 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             TLBaseModule newModule = (TLBaseModule) getNewModule(agentName);
             if (newModule == null) {
                 return createMsg().setParam(RESULT, false).setParam("error", "reload failed: " + agentName);
+            }
+            // 退役旧实例：与 TLToolManager.reloadFunction 同序（destroy 各实现均幂等）
+            if (oldModule != newModule) {
+                try {
+                    putMsg(oldModule, createMsg().setAction(MODULE_DESTROY));
+                } catch (Exception e) {
+                    putLog("retire old group member failed: " + agentName + " " + e, LogLevel.WARN);
+                }
             }
             modules.put(agentName, newModule);
             registerToRegistry(agentName, newModule, "agent");

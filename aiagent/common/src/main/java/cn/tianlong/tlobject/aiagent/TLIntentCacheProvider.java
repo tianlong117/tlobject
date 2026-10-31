@@ -69,6 +69,8 @@ public class TLIntentCacheProvider extends TLLlmProvider {
     private static class PendingEntry {
         final String key;
         final CacheEntry entry;
+        /** 插入时间：Phase 2 永不到达（停止/超时/进程静默）时靠它清掉，避免填满 MAX_PENDING */
+        final long createdAt = System.currentTimeMillis();
         PendingEntry(String key, CacheEntry entry) { this.key = key; this.entry = entry; }
     }
 
@@ -105,6 +107,8 @@ public class TLIntentCacheProvider extends TLLlmProvider {
 
     /** pendingLearn 上限防护（并发/异常残留） */
     private static final int MAX_PENDING = 1000;
+    /** 暂存学习条目 TTL：Phase 2 长时间不到达就丢弃，防止陈旧条目占满上限后新学习全被丢弃 */
+    private static final long PENDING_TTL_MS = 10 * 60_000L;
 
     /** inFlight 上限：phaseTwo 未到达（中断/异常/进程静默）时条目会残留，加硬上限防止无限增长 */
     private static final int MAX_IN_FLIGHT = 1000;
@@ -225,6 +229,7 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             return createMsg().setParam(RESULT, false)
                     .setParam("error", "TLIntentCacheProvider: no delegate configured");
         }
+        sweepStalePendingLearn();
         // per-agent 缓存开关：带 _noCache 标志的请求直接透传 delegate
         // （不查缓存、不学习、不留 pendingLearn/inFlight——带审批门禁的 agent 配置 intentCache=false）
         if (msg.parseBoolean(AI_P_NOCACHE, false)) return forward(msg);
@@ -245,6 +250,17 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             if (h.getToolCallId() != null && !h.getToolCallId().isEmpty()) { hasToolResults = true; break; }
         }
         return hasToolResults ? phaseTwo(msg, messages) : phaseOne(msg, messages);
+    }
+
+    /** 清理过期暂存学习：Phase 2 不再到达的条目不能永久占着 MAX_PENDING */
+    private void sweepStalePendingLearn() {
+        if (pendingLearn.isEmpty()) return;
+        long cutoff = System.currentTimeMillis() - PENDING_TTL_MS;
+        int before = pendingLearn.size();
+        pendingLearn.entrySet().removeIf(e -> e.getValue().createdAt < cutoff);
+        int removed = before - pendingLearn.size();
+        if (removed > 0)
+            putLog("[INTENT-CACHE] swept " + removed + " stale pendingLearn entries", LogLevel.DEBUG);
     }
 
     /** Phase 1：无工具结果——查缓存，命中返回缓存的 tool_calls，未命中转发并观察学习 */
@@ -395,9 +411,16 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                     Matcher m = NUM_PATTERN.matcher((String) v);
                     StringBuffer sb = new StringBuffer();
                     while (m.find()) {
-                        m.appendReplacement(sb, NUM_SLOT);
-                        slots++;
-                        numericSlots.add(Boolean.FALSE);
+                        String num = m.group();
+                        // 与下面的 Number 分支同一口径：只有确实来自本轮用户消息的数字
+                        // 才做槽位。文件序号/版本号/日期里的数字原样保留。
+                        if (nums != null && nums.contains(num)) {
+                            m.appendReplacement(sb, NUM_SLOT);
+                            slots++;
+                            numericSlots.add(Boolean.FALSE);
+                        } else {
+                            m.appendReplacement(sb, Matcher.quoteReplacement(num));
+                        }
                     }
                     m.appendTail(sb);
                     args.put(e.getKey(), sb.toString());

@@ -362,8 +362,10 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         // 按 roundSeq 排序
         java.util.List<java.util.Map<String, Object>> sorted = new java.util.ArrayList<>(roundMap.values());
         sorted.sort((a, b) -> {
-            int sa = a.get("roundSeq") instanceof Integer ? (Integer) a.get("roundSeq") : 0;
-            int sb = b.get("roundSeq") instanceof Integer ? (Integer) b.get("roundSeq") : 0;
+            // 兼容不同后端：文件版已把 Double→Integer，DB 版 objToInt；未来新增后端
+            // 若返回 Long/Double，instanceof Integer 会一律当 0，排序全乱。
+            int sa = a.get("roundSeq") instanceof Number ? ((Number) a.get("roundSeq")).intValue() : 0;
+            int sb = b.get("roundSeq") instanceof Number ? ((Number) b.get("roundSeq")).intValue() : 0;
             return Integer.compare(sa, sb);
         });
 

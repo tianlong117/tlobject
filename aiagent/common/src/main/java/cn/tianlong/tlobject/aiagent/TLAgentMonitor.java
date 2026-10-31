@@ -91,7 +91,11 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
     /** latestRounds / lastRoundStats / sessionStats 以会话 id 为键且从不删除，加个上限兜底防长跑累积 */
     private static final int MAX_TRACKED_SESSIONS = 1000;
 
-    /** 超过上限时按迭代顺序淘汰最旧的一些条目（ConcurrentHashMap 的迭代器支持 remove） */
+    /**
+     * 超过上限时做有界淘汰。注意：ConcurrentHashMap 的迭代顺序是哈希桶顺序，
+     * **不是插入/访问时间顺序**，所以这不是"淘汰最旧"，而是"淘汰哈希序靠前的一部分"。
+     * 行为上只保证有界；若需要真正的 LRU 语义要另存时间戳/LinkedHashMap。
+     */
     private static <V> void evictOldest(ConcurrentHashMap<String, V> map, int max) {
         if (map.size() <= max)
             return;

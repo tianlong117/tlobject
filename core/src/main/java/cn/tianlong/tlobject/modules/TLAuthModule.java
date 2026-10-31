@@ -120,7 +120,11 @@ public class TLAuthModule extends TLBaseModule {
     @Override
     protected void initProperty() {
         super.initProperty();
-        if (params != null && params.get("msgNameForCheck") != null)
+        // 无 <params> 的配置（或直接构造的模块）params 可能为 null；
+        // 下面所有 params.get 都依赖它非空，这里统一兜底。
+        if (params == null)
+            params = new HashMap<>();
+        if (params.get("msgNameForCheck") != null)
             msgNameForCheck = params.get("msgNameForCheck");
         defaultPolicy = params.get("defaultPolicy");
         defaultDenyMsg = params.get("defaultDenyMsg");
@@ -703,26 +707,29 @@ public class TLAuthModule extends TLBaseModule {
                 userStateMsg = resolveUserState(stateMsg);
             List<String> userRoles = userStateMsg == null ? null : toRoleList(userStateMsg.getParam(USER_P_ROLE));
             if (userRoles == null) {
-                if (rolePolicy.contains(USER_V_ROLE_GUEST) && !rolePolicy.contains("!" + USER_V_ROLE_GUEST))
-                    return null;
-                else
+                // 无角色：策略显式放行 guest 且未否定 → role 维度通过，**继续下沉检查 group**。
+                // 不能 return null：policy 各维度是 AND（同 user 维度），提前返回会让
+                // "role=guest + group=xxx" 组合退化成 OR，group 白名单被完全跳过（越权）。
+                if (!rolePolicy.contains(USER_V_ROLE_GUEST)
+                        || rolePolicy.contains("!" + USER_V_ROLE_GUEST))
                     return new String[]{"role", USER_V_ROLE_GUEST};
-            }
-            // 先检查否定: !role 命中则拒绝
-            for (int i = 0; i < userRoles.size(); i++) {
-                if (rolePolicy.contains("!" + userRoles.get(i)))
-                    return new String[]{"role", (String) userRoles.get(i)};
-            }
-            // 正向匹配
-            boolean result = false;
-            for (int i = 0; i < userRoles.size(); i++) {
-                if (rolePolicy.contains(userRoles.get(i))) {
-                    result = true;
-                    break;
+            } else {
+                // 先检查否定: !role 命中则拒绝
+                for (int i = 0; i < userRoles.size(); i++) {
+                    if (rolePolicy.contains("!" + userRoles.get(i)))
+                        return new String[]{"role", (String) userRoles.get(i)};
                 }
+                // 正向匹配
+                boolean result = false;
+                for (int i = 0; i < userRoles.size(); i++) {
+                    if (rolePolicy.contains(userRoles.get(i))) {
+                        result = true;
+                        break;
+                    }
+                }
+                if (!result)
+                    return new String[]{"role", userRoles.toString()};
             }
-            if (!result)
-                return new String[]{"role", userRoles.toString()};
         }
 
         // 7. 分组检查（支持 !group 否定）

@@ -128,7 +128,7 @@
                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
                statup="true"
                skillName="code_execution"
-               skillDescription="Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine)."/>
+               skillDescription="Execute code snippets in a sandboxed environment. Supports Python (via python3 command) and JavaScript (via built-in ScriptEngine). Python stdout is UTF-8; when reading files, pass the correct encoding to open() (e.g. encoding='gbk' for GBK files)."/>
 
         <skill name="viewImageSkill"
                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLViewImageSkill"

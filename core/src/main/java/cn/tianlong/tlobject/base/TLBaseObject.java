@@ -58,7 +58,10 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
                 sleep(waitTime);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();   // 恢复中断标志，交由上层决定是否退出
-                if (threadTask != null)
+                // 任务完成时 run() 会先置 isThreadOver 再 interrupt；外部中断（池 shutdown、
+                // 调用方被 cancel）时任务可能还在跑，getResult() 只会拿到 null。
+                // 只有任务确实结束才返回结果，否则如实按超时/未完成返回。
+                if (threadTask.isThreadOver())
                     return threadTask.getResult();
                 return createMsg().setParam(TASKRESULTTIMEOUT,true);
             }
@@ -239,8 +242,16 @@ public abstract class TLBaseObject implements IObject ,TLParamString{
            if (msg.systemParamIsNull(TASKDELAYTIME))
                result = toWho.getMsg(fromWho, msg);
            else {
-               int time = (int) msg.getAndRemoveSystemParam(TASKDELAYTIME);
-               sleep(time);
+               // TASKDELAYTIME 可能来自 XML/JSON（String/Long/Double），直接 (int) 强转会 CCE；
+               // 非数字值按 0 处理（不阻塞），与"没设延迟"语义一致。
+               int time;
+               try {
+                   time = TLDataUtils.parseInt(msg.getAndRemoveSystemParam(TASKDELAYTIME), 0);
+               } catch (NumberFormatException e) {
+                   time = 0;
+               }
+               if (time > 0)
+                   sleep(time);
                // 暂停检查点 2 — 延迟后执行前
                checkPause();
                if (isThreadOver) return new TLMsg();

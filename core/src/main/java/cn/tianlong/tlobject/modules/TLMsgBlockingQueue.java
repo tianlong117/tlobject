@@ -4,7 +4,9 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 
 import static java.lang.Thread.sleep;
 
@@ -23,6 +25,8 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     protected int  taskNumbs=10;
     protected LinkedBlockingQueue<TLMsg> msgQueue ;
     protected volatile boolean running = true;
+    /** autoTask 的 worker 线程：destroy 时主动 interrupt，否则会永久挂在 poll/take 上 */
+    protected final CopyOnWriteArrayList<Thread> workers = new CopyOnWriteArrayList<>();
     public TLMsgBlockingQueue(){
         super();
     }
@@ -59,6 +63,8 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         running = false;
+        // 主动唤醒阻塞在 poll/take 的 worker（共享线程池不一定会替本模块中断它们）
+        for (Thread t : workers) t.interrupt();
         return super.destroy(fromWho, msg);
     }
     @Override
@@ -88,29 +94,44 @@ public   class TLMsgBlockingQueue extends TLBaseModule {
     }
 
     private TLMsg getMsgInQueue(Object fromWho, TLMsg msg) {
-        try {
-            TLMsg qmsg =msgQueue.take();
-            putLog("take a queue",LogLevel.DEBUG,"take");
-            return  qmsg;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null ;
+        // 与 autoTask 同款：带超时 poll 周期检查 running，destroy 后调用方不会被 take 永久挂住
+        while (running) {
+            TLMsg qmsg;
+            try {
+                qmsg = msgQueue.poll(1, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+            if (qmsg != null) {
+                putLog("take a queue", LogLevel.DEBUG, "take");
+                return qmsg;
+            }
         }
+        return null;
     }
 
     private void autoTask(Object fromWho, TLMsg msg) {
-        while (running){
-            try {
-                TLMsg qmsg =msgQueue.take();
+        workers.add(Thread.currentThread());
+        try {
+            while (running){
+                TLMsg qmsg;
+                try {
+                    // 带超时 poll：周期醒来检查 running，避免 destroy 后永久卡在 take()
+                    qmsg = msgQueue.poll(1, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    putLog("autoTask interrupted",LogLevel.WARN,"task");
+                    break;
+                }
+                if (qmsg == null) continue;
                 putLog("take a queue",LogLevel.DEBUG,"task");
                 // 必须走 systemArgs：TLBaseModule.getMsg 用 getSystemParam(IGNOREBEFORE) 判定，
                 // 写成 setParam 会无效，before 钩子会把消息再次入队（无限重入）
                 putMsg(qmsg.getDestination(),qmsg.setSystemParam(IGNOREBEFORE,true)) ;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                putLog("autoTask interrupted",LogLevel.WARN,"task");
-                break;
             }
+        } finally {
+            workers.remove(Thread.currentThread());
         }
     }
     private TLMsg addMsgInQueue(Object fromWho, TLMsg msg) {

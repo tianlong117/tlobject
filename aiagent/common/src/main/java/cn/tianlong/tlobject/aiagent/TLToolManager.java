@@ -826,15 +826,16 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             String functionName = tc.getFunctionName();
 
             // 参数在 LLM 输出时被截断（arguments 非空但 JSON 不完整）：不执行。
-            // 把明确原因作为该 tool_call 的结果回喂给模型，让它减少单次输出后重试；
+            // 把明确原因作为该 tool_call 的结果回喂给模型，让它重新生成合法参数（过长则分批）后重试；
             // 若照旧执行，agent 工具会报 missing userMessage、code_execution 可能只跑半个脚本。
             if (tc.isArgumentsInvalid()) {
-                putLog("Tool call arguments invalid (truncated?), skipped: " + functionName, LogLevel.WARN);
+                putLog("Tool call arguments invalid (unparseable JSON), skipped: " + functionName, LogLevel.WARN);
                 TLToolExecutor.ToolTask badArgsTask = new TLToolExecutor.ToolTask(
                         tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>());
-                badArgsTask.precomputedOutput = "Error: 工具调用参数 JSON 不完整（通常因输出达到 max_tokens 被截断），"
+                badArgsTask.precomputedOutput = "Error: 工具调用参数 JSON 不完整或非法（可能是输出达到 max_tokens 被截断，"
+                        + "或 JSON 格式损坏/重复键），"
                         + "本次未执行 " + (functionName != null ? functionName : "unknown_function")
-                        + "。请减少单次输出（如把长文本分批写入、缩短任务描述）后重试。";
+                        + "。请重新生成完整、合法的参数后重试；输出过长请分批处理（如先把长文本写入文件再执行）。";
                 badArgsTask.functionName = functionName != null ? functionName : "invalid_arguments";
                 tasks.add(badArgsTask);
                 continue;
@@ -877,11 +878,12 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     TLMsg vResult = putMsg(fn.module, createMsg().setAction(SKILL_VALIDATE)
                             .setParam(AI_P_SKILLINPUT, toolArgs));
                     if (vResult != null && !vResult.parseBoolean(RESULT, false)) {
-                        putLog("Skill validation failed: " + functionName, LogLevel.WARN);
+                        // 带上具体缺哪个参数：否则日志只有 "failed"，排查只能猜（LLM 回喂文案里本来就有）
+                        String validationError = vResult.getStringParam("error", "unknown");
+                        putLog("Skill validation failed: " + functionName + " - " + validationError, LogLevel.WARN);
                         TLToolExecutor.ToolTask valFailTask = new TLToolExecutor.ToolTask(
                                 tc.getId(), null, SKILL_EXECUTE, new LinkedHashMap<>());
-                        valFailTask.precomputedOutput = "Validation error: "
-                                + vResult.getStringParam("error", "unknown");
+                        valFailTask.precomputedOutput = "Validation error: " + validationError;
                         valFailTask.functionName = functionName;   // 追踪锚点可对应到具体工具
                         tasks.add(valFailTask);
                         continue;

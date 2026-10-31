@@ -371,7 +371,7 @@ public abstract class TLBaseModule extends TLBaseObject {
                     for(TLMsg msg :msgList)
                     {
                         TLMsg nmsg = new TLMsg() ;
-                        nmsg.copyFrom(msg);
+                        nmsg.copyFromWithChain(msg);
                         msgListCopy.add(nmsg) ;
                     }
                     if(tmpMsgList.containsKey(actionUnit))
@@ -624,7 +624,14 @@ public abstract class TLBaseModule extends TLBaseObject {
             TLMsg cmsg ;
             String msgTableUserType = (String) msgInMsgList.getSystemParam(MSGTABLEUSETYPE);
             if (msgTableUserType !=null && msgTableUserType.equals(MSGTABLEONLY))
-                cmsg =msgInMsgList ;
+            {
+                // MSGTABLEONLY 语义是"内容用表里的"，不是"引用用表里的"。
+                // putMsg/getMsg 会就地修改 previous/source/destination/waitFlag；
+                // 共享配置模板在 reload 后二次执行时 destination 已被清空、previous 指向
+                // 上一次执行者，路由/异步语义都会串味。复制一份再发。
+                cmsg = new TLMsg();
+                cmsg.copyFromWithChain(msgInMsgList);
+            }
             else
                 {
                     String[] paramKeys = (String[]) msgInMsgList.getSystemParam(PARAMSFROMMSG);
@@ -683,7 +690,7 @@ public abstract class TLBaseModule extends TLBaseObject {
         List<TLMsg> parallelMsgs = new ArrayList<>();
         for (TLMsg template : msgList) {
             TLMsg step = new TLMsg();
-            step.copyFrom(template);
+            step.copyFromWithChain(template);
             // 从原始消息注入参数，遵循 MSGTABLEONLY 外的 copyMsgFromMsgTable 语义
             String useType = (String) template.getSystemParam(MSGTABLEUSETYPE);
             if (useType == null || !useType.equals(MSGTABLEONLY)) {
@@ -871,7 +878,12 @@ public abstract class TLBaseModule extends TLBaseObject {
         } catch (IllegalAccessException e) {
             putLog(e, LogLevel.ERROR, action);
         } catch (InvocationTargetException e) {
-            putLog(e, LogLevel.ERROR, action);
+            // method.invoke 的栈只有反射包装，业务异常的真正位置在 getCause()
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof Exception)
+                putLog((Exception) cause, LogLevel.ERROR, action);
+            else
+                putLog(cause.toString(), LogLevel.ERROR, action);
         }
         return result;
     }
@@ -1410,7 +1422,9 @@ public abstract class TLBaseModule extends TLBaseObject {
         msg.copyParams(paramsKey,fromMsg);
         msg.setAction(fromMsg.getAction());
         msg.setMsgId(fromMsg.getMsgId());
-        msg.setNextMsg(fromMsg.getNextMsg());
+        // nextMsg 是会被执行改写的链，不能直接引用模板链头
+        TLMsg fromNext = fromMsg.getNextMsg();
+        msg.setNextMsg(fromNext == null ? null : new TLMsg().copyFromWithChain(fromNext));
         msg.setDestination(fromMsg.getDestination());
         msg.setWaitFlag(fromMsg.getWaitFlag());
         msg.setSource(name) ;

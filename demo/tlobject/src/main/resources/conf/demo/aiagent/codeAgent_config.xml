@@ -30,7 +30,7 @@
                sameClassAs="codeExecutionSkill"
                statup="true"
                skillName="code_execution"
-               skillDescription="Execute inline code snippets in Python or JavaScript."/>
+               skillDescription="Execute inline code snippets in Python or JavaScript. Python stdout is UTF-8; when reading files, pass the correct encoding to open() (e.g. encoding='gbk' for GBK files)."/>
 
         <skill name="scriptExecutionSkill"
                sameClassAs="scriptExecutionSkill"

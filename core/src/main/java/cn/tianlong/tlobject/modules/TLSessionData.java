@@ -82,8 +82,16 @@ public class TLSessionData extends TLBaseSessionData {
         String key = (String) msg.getParam("sid");
         if(key !=null)
         {
-            sessionDatas.put(key,msg.getParam("value"));
-            sessionTimer.put(key,System.currentTimeMillis());
+            Object value = msg.getParam("value");
+            // ConcurrentHashMap 禁 null：put(key, null) 会 NPE。null 视为删除
+            // （与 deleteSessionData / Map "清空 key" 语义一致），避免调用方踩坑。
+            if (value == null) {
+                sessionDatas.remove(key);
+                sessionTimer.remove(key);
+            } else {
+                sessionDatas.put(key, value);
+                sessionTimer.put(key, System.currentTimeMillis());
+            }
         }
         return null;
     }

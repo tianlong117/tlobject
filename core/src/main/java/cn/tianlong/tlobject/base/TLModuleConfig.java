@@ -508,16 +508,21 @@ public  class TLModuleConfig extends TLBaseModule {
                 String name = xpp.getName();
                 if (name.equals(tag)) {
                     msglist = new ArrayList<>();
-                    // 读全部属性：第一个→msgid（key），其余→运行参数（mode/waitTime 等）
-                    msgid = xpp.getAttributeValue(0);
+                    // key 属性历史上有 name= 和 value= 两种写法；按名优先，
+                    // 不再依赖"第一个属性"（XML 属性无顺序语义，换序会整表错位）。
+                    int[] keyIdx = new int[]{-1};
+                    msgid = readKeyAttribute(xpp, keyIdx);
                     if (xpp.getAttributeCount() > 1) {
                         params = new HashMap<>();
-                        for (int i = 1; i < xpp.getAttributeCount(); i++) {
+                        for (int i = 0; i < xpp.getAttributeCount(); i++) {
+                            if (i == keyIdx[0]) continue;   // 跳过 key 本身
                             String key = xpp.getAttributeName(i);
                             String value = xpp.getAttributeValue(i);
                             if (value != null && !value.isEmpty())
                                 params.put(key, value);
                         }
+                        if (params.isEmpty())
+                            params = null;
                     }
                 }
                 if (name.equals("msg")) {
@@ -529,6 +534,30 @@ public  class TLModuleConfig extends TLBaseModule {
         }
         return  msgTable;
     }
+
+    /**
+     * 读取 msgid 的 key 属性：兼容历史配置的 name= / value= 两种写法。
+     * 原实现取 getAttributeValue(0)，依赖 XML 属性顺序；属性换序会让整张 msgTable 的 key 错位。
+     * @param keyIndex 非 null 时回填 key 所在属性下标（收集运行参数时要跳过）
+     */
+    private static String readKeyAttribute(XmlPullParser xpp, int[] keyIndex) {
+        int count = xpp.getAttributeCount();
+        for (String candidate : new String[]{"name", "value"}) {
+            for (int i = 0; i < count; i++) {
+                if (candidate.equals(xpp.getAttributeName(i))) {
+                    if (keyIndex != null) keyIndex[0] = i;
+                    return xpp.getAttributeValue(i);
+                }
+            }
+        }
+        if (count > 0) {
+            if (keyIndex != null) keyIndex[0] = 0;
+            return xpp.getAttributeValue(0);
+        }
+        if (keyIndex != null) keyIndex[0] = -1;
+        return null;
+    }
+
     /** 原版：只解析 msgid→msglist，不读 msgid 的运行参数（向后兼容，供 paramsTable 等非 msgTable 段使用） */
     protected  LinkedHashMap<String, ArrayList<TLMsg>> getLinkHashMsgList(XmlPullParser xpp, String table, String tag) throws Throwable {
         LinkedHashMap<String, ArrayList<TLMsg>> msgTable=null;
@@ -551,7 +580,7 @@ public  class TLModuleConfig extends TLBaseModule {
                 String name = xpp.getName();
                 if (name.equals(tag)) {
                     msglist = new ArrayList<>();
-                    msgid = xpp.getAttributeValue(0);
+                    msgid = readKeyAttribute(xpp, null);
                 }
                 if (name.equals("msg")) {
                     TLMsg msg = getMsg(xpp);
@@ -576,7 +605,11 @@ public  class TLModuleConfig extends TLBaseModule {
                 if(params ==null)
                     params=new HashMap<>();
                 String key = xpp.getName();
-                String value = xpp.getAttributeValue(0);
+                // <params> 的条目约定是 <name value="..."/>；优先按名取 value，
+                // 找不到再回退到第一个属性（兼容历史配置）。
+                String value = xpp.getAttributeValue(null, "value");
+                if (value == null && xpp.getAttributeCount() > 0)
+                    value = xpp.getAttributeValue(0);
                 params.put(key, value);
             }
         }

@@ -508,6 +508,12 @@ public class TLMsg implements Serializable , Cloneable{
         waitFlag=true;
         return this ;
     }
+    /**
+     * 浅拷贝：args/systemArgs 的条目复制到新 Map，nextMsg 仍共享引用。
+     * nextMsg 不是只读数据——框架执行时会改写链上的 args/destination/previous
+     * （usePreReturnMsg / getMsg），所以同一模板需要多次执行或并发执行时，
+     * 请用 {@link #copyFromWithChain(TLMsg)}，不要直接用本方法复制链。
+     */
     public TLMsg copyFrom(TLMsg msg){
         description=msg.getDescription();
         action =msg.getAction();
@@ -519,6 +525,28 @@ public class TLMsg implements Serializable , Cloneable{
         source=msg.getSource();
         previous=msg.getPrevious();
         addSystemArgs(msg.getSystemArgs());
+        return this;
+    }
+
+    /**
+     * 复制消息，并把 nextMsg 执行链一并复制（每个副本拥有独立的链头）。
+     * 链通常很短，用迭代避免递归；args/systemArgs 的值对象仍按浅拷贝共享。
+     */
+    public TLMsg copyFromWithChain(TLMsg msg){
+        TLMsg dst = this;
+        TLMsg src = msg;
+        while (src != null) {
+            dst.copyFrom(src);
+            TLMsg srcNext = src.getNextMsg();
+            if (srcNext == null) {
+                dst.setNextMsg(null);
+                break;
+            }
+            TLMsg nextCopy = new TLMsg();
+            dst.setNextMsg(nextCopy);
+            dst = nextCopy;
+            src = srcNext;
+        }
         return this;
     }
     public TLMsg copyTo(TLMsg nmsg){

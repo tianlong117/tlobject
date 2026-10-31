@@ -101,6 +101,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         final String sessionId;
         final CountDownLatch latch;
         final Map<Integer, ToolResult> results = new ConcurrentHashMap<>();
+        /** 每个任务的**进度终态**（done/skipped/error/...），供 traceStage 使用。
+         *  正常结果的 ToolResult.state 为 null（历史上按 "ok" 记），会把"参数校验不过、
+         *  根本没执行"的 skipped 任务也显示成 ok，排查时误导。 */
+        final Map<Integer, String> finalStatuses = new ConcurrentHashMap<>();
         volatile boolean aborted;
         /** 中断原因（staleStateCleanup / executionTimeout / callerInterrupted / sessionCancel），
          *  随结果带回 Agent——不能只靠布尔 aborted 让上层一律记成"用户中断" */
@@ -307,7 +311,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     results.add(tr);   // 直出结果也要进 results（history 写入/会话恢复依赖完整结果列表）
                 }
                 // 全链追踪：工具执行结束（含工具名/状态与耗时）
-                String toolState = tr.state == null ? "ok" : tr.state;
+                // tr.state 只覆盖 pending/rejected/clarified/timeout/final 等控制态；
+                // 正常完成/预校验跳过/执行报错都在 finalStatus（done/skipped/error）。
+                // 不能因为 tr.state==null 就一律记 ok——skipped 的任务从未执行。
+                String finalStatus = state.finalStatuses.get(i);
+                String toolState = tr.state != null
+                        ? tr.state
+                        : (finalStatus == null || TOOL_STATUS_DONE.equals(finalStatus) ? "ok" : finalStatus);
                 long startTs = taskStartTs.getOrDefault(i, System.currentTimeMillis());
                 ToolTask doneTask = i < tasks.size() ? tasks.get(i) : null;
                 String doneTool = "?";
@@ -420,6 +430,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     private void finishTask(ExecutionState st, ToolTask task, int idx, ToolResult result,
                             String status, long durationMs, String message) {
         st.results.put(idx, result);
+        if (status != null) st.finalStatuses.put(idx, status);
         notifyProgress(st, task, idx, status, durationMs, message);
     }
 
@@ -540,7 +551,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         st, elapsed, state.aborted ? "已中断" : "执行超时");
                 return null;
             }
-            if (result != null && Boolean.TRUE.equals(result.getParam(TASKTIMEOUT))) {
+            // parseBoolean 兼容 Boolean 与 String（Mock/外部技能可能传 "true"）
+            if (result != null && result.parseBoolean(TASKTIMEOUT, false)) {
                 String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId,

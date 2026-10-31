@@ -128,15 +128,18 @@ public class TLOutputGuard extends TLBaseModule implements TLAiAgentParamString 
             }
         }
 
-        // 2. 禁止词过滤
+        // 2. 禁止词过滤：必须遍历完所有词——命中第一个就 break 会让同时出现的
+        // 其他禁止词原样漏出（配置 forbiddenTerms=暴力,色情,政治 时只屏蔽第一个）。
+        boolean forbiddenHit = false;
         for (String term : forbiddenTerms) {
             term = term.trim();
             if (!term.isEmpty() && response.contains(term)) {
                 response = response.replace(term, "***");
-                warnings.append("⚠️ 回复含禁止内容已模糊处理。\n");
-                break;
+                forbiddenHit = true;
             }
         }
+        if (forbiddenHit)
+            warnings.append("⚠️ 回复含禁止内容已模糊处理。\n");
 
         // 3. 超长截断
         if (maxLength > 0 && response.length() > maxLength) {
