@@ -4,8 +4,18 @@
          由 toolExecutor_config.xml 的 outputValidator=outputValidator 启用；不配置或 rules 为空 = 默认通过。
 
          rule 属性：
-           tool      LLM 函数名优先，其次模块名；* 为兜底
-           agent     可选，限定某个 agent
+           tool      LLM 函数名 = agent 配置里的名字，不是 Java 类名：
+                       技能       <skill skillName="calculate_price"> → calculate_price（未配则=模块名）
+                       子 agent   <agent name="fileAgent">            → fileAgent
+                       MCP 工具   <agent tools="write_file">          → write_file
+                     也可写技能/agent 的模块实例名（如 priceCalc）作次级匹配。
+                     匹配为“所有规则取最高分一条”：函数名 > 模块名 > *（同层带 agent 的规则优先）。
+                     写 * = 兜底：没有更具体的规则命中时才生效（不会与具体规则叠加）；
+                     * 的 checks 对所有工具生效，只适合 output:nonEmpty 这类通用检查。
+           agent     可选，限定只对某个 agent 生效：执行该工具的 agent 实例名
+                     （如 aiagent_master / hamburgerAgent；子 agent 场景是子 agent 自己）；
+                     不写 = 所有 agent 通用。规则必须写 tool（想匹配全部写 *），
+                     只写 agent 不写 tool 的规则会被忽略。
            checks    声明式通用检查：field:type / field op literal / field==算术表达式
            validator 复杂校验目标：self（本次执行的实例）或工厂模块名
            action    目标模块 action（默认 validateOutput）
