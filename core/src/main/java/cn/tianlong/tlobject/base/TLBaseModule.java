@@ -147,25 +147,21 @@ public abstract class TLBaseModule extends TLBaseObject {
 
     }
     protected Object setConfig() {
-        String parseFile ;
-        if (configFile == null || configFile.isEmpty())
-        {
-            if (autoConfig == false)
-                return null;
-            else {
-                String configDir = moduleFactory.getConfigDir();
-                parseFile = configDir +  name + "_config.xml";
-            }
-        }
-        else
-            parseFile =configFile ;
+        // 只有显式指定的 configfile（或热加载时已解析出的路径）才报缺失；
+        // autoConfig=true 但无 {name}_config.xml 是正常状态，不能在启动期刷 ERROR
+        boolean explicitConfig = configFile != null && !configFile.isEmpty();
+        String parseFile = resolveConfigFile();
+        if (parseFile == null)
+            return null;
         if (mconfig == null)
-            mconfig = new TLModuleConfig(parseFile,moduleFactory.getConfigDir());
+            mconfig = new TLModuleConfig(parseFile, moduleFactory != null ? moduleFactory.getConfigDir() : "");
         mconfig.setFactory(moduleFactory);
         mconfig= mconfig.parse(parseFile);
-        if(mconfig ==null)
+        if(mconfig ==null) {
            configFile=null ;
-        else
+           if (explicitConfig)
+               putLog("配置文件不可用: " + parseFile, LogLevel.ERROR);
+        } else
             configFile =parseFile ;
         return  mconfig;
     }
@@ -1173,17 +1169,82 @@ public abstract class TLBaseModule extends TLBaseObject {
         }
     }
 
-    protected TLMsg reloadConfig(Object fromWho, TLMsg msg) {
-        preReConfig();
-        HashMap<String, String> cparams =moduleFactory.getModuleParam(name, (HashMap<String, String>) null);
-        if (params == null)          // 直接构造的模块可能从未有过 params
-            params = new HashMap<>();
-        params.putAll(cparams);
-        configure();
-        reload();
-        reConfig();
-        putLog(name + " 重新加载配置", LogLevel.DEBUG, "reloadConfig");
+    /**
+     * 按 setConfig 的规则解析候选配置文件路径（不保证文件存在）。
+     * 无显式 configFile 且 autoConfig=false/无工厂时返回 null。
+     */
+    protected String resolveConfigFile() {
+        if (configFile != null && !configFile.isEmpty())
+            return configFile;
+        if (!autoConfig || moduleFactory == null)
+            return null;
+        return moduleFactory.getConfigDir() + name + "_config.xml";
+    }
+
+    /**
+     * 文件/XML 级预检：用默认 TLModuleConfig 解析，不运行子类自定义 myConfig。
+     * @return null=通过；否则错误文本（文件不可读/XML 非法）
+     */
+    protected String probeConfigFile(String parseFile) {
+        if (parseFile == null || parseFile.isEmpty())
+            return null;
+        String configDir = moduleFactory != null ? moduleFactory.getConfigDir() : "";
+        TLModuleConfig probe = new TLModuleConfig(parseFile, configDir);
+        if (moduleFactory != null)
+            probe.setFactory(moduleFactory);
+        if (!probe.isWellFormed())
+            return "配置文件不可读或 XML 不合法: " + parseFile;
+        TLModuleConfig parsed = probe.parse(parseFile);
+        if (parsed == null)
+            return "配置文件不可读: " + parseFile;
+        if (!parsed.isParseOk())
+            return "配置解析失败: " + parseFile
+                    + (parsed.getParseError() != null ? " (" + parsed.getParseError() + ")" : "");
         return null;
+    }
+
+    /**
+     * 重新加载本模块配置：文件/XML 级预检通过后重新执行 configure()。
+     * 注意：
+     * - 不执行 init()/runStartMsg()，不重建子模块；
+     * - params 只合并、不清理已删除的键；
+     * - 预检不运行子类自定义 myConfig，子类语义由模块自己的 reload 逻辑保证；
+     * - params.reload=true 的工厂重建路径不保证外部缓存引用更新；
+     * - 重复重载含 initMsg/startMsg 的配置沿用 mconfig 复用行为，列表可能累积（既有边界，本次不修）；
+     * - 预检与 configure 之间文件若被改写存在 TOCTOU；configure 中途失败可能留下部分状态；
+     * - 本方法按模块串行（synchronized），但同一模块的其它配置入口仍需外部协调。
+     */
+    protected synchronized TLMsg reloadConfig(Object fromWho, TLMsg msg) {
+        String oldConfigFile = configFile;
+        try {
+            String parseFile = resolveConfigFile();
+            String probeError = probeConfigFile(parseFile);
+            if (probeError != null) {
+                putLog(name + " " + probeError, LogLevel.ERROR, "reloadConfig");
+                return createMsg().setParam(RESULT, false).setParam("error", probeError);
+            }
+            preReConfig();
+            if (moduleFactory != null) {
+                HashMap<String, String> cparams = moduleFactory.getModuleParam(name, (HashMap<String, String>) null);
+                if (params == null) params = new HashMap<>();
+                params.putAll(cparams);
+            }
+            configure();
+            if (parseFile != null && configFile == null) {
+                configFile = parseFile;
+                putLog(name + " 配置加载失败: " + parseFile, LogLevel.ERROR);
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "配置加载失败: " + parseFile);
+            }
+            reload();
+            reConfig();
+            putLog(name + " 重新加载配置", LogLevel.DEBUG, "reloadConfig");
+            return createMsg().setParam(RESULT, true);
+        } catch (Throwable t) {
+            if (configFile == null) configFile = oldConfigFile;
+            putLog(name + " 重新加载配置失败: " + t, LogLevel.ERROR, "reloadConfig");
+            return createMsg().setParam(RESULT, false).setParam("error", t.toString());
+        }
     }
 
     protected void preReConfig() {
@@ -1193,7 +1254,7 @@ public abstract class TLBaseModule extends TLBaseObject {
     }
 
     protected void reload() {
-        if (params != null && params.get("reload") != null && (params.get("reload")).equals("true"))
+        if (moduleFactory != null && params != null && params.get("reload") != null && (params.get("reload")).equals("true"))
             putMsg(moduleFactory, createMsg().setAction("reloadModule").setParam("moduleName", name));
     }
 

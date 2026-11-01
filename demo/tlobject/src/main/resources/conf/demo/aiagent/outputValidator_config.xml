@@ -2,6 +2,8 @@
 <moduleConfig>
     <!-- 工具/技能输出客观校验规则（TLOutputValidator）。
          由 toolExecutor_config.xml 的 outputValidator=outputValidator 启用；不配置或 rules 为空 = 默认通过。
+         运行中修改本文件后，控制台执行 /reloadconfig outputValidator（WebUI 同 action）
+         即可生效；解析失败会保留旧规则并返回错误，不会静默清空校验。
 
          rule 属性：
            tool      LLM 函数名 = agent 配置里的名字，不是 Java 类名：

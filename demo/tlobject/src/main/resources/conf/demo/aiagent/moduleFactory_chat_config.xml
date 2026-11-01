@@ -67,6 +67,7 @@
         <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
         <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="outputValidator"/>
         <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
         <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>

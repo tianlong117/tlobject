@@ -13,6 +13,7 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -73,36 +74,155 @@ public class TLOutputValidator extends TLBaseModule implements TLAiAgentParamStr
     }
 
     /** 校验器自身异常时的策略：默认 fail-open，避免一个坏规则拖死所有工具 */
-    protected boolean failClosedOnError = false;
+    protected volatile boolean failClosedOnError = false;
 
-    /** 规则列表（保序；匹配时取分数最高的第一条） */
-    protected final List<Rule> rules = new ArrayList<>();
+    /** 规则快照（volatile）：重载线程整体替换，校验线程只读。
+     *  初始为可写空表（兼容既有自测直接填充）；init/reload 后替换为不可变快照。 */
+    protected volatile List<Rule> rules = new ArrayList<>();
+
+    /** configure 期间解析出的候选规则；成功后才替换 rules */
+    protected List<Rule> pendingRules;
+
+    /** 本次配置解析错误；null 表示成功 */
+    protected String parseError;
+
+    /** 最近一次 setConfig 是否可用 */
+    protected boolean lastConfigOk;
+
+    /** 本次 setConfig 解析出的配置参数快照（区别与合并后的 params：删除项不残留） */
+    protected HashMap<String, String> configParams;
+
+    /** 配置文件实际提供过的参数键：只有这些键在“配置删除”时才从合并 params 清理，保留外部/工厂参数 */
+    private final java.util.Set<String> configOwnedParams = new java.util.HashSet<>();
+
+    /** 外部（start/工厂）提供的参数值；配置删除同名键时回退到它 */
+    private HashMap<String, String> externalParams = new HashMap<>();
+
+    /** configParams 是否为本次 configure 刚解析出的（供下一次 setModuleParams 消费） */
+    private boolean configParamsPending;
 
     public TLOutputValidator() { super(); }
     public TLOutputValidator(String name) { super(name); }
+    public TLOutputValidator(String name, String configFile) { super(name, configFile); }
     public TLOutputValidator(String name, TLObjectFactory factory) { super(name, factory); }
 
     @Override
     protected Object setConfig() {
-        rules.clear();
+        pendingRules = new ArrayList<>();
+        parseError = null;
+        lastConfigOk = false;
+        String resolvedFile = resolveConfigFile();
         String configDir = moduleFactory != null ? moduleFactory.getConfigDir() : "";
-        myConfig config = new myConfig(configFile, configDir);
+        myConfig config = new myConfig(resolvedFile != null ? resolvedFile : configFile, configDir);
         mconfig = config;
+        // 记录外部（start/工厂）提供的参数：配置曾拥有的键保留之前记录的外部值
+        HashMap<String, String> ext = new HashMap<>(externalParams);
+        if (params != null) {
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                if (!configOwnedParams.contains(e.getKey()))
+                    ext.put(e.getKey(), e.getValue());
+            }
+        }
+        externalParams = ext;
         super.setConfig();
+        if (resolvedFile == null) {
+            parseError = "无配置文件: " + name;
+        } else if (mconfig == null) {
+            parseError = "配置文件不可用: " + resolvedFile;
+        } else if (!mconfig.isParseOk()) {
+            if (parseError == null)
+                parseError = "配置解析失败: " + mconfig.getParseError();
+        }
+        lastConfigOk = parseError == null;
+        // 基类 initProperty 只合并、不清理已删除键；这里留一份本次配置文件参数快照
+        // （拷贝一份，避免与基类 params = mconfig.getParams() 别名共享）
+        configParams = lastConfigOk && mconfig.getParams() != null
+                ? new HashMap<>(mconfig.getParams()) : null;
+        configParamsPending = true;
         return config;
     }
 
     @Override
-    protected void setModuleParams() {
-        if (params != null && params.get("failClosedOnError") != null)
-            failClosedOnError = "true".equals(params.get("failClosedOnError"));
+    protected synchronized void setModuleParams() {
+        if (configParamsPending) {
+            configParamsPending = false;
+            if (params != null) {
+                for (String key : new ArrayList<>(configOwnedParams)) {
+                    if (configParams == null || !configParams.containsKey(key)) {
+                        configOwnedParams.remove(key);
+                        if (externalParams.containsKey(key))
+                            params.put(key, externalParams.get(key));
+                        else
+                            params.remove(key);
+                    }
+                }
+                if (configParams != null) {
+                    for (Map.Entry<String, String> e : configParams.entrySet()) {
+                        params.put(e.getKey(), e.getValue());
+                        configOwnedParams.add(e.getKey());
+                    }
+                }
+            }
+        }
+        failClosedOnError = params != null
+                && "true".equals(params.get("failClosedOnError"));
     }
 
     @Override
     protected TLBaseModule init() {
+        if (lastConfigOk && pendingRules != null) {
+            rules = java.util.Collections.unmodifiableList(new ArrayList<>(pendingRules));
+        } else {
+            rules = java.util.Collections.emptyList();
+            if (parseError != null)
+                putLog("输出校验规则加载失败，校验将全部放行: " + parseError, LogLevel.ERROR);
+        }
         putLog("TLOutputValidator [" + name + "] rules=" + rules.size()
                 + " failClosedOnError=" + failClosedOnError, LogLevel.DEBUG);
         return this;
+    }
+
+    /**
+     * 运行期重载：基类完成预检与 configure（会重入 setConfig），
+     * 全部成功后才把 pendingRules 换入 rules；任何失败保留旧快照。
+     */
+    @Override
+    protected TLMsg reloadConfig(Object fromWho, TLMsg msg) {
+        synchronized (this) {
+            List<Rule> old = rules;
+            boolean oldFailClosed = failClosedOnError;
+            boolean oldParamPresent = params != null && params.containsKey("failClosedOnError");
+            String oldParamValue = oldParamPresent ? params.get("failClosedOnError") : null;
+            java.util.Set<String> oldOwned = new java.util.HashSet<>(configOwnedParams);
+            HashMap<String, String> oldExternal = new HashMap<>(externalParams);
+            parseError = null;
+            pendingRules = null;
+            TLMsg r = super.reloadConfig(fromWho, msg);
+            boolean superOk = r != null && r.parseBoolean(RESULT, false);
+            if (superOk && lastConfigOk && pendingRules != null) {
+                rules = java.util.Collections.unmodifiableList(new ArrayList<>(pendingRules));
+                putLog("输出校验规则已重载: " + rules.size() + " 条 (" + configFile + ")", LogLevel.INFO);
+                return createMsg().setParam(RESULT, true)
+                        .setParam("rules", rules.size())
+                        .setParam("file", configFile);
+            }
+            rules = old;
+            failClosedOnError = oldFailClosed;
+            configOwnedParams.clear();
+            configOwnedParams.addAll(oldOwned);
+            externalParams.clear();
+            externalParams.putAll(oldExternal);
+            if (params != null) {
+                if (oldParamPresent) params.put("failClosedOnError", oldParamValue);
+                else params.remove("failClosedOnError");
+            }
+            configParamsPending = false;
+            String err = parseError != null ? parseError
+                    : (r != null ? r.getStringParam("error", "") : "");
+            if (err == null || err.isEmpty()) err = "重载失败";
+            putLog("输出校验规则重载失败，保留旧规则: " + err, LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false).setParam("error", err);
+        }
     }
 
     @Override
@@ -156,9 +276,10 @@ public class TLOutputValidator extends TLBaseModule implements TLAiAgentParamStr
     // ======================== 规则匹配 ========================
 
     protected Rule matchRule(String functionName, String moduleName, String agentName) {
+        List<Rule> snapshot = rules;
         Rule best = null;
         int bestScore = -1;
-        for (Rule r : rules) {
+        for (Rule r : snapshot) {
             if (r == null || r.tool == null || r.tool.isEmpty()) continue;
             if (r.agent != null && !r.agent.isEmpty()
                     && !r.agent.equals(agentName)) continue;
@@ -433,7 +554,7 @@ public class TLOutputValidator extends TLBaseModule implements TLAiAgentParamStr
             Object t = req.getParam("targetModule");
             target = t instanceof IObject ? (IObject) t : null;
         } else {
-            Object t = getModuleInFactory(rule.validator);
+            Object t = getModule(rule.validator);
             target = t instanceof IObject ? (IObject) t : null;
         }
         if (target == null)
@@ -508,7 +629,9 @@ public class TLOutputValidator extends TLBaseModule implements TLAiAgentParamStr
             try {
                 if ("rules".equals(xpp.getName())) parseRules(xpp);
             } catch (Throwable t) {
-                putLog("TLOutputValidator config parse error: " + t, LogLevel.WARN);
+                TLOutputValidator.this.parseError = "rules 解析失败: " + t;
+                parseOk = false;
+                putLog("TLOutputValidator config parse error: " + t, LogLevel.ERROR);
             }
         }
 
@@ -529,7 +652,8 @@ public class TLOutputValidator extends TLBaseModule implements TLAiAgentParamStr
                     r.validator = attr(xpp, "validator");
                     r.action = attr(xpp, "action");
                     r.retryable = "true".equals(attr(xpp, "retryable"));
-                    rules.add(r);
+                    if (pendingRules == null) pendingRules = new ArrayList<>();
+                    pendingRules.add(r);
                 }
             }
         }

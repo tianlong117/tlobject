@@ -1189,6 +1189,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 parseInstallUninstall(parts, msg);
                 break;
 
+            case "reloadconfig":
+            case "rcfg":
+                if (parts.length < 2) {
+                    System.out.println("用法: /reloadconfig <模块名>（例如 outputValidator）");
+                    return null;
+                }
+                msg.setAction("reloadModuleConfig").setParam("name", parts[1]);
+                break;
+
             case "approve":
                 // /approve approve:ID[:modifiedArgs] 或 /approve reject:ID:原因
                 if (parts.length < 2) {
@@ -1726,6 +1735,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "install":
                 case "uninstall":
                 case "reload":
+                case "reloadModuleConfig":
                     System.out.println("✓ " + message);
                     break;
                 case "mcpSearch":
@@ -2856,6 +2866,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /reload -s <家族名>        重载脚本Skill  (例如 app:skillDir)");
         System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
         System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
+        System.out.println("  /reloadconfig <模块名>      重载模块配置（如 outputValidator），不重启");
         System.out.println();
         System.out.println("查询命令:");
         System.out.println("  /agents [ownerName]    列出已注册的Agent");

@@ -32,16 +32,74 @@ public  class TLModuleConfig extends TLBaseModule {
     protected ConcurrentHashMap<String, ArrayList<TLMsg>> afterMsgTable ;          //后期执行msg
     protected ConcurrentHashMap<String, HashMap<String, Object>> msgTable ;  // entry: {"msglist":ArrayList<TLMsg>, "mode":"parallel", ...}
     protected String configFile;
+    /** 最近一次解析是否成功。parse() 在 XML 异常时仍返回 this，必须看此标记 */
+    protected boolean parseOk = true;
+    /** 最近一次解析失败原因；成功时为 null */
+    protected String parseError;
     public TLModuleConfig(String configFile ,String configDir) {
         this.configFile = configFile;
         this.configDir = configDir ;
     }
     public TLModuleConfig() {        ;
     }
+    public boolean isParseOk() { return parseOk; }
+    public String getParseError() { return parseError; }
+
+    /**
+     * 严格 XML 合法性检查：kxml2 对 EOF 处未闭合的标签不抛异常（只留下 depth>0），
+     * 这里用标签栈判断，供热加载预检拦截“文件被截断/半写”的情况。
+     * 同时要求恰好一个根元素、根外无文本，避免空文件/仅声明文件被误判为合法。
+     */
+    public boolean isWellFormed() {
+        try {
+            InputStream in = setFileInputStream(null);
+            if (in == null)
+                return false;
+            try {
+                XmlPullParserFactory factory = XmlPullParserFactory.newInstance();
+                XmlPullParser xpp = factory.newPullParser();
+                xpp.setInput(in, "UTF-8");
+                java.util.ArrayDeque<String> stack = new java.util.ArrayDeque<>();
+                int rootCount = 0;
+                while (xpp.getEventType() != XmlPullParser.END_DOCUMENT) {
+                    int type = xpp.getEventType();
+                    if (type == XmlPullParser.START_TAG) {
+                        if (stack.isEmpty())
+                            rootCount++;
+                        stack.push(xpp.getName());
+                    } else if (type == XmlPullParser.END_TAG) {
+                        if (stack.isEmpty() || !stack.pop().equals(xpp.getName()))
+                            return false;
+                    } else if (type == XmlPullParser.TEXT && stack.isEmpty()) {
+                        String text = xpp.getText();
+                        // kxml2 不剥离 UTF-8 BOM，会作为根前 TEXT 的 U+FEFF 出现；只容忍根前的这一颗 BOM
+                        if (text != null && rootCount == 0 && text.startsWith("\uFEFF"))
+                            text = text.substring(1);
+                        if (text != null && !text.trim().isEmpty())
+                            return false;
+                    }
+                    xpp.next();
+                }
+                return rootCount == 1 && stack.isEmpty();
+            } finally {
+                try { in.close(); } catch (IOException ignored) {}
+            }
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     public TLModuleConfig parse(String configFile){
+        parseOk = true;
+        parseError = null;
         if(configFile !=null)
             this.configFile=configFile;
-         return (TLModuleConfig) init();
+        TLModuleConfig result = (TLModuleConfig) init();
+        if (result == null) {
+            parseOk = false;
+            parseError = "配置文件不可用: " + this.configFile;
+        }
+        return result;
     }
     protected TLBaseModule init(){
         InputStream xmlData= setFileInputStream(null);
@@ -79,11 +137,17 @@ public  class TLModuleConfig extends TLBaseModule {
         return  parseFile(paramName,null) ;
     }
     public void parseFile(File file){
+        parseOk = true;
+        parseError = null;
         try (InputStream in = new FileInputStream(file)) {
             parseconfig(in,null);
         } catch (FileNotFoundException e) {
+            parseOk = false;
+            parseError = "配置文件不可用: " + file;
             e.printStackTrace();
         } catch (IOException e) {
+            parseOk = false;
+            parseError = "IO错误: " + e.getMessage();
             e.printStackTrace();
         }
     }
@@ -127,6 +191,8 @@ public  class TLModuleConfig extends TLBaseModule {
         return afterMsgTable;
     }
     protected Object parseconfig(InputStream xmlData ,String paramName) {
+        parseOk = true;
+        parseError = null;
         try {
             Object returnObj =null;
             /* 步骤2：获取xml文件，并给给出XmlPullParser对象*/
@@ -280,12 +346,18 @@ public  class TLModuleConfig extends TLBaseModule {
                xpp.next();
             }
         } catch (XmlPullParserException e) {
+            parseOk = false;
+            parseError = "Xml解析错误: " + e.getMessage();
             putLog("解析配置错误,Xml解析错误:"+configFile,LogLevel.ERROR);
             e.printStackTrace();
         } catch (IOException e) {
+            parseOk = false;
+            parseError = "IO错误: " + e.getMessage();
             e.printStackTrace();
             putLog("解析配置错误，IO错误:"+configFile,LogLevel.ERROR);
         } catch (Throwable throwable) {
+            parseOk = false;
+            parseError = "解析错误: " + throwable;
             throwable.printStackTrace();
             putLog("解析配置错误:"+configFile,LogLevel.ERROR);
         }
@@ -296,6 +368,12 @@ public  class TLModuleConfig extends TLBaseModule {
         return null ;
     }
 
+    private void includeError(String message) {
+        parseOk = false;
+        parseError = message;
+        putLog(message, LogLevel.ERROR);
+    }
+
     protected  void   include(XmlPullParser xpp, String tag) throws IOException, XmlPullParserException {
         String[] sysunits ={"modules","params","initMsg","modulesParams","paramsModules","msgTable","beforeMsgTable","afterMsgTable"};
         TLModuleConfig includeConfig = null;
@@ -303,13 +381,29 @@ public  class TLModuleConfig extends TLBaseModule {
         for (int i = 0; i < xpp.getAttributeCount(); i++) {
             String name =xpp.getAttributeName(i);
             if (name.equals("file")) {
-                String fileName = xpp.getAttributeValue(i);
-                fileName =moduleFactory.getConfigRealPath(fileName) ;
-                if (fileName ==null)
+                String rawFile = xpp.getAttributeValue(i);
+                if (moduleFactory == null) {
+                    includeError("include 无法解析（无工厂）: " + rawFile);
                     return;
-                includeConfig = new TLModuleConfig(fileName,configDir);
+                }
+                String fileName = moduleFactory.getConfigRealPath(rawFile);
+                if (fileName == null) {
+                    includeError("include 路径解析失败: " + rawFile);
+                    return;
+                }
+                includeConfig = new TLModuleConfig(fileName, configDir);
                 includeConfig.setFactory(moduleFactory);
-                includeConfig.parse(fileName);
+                if (!includeConfig.isWellFormed()) {
+                    includeError("include 文件不存在或 XML 不合法: " + fileName);
+                    return;
+                }
+                TLModuleConfig included = includeConfig.parse(fileName);
+                if (included == null || !includeConfig.isParseOk()) {
+                    includeError("include 解析失败: " + fileName
+                            + (includeConfig.getParseError() != null
+                                    ? " (" + includeConfig.getParseError() + ")" : ""));
+                    return;
+                }
             }
             else if(name.equals("includeUnit")){
                 String includeUnit = xpp.getAttributeValue(i);

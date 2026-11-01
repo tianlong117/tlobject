@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.*;
 
@@ -50,6 +51,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("install", "安装 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("uninstall", "卸载 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("reload", "重载 Skill/Agent/BaseSkill");
+        ACTION_REGISTRY.put("reloadModuleConfig", "重载模块配置（如 outputValidator，不重启）");
         ACTION_REGISTRY.put("agents", "列出已注册 Agent");
         ACTION_REGISTRY.put("skills", "列出已注册 Skill");
         ACTION_REGISTRY.put("sessions", "列出所有历史会话");
@@ -139,6 +141,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "install":         return doInstall(fromWho, msg);
             case "uninstall":       return doUninstall(fromWho, msg);
             case "reload":          return doReload(fromWho, msg);
+            case "reloadModuleConfig":
+                return doReloadConfig(fromWho, msg);
 
             // ── 查询 ──
             case "agents":          return doListAgents(fromWho, msg);
@@ -674,6 +678,61 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         }
         String err = result != null ? result.getStringParam("error", "未知错误") : "无响应";
         return fail("重载失败: " + err);
+    }
+
+    /** 重载指定模块的配置文件（原地 reloadConfig，不重建实例） */
+    protected TLMsg doReloadConfig(Object fromWho, TLMsg msg) {
+        String name = msg.getStringParam("name", msg.getStringParam("module", ""));
+        if (name == null || name.isEmpty()) return fail("缺少参数: name");
+
+        TLBaseModule target = resolveReloadTarget(name);
+        if (target == null) {
+            return fail("模块未运行或不存在: " + name
+                    + "（未实例化的模块会在首次创建时读取新配置）");
+        }
+        if (target.getConfigFile() == null) {
+            return fail("模块未加载配置文件: " + name
+                    + "（无配置文件可重载；请检查模块声明/配置路径）");
+        }
+        String userId = msg.getStringParam("userId", "");
+        putLog("reloadModuleConfig: user=" + userId + " module=" + name, LogLevel.INFO);
+        TLMsg result;
+        try {
+            result = putMsg(target, createMsg().setAction("reloadConfig"));
+        } catch (Throwable t) {
+            putLog("reloadModuleConfig: " + name + " 异常: " + t, LogLevel.ERROR);
+            return fail("模块配置重载异常: " + t);
+        }
+        if (result == null) {
+            putLog("reloadModuleConfig: " + name + " 未返回结果", LogLevel.WARN);
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("module", name);
+            return ok("已发送重载请求（模块未返回结果）", data);
+        }
+        if (!result.containsParam(RESULT)) {
+            putLog("reloadModuleConfig: " + name + " 未返回 RESULT，按成功处理", LogLevel.WARN);
+        }
+        if (!result.parseBoolean(RESULT, true)) {
+            Object errObj = result.getParam("error");
+            String err = errObj != null ? String.valueOf(errObj) : "未知错误";
+            if (err.isEmpty()) err = "未知错误";
+            return fail("模块配置重载失败: " + err);
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("module", name);
+        if (result.containsParam("rules")) data.put("rules", result.getParam("rules"));
+        if (result.containsParam("file")) data.put("file", result.getParam("file"));
+        String message = "配置已重载: " + name;
+        if (result.containsParam("rules")) message += "（rules=" + result.getParam("rules") + "）";
+        return ok(message, data);
+    }
+
+    /** 解析重载目标：registry 精确家族名 → 工厂已存在实例；不隐式创建 */
+    protected TLBaseModule resolveReloadTarget(String name) {
+        TLBaseModule target = findAgentInstance(name);
+        if (target != null) return target;
+        Object existing = getModuleInFactory(name);
+        return existing instanceof TLBaseModule ? (TLBaseModule) existing : null;
     }
 
     // ======================== 查询 ========================
