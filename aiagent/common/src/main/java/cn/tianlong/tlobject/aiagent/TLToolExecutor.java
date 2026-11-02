@@ -317,7 +317,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     String failText = "工具任务提交失败（线程池不可用，应用可能正在关闭）";
                     putLog(failText + ", executionId=" + executionId + " idx=" + idx
                             + " tool=" + task.functionName, LogLevel.ERROR, "executeTools");
-                    state.results.put(idx, new ToolResult(task.toolCallId, failText));
+                    // 走 finishTask：除写结果外还要记 finalStatus（trace 用）并发终态进度事件——
+                    // 直接 results.put 会让 toolEnd 状态变成 unknown、UI 进度卡在无终态
+                    finishTask(state, task, idx, new ToolResult(task.toolCallId, failText),
+                            TOOL_STATUS_ERROR, 0L, "工具任务提交失败");
                     state.latch.countDown();
                 }
                 // 全链追踪：工具开始执行（内建/预计算任务可能两个名字都为空，别拼出 "null execId="）
@@ -398,15 +401,25 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     hasFinal = true;
                     finalResponse = tr.output;
                     results.add(tr);   // 直出结果也要进 results（history 写入/会话恢复依赖完整结果列表）
+                } else {
+                    // 未知控制态（如审批模块的 unavailable/expired）：不是"整轮取消"类控制态，
+                    // 而是"该工具未执行"的错误结果。必须收进 results：少一条会让 assistant 的
+                    // tool_calls 缺少对应 tool 响应，发送前 sanitizeToolPairs 会整簇丢弃本轮
+                    // 所有工具结果（已成功的也白做），LLM 也永远看不到失败原因。
+                    if (tr.output == null || tr.output.isEmpty())
+                        tr.output = "[未执行] 工具未执行（状态：" + tr.state + "）";
+                    results.add(tr);
                 }
                 // 全链追踪：工具执行结束（含工具名/状态与耗时）
                 // tr.state 只覆盖 pending/rejected/clarified/timeout/final 等控制态；
                 // 正常完成/预校验跳过/执行报错都在 finalStatus（done/skipped/error）。
-                // 不能因为 tr.state==null 就一律记 ok——skipped 的任务从未执行。
+                // 不能因为 tr.state==null 就一律记 ok——skipped 的任务从未执行；
+                // finalStatus 缺失同样不是正常路径（提交失败/超时清理后 worker 迟到），记 unknown。
                 String finalStatus = state.finalStatuses.get(i);
                 String toolState = tr.state != null
                         ? tr.state
-                        : (finalStatus == null || TOOL_STATUS_DONE.equals(finalStatus) ? "ok" : finalStatus);
+                        : (finalStatus == null ? "unknown"
+                            : (TOOL_STATUS_DONE.equals(finalStatus) ? "ok" : finalStatus));
                 long startTs = taskStartTs.getOrDefault(i, System.currentTimeMillis());
                 ToolTask doneTask = i < tasks.size() ? tasks.get(i) : null;
                 String doneTool = "?";
@@ -531,10 +544,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         int idx = msg.getIntParam("_idx", -1);
         String executionId = String.valueOf(msg.getSystemParam("executionId", ""));
         ExecutionState state = states.get(executionId);
-        if (state == null || task == null) {
-            if (state == null) return null;
+        if (state == null) {
+            // 超时/中断收尾会先 states.remove，线程池排队的 worker 可能晚到：批次已收尾，
+            // 这里已无处写结果（收集循环用兜底结果补齐），但必须留痕——否则 trace 里
+            // 只看到"该工具无结果"，排查时分不清是没执行还是结果被清理。
+            putLog("doToolExec: execution state gone (executionId=" + executionId
+                    + ", idx=" + idx + ", tool="
+                    + (task != null && task.functionName != null ? task.functionName : "?")
+                    + ") —— 批次已收尾（超时/中断），本次结果丢弃", LogLevel.WARN);
             return null;
         }
+        if (task == null) return null;
 
         if (!MCP_CALLTOOL.equals(task.action)) {
             task.args = sanitizeIdentityArgs(task.args, msg);
@@ -819,12 +839,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         }
     }
 
-    /** 审批不可用时的拒绝结果（fail-closed；与 rejected 同形，上游无需新分支） */
+    /** 审批不可用时的 fail-closed 结果：工具不执行，但状态必须是 UNAVAILABLE 而不是 REJECTED——
+     *  后者会让上层把系统故障当成"用户拒绝，不要重试"写进 history，永久放弃本可重试的调用 */
     private TLMsg buildApprovalUnavailable(String reason) {
         return createMsg().setParam(RESULT, false)
-                .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED)
+                .setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.UNAVAILABLE)
                 .setParam(AI_P_APPROVAL_REJECTREASON, reason)
-                .setParam(AI_P_SKILLOUTPUT, "⚠️ 操作被拒绝：" + reason + "（安全默认：审批不可用时拒绝执行）");
+                .setParam(AI_P_SKILLOUTPUT, "⚠️ 操作未执行：" + reason
+                        + "（审批服务不可用，不是用户拒绝，可稍后重试）");
     }
 
     // ======================== 全链追踪打点 ========================

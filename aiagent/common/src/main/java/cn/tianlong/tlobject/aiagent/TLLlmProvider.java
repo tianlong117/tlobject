@@ -450,11 +450,9 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
         while (attempt <= maxRetries) {
             attempt++;
             Call call = okHttpClient.newCall(request);
-            try {
-                Response response = call.execute();
+            try (Response response = call.execute()) {
                 String responseBody = response.body() != null ? response.body().string() : "";
                 int statusCode = response.code();
-                response.close();
 
                 if (statusCode >= 200 && statusCode < 300) {
                     return createMsg()
@@ -496,6 +494,10 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
                     return createMsg().setParam(RESULT, false).setParam(AI_P_CANCELLED, true);
                 }
                 lastException = e;
+                // 最后一次失败是 IO 层：清掉之前 429/502 留下的状态，否则重试耗尽后
+                // buildErrorMsg 会按旧状态码报"请求超限/服务异常"，把网络问题误导成配额问题
+                lastStatusCode = 0;
+                lastBody = "";
                 if (attempt <= maxRetries) {
                     putLog("LLM retry " + attempt + "/" + maxRetries + " after IO error: "
                             + e.toString(), LogLevel.WARN);

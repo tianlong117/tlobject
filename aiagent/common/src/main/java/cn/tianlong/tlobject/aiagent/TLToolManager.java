@@ -495,16 +495,28 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             String name = "skill".equals(type) ? msg.getStringParam(AI_P_SKILLNAME, "")
                     : msg.getStringParam(AI_P_AGENTNAME, "");
             if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
-            FunctionEntry removedFn = functions.remove(name);
-            modules.remove(name);
+            // 入参可能是函数名（functions 的 key，initFromConfig 用 skillName）或模块名
+            // （/uninstall、/reload 传家族名末段，工具家族名按模块名生成）。两者在
+            // fileOperationSkill/file_operation 这类配置下不同，必须都认。
+            String fnKey = resolveFunctionKey(name, type);
+            FunctionEntry removedFn = fnKey != null ? functions.remove(fnKey) : null;
             if (removedFn != null) {
-                String moduleName = removedFn.module.getName();
+                String moduleName = removedFn.module instanceof TLBaseModule
+                        ? ((TLBaseModule) removedFn.module).getName() : fnKey;
+                // modules 的 key 不统一：配置路径按模块名（getMyModule），INSTANCE 注入路径按函数名
+                modules.remove(moduleName);
+                if (!moduleName.equals(fnKey)) modules.remove(fnKey);
                 if (modulesClass != null) modulesClass.remove(moduleName);
                 if (modulesParams != null) modulesParams.remove(moduleName);
                 invalidateToolDefs();
-                String registryKey = getFamilyName() + ":" + name;
-                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                        .setParam(REGISTRY_P_KEY, registryKey));
+                // registry 注册键 = 模块自身家族名（registerToRegistry），不能用"agent:函数名"拼
+                String registryKey = removedFn.module instanceof TLBaseModule
+                        ? ((TLBaseModule) removedFn.module).getFamilyName()
+                        : getFamilyName() + ":" + moduleName;
+                if (registryKey != null && !registryKey.isEmpty()) {
+                    putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                            .setParam(REGISTRY_P_KEY, registryKey));
+                }
                 boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
                 if (persist && configFile != null) {
                     try {
@@ -519,6 +531,23 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         } finally {
             functionsLock.writeLock().unlock();
         }
+    }
+
+    /**
+     * 按函数名或模块名定位 functions 的 key（两者可能不同，如 fileOperationSkill / file_operation）。
+     * 只认同 type 的条目——防止 unregisterSkill 误删同名 agent/msgTool。调用方须持 functionsLock。
+     */
+    private String resolveFunctionKey(String name, String type) {
+        FunctionEntry byName = functions.get(name);
+        if (byName != null && type.equals(byName.type)) return name;
+        for (Map.Entry<String, FunctionEntry> e : functions.entrySet()) {
+            FunctionEntry fe = e.getValue();
+            if (type.equals(fe.type) && fe.module instanceof TLBaseModule
+                    && name.equals(((TLBaseModule) fe.module).getName())) {
+                return e.getKey();
+            }
+        }
+        return null;
     }
 
     /** 统一列出 function。type="skill"|"agent" */
@@ -608,9 +637,11 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
             if (name.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", type + " name required");
-            if (!functions.containsKey(name))
+            // 与 unregister 同：入参可能是模块名（/reload -bs 传家族名末段），按函数名或模块名都认
+            String fnKey = resolveFunctionKey(name, type);
+            if (fnKey == null)
                 return createMsg().setParam(RESULT, false).setParam("error", type + " not found: " + name);
-            FunctionEntry old = functions.get(name);
+            FunctionEntry old = functions.get(fnKey);
             // 模块名可能与函数名不同（如 fileOperationSkill 的函数名是 file_operation），
             // 以旧实例的实际模块名为准重建；脚本 skill 的模块名即 skillDir（目录名）
             String moduleName = (old.module instanceof TLBaseModule)
@@ -627,8 +658,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
             modules.put(moduleName, newModule);
-            functions.put(name, new FunctionEntry(name, old.action, old.type, newModule, old.description, old.paramSchema));
-            registerToRegistry(name, newModule, type);
+            functions.put(fnKey, new FunctionEntry(fnKey, old.action, old.type, newModule, old.description, old.paramSchema));
+            registerToRegistry(moduleName, newModule, type);
             invalidateToolDefs();
             return createMsg().setParam(RESULT, true).setParam("name", name);
         } finally {

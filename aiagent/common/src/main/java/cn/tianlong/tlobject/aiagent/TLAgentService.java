@@ -430,6 +430,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 }
             }
         }
+        // 与非流式 doChat 对齐：model/temperature 是请求级参数，流式路径漏传会让
+        // /param 或前端覆盖在流式对话下静默失效
+        if (msg.containsParam(AI_P_MODEL)) streamMsg.setParam(AI_P_MODEL, msg.getStringParam(AI_P_MODEL, null));
+        if (msg.containsParam(AI_P_TEMPERATURE)) streamMsg.setParam(AI_P_TEMPERATURE, msg.getDoubleParam(AI_P_TEMPERATURE, 0.0));
         if (msg.containsParam(AI_P_REASONING_MODE)) streamMsg.setParam(AI_P_REASONING_MODE, msg.getStringParam(AI_P_REASONING_MODE, null));
         if (msg.containsParam(AI_P_ATTACHMENTS)) streamMsg.setParam(AI_P_ATTACHMENTS, msg.getParam(AI_P_ATTACHMENTS));
 
