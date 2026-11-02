@@ -128,44 +128,49 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
     @SuppressWarnings("unchecked")
     protected TLMsg addMessage(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        List<TLConversationHistory> history = getOrCreateSession(sessionId);
-
+        int turnCount;
         // 会话列表锁：读侧（getMessages/getView）在拷贝/遍历，写侧在 add/trim。
         // ArrayList 结构变更会让并发读抛 CME——读路径（后台任务快照、evals 查询）不持 chatThreads 锁。
-        int turnCount;
-        synchronized (history) {
-            // 支持直接传入TLConversationHistory对象
-            TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
-            if (entry != null) {
-                capToolResult(entry);
-                entry.setSeq(nextSeq(sessionId));
-                history.add(entry);
-            } else {
-                // 从args中构造
-                String roleStr = msg.getStringParam("role", "user");
-                TLConversationHistory.Role role;
-                try {
-                    role = TLConversationHistory.Role.valueOf(roleStr);
-                } catch (IllegalArgumentException e) {
-                    role = TLConversationHistory.Role.user;
+        // 循环重取：replace 可能在"取到列表"与"拿到锁"之间把 sessions 换成新列表，
+        // 对旧列表 add 的写入会永久丢失。拿到锁后校验 sessions 仍是同一对象，否则重试。
+        while (true) {
+            List<TLConversationHistory> history = getOrCreateSession(sessionId);
+            synchronized (history) {
+                if (sessions.get(sessionId) != history) continue;   // 已被 replace 换代
+                // 支持直接传入TLConversationHistory对象
+                TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
+                if (entry != null) {
+                    capToolResult(entry);
+                    entry.setSeq(nextSeq(sessionId));
+                    history.add(entry);
+                } else {
+                    // 从args中构造
+                    String roleStr = msg.getStringParam("role", "user");
+                    TLConversationHistory.Role role;
+                    try {
+                        role = TLConversationHistory.Role.valueOf(roleStr);
+                    } catch (IllegalArgumentException e) {
+                        role = TLConversationHistory.Role.user;
+                    }
+                    String content = msg.getStringParam("content", "");
+                    TLConversationHistory h = new TLConversationHistory(role, content);
+                    capToolResult(h);
+                    if (msg.containsParam("toolCalls")) {
+                        h.setToolCalls((List<TLToolCall>) msg.getListParam("toolCalls", null));
+                    }
+                    if (msg.containsParam("toolCallId")) {
+                        h.setToolCallId(msg.getStringParam("toolCallId", null));
+                        h.setName(msg.getStringParam("name", null));
+                    }
+                    h.setSeq(nextSeq(sessionId));
+                    history.add(h);
                 }
-                String content = msg.getStringParam("content", "");
-                TLConversationHistory h = new TLConversationHistory(role, content);
-                capToolResult(h);
-                if (msg.containsParam("toolCalls")) {
-                    h.setToolCalls((List<TLToolCall>) msg.getListParam("toolCalls", null));
-                }
-                if (msg.containsParam("toolCallId")) {
-                    h.setToolCallId(msg.getStringParam("toolCallId", null));
-                    h.setName(msg.getStringParam("name", null));
-                }
-                h.setSeq(nextSeq(sessionId));
-                history.add(h);
-            }
 
-            // 裁剪超长历史
-            trimHistory(history);
-            turnCount = history.size();
+                // 裁剪超长历史
+                trimHistory(history);
+                turnCount = history.size();
+                break;
+            }
         }
         return createMsg().setParam(RESULT, true).setParam("turnCount", turnCount);
     }
@@ -217,9 +222,10 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                 if (toolResultCharLimit > 0) capToolResult(c);
                 copy.add(c);
             }
-            // put 与 trim 在同一把列表锁内：读侧拿到新列表后会等锁，不会看到"刚换上、
-            // 正在被 trim 删元素"的中间状态。
-            synchronized (copy) {
+            // put 与 trim 必须与 addMessage 用同一把锁（旧列表对象）：addMessage 在锁内
+            // 会校验 sessions 是否仍是自己手里的列表，换代后重试，避免写到已废弃的旧列表。
+            List<TLConversationHistory> old = getOrCreateSession(sessionId);
+            synchronized (old) {
                 sessions.put(sessionId, copy);
                 trimHistory(copy);
                 // 更新 seq 计数器为 max(seq)，之后的递增从恢复点继续
@@ -230,8 +236,11 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                 seqCounter.put(sessionId, maxSeq);
             }
         } else {
-            sessions.remove(sessionId);
-            seqCounter.remove(sessionId);
+            List<TLConversationHistory> old = getOrCreateSession(sessionId);
+            synchronized (old) {
+                sessions.remove(sessionId);
+                seqCounter.remove(sessionId);
+            }
         }
         return createMsg().setParam(RESULT, true);
     }
@@ -257,7 +266,7 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
      */
     protected TLMsg getView(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        long fromSeq = msg.getIntParam("fromSeq", 0);
+        long fromSeq = msg.getLongParam("fromSeq", 0L);   // seq 是 long，用 int 读会截断
         int limit = msg.getIntParam("limit", 40);
         if (limit <= 0) limit = 40;
         List<TLConversationHistory> history = getOrCreateSession(sessionId);

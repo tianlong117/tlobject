@@ -1441,6 +1441,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             @SuppressWarnings("unchecked")
             List<TLConversationHistory> loadedHistory =
                     (List<TLConversationHistory>) msg.getParam("history");
+            // containsParam 只看 key 是否存在：调用方可能显式传 history=null。
+            // withContextSystem(null) 返回 null，后续 history.size() 会 NPE 成 "Agent error: null"。
+            if (loadedHistory == null) {
+                ctx.terminalResult = createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_RESPONSE, "断点恢复失败：history 为空");
+                return;
+            }
             String resumeState = msg.getStringParam("resumeState", SESSION_STATE_CHECKPOINT);
             if (SESSION_STATE_PENDING_APPROVAL.equals(resumeState)) {
                 // ==== pending_approval 断点恢复 ====
@@ -1918,7 +1925,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             .setSystemParam(AI_P_ROUNDID, roundId));
 
             if (execResult == null) {
-                putLog("toolExecutor returned null, skipping tool results", LogLevel.ERROR);
+                // 执行器完全无响应：回滚悬空的 assistant(tool_calls)，给明确停因。
+                // 否则 finalResponse 为空，循环外兜底会误报"已达最大迭代次数"。
+                putLog("toolExecutor returned null, no tool executed", LogLevel.ERROR);
+                history.remove(aMsgIdx);
+                finalResponse = "（工具执行器无响应，本轮未完成）";
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                finalAssistantIdx = history.size() - 1;
                 break;
             }
             boolean execAborted = execResult.parseBoolean("aborted", false);
@@ -1946,6 +1959,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                 + "。不要重试此操作。）"));
                 rejected = true;
                 finalResponse = execResult.getStringParam("finalResponse", "");
+                if (finalResponse.isEmpty()) {
+                    finalResponse = "（操作已被用户拒绝"
+                            + (rejectedReason.isEmpty() ? "" : "：" + rejectedReason) + "）";
+                }
                 break;
             }
             if (execPending) {
@@ -1976,8 +1993,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 finalResponse = execResult.getStringParam("finalResponse", "");
                 // 澄清问题必须落 history：assistant(tool_calls) 已在上面回滚，若这里不补一条，
                 // 用户回答"是/不是"时下一轮上下文里没有"agent 问了什么"，模型只能瞎猜。
-                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                        finalResponse.isEmpty() ? "（需要澄清）" : finalResponse));
+                // 空响应也必须有可见文案（返回/落库/UI 三处一致）。
+                if (finalResponse.isEmpty()) finalResponse = "（需要澄清，请回答上述问题）";
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
                 finalAssistantIdx = history.size() - 1;
                 break;
             }

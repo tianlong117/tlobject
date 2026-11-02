@@ -64,14 +64,13 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             int msgCount = roundData.get("messages") instanceof List
                     ? ((List<?>) roundData.get("messages")).size() : 0;
 
-            // 1) 轮次明细：同 roundId 先删再插
+            // 1) 轮次明细：同 roundId 先删再插。
+            // delete 与 insert 必须同一事务：insert 失败时不能把旧轮次删没了（会话历史会少一轮）。
+            LinkedHashMap<String, Object> delP = null;
             if (roundId != null && !roundId.isEmpty()) {
-                LinkedHashMap<String, Object> delP = new LinkedHashMap<>();
+                delP = new LinkedHashMap<>();
                 delP.put("session_id", sessionId);
                 delP.put("round_id", roundId);
-                checkStoreResult(putMsg(roundsTable, createMsg().setAction(DB_DELETE)
-                        .setParam(DB_P_SQL, "delete from [table] where session_id=? and round_id=?")
-                        .setParam(DB_P_PARAMS, delP)), "delete round");
             }
 
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
@@ -89,8 +88,19 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             params.put("pending_tool_call", pendingTcJson);
             params.put("approval_id", roundData.getOrDefault(AI_P_APPROVAL_ID, null));
             params.put("created_at", System.currentTimeMillis());
-            checkStoreResult(putMsg(roundsTable,
-                    createMsg().setAction(DB_INSERT).setParam(DB_P_PARAMS, params)), "insert round");
+            TLMsg insertRoundMsg = createMsg().setAction(DB_INSERT).setParam(DB_P_PARAMS, params);
+            if (delP != null) {
+                ArrayList<TLMsg> tx = new ArrayList<>(2);
+                tx.add(createMsg().setAction(DB_DELETE)
+                        .setParam(DB_P_SQL, "delete from [table] where session_id=? and round_id=?")
+                        .setParam(DB_P_PARAMS, delP));
+                tx.add(insertRoundMsg);
+                checkStoreResult(putMsg(roundsTable, createMsg()
+                        .setAction(DB_STARTTRANSACTION).setParam(DB_P_MSGLIST, tx)),
+                        "store round transaction");
+            } else {
+                checkStoreResult(putMsg(roundsTable, insertRoundMsg), "insert round");
+            }
 
             // 2) 会话汇总：UPDATE 已有 → 无命中则 INSERT（保留 created_at）
             if (sessTable != null) {
@@ -344,7 +354,10 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             TLMsg r = putMsg(sessTable, createMsg().setAction(DB_UPDATE)
                     .setParam(DB_P_SQL, sql.toString())
                     .setParam(DB_P_PARAMS, p));
-            return r != null && r.parseBoolean(RESULT, false);
+            boolean ok = r != null && r.parseBoolean(RESULT, false);
+            // 写失败可能是 title 列被外部删除/DB 回滚：复位迁移标记，下次重试探测（极罕见但不留死状态）
+            if (!ok) titleColumnReady = false;
+            return ok;
         } catch (Exception e) {
             putLog("setSessionTitle DB failed: " + e, LogLevel.WARN);
             return false;

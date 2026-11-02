@@ -109,8 +109,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
      *  要做会话隔离随时可用，只是当前版本没有这么做。 */
     private final ConcurrentHashMap<String, PendingEntry> pendingLearn = new ConcurrentHashMap<>();
 
-    /** Phase 1 缓存命中的消息键（Phase 2 据此合成终版响应，零 LLM） */
-    private final Set<String> inFlight = ConcurrentHashMap.newKeySet();
+    /** Phase 1 缓存命中的消息键 → 登记时间（Phase 2 据此合成终版响应，零 LLM）。
+     *  Map 而非 Set：phaseTwo 未到达（中断/异常）的条目需要 TTL 清扫，否则残留到 MAX 后
+     *  所有新命中都不再登记，缓存合成永久退化。 */
+    private final Map<String, Long> inFlight = new ConcurrentHashMap<>();
 
     /** pendingLearn 上限防护（并发/异常残留） */
     private static final int MAX_PENDING = 1000;
@@ -119,6 +121,8 @@ public class TLIntentCacheProvider extends TLLlmProvider {
 
     /** inFlight 上限：phaseTwo 未到达（中断/异常/进程静默）时条目会残留，加硬上限防止无限增长 */
     private static final int MAX_IN_FLIGHT = 1000;
+    /** inFlight 残留 TTL：正常请求远小于该值；超时未到 phaseTwo 视为中断，清掉让缓存继续工作 */
+    private static final long IN_FLIGHT_TTL_MS = 10 * 60_000L;
 
     // ======================== 构造器 ========================
     public TLIntentCacheProvider() { super(); }
@@ -259,6 +263,17 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         return hasToolResults ? phaseTwo(msg, messages) : phaseOne(msg, messages);
     }
 
+    /** 清理中断残留的 inFlight：Phase 2 不再到达（/stop、异常）时不能让条目永久占位 */
+    private void sweepStaleInFlight() {
+        if (inFlight.isEmpty()) return;
+        long cutoff = System.currentTimeMillis() - IN_FLIGHT_TTL_MS;
+        int before = inFlight.size();
+        inFlight.entrySet().removeIf(e -> e.getValue() < cutoff);
+        int removed = before - inFlight.size();
+        if (removed > 0)
+            putLog("[INTENT-CACHE] swept " + removed + " stale inFlight entries", LogLevel.DEBUG);
+    }
+
     /** 清理过期暂存学习：Phase 2 不再到达的条目不能永久占着 MAX_PENDING */
     private void sweepStalePendingLearn() {
         if (pendingLearn.isEmpty()) return;
@@ -287,9 +302,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                     && functionsStillValid(entry.template, msg)) {
                 List<TLToolCall> calls = fillArgsSlots(entry.template, nums,
                         entry.numericSlots, entry.slotNumIndexes);
-                // 超过上限不再记录：phaseTwo 的 remove 会返回 false，走正常 forward，不影响正确性
+                // 先清扫中断残留；超过上限不再记录（phaseTwo 的 remove 会返回 null，走正常 forward）
+                sweepStaleInFlight();
                 if (inFlight.size() < MAX_IN_FLIGHT)
-                    inFlight.add(key);
+                    inFlight.put(key, System.currentTimeMillis());
                 else
                     putLog("[INTENT-CACHE] inFlight 达到上限 " + MAX_IN_FLIGHT
                             + "，本次命中不再登记（phaseTwo 将走正常转发）", LogLevel.WARN);
@@ -332,7 +348,7 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         String lastUser = extractLastUserMessage(messages);
         String key = lastUser.isEmpty() ? null : normalizeIntents(lastUser);
 
-        if (key != null && inFlight.remove(key)) {
+        if (key != null && inFlight.remove(key) != null) {
             StringBuilder sb = new StringBuilder();
             // 只拼接本轮（最后一条 user 消息之后）的工具结果——
             // 多轮会话的历史含前几轮结果，全拼会越拼越多且混入无关旧内容

@@ -1590,8 +1590,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         // 特殊处理：/resume（无断点，回退到恢复最近会话）
         if ("resume".equals(msg.getAction()) && pendingCheckpointSessionId == null) {
-            // 无断点：恢复最近已完成的会话
-            TLMsg result = putSafe(serviceModule, createMsg().setAction("continue"));
+            // 无断点：恢复最近已完成的会话。
+            // 必须带 userId：/continue 路径会读它定位用户会话，漏传会落到空用户/默认目录
+            TLMsg result = putSafe(serviceModule, createMsg().setAction("continue")
+                    .setParam("userId", userId));
             if (result != null && result.parseBoolean("success", false)) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> data = (Map<String, Object>) result.getParam("data");

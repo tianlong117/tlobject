@@ -585,8 +585,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 return null;
             }
 
+            // 归一化：外部驱动可能传枚举/Boolean 等非 String，直接 equals 永远不命中
             boolean preApproved = TLApprovalRequest.APPROVED.equals(
-                    msg.getSystemParam(AI_P_APPROVAL_DECISION, ""));
+                    String.valueOf(msg.getSystemParam(AI_P_APPROVAL_DECISION, "")));
             String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
                     ? task.functionName : task.moduleName;
             TLMsg approvalResult = null;
