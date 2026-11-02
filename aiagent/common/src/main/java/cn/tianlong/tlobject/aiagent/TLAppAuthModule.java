@@ -71,9 +71,14 @@ public class TLAppAuthModule extends TLBaseModule {
     private TLMsg doAuthForBatch(Object fromWho, TLMsg msg) {
         TLMsg originalMsg = (TLMsg) msg.getSystemParam(DOWITHMSG);
         if (originalMsg == null) return null;
-        List<TLToolExecutor.ToolTask> tasks = (List<TLToolExecutor.ToolTask>) originalMsg.getListParam("tasks", null);
-        if (tasks == null || tasks.isEmpty())
+        List<TLToolExecutor.ToolTask> src = (List<TLToolExecutor.ToolTask>) originalMsg.getListParam("tasks", null);
+        if (src == null || src.isEmpty())
             return null;
+        // 拷贝再过滤：getListParam 返回调用方同一引用，外部驱动用 List.of/不可变列表时
+        // iterator.remove() 会抛 UOE（经框架异常链可能关停应用）。过滤结果必须写回原消息，
+        // 执行器 executeTools 会从 originalMsg 重新读取。
+        List<TLToolExecutor.ToolTask> tasks = new ArrayList<>(src);
+        originalMsg.setParam("tasks", tasks);
 
         List<Map<String, String>> deniedList = new ArrayList<>();
 

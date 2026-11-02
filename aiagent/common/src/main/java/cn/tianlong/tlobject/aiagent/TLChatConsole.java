@@ -1074,8 +1074,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     // 有断点：通过 agentService 异步恢复（agentService 向 SessionManager 加载数据后发给 Agent）
                     String resumeSid = pendingCheckpointSessionId;
                     String resumeMsg2 = pendingCheckpointUserMessage;
-                    pendingCheckpointSessionId = null;
-                    pendingCheckpointUserMessage = null;
                     switchSession(resumeSid);
                     busy = true;
                     currentStart = System.currentTimeMillis();
@@ -1083,7 +1081,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     if (target == null) {
                         System.out.println("✗ 找不到 agentService 模块");
                         busy = false;
-                        return null;
+                        return null;   // 提交失败：保留断点，用户可再次 /resume
                     }
                     System.out.println("✓ 正在从断点恢复会话 " + resumeSid + " ...");
                     if (streamMode) {
@@ -1098,7 +1096,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                                 .setParam("resume", true)
                                 .setParam("streamTarget", getName())
                                 .setParam("streamAction", STREAM_ONCHUNK);
-                        putSafe(serviceModule, m);
+                        TLMsg sr = putSafe(serviceModule, m);
+                        if (sr == null || !sr.parseBoolean("success", false)) {
+                            System.out.println("✗ 断点恢复提交失败，可稍后重试 /resume");
+                            busy = false;
+                            return null;   // 保留断点
+                        }
                     } else {
                         TLMsg m = createMsg()
                                 .setAction("chat")
@@ -1111,10 +1114,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         ThreadTask task = submitTask(target, m);
                         if (task == null) {
                             busy = false;
-                            return null;
+                            return null;   // 保留断点，可重试
                         }
                         currentTask = task;
                     }
+                    // 只有提交成功后才消费断点信息
+                    pendingCheckpointSessionId = null;
+                    pendingCheckpointUserMessage = null;
                     return null;
                 }
                 // 无断点 → 通过 agentService 查询 SessionManager

@@ -1167,7 +1167,11 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                     .setParam("userId", resolveUid(msg));
             d.setSystemParam(IGNOREMODULEISNULL, true);
             TLMsg dr = putSafe(targetSessionManager(msg), d);
-            if (dr != null && !dr.parseBoolean(RESULT, false)) {
+            if (dr == null) {
+                // 无响应不能当成功：前端会据此关闭待批卡片，而断点其实还在
+                checkpointDiscarded = false;
+                checkpointError = "sessionManager 无响应";
+            } else if (!dr.parseBoolean(RESULT, false)) {
                 checkpointDiscarded = false;
                 checkpointError = dr.getStringParam("error", "");
             }

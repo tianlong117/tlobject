@@ -1655,6 +1655,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 streamError(ctx, error);
                 return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, error);
             }
+            if (toolExecutor == null) {
+                String error = "Agent [" + name + "] 的工具执行模块未初始化（toolExecutor 未配置），拒绝执行 chat";
+                putLog(error, LogLevel.ERROR);
+                streamError(ctx, error);
+                return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, error);
+            }
             prepareChat(ctx);
             if (ctx.terminalResult != null) {
                 if (ctx.terminalAsFinal)
@@ -1753,8 +1759,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("temperature", temperature)
                     .setParam("maxTokens", maxTokens)
                     .setParam("userMessage", userMessage));
+            // 发送视图只构建一次：trace 的 llmRequest payload 必须和真正发给 LLM 的 messages 一致
+            //（视图裁剪/manifest/base64 剥离/tool 对净化都在 buildSendList 内完成）
+            List<TLConversationHistory> sendList = buildSendList(history, coverSeq, memoryContext);
             TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
-                    .setParam(AI_P_MESSAGEHISTORY, buildSendList(history, coverSeq, memoryContext))
+                    .setParam(AI_P_MESSAGEHISTORY, sendList)
                     .setParam(AI_P_MODEL, model)
                     .setParam(AI_P_TEMPERATURE, temperature).setParam(AI_P_MAXTOKENS, maxTokens)
                     .setParam(AI_P_SESSIONID, sessionId).setParam(AI_P_ROUNDID, roundId);
@@ -1776,7 +1785,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // 全链追踪：LLM 请求/响应打点（payload = 实际发送给 LLM 的 messages）
             traceStage(sessionId, rootSid, roundId, "llmRequest",
                     "iter=" + iteration + " model=" + model, 0,
-                    formatHistoryForTrace(history), null);
+                    formatHistoryForTrace(sendList), null);
             long llmStartTs = System.currentTimeMillis();
             TLMsg llmResponse = llmCall.invoke(ctx, llmMsg, iteration);
             if (llmResponse == null) {
@@ -2173,8 +2182,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
         }
         // 会话首轮完成后异步起名（userId 必须在调用线程内取好——起名线程是异步的，ThreadLocal 取不到）
+        // noHistory 模式下 msgStartIdx 每轮都是 0，不加 !noHistory 会每轮都起一次起名 LLM 调用
         maybeGenerateSessionTitle(sessionId, ctx.userId, userMessage,
-                !resumedFromCheckpoint && msgStartIdx <= 1);
+                !noHistory && !resumedFromCheckpoint && msgStartIdx <= 1);
         streamFinal(ctx, finalResponse);
         return ret;
     }

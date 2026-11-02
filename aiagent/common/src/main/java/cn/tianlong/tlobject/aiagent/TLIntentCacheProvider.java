@@ -8,6 +8,7 @@ import okhttp3.Callback;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -52,6 +53,9 @@ public class TLIntentCacheProvider extends TLLlmProvider {
     /** 数字槽位占位符 */
     private static final String NUM_SLOT = "{num}";
     private static final Pattern NUM_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)?");
+
+    /** 回放 tool_call id 序列：每次命中生成新 id，避免跨轮重复触发网关的唯一性校验 */
+    private static final AtomicLong REPLAY_ID_SEQ = new AtomicLong();
 
     /** 缓存条目：工具调用模板 + 槽位数 + 每个槽位的原值类型（true=JSON number）+ 槽位对应的消息数字下标。
      *  cacheable=false 表示有数字来自本轮消息但无法确定其位置（重复出现耗尽下标），
@@ -381,14 +385,18 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         TLMsg result = forward(msg);
         PendingEntry pending = key != null ? pendingLearn.remove(key) : null;
         if (pending != null && result != null && result.parseBoolean(RESULT, false)) {
-            if (!result.parseBoolean("hasToolCalls", false)) {
+            boolean hasToolCalls = result.parseBoolean("hasToolCalls", false);
+            if (!hasToolCalls && pending.entry.cacheable) {
                 // 单轮工具任务确认 → 提交缓存
                 cachePut(pending.key, pending.entry);
                 putLog("[INTENT-CACHE] learned key=" + pending.key
                         + " (" + pending.entry.slotCount + " slots)", LogLevel.DEBUG);
-            } else {
+            } else if (hasToolCalls) {
                 // 多轮规划 → 不缓存（防丢步骤）
                 putLog("[INTENT-CACHE] multi-round plan — not cached key=" + key, LogLevel.DEBUG);
+            } else {
+                // 模板含无法映射的重复数字 → 永远命不中，不占 LRU 份额
+                putLog("[INTENT-CACHE] non-cacheable template — not cached key=" + key, LogLevel.DEBUG);
             }
         }
         return result;
@@ -528,7 +536,9 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                     args.put(e.getKey(), v);
                 }
             }
-            filled.add(new TLToolCall(tc.getId(), tc.getFunctionName(), args));
+            // 每次回放取新的唯一 id：模板里是学习那轮的 id，跨轮重复会被部分网关拒绝
+            String newId = "cached_" + System.nanoTime() + "_" + REPLAY_ID_SEQ.incrementAndGet();
+            filled.add(new TLToolCall(newId, tc.getFunctionName(), args));
         }
         return filled;
     }

@@ -554,7 +554,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     + ") —— 批次已收尾（超时/中断），本次结果丢弃", LogLevel.WARN);
             return null;
         }
-        if (task == null) return null;
+        if (task == null) {
+            // 外部直接构造的消息可能没有 _task：state 还在时 latch 永远不归零，
+            // executionTimeoutMs=0（默认）会让整批永久挂起。补 countDown 让批次照常收尾。
+            putLog("doToolExec: null task (executionId=" + executionId + ", idx=" + idx + ")",
+                    LogLevel.WARN);
+            state.latch.countDown();
+            return null;
+        }
 
         if (!MCP_CALLTOOL.equals(task.action)) {
             task.args = sanitizeIdentityArgs(task.args, msg);
