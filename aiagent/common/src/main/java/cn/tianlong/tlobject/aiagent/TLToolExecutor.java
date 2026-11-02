@@ -576,6 +576,15 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         boolean started = false;
         long startTs = System.currentTimeMillis();
         try {
+            // 预计算任务（澄清/非法调用/参数不完整/未知函数/校验失败）不执行任何模块，
+            // 也不应过审批门禁——否则"全部工具需审批"的兜底规则会要求用户批准一次澄清请求。
+            if (task.precomputedOutput != null) {
+                finishTask(state, task, idx,
+                        new ToolResult(task.toolCallId, task.precomputedOutput),
+                        TOOL_STATUS_SKIPPED, 0L, "未执行（预校验）");
+                return null;
+            }
+
             boolean preApproved = TLApprovalRequest.APPROVED.equals(
                     msg.getSystemParam(AI_P_APPROVAL_DECISION, ""));
             String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
@@ -611,13 +620,6 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 String text = "pending".equals(approvalState) ? "等待审批"
                         : ("rejected".equals(approvalState) ? tr.stateExtra : approvalState);
                 finishTask(state, task, idx, tr, status, 0L, text);
-                return null;
-            }
-
-            if (task.precomputedOutput != null) {
-                finishTask(state, task, idx,
-                        new ToolResult(task.toolCallId, task.precomputedOutput),
-                        TOOL_STATUS_SKIPPED, 0L, "未执行（预校验）");
                 return null;
             }
 

@@ -45,6 +45,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 上下文模块名 */
     protected String contextModuleName = M_AICONTEXT;
 
+    /** 审批门禁模块名（断点恢复查决策用）。需与 toolExecutor 的 approvalModule 配置一致；
+     *  默认 approvalGate，改名部署时在 agent <params> 里同步配置 approvalModule */
+    protected String approvalModuleName = "approvalGate";
+
     /** 本Agent描述（XML description 参数 + md frontmatter 合并），master 生成 delegate_to 时读取 */
     protected String agentDescription;
 
@@ -662,6 +666,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 defaultMemoryStore = params.get("defaultMemoryStore");
             if (params.get("contextModuleName") != null)
                 contextModuleName = params.get("contextModuleName");
+            if (params.get("approvalModule") != null && !params.get("approvalModule").isEmpty())
+                approvalModuleName = params.get("approvalModule");
             if (params.get("description") != null)
                 agentDescription = params.get("description");
             if (params.get("agentMd") != null)
@@ -1383,10 +1389,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             h.setContent(sb.toString());
         }
 
-        // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表
+        // 黑盒消息接口之一：向工具模块索取 LLM 函数定义列表。
+        // putMsg 在异常/模块不可用时可能返回 null——空工具集也比 NPE 收尾好。
         TLMsg frDefsMsg = putMsg(toolManager, createMsg().setAction(AGENT_GETFUNCTIONDEFS));
-        ctx.toolDefs = (List<TLFunctionDefinition>)
-                frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>());
+        if (frDefsMsg == null)
+            putLog("AGENT_GETFUNCTIONDEFS returned null, proceed without tools", LogLevel.WARN);
+        ctx.toolDefs = frDefsMsg != null
+                ? (List<TLFunctionDefinition>) frDefsMsg.getListParam(AI_P_FUNCTIONDEFS, new ArrayList<>())
+                : new ArrayList<>();
 
         // ==== prompt 模式：注入 💭 推理引导到 system prompt ====
         if ("prompt".equals(ctx.reasoningMode) && ctx.toolDefs != null && !ctx.toolDefs.isEmpty()) {
@@ -1468,8 +1478,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                             TLConversationHistory.Role.assistant, singleTc));
                     TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
                             .setParam(AI_P_TOOLCALLS, singleTc));
-                    List<TLToolExecutor.ToolTask> singleTask = (List<TLToolExecutor.ToolTask>)
-                            frResolveMsg.getListParam("tasks", new ArrayList<>());
+                    if (frResolveMsg == null)
+                        putLog("Approval resume resolveToolCalls returned null", LogLevel.WARN);
+                    List<TLToolExecutor.ToolTask> singleTask = frResolveMsg != null
+                            ? (List<TLToolExecutor.ToolTask>) frResolveMsg.getListParam("tasks", new ArrayList<>())
+                            : new ArrayList<>();
                     if (singleTask.size() > 1) {
                         putLog("Approval resume resolved to " + singleTask.size()
                                 + " tasks; 免复批 bypass covers single-task batches only", LogLevel.WARN);
@@ -1493,9 +1506,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         if (singleResults != null && !singleResults.isEmpty())
                             singleResult = singleResults.get(0);
                     }
-                    appendToolResult(history, savedTc.getFunctionName(),
-                            singleResult != null ? singleResult
-                                    : new TLToolExecutor.ToolResult(savedTc.getId(), ""),
+                    TLToolExecutor.ToolResult restoreResult = singleResult;
+                    if (restoreResult == null) {
+                        // 空 output 会让模型以为"工具成功但没内容"；给明确失败原因，
+                        // 至少能判断是执行器无响应/任务被取消，而不是继续编造结果
+                        restoreResult = new TLToolExecutor.ToolResult(savedTc.getId(),
+                                "[审批恢复] 工具 " + savedTc.getFunctionName()
+                                        + " 执行未返回结果（执行器无响应或任务被取消）");
+                    }
+                    appendToolResult(history, savedTc.getFunctionName(), restoreResult,
                             sessionId, ctx.userId, pendingImages);
                     flushToolImages(history, pendingImages);
                     putLog("Approval resumed: approved → tool executed: " + savedTc.getFunctionName(),
@@ -1872,11 +1891,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             // 黑盒消息接口之二：tool_calls 交工具模块解析为可执行 ToolTask 列表
             TLMsg frResolveMsg = putMsg(toolManager, createMsg().setAction(AGENT_RESOLVETOOLCALLS)
                     .setParam(AI_P_TOOLCALLS, toolCalls));
-            List<TLToolExecutor.ToolTask> tasks = (List<TLToolExecutor.ToolTask>)
-                    frResolveMsg.getListParam("tasks", new ArrayList<>());
+            if (frResolveMsg == null)
+                putLog("Resolve toolCalls returned null, no tool executed", LogLevel.WARN);
+            List<TLToolExecutor.ToolTask> tasks = frResolveMsg != null
+                    ? (List<TLToolExecutor.ToolTask>) frResolveMsg.getListParam("tasks", new ArrayList<>())
+                    : new ArrayList<>();
             if (tasks.isEmpty()) {
-                // 全部工具被跳过（校验失败等），回滚 assistant 消息直接 break
+                // 工具解析失败/全部被跳过：回滚 assistant(tool_calls)，给出明确停因。
+                // 不能留 finalResponse=null——循环外的兜底会把这种情况误报成"达到最大迭代次数"。
                 history.remove(aMsgIdx);
+                finalResponse = "（工具解析失败：本轮未执行任何工具）";
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                finalAssistantIdx = history.size() - 1;
                 break;
             }
 
@@ -1948,6 +1974,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (execClarified) {
                 clarified = true;
                 finalResponse = execResult.getStringParam("finalResponse", "");
+                // 澄清问题必须落 history：assistant(tool_calls) 已在上面回滚，若这里不补一条，
+                // 用户回答"是/不是"时下一轮上下文里没有"agent 问了什么"，模型只能瞎猜。
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                        finalResponse.isEmpty() ? "（需要澄清）" : finalResponse));
+                finalAssistantIdx = history.size() - 1;
                 break;
             }
             if (execTimeout) {
@@ -2403,14 +2434,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /**
      * 断点恢复时向审批模块查本次审批的终态（approved/rejected/pending/lost）。
-     * 返回审批响应 TLMsg；无 approvalGate（未启用审批）或查询失败返回 null（调用方按 pending 处理）。
+     * 返回审批响应 TLMsg；无审批模块（未启用审批）或查询失败返回 null（调用方按 pending 处理）。
      */
     private TLMsg queryApproval(String approvalId) {
         if (approvalId == null || approvalId.isEmpty()) return null;
         try {
             TLMsg q = createMsg().setAction(APPROVAL_QUERY).setParam(AI_P_APPROVAL_ID, approvalId);
             q.setSystemParam(IGNOREMODULEISNULL, true);   // 缺模块静默（默认行为会关停整个应用）
-            TLMsg r = putMsg("approvalGate", q);
+            TLMsg r = putMsg(approvalModuleName, q);
             // 缺模块时 putMsg 返回的是带 IGNOREMODULEISNULL 的空壳（非 null）——按"无 decision 即无 gate"兜住
             if (r == null || r.getStringParam("decision", "").isEmpty()) return null;   // 无 gate / 非审批响应
             return r;

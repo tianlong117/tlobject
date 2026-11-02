@@ -161,8 +161,10 @@ public class TLStreamCallback extends TLBaseModule implements TLAiAgentParamStri
         try {
             boolean completed = latch.await(timeoutSeconds, TimeUnit.SECONDS);
             synchronized (bufferLock) {
-                completed = completed && streamDone;
-                return createMsg().setParam(RESULT, completed)
+                boolean finished = completed && streamDone;
+                // 错误收尾也会 countDown + streamDone=true：只看这两个会把失败流当成功
+                boolean ok = finished && (streamError == null || streamError.isEmpty());
+                return createMsg().setParam(RESULT, ok)
                         .setParam("content", streamBuffer.toString())
                         .setParam("streamDone", streamDone)
                         .setParam(AI_P_STREAMERROR, streamError)

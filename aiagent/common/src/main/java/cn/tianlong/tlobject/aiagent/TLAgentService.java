@@ -1073,9 +1073,11 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             if (msg.containsParam("approvalModifiedArguments")) {
                 approveMsg.setParam("approvalModifiedArguments", msg.getParam("approvalModifiedArguments"));
             }
-            // 授权范围透传（once/round/session）；缺省不传=gate 侧按 once 处理
+            // 授权范围透传（once/round/session）；缺省不传=gate 侧按 once 处理。
+            // 空串必须按缺省处理：gate 把未知 scope 硬报错，传 "" 会让一次正常批准失败
             String scope = msg.getStringParam(AI_P_APPROVAL_SCOPE, "once");
-            if (!"once".equals(scope)) approveMsg.setParam(AI_P_APPROVAL_SCOPE, scope);
+            if (scope != null && !scope.isEmpty() && !"once".equals(scope))
+                approveMsg.setParam(AI_P_APPROVAL_SCOPE, scope);
             approveMsg.setSystemParam(IGNOREMODULEISNULL, true);
             // 核 gate 返回值：非 once+改参数 / 未知 scope / round 无轮次 / not found / already decided
             // 都会 RESULT=false+error——透传，不能吞掉谎报"已批准"（本次审批 8b 修复）

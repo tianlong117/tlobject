@@ -53,15 +53,22 @@ public class TLIntentCacheProvider extends TLLlmProvider {
     private static final String NUM_SLOT = "{num}";
     private static final Pattern NUM_PATTERN = Pattern.compile("\\d+(?:\\.\\d+)?");
 
-    /** 缓存条目：工具调用模板 + 槽位数 + 每个槽位的原值类型（true=JSON number） */
+    /** 缓存条目：工具调用模板 + 槽位数 + 每个槽位的原值类型（true=JSON number）+ 槽位对应的消息数字下标。
+     *  cacheable=false 表示有数字来自本轮消息但无法确定其位置（重复出现耗尽下标），
+     *  整条不缓存——部分替换会把参数填错。 */
     private static class CacheEntry {
         final List<TLToolCall> template;
         final int slotCount;
         final List<Boolean> numericSlots;
-        CacheEntry(List<TLToolCall> template, int slotCount, List<Boolean> numericSlots) {
+        final List<Integer> slotNumIndexes;
+        final boolean cacheable;
+        CacheEntry(List<TLToolCall> template, int slotCount, List<Boolean> numericSlots,
+                   List<Integer> slotNumIndexes, boolean cacheable) {
             this.template = template;
             this.slotCount = slotCount;
             this.numericSlots = numericSlots;
+            this.slotNumIndexes = slotNumIndexes;
+            this.cacheable = cacheable;
         }
     }
 
@@ -276,8 +283,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         if (entry != null) {
             // 槽位数校验 + 函数有效性校验。不符只按 miss 处理、不删条目：
             // 共享缓存实例下其他 agent 的校验失败不应销毁本 agent 学到的映射
-            if (entry.slotCount == nums.size() && functionsStillValid(entry.template, msg)) {
-                List<TLToolCall> calls = fillArgsSlots(entry.template, nums, entry.numericSlots);
+            if (entry.cacheable && entry.slotCount == nums.size()
+                    && functionsStillValid(entry.template, msg)) {
+                List<TLToolCall> calls = fillArgsSlots(entry.template, nums,
+                        entry.numericSlots, entry.slotNumIndexes);
                 // 超过上限不再记录：phaseTwo 的 remove 会返回 false，走正常 forward，不影响正确性
                 if (inFlight.size() < MAX_IN_FLIGHT)
                     inFlight.add(key);
@@ -398,11 +407,13 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         return nums;
     }
 
-    /** 学习模板：深拷贝 tool calls，args 数字归一化 + 统计槽位数（记录每个槽位原值是否为 JSON number） */
+    /** 学习模板：深拷贝 tool calls，args 数字归一化 + 记录每个槽位对应的消息数字下标 */
     private CacheEntry makeTemplate(List<TLToolCall> calls, List<String> nums) {
         List<TLToolCall> tpl = new ArrayList<>();
-        int slots = 0;
         List<Boolean> numericSlots = new ArrayList<>();
+        List<Integer> slotNumIndexes = new ArrayList<>();
+        Set<Integer> usedIndexes = new HashSet<>();
+        boolean cacheable = true;
         for (TLToolCall tc : calls) {
             Map<String, Object> args = new LinkedHashMap<>();
             for (Map.Entry<String, Object> e : tc.getArguments().entrySet()) {
@@ -412,13 +423,18 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                     StringBuffer sb = new StringBuffer();
                     while (m.find()) {
                         String num = m.group();
-                        // 与下面的 Number 分支同一口径：只有确实来自本轮用户消息的数字
-                        // 才做槽位。文件序号/版本号/日期里的数字原样保留。
-                        if (nums != null && nums.contains(num)) {
+                        int idx = findUnusedIndex(nums, num, usedIndexes);
+                        if (idx >= 0) {
+                            // 记录该槽位来自消息中第几个数字：LLM 的参数顺序可能与消息
+                            // 数字顺序不同，回填必须按学习时的对应关系，不能按出现顺序
+                            usedIndexes.add(idx);
                             m.appendReplacement(sb, NUM_SLOT);
-                            slots++;
                             numericSlots.add(Boolean.FALSE);
+                            slotNumIndexes.add(idx);
                         } else {
+                            // 数字来自本轮消息但已被前面的参数占用（同一数字重复出现）：
+                            // 无法确定它该跟新消息的哪个数字，整条不缓存，避免部分替换填错值
+                            if (nums != null && nums.contains(num)) cacheable = false;
                             m.appendReplacement(sb, Matcher.quoteReplacement(num));
                         }
                     }
@@ -428,11 +444,14 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                     // 结构化输出常见原生数字（{"count":3}）。只有确实来自本轮消息的数字才做槽位，
                     // 否则把一个与消息无关的字面量也替换掉，会改变工具语义/槽位对齐。
                     String s = numberToString((Number) v);
-                    if (nums != null && nums.contains(s)) {
+                    int idx = findUnusedIndex(nums, s, usedIndexes);
+                    if (idx >= 0) {
+                        usedIndexes.add(idx);
                         args.put(e.getKey(), NUM_SLOT);
-                        slots++;
                         numericSlots.add(Boolean.TRUE);
+                        slotNumIndexes.add(idx);
                     } else {
+                        if (nums != null && nums.contains(s)) cacheable = false;
                         args.put(e.getKey(), v);
                     }
                 } else {
@@ -441,12 +460,22 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             }
             tpl.add(new TLToolCall(tc.getId(), tc.getFunctionName(), args));
         }
-        return new CacheEntry(tpl, slots, numericSlots);
+        return new CacheEntry(tpl, slotNumIndexes.size(), numericSlots, slotNumIndexes, cacheable);
     }
 
-    /** 命中回填：模板 args 中的占位符按序替换为新消息数字；数字槽位回填为原生 JSON number */
+    /** 找 nums 中尚未被占用的、值等于 num 的第一个下标；没有返回 -1 */
+    private static int findUnusedIndex(List<String> nums, String num, Set<Integer> used) {
+        if (nums == null) return -1;
+        for (int i = 0; i < nums.size(); i++) {
+            if (!used.contains(i) && nums.get(i).equals(num)) return i;
+        }
+        return -1;
+    }
+
+    /** 命中回填：每个槽位按学习时记录的消息数字下标取值；数字槽位回填为原生 JSON number */
     private static List<TLToolCall> fillArgsSlots(List<TLToolCall> template, List<String> nums,
-                                                  List<Boolean> numericSlots) {
+                                                  List<Boolean> numericSlots,
+                                                  List<Integer> slotNumIndexes) {
         List<TLToolCall> filled = new ArrayList<>();
         int globalSlot = 0;   // 跨 tool call / 跨参数共用，与 makeTemplate 的登记顺序一致
         for (TLToolCall tc : template) {
@@ -465,7 +494,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                         boolean numeric = numericSlots != null && globalSlot < numericSlots.size()
                                 && Boolean.TRUE.equals(numericSlots.get(globalSlot));
                         if (occ == 0 && NUM_SLOT.equals(s)) wholeNumeric = numeric;
-                        sb.append(globalSlot < nums.size() ? nums.get(globalSlot) : NUM_SLOT);
+                        int srcIdx = slotNumIndexes != null && globalSlot < slotNumIndexes.size()
+                                ? slotNumIndexes.get(globalSlot) : -1;
+                        sb.append(srcIdx >= 0 && srcIdx < nums.size()
+                                ? nums.get(srcIdx) : NUM_SLOT);
                         globalSlot++;
                         occ++;
                         pos = p + NUM_SLOT.length();

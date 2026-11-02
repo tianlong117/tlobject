@@ -292,7 +292,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                     }
                 }
             }
-            result = new ArrayList<>(filtered.subList(Math.max(0, startIdx), filtered.size()));
+            // 对外返回副本：调用方 setContent/setReasoning 不应回写会话内部对象。
+            //（copy() 对 toolCalls/images 等集合仍是浅拷贝，但 content 等标量已隔离，
+            // 与 getMessages 的返回语义保持一致）
+            List<TLConversationHistory> sub = filtered.subList(Math.max(0, startIdx), filtered.size());
+            result = new ArrayList<>(sub.size());
+            for (TLConversationHistory h : sub) result.add(h.copy());
         }
         return createMsg().setParam(AI_P_MESSAGEHISTORY, result);
     }
@@ -389,7 +394,8 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
             char ch = trimmed.charAt(i);
             if (Character.isLetterOrDigit(ch) || ch == '/' || ch == '+' || ch == '=') b64++;
         }
-        if (b64 > trimmed.length() * 95 / 100) {
+        // long 比较：超大 tool 输出（>22M 字符）时 length*95 会 int 溢出，导致误判
+        if ((long) b64 * 100 > (long) trimmed.length() * 95) {
             h.setContent("[截图/图片 base64 已省略，原 " + trimmed.length()
                     + " 字符；如需查看请要求重新截图]");
             return true;

@@ -40,7 +40,9 @@ public class TLOutputGuard extends TLBaseModule implements TLAiAgentParamString 
     private double amountLimit = -1;
     private String[] forbiddenTerms = new String[0];
     private int maxLength = -1;
-    private static final Pattern AMOUNT_PATTERN = Pattern.compile("[\\d,]+(?:\\.[\\d]*)?\\s*[元钱块]");
+    // 支持「1.5万元」「10亿元」这类常见写法（万/亿作为倍数，仍需以元/钱/块结尾）
+    private static final Pattern AMOUNT_PATTERN =
+            Pattern.compile("[\\d,]+(?:\\.[\\d]*)?\\s*(?:万|亿)?\\s*[元钱块]");
 
     // ---- LLM 审查 ----
     private boolean llmJudge = false;
@@ -116,11 +118,20 @@ public class TLOutputGuard extends TLBaseModule implements TLAiAgentParamString 
         if (amountLimit > 0) {
             var matcher = AMOUNT_PATTERN.matcher(response);
             while (matcher.find()) {
-                String amountStr = matcher.group().replaceAll("[^\\d.]", "");
+                String rawAmount = matcher.group();
+                String amountStr = rawAmount.replaceAll("[^\\d.万亿]", "");
+                double factor = 1;
+                if (amountStr.contains("万")) {
+                    factor = 10000;
+                    amountStr = amountStr.replace("万", "");
+                } else if (amountStr.contains("亿")) {
+                    factor = 100000000;
+                    amountStr = amountStr.replace("亿", "");
+                }
                 try {
-                    double amount = Double.parseDouble(amountStr);
+                    double amount = Double.parseDouble(amountStr) * factor;
                     if (amount > amountLimit) {
-                        warnings.append("⚠️ 回复含大额金额 ").append(amountStr)
+                        warnings.append("⚠️ 回复含大额金额 ").append(rawAmount)
                                 .append("（超限 ").append(amountLimit).append("），请人工确认。\n");
                         break;
                     }

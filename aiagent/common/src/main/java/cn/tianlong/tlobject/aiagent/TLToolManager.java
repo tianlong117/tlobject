@@ -427,7 +427,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         try {
             String foundFnName = null;
             for (FunctionEntry fe : functions.values()) {
-                if ("skill".equals(fe.type) && moduleName.equals(fe.module.getName())) {
+                if ("skill".equals(fe.type) && fe.module != null
+                        && moduleName.equals(fe.module.getName())) {
                     foundFnName = fe.name; break;
                 }
             }
@@ -658,6 +659,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
             modules.put(moduleName, newModule);
+            // INSTANCE 注入路径的 modules key 是函数名；与模块名不同时清掉旧 key，否则残留旧实例
+            if (!moduleName.equals(fnKey)) modules.remove(fnKey);
             functions.put(fnKey, new FunctionEntry(fnKey, old.action, old.type, newModule, old.description, old.paramSchema));
             registerToRegistry(moduleName, newModule, type);
             invalidateToolDefs();
@@ -781,14 +784,20 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         Set<String> added = new HashSet<>();
         added.add(AGENT_REQUESTCLARITY);
 
-        // 每次重建前清除旧的 MCP 条目（由 agent 实时贡献，可能会变化）
-        functions.entrySet().removeIf(e -> "mcp".equals(e.getValue().type));
+        // MCP 条目由 agent 实时贡献，重建时要替换；但不能先删后探——AGENT_GETTOOLDEFS
+        // 临时失败（MCP server 抖动）会让旧工具消失且 dirty 已清、不会自动重试。
+        // 先收集：探活成功的 agent 才替换其旧条目，失败的保留上一版。
+        Set<TLBaseModule> currentAgents = new HashSet<>();
+        Set<TLBaseModule> probedAgents = new HashSet<>();
+        List<FunctionEntry> newMcpEntries = new ArrayList<>();
 
         for (FunctionEntry fe : new ArrayList<>(functions.values())) {
+            if ("mcp".equals(fe.type)) continue;   // 旧 MCP 条目：最后统一按探活结果替换
             if (!fe.enabled) continue;
 
             // agent 类型先探 AGENT_GETTOOLDEFS——MCP agent 贡献多个工具
             if ("agent".equals(fe.type) && fe.module != null) {
+                currentAgents.add(fe.module);
                 try {
                     TLMsg defsMsg = putMsg(fe.module, createMsg().setAction(AGENT_GETTOOLDEFS));
                     if (defsMsg != null) {
@@ -804,11 +813,13 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                                 defs.add(toolDef);
                                 // MCP 工具注册到 functions：LLM 名=toolName，原生名=nativeTool
                                 String nativeTool = routes != null ? routes.get(toolName) : toolName;
-                                functions.put(toolName, new FunctionEntry(toolName, MCP_CALLTOOL, "mcp",
+                                newMcpEntries.add(new FunctionEntry(toolName, MCP_CALLTOOL, "mcp",
                                         fe.module, toolDef.getDescription() != null ? toolDef.getDescription() : toolName,
                                         null, nativeTool != null ? nativeTool : toolName));
                             }
                         }
+                        // 探活成功（含"现在不贡献任何工具"）：可以替换该 agent 的旧贡献
+                        probedAgents.add(fe.module);
                     }
                 } catch (Exception e) {
                     putLog("AGENT_GETTOOLDEFS failed for " + fe.name + ": " + e, LogLevel.DEBUG);
@@ -830,6 +841,13 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 defs.add(def);
             }
         }
+
+        // 替换规则：探活成功 → 用本次贡献替换旧 MCP 条目；agent 已移除 → 清掉其旧条目；
+        // 探活失败 → 保留旧条目（下次 dirty 重建再试，不因一次抖动丢工具）
+        functions.entrySet().removeIf(e -> "mcp".equals(e.getValue().type)
+                && (probedAgents.contains(e.getValue().module)
+                    || !currentAgents.contains(e.getValue().module)));
+        for (FunctionEntry fe : newMcpEntries) functions.put(fe.name, fe);
 
         return defs;
     }
@@ -916,8 +934,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     ? new LinkedHashMap<>((Map<String, Object>) tc.getArguments())
                     : new LinkedHashMap<>();
 
-            // skill 类型：执行前校验参数
-            if ("skill".equals(fn.type)) {
+            // skill 类型：执行前校验参数（module 为空属异常数据，跳过校验让执行器报明确错误）
+            if ("skill".equals(fn.type) && fn.module != null) {
                 try {
                     TLMsg vResult = putMsg(fn.module, createMsg().setAction(SKILL_VALIDATE)
                             .setParam(AI_P_SKILLINPUT, toolArgs));
