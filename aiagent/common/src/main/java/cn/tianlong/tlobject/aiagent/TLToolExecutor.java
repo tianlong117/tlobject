@@ -290,6 +290,21 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             for (int i = 0; i < n; i++) {
                 final int idx = i;
                 final ToolTask task = tasks.get(i);
+                if (task == null) {
+                    // 外部直接构造的 tasks 列表可能含 null（上游 resolveToolCalls 不会产生）。
+                    // 派发前判空：否则 task.timeoutMs 处 NPE 会让整批中断；占位任务保证
+                    // finishTask/进度事件有 toolCallId 可用，且下标与任务一一对应。
+                    String failText = "工具任务列表包含 null 条目（数据畸形）";
+                    putLog(failText + ", executionId=" + executionId + " idx=" + idx, LogLevel.ERROR);
+                    ToolTask placeholder = new ToolTask();
+                    placeholder.toolCallId = "missing_" + idx;
+                    placeholder.functionName = "(missing)";
+                    finishTask(state, placeholder, idx,
+                            new ToolResult(placeholder.toolCallId, failText),
+                            TOOL_STATUS_ERROR, 0L, failText);
+                    state.latch.countDown();
+                    continue;
+                }
                 TLMsg execMsg = createMsg().setAction("_toolExecInternal")
                         .setParam("_task", task).setParam("_idx", idx)
                         .setParam("_fromWho", fromWho)

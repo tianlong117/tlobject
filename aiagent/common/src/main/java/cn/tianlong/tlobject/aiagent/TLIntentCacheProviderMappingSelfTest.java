@@ -50,6 +50,15 @@ public class TLIntentCacheProviderMappingSelfTest implements TLAiAgentParamStrin
         Object entry3 = makeTemplate(p, "dup", dup, List.of("2"));
         check("重复数字无法映射时不缓存", !((Boolean) field(entry3, "cacheable")));
 
+        // 无参工具调用：arguments 为 null（部分 OpenAI 兼容网关省略 arguments 字段、Claude input 缺失）
+        // 不得 NPE，按空参数模板处理
+        Object entry4 = makeTemplate(p, "noargs", null, List.of());
+        List<?> tpl = (List<?>) field(entry4, "template");
+        check("空参数模板不 NPE 且可缓存",
+                Boolean.TRUE.equals(field(entry4, "cacheable"))
+                        && ((TLToolCall) tpl.get(0)).getArguments().isEmpty());
+        check("空参数模板回填正常", fill(entry4, List.of()).size() == 1);
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }

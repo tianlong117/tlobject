@@ -440,7 +440,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         boolean cacheable = true;
         for (TLToolCall tc : calls) {
             Map<String, Object> args = new LinkedHashMap<>();
-            for (Map.Entry<String, Object> e : tc.getArguments().entrySet()) {
+            // 无参工具调用可能没有 arguments 字段（OpenAI 兼容网关/Claude input 缺失时 getArguments()==null）
+            Map<String, Object> tcArgs = tc.getArguments();
+            if (tcArgs == null) tcArgs = Collections.emptyMap();
+            for (Map.Entry<String, Object> e : tcArgs.entrySet()) {
                 Object v = e.getValue();
                 if (v instanceof String) {
                     Matcher m = NUM_PATTERN.matcher((String) v);
@@ -504,7 +507,10 @@ public class TLIntentCacheProvider extends TLLlmProvider {
         int globalSlot = 0;   // 跨 tool call / 跨参数共用，与 makeTemplate 的登记顺序一致
         for (TLToolCall tc : template) {
             Map<String, Object> args = new LinkedHashMap<>();
-            for (Map.Entry<String, Object> e : tc.getArguments().entrySet()) {
+            // 无参工具调用可能没有 arguments 字段（OpenAI 兼容网关/Claude input 缺失时 getArguments()==null）
+            Map<String, Object> tcArgs = tc.getArguments();
+            if (tcArgs == null) tcArgs = Collections.emptyMap();
+            for (Map.Entry<String, Object> e : tcArgs.entrySet()) {
                 Object v = e.getValue();
                 if (v instanceof String && ((String) v).contains(NUM_SLOT)) {
                     String s = (String) v;

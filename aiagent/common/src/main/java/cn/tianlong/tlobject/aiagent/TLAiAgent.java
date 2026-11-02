@@ -1644,8 +1644,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 一轮聊天的唯一生命周期外壳：准备 → 循环 → 收尾。 */
     private TLMsg runChat(Object fromWho, TLMsg msg, LlmCall llmCall,
                           StreamSink sink, boolean preBegan) {
-        ChatRunContext ctx = newContext(fromWho, msg, sink, preBegan);
+        ChatRunContext ctx = null;
         try {
+            // newContext 放进 try：流式入口（chatStream）已同步 sessionRoundBegin，若这里在
+            // try 外抛异常，finally 覆盖不到 → 会话计数永久 >0，后台任务结果永远不进 context
+            ctx = newContext(fromWho, msg, sink, preBegan);
             // initToolManager 失败时只打 WARN、toolManager 保持 null；继续跑会在
             // putMsg(toolManager, ...) 处 NPE（prepareHistory 恢复分支 / prepareChat 取函数定义）。
             // 放在 try 内：cleanupChatRun 负责释放会话轮次，streamError 负责给流式前端发终帧。
@@ -1671,6 +1674,15 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             return runChatLoop(ctx, llmCall);
         } catch (Exception e) {
+            if (ctx == null) {
+                // 上下文构造失败（ctx 尚未建立）：没有会话状态可清理，错误按入口约定告知前端
+                String error = "Agent error: " + e.getMessage();
+                putLog("Chat context init error: " + e, LogLevel.ERROR);
+                if (sink != null) {
+                    try { sink.onError(error); } catch (Throwable ignored) { /* sink 自带兜底 */ }
+                }
+                return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, error);
+            }
             if (ctx.cancelled() || e instanceof InterruptedException) {
                 Thread.interrupted();
                 putLog("Chat aborted (exception path): sessionId=" + ctx.sessionId, LogLevel.INFO);
@@ -1683,7 +1695,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
         } finally {
-            cleanupChatRun(ctx);
+            if (ctx != null) {
+                cleanupChatRun(ctx);
+            } else if (preBegan) {
+                // newContext 抛异常（ctx 未建立）时 chatStream 已登记轮次，本 finally 必须归还，
+                // 否则会话计数永久 >0，后台任务结果永远不进 context
+                sessionRoundEnd(msg == null ? "default"
+                        : String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")));
+            }
         }
     }
 

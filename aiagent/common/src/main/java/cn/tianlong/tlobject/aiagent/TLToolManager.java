@@ -432,8 +432,10 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     foundFnName = fe.name; break;
                 }
             }
-            if (foundFnName != null) functions.remove(foundFnName);
-            invalidateToolDefs();
+            if (foundFnName != null) {
+                functions.remove(foundFnName);
+                invalidateToolDefs();   // 未命中则工具集没变，不必重建（重建会对每个子 agent 探活）
+            }
         } finally {
             functionsLock.writeLock().unlock();
         }
@@ -661,7 +663,14 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             modules.put(moduleName, newModule);
             // INSTANCE 注入路径的 modules key 是函数名；与模块名不同时清掉旧 key，否则残留旧实例
             if (!moduleName.equals(fnKey)) modules.remove(fnKey);
-            functions.put(fnKey, new FunctionEntry(fnKey, old.action, old.type, newModule, old.description, old.paramSchema));
+            // 重建条目必须继承运行时状态：enabled 是用户显式开关（/enableskill 后重载不能复活），
+            // timeoutMs 来自配置（丢了就变成"不限时"）；nativeName 同理（当前重载只走 skill/agent，
+            // MCP 的 mcp 类型不经过这里，但保留以防将来放开）
+            FunctionEntry newEntry = new FunctionEntry(fnKey, old.action, old.type, newModule,
+                    old.description, old.paramSchema, old.nativeName);
+            newEntry.enabled = old.enabled;
+            newEntry.timeoutMs = old.timeoutMs;
+            functions.put(fnKey, newEntry);
             registerToRegistry(moduleName, newModule, type);
             invalidateToolDefs();
             return createMsg().setParam(RESULT, true).setParam("name", name);
@@ -675,7 +684,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         try {
             String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
             FunctionEntry fe = skillName.isEmpty() ? null : functions.get(skillName);
-            TLBaseSkill skill = (fe != null && "skill".equals(fe.type)) ? (TLBaseSkill) fe.module : null;
+            TLBaseSkill skill = (fe != null && "skill".equals(fe.type)
+                    && fe.module instanceof TLBaseSkill) ? (TLBaseSkill) fe.module : null;
             if (skill == null) {
                 return createMsg().setParam(RESULT, false).setParam("error", "skill not found: " + skillName);
             }
@@ -701,7 +711,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         try {
             String skillName = msg.getStringParam(AI_P_SKILLNAME, "");
             FunctionEntry fe = skillName.isEmpty() ? null : functions.get(skillName);
-            TLBaseSkill skill = (fe != null && "skill".equals(fe.type)) ? (TLBaseSkill) fe.module : null;
+            TLBaseSkill skill = (fe != null && "skill".equals(fe.type)
+                    && fe.module instanceof TLBaseSkill) ? (TLBaseSkill) fe.module : null;
             if (skill == null) {
                 return createMsg().setParam(RESULT, false).setParam("error", "skill not found: " + skillName);
             }

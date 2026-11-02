@@ -405,9 +405,11 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         java.util.Map<String, Object> openPending = null;
         for (java.util.Map<String, Object> r : roundMap.values()) {
             if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
-            int seq = r.get("roundSeq") instanceof Integer ? (Integer) r.get("roundSeq") : 0;
-            int bestSeq = openPending != null && openPending.get("roundSeq") instanceof Integer
-                    ? (Integer) openPending.get("roundSeq") : -1;
+            // 与上面的排序同一兼容口径：后端可能返回 Long/Double，instanceof Integer 会一律当 0，
+            // 多个待批轮时判不出"最后"的那个
+            int seq = r.get("roundSeq") instanceof Number ? ((Number) r.get("roundSeq")).intValue() : 0;
+            int bestSeq = openPending != null && openPending.get("roundSeq") instanceof Number
+                    ? ((Number) openPending.get("roundSeq")).intValue() : -1;
             if (openPending == null || seq > bestSeq) openPending = r;
         }
         if (openPending != null) stateRound = openPending;
