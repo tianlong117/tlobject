@@ -830,7 +830,11 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 currentAgents.add(fe.module);
                 try {
                     TLMsg defsMsg = putMsg(fe.module, createMsg().setAction(AGENT_GETTOOLDEFS));
-                    if (defsMsg != null) {
+                    // 失败探测（RESULT=false）不能算"探活成功"：否则下方清理会把该 agent 的旧 MCP
+                    // 条目全部删掉，与"探活失败保留旧条目、下次 dirty 重建再试"的约定相反。
+                    // 缺 RESULT 按成功处理（兼容不返回 RESULT 的 agent；当前 MCP 恒为 true）。
+                    boolean probeOk = defsMsg != null && defsMsg.parseBoolean(RESULT, true);
+                    if (probeOk) {
                         List<TLFunctionDefinition> contributed =
                                 (List<TLFunctionDefinition>) defsMsg.getListParam(AI_P_FUNCTIONDEFS, null);
                         Map<String, String> routes =
@@ -850,6 +854,9 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                         }
                         // 探活成功（含"现在不贡献任何工具"）：可以替换该 agent 的旧贡献
                         probedAgents.add(fe.module);
+                    } else if (defsMsg != null) {
+                        putLog("AGENT_GETTOOLDEFS failed for " + fe.name + ": "
+                                + defsMsg.getStringParam("error", "unknown"), LogLevel.WARN);
                     }
                 } catch (Exception e) {
                     putLog("AGENT_GETTOOLDEFS failed for " + fe.name + ": " + e, LogLevel.DEBUG);

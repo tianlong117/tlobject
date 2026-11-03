@@ -390,9 +390,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             ? (state.abortReason != null && !state.abortReason.isEmpty()
                                     ? state.abortReason : "执行中断")
                             : "执行未返回结果";
-                    tr = new ToolResult(missTask.toolCallId,
+                    ToolResult fallback = new ToolResult(missTask.toolCallId,
                             "[未完成] " + missName + " 未返回结果（" + missReason + "）");
-                    finishTask(state, missTask, i, tr, TOOL_STATUS_ERROR, 0L, "未返回结果");
+                    // 与 worker 的迟到结果并发：谁先写入谁收口，输的一方不再发第二条终态事件
+                    ToolResult raced = state.results.putIfAbsent(i, fallback);
+                    if (raced != null) {
+                        tr = raced;
+                    } else {
+                        state.finalStatuses.put(i, TOOL_STATUS_ERROR);
+                        notifyProgress(state, missTask, i, TOOL_STATUS_ERROR, 0L, "未返回结果");
+                        tr = fallback;
+                    }
                 }
                 if (tr.state == null) {
                     results.add(tr);
@@ -546,7 +554,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     /** 写结果 + 发终态事件（同一入口，保证不会漏发/重发） */
     private void finishTask(ExecutionState st, ToolTask task, int idx, ToolResult result,
                             String status, long durationMs, String message) {
-        st.results.put(idx, result);
+        // 同一 idx 只收口一次：超时兜底与 worker 迟到结果可能并发，二次 put + notifyProgress
+        // 会让 UI 收到两条互相矛盾的终态事件（先兜底 error，后真实结果/超时）
+        if (st.results.putIfAbsent(idx, result) != null) {
+            putLog("late tool result ignored (idx already finalized): idx=" + idx, LogLevel.DEBUG);
+            return;
+        }
         if (status != null) st.finalStatuses.put(idx, status);
         notifyProgress(st, task, idx, status, durationMs, message);
     }

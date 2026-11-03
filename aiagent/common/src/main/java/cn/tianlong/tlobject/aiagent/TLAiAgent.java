@@ -1064,7 +1064,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case AGENT_UNREGISTERSKILL:
             case AGENT_LISTSKILLS:
                 // 工具管理内脏：薄转发给私有 toolManager，外部消息协议不变
-                returnMsg = putMsg(toolManager, msg);
+                returnMsg = forwardToToolManager(msg);
                 break;
             case AGENT_GETCONTEXT:
                 returnMsg = getAgentContext(fromWho, msg);
@@ -1112,7 +1112,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case AGENT_RELOADAGENT:
             case AGENT_LISTAGENTS:
                 // 工具管理内脏：薄转发给私有 toolManager，外部消息协议不变
-                returnMsg = putMsg(toolManager, msg);
+                returnMsg = forwardToToolManager(msg);
                 break;
             case AGENT_GETDESCRIPTION:
                 returnMsg = createMsg().setParam(RESULT, true)
@@ -1141,6 +1141,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 returnMsg = null;
         }
         return returnMsg;
+    }
+
+    /**
+     * 工具管理消息转发：toolManager 未初始化时返回结构化错误。
+     * 不能直接 putMsg(null, msg)——同步路径会 NPE，框架异常链最终可能 shutdown(-1)
+     * （与 runChat 里的 toolManager 守卫保持同一契约）。
+     */
+    private TLMsg forwardToToolManager(TLMsg msg) {
+        if (toolManager == null) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "toolManager not initialized for agent " + name);
+        }
+        return putMsg(toolManager, msg);
     }
 
     // ======================== 核心：Chat循环 ========================
