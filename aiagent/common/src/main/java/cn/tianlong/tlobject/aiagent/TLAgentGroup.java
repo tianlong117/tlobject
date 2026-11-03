@@ -557,10 +557,12 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                     .setParam(AI_P_RESPONSE, "Error: group " + name + " has no members");
         }
         String task = msg.getStringParam(AI_P_USERMESSAGE, "");
-        String baseSession = String.valueOf(msg.getSystemParam(AI_P_SESSIONID,
-                String.valueOf(System.currentTimeMillis())));
-        String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", baseSession));
-        String gUserId = String.valueOf(msg.getSystemParam(AI_P_USERID, ""));
+        // 空串/null 一律按未提供处理：baseSession="" 会让成员 sid 派生成 "group_member:"，
+        // 多个空会话共享同一派生会话、成员上下文互相污染
+        String baseSession = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_SESSIONID,
+                String.valueOf(System.currentTimeMillis()));
+        String rootSessionId = TLMsgUtils.getSystemParamNonEmpty(msg, "rootSessionId", baseSession);
+        String gUserId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_USERID, "");
 
         RunContext ctx = new RunContext(baseSession, rootSessionId,
                 String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")), gUserId, progress);

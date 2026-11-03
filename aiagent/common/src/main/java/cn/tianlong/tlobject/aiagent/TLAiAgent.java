@@ -369,7 +369,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             this.sessionId = sessionId;
             this.rootSid = rootSid;
             this.roundId = roundId;
-            this.userId = String.valueOf(msg.getSystemParam("userId", sessionId));
+            this.userId = TLMsgUtils.getSystemParamNonEmpty(msg, "userId", sessionId);
             this.userMessage = msg.getStringParam(AI_P_USERMESSAGE, "");
             this.sink = sink;
             this.preBegan = preBegan;
@@ -1271,16 +1271,24 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     LogLevel.WARN);
             msg = createMsg();
         }
-        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
-        String rootSid = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
-        Object upstreamObj = msg.getSystemParam(AI_P_ROUNDID, null);
-        String upstreamRoundId = upstreamObj != null ? String.valueOf(upstreamObj) : "";
+        String sessionId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_SESSIONID, "default");
+        String rootSid = TLMsgUtils.getSystemParamNonEmpty(msg, "rootSessionId", sessionId);
+        String upstreamRoundId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_ROUNDID, "");
+        // resumeRoundId 为空串（老数据无 roundId）不能直接当本轮 id：空 roundId 会让该会话
+        // 所有轮次按 roundId="" 落盘，assembleSession 的 last-wins 把它们覆盖成一轮
+        String resumeRoundId = msg.getStringParam("resumeRoundId", "");
+        if ("null".equals(resumeRoundId)) resumeRoundId = "";
         String roundId = !upstreamRoundId.isEmpty() ? upstreamRoundId
-                : msg.getStringParam("resumeRoundId", "r_" + System.currentTimeMillis());
+                : (!resumeRoundId.isEmpty() ? resumeRoundId : "r_" + System.currentTimeMillis());
         ChatRunContext ctx = new ChatRunContext(fromWho, msg, sessionId, rootSid, roundId,
                 sink, preBegan);
         ctx.noHistory = noHistory;
         return ctx;
+    }
+
+    /** 可空字符串参数回落：null/空串视为未配置 */
+    private static String nonEmpty(String v, String def) {
+        return (v == null || v.isEmpty()) ? def : v;
     }
 
     /**
@@ -1300,10 +1308,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (params != null && params.get("task") != null && !params.get("task").trim().isEmpty()) {
             ctx.userMessage = params.get("task").trim() + "\n\n" + ctx.userMessage;
         }
-        ctx.model = msg.getStringParam(AI_P_MODEL, llmProvider.getDefaultModel());
+        // getStringParam 对 present-but-empty 返回空串：空 model 会让请求体 model="" 直接 400，
+        // 空 reasoningMode 会绕过下面的 "off" 判定。空值一律按"未配置"回落默认。
+        ctx.model = nonEmpty(msg.getStringParam(AI_P_MODEL, ""), llmProvider.getDefaultModel());
         ctx.temperature = msg.getDoubleParam(AI_P_TEMPERATURE, defaultTemperature);
         ctx.maxTokens = msg.getIntParam(AI_P_MAXTOKENS, defaultMaxTokens);
-        ctx.reasoningMode = msg.getStringParam(AI_P_REASONING_MODE, reasoningMode);
+        ctx.reasoningMode = nonEmpty(msg.getStringParam(AI_P_REASONING_MODE, ""), reasoningMode);
         ctx.reasoningVisible = msg.parseBoolean(AI_P_REASONING_VISIBLE, reasoningVisible);
         if ("auto".equals(ctx.reasoningMode)) {
             ctx.reasoningMode = resolveAutoMode(ctx.model);
@@ -1467,7 +1477,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // ==== pending_approval 断点恢复 ====
                 history = withContextSystem(loadedHistory);
                 msgStartIdx = history.size();
-                model = msg.getStringParam("resumeModel", model);
+                model = nonEmpty(msg.getStringParam("resumeModel", ""), model);
                 temperature = msg.getDoubleParam("resumeTemperature", temperature);
                 maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
                 resumedFromCheckpoint = true;
@@ -1572,7 +1582,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 history = withContextSystem(loadedHistory);
                 msgStartIdx = history.size();
                 coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
-                model = msg.getStringParam("resumeModel", model);
+                model = nonEmpty(msg.getStringParam("resumeModel", ""), model);
                 temperature = msg.getDoubleParam("resumeTemperature", temperature);
                 maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
                 resumedFromCheckpoint = true;

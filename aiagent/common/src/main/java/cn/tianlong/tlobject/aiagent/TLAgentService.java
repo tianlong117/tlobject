@@ -836,8 +836,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         // 归属校验（第二道防线，webui 入口已无条件用登录身份覆盖 userId）：
         // webchat_ 前缀会话必须属于最终采用的用户，防止客户端指定他人会话 ID，把任务结果
         // 注入他人会话；task_*/chat_* 等执行会话/控制台会话不在命名规则内，放行。
-        if (sid != null && sid.startsWith("webchat_") && !uid.isEmpty()
-                && !sid.startsWith("webchat_" + uid + "_")) {
+        // uid 为空必须拒绝（与 checkSessionOwnership 一致）：否则空 uid 会绕过整个前缀校验。
+        if (sid != null && sid.startsWith("webchat_")
+                && (uid.isEmpty() || !sid.startsWith("webchat_" + uid + "_"))) {
             return fail("会话不属于当前用户");
         }
 

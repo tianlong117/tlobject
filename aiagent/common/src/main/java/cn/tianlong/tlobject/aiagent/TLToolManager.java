@@ -451,10 +451,12 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         if (modulesClass != null) modulesClass.remove(moduleName);
         if (modulesParams != null) modulesParams.remove(moduleName);
 
-        // 从 registry 注销（本模块家族名代理为 agent 家族名，键 = agent:moduleName，与注册一致）
+        // 从 registry 注销（本模块家族名代理为 agent 家族名，键 = agent:moduleName，与注册一致）。
+        // IGNOREMODULEISNULL：未配置 moduleRegistry 的部署不能因为一次正常卸载就 shutdown(-1)
         String key = getFamilyName() + ":" + moduleName;
         putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                .setParam(REGISTRY_P_KEY, key));
+                .setParam(REGISTRY_P_KEY, key)
+                .setSystemParam(IGNOREMODULEISNULL, true));
 
         putLog("Hot-unloaded skill: " + moduleName, LogLevel.INFO, AGENT_HOTUNLOADSKILL);
 
@@ -537,7 +539,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                         : getFamilyName() + ":" + moduleName;
                 if (registryKey != null && !registryKey.isEmpty()) {
                     putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
-                            .setParam(REGISTRY_P_KEY, registryKey));
+                            .setParam(REGISTRY_P_KEY, registryKey)
+                            .setSystemParam(IGNOREMODULEISNULL, true));
                 }
                 boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
                 if (persist && configFile != null) {

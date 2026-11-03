@@ -45,6 +45,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private String agentModule = "aiagent";
     private String serviceModule = "agentService";
     private String userId = "console_user";
+    /** 控制台附件导入根目录：须与 attachmentStore 的 dataBasePath 一致（默认 ./data/） */
+    private String dataBasePath = "./data/";
     /** 会被 /continue、切换会话写；msgBus 回调线程读（进度过滤）——必须可见 */
     private volatile String sessionId;
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
@@ -148,6 +150,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (params.get("agentModule") != null) agentModule = params.get("agentModule");
             if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
             if (params.get("userId") != null) userId = params.get("userId");
+            if (params.get("dataBasePath") != null) {
+                dataBasePath = params.get("dataBasePath");
+                if (!dataBasePath.endsWith("/")) dataBasePath += "/";
+            }
             if (params.get("sessionId") != null) sessionId = params.get("sessionId");
             if (params.get("streamMode") != null) streamMode = "true".equals(params.get("streamMode"));
             if (params.get("subscribeToolProgress") != null)
@@ -1052,8 +1058,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 }
                 try {
                     // ⚠ 必须拷进 data/{userId}/uploads/：attachmentStore.register 只接受
-                    //    本用户目录内的路径（跨用户越权防护），控制台的本机任意路径要先导入
-                    java.io.File dir = new java.io.File("data/" + userId + "/uploads");
+                    //    本用户目录内的路径（跨用户越权防护），控制台的本机任意路径要先导入。
+                    //    userId 必须与 attachmentStore 同规则净化（".." / 分隔符不能上跳出 data/）
+                    String safeUid = TLPathSafety.safeSegment(userId, "default");
+                    java.io.File dir = new java.io.File(dataBasePath + safeUid + "/uploads");
                     dir.mkdirs();
                     java.io.File dst = new java.io.File(dir,
                             System.currentTimeMillis() + "_" + src.getName());

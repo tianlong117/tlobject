@@ -260,10 +260,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     @SuppressWarnings("unchecked")
     private TLMsg executeTools(Object fromWho, TLMsg msg) {
         List<ToolTask> tasks = (List<ToolTask>) msg.getListParam("tasks", null);
-        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
-        String userId = String.valueOf(msg.getSystemParam("userId", "default"));
-        String executionId = String.valueOf(msg.getSystemParam("executionId", sessionId + "_" + System.nanoTime()));
-        String rootSessionId = String.valueOf(msg.getSystemParam("rootSessionId", sessionId));
+        // 身份类参数空串/null 一律按未提供回落（present-but-empty 会生成空 sid/空 executionId，
+        // 让不同调用方共享同一个运行态 key）
+        String sessionId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_SESSIONID, "default");
+        String userId = TLMsgUtils.getSystemParamNonEmpty(msg, "userId", "default");
+        String executionId = TLMsgUtils.getSystemParamNonEmpty(msg, "executionId",
+                sessionId + "_" + System.nanoTime());
+        String rootSessionId = TLMsgUtils.getSystemParamNonEmpty(msg, "rootSessionId", sessionId);
         String roundId = String.valueOf(msg.getSystemParam(AI_P_ROUNDID, ""));
 
         if (tasks == null || tasks.isEmpty()) {

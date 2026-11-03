@@ -140,9 +140,12 @@ public class TLAiContext extends TLBaseModule implements TLAiAgentParamString {
                 // 支持直接传入TLConversationHistory对象
                 TLConversationHistory entry = (TLConversationHistory) msg.getParam("entry", TLConversationHistory.class);
                 if (entry != null) {
-                    capToolResult(entry);
-                    entry.setSeq(nextSeq(sessionId));
-                    history.add(entry);
+                    // 与 replace 同款：copy 后再截断/设 seq，不能原地改写调用方对象
+                    //（调用方可能复用同一 entry 做日志/UI/再次发送）
+                    TLConversationHistory h = entry.copy();
+                    capToolResult(h);
+                    h.setSeq(nextSeq(sessionId));
+                    history.add(h);
                 } else {
                     // 从args中构造
                     String roleStr = msg.getStringParam("role", "user");

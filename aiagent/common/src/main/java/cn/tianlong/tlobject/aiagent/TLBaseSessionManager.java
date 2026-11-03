@@ -141,15 +141,16 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         java.util.Map<String, Object> meta = findIncompleteMeta(userId, sessionId);
         if (meta == null) return createMsg().setParam(RESULT, false);
         String state = String.valueOf(meta.getOrDefault("state", ""));
-        // approvalId 统一从轮次明细取（会话汇总表无该列；取该会话最后一个待批轮）
+        // approvalId 统一从轮次明细取（会话汇总表无该列；取该会话最后一个待批轮）。
+        // 必须与 findIncompleteMeta 同口径（roundId last-wins + roundSeq 最大）：文件版追加写，
+        // 直接遍历原始行会取到已被 chatFinished 覆盖的旧 pending 行（可能带着已失效的 approvalId）。
         if (SESSION_STATE_PENDING_APPROVAL.equals(state)) {
-            java.util.List<java.util.Map<String, Object>> rounds =
-                    loadRoundData(String.valueOf(meta.getOrDefault("sessionId", "")), userId);
-            for (java.util.Map<String, Object> r : rounds) {
-                if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) {
-                    Object aid = r.get(AI_P_APPROVAL_ID);
-                    if (aid != null && !String.valueOf(aid).isEmpty()) meta.put(AI_P_APPROVAL_ID, String.valueOf(aid));
-                }
+            java.util.Map<String, Object> target = findOpenPendingRound(
+                    loadRoundData(String.valueOf(meta.getOrDefault("sessionId", "")), userId));
+            if (target != null) {
+                Object aid = target.get(AI_P_APPROVAL_ID);
+                if (aid != null && !String.valueOf(aid).isEmpty())
+                    meta.put(AI_P_APPROVAL_ID, String.valueOf(aid));
             }
         }
         return createMsg()

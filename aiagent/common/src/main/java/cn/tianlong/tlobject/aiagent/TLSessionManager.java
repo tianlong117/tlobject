@@ -275,7 +275,13 @@ public class TLSessionManager extends TLBaseSessionManager {
     protected void deleteSessionData(String sessionId, String userId) {
         try {
             java.io.File file = findSessionFile(getSessionStorePath(userId), sessionId);
-            if (file != null && file.exists()) file.delete();
+            if (file != null && file.exists()) {
+                file.delete();
+                // 同 sessionId 重建会话时不能沿用旧行数：计数残留会让 roundSeq 跳号，
+                // 且 map 永久持有已删文件路径（慢性泄漏）。fileLocks 不删——删除锁对象
+                // 会让正在持锁的线程失去互斥。
+                roundSeqCounters.remove(file.getAbsolutePath());
+            }
         } catch (Exception ignored) {}
         // 顺带删标题：防 sidecar 留陈旧条目（会话 id 复用时会误显示旧标题）
         try {

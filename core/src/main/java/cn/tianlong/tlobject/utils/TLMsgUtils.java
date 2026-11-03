@@ -70,6 +70,19 @@ public class TLMsgUtils {
             to.setSystemParam(key, value);
     }
 
+    /**
+     * 身份类系统参数取值：缺省 / 显式 null / 空串 / 字面量 "null" 一律回落到 default。
+     * getSystemParam 只把 null 当缺省，present-but-empty 会原样返回——直接拼进会话 id、
+     * 目录名会得到空尾/假会话。
+     */
+    public static String getSystemParamNonEmpty(TLMsg msg, String key, String defaultValue) {
+        if (msg == null || key == null) return defaultValue;
+        Object value = msg.getSystemParam(key, null);
+        if (value == null) return defaultValue;
+        String s = String.valueOf(value);
+        return (s.isEmpty() || "null".equals(s)) ? defaultValue : s;
+    }
+
     public static TLMsg makeMsgChain (TLMsg ... msgs ){
         int length = msgs.length ;
         if ( length ==1)
