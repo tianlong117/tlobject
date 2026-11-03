@@ -365,6 +365,16 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             }
             TLMsg result = putMsg(provider, llmMsg);
             if (result == null) return null;
+            // Provider 失败时返回 RESULT=false + AI_P_RESPONSE=中文错误文案（TLLlmProvider
+            // executeHttpRequest 的错误路径，如"LLM 认证失败（HTTP 401）…"）。不校验 RESULT 的话，
+            // 这串错误文案能通过 looksLikeMetaOutput（有汉字）被当摘要写进记忆、反复召回——
+            // 与 2026-10-06 复读闭环事故同族。失败按"缓冲保留、下次重试"处理。
+            if (!result.parseBoolean(RESULT, false)) {
+                putLog("summary LLM call failed: "
+                        + result.getStringParam("error",
+                        result.getStringParam(AI_P_RESPONSE, "")), LogLevel.WARN);
+                return null;
+            }
             String summary = result.getStringParam(AI_P_RESPONSE, null);
             if (looksLikeMetaOutput(summary)) {
                 putLog("summary rejected (meta/prompt echo), buffer kept", LogLevel.WARN);

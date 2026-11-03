@@ -1186,16 +1186,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
         // 转发会话上下文（框架系统参数区）：保持级联停止、用户数据隔离、会话追踪，
-        // 与工具业务参数分层——上游经执行器以 systemArgs 传来，此处原样透传
-        if (msg.containsSystemParam(AI_P_SESSIONID))
-            chatMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
-        if (msg.containsSystemParam("rootSessionId"))
-            chatMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId", ""));
-        if (msg.containsSystemParam("userId"))
-            chatMsg.setSystemParam("userId", msg.getSystemParam("userId", ""));
+        // 与工具业务参数分层——上游经执行器以 systemArgs 传来，此处原样透传。
+        // 只在值非空时复制：present-but-empty 会让下游把 "" 当会话 id（跳过"缺省生成"）。
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, AI_P_SESSIONID);
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, "rootSessionId");
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, "userId");
         // 全链追踪：上游 roundId 透传——子 agent 的一轮就是上游的一轮
-        if (msg.containsSystemParam(AI_P_ROUNDID))
-            chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, AI_P_ROUNDID);
         TLMsg result = chat(fromWho, chatMsg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
         TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, output);
@@ -1315,6 +1312,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 死线程时会各自 put 成功，双双认为自己拿到锁，同会话被两条流水线同时处理。
         // compute 把"判活 + 抢占"压成一个原子操作。
         final Thread me = Thread.currentThread();
+        // 同线程重入（如 msgTool 路由回自身 chat、自引用 executeAsTool）：锁已被本线程持有，
+        // compute 会返回 me。此时本层是"继承"外层锁而非真正获取，收尾时不得释放——否则内层
+        // chatThreads.remove 会把外层还在使用的锁删掉，其他线程即可并发进入同一会话。
+        boolean alreadyOwned = chatThreads.get(sessionId) == me;
         Thread winner = chatThreads.compute(sessionId, (k, cur) ->
                 (cur == null || !cur.isAlive()) ? me : cur);
         if (winner != me) {
@@ -1323,7 +1324,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_SESSIONID, sessionId);
             return;
         }
-        ctx.lockAcquired = true;
+        ctx.lockAcquired = !alreadyOwned;
 
         currentRootSessionId.set(ctx.rootSid);
         currentChatUserId.set(ctx.userId);
@@ -1596,18 +1597,26 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 生命周期收尾：只清理本上下文真正建立过的资源。 */
     private void cleanupChatRun(ChatRunContext ctx) {
         if (ctx.lockAcquired) {
-            chatThreads.remove(ctx.sessionId);
+            // 只删仍属于本线程的锁：重入层（lockAcquired=false）不会走到这里，外层锁得以保留
+            chatThreads.compute(ctx.sessionId,
+                    (k, cur) -> (cur == Thread.currentThread()) ? null : cur);
             // 只有拿到锁的 worker 才拥有这些会话状态；锁失败的并发方不能删活跃方的 map
             // 放锁守卫内：块外会让锁失败的并发方删掉活跃方的 handle，直接打断对方的流
             streamHandles.remove(ctx.sessionId);
+            // monitor 注册、ThreadLocal 上下文同样属于"持锁的这一层"：重入层不能替外层注销，
+            // 否则外层后续循环拿不到 rootSessionId/userId、监控也提前消失
+            if (ctx.monitorRegistered) {
+                putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
+                        .setParam(AI_P_SESSIONID, ctx.sessionId)
+                        .setSystemParam(IGNOREMODULEISNULL, true));
+            }
+            // 同一线程还嵌套着别的会话（本线程仍持有其他会话锁）时，ThreadLocal 归最外层清理，
+            // 内层提前 remove 会让外层后半程读不到 rootSessionId/userId
+            if (!chatThreads.containsValue(Thread.currentThread())) {
+                currentRootSessionId.remove();
+                currentChatUserId.remove();
+            }
         }
-        if (ctx.monitorRegistered) {
-            putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
-                    .setParam(AI_P_SESSIONID, ctx.sessionId)
-                    .setSystemParam(IGNOREMODULEISNULL, true));
-        }
-        currentRootSessionId.remove();
-        currentChatUserId.remove();
         while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
         if (ctx.roundBegan) sessionRoundEnd(ctx.sessionId);
     }

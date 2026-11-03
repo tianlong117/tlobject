@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import cn.tianlong.tlobject.utils.TLMsgUtils;
 import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 import org.xmlpull.v1.XmlPullParser;
 
@@ -452,12 +453,13 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         String task = (args != null && args.containsKey("task")) ? String.valueOf(args.get("task")) : "";
         if (task.isEmpty()) task = msg.getStringParam(AI_P_USERMESSAGE, "");
         TLMsg chatMsg = createMsg().setAction(AGENT_CHAT).setParam(AI_P_USERMESSAGE, task);
-        // 框架系统参数区透传（与 TLAiAgent.executeAsTool 同款）
-        if (msg.containsSystemParam(AI_P_SESSIONID)) chatMsg.setSystemParam(AI_P_SESSIONID, msg.getSystemParam(AI_P_SESSIONID, ""));
-        if (msg.containsSystemParam("rootSessionId")) chatMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId", ""));
-        if (msg.containsSystemParam("userId")) chatMsg.setSystemParam("userId", msg.getSystemParam("userId", ""));
+        // 框架系统参数区透传（与 TLAiAgent.executeAsTool 同款）。空值不透传：
+        // 否则 chat 的缺省 sessionId 生成被 "" 顶掉，成员 sid 会派生成 "group_member:"
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, AI_P_SESSIONID);
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, "rootSessionId");
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, "userId");
         // 全链追踪：上游 roundId 透传——组的一轮就是上游的一轮
-        if (msg.containsSystemParam(AI_P_ROUNDID)) chatMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
+        TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, AI_P_ROUNDID);
         TLMsg result = chat(fromWho, chatMsg);
         TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
         if (directOutput) ret.setParam(AI_P_FINALANSWER, true);

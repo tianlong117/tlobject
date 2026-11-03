@@ -2331,7 +2331,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     int cacheMiss = response.getIntParam(AI_P_CACHEMISSTOKENS, 0);
                     int cacheCreate = response.getIntParam(AI_P_CACHECREATIONTOKENS, 0);
                     // 本轮完整用量（含 workflow/group 成员）：monitor 最后一轮汇总优先，不可用/stale 时回退 agent 自身值。
-                    // 注意 monitor 存的是 Long——getIntParam 只认 Integer 会静默返回 0，必须用 getLongParam
+                    // monitor 存的是 Long：用 getLongParam 保持 long 口径再转 int（getIntParam 现按 Number 兼容，
+                    // 旧注释"只认 Integer"是 2026-08-29 Number 兼容修复前的说法，已不成立）
                     TLMsg roundUsage = queryLastRoundUsage();
                     if (roundUsage != null && roundUsage.parseBoolean("found", false)
                             && !roundUsage.parseBoolean("stale", false)) {

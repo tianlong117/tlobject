@@ -170,10 +170,10 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         String userId = msg.getStringParam("userId", null);
         if (sessionId.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", "missing sessionId");
         java.util.List<java.util.Map<String, Object>> rounds = loadRoundData(sessionId, userId);
-        java.util.Map<String, Object> target = null;
-        for (java.util.Map<String, Object> r : rounds) {
-            if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) target = r;
-        }
+        // 与 findIncomplete / assembleSession 同口径：先按 roundId last-wins，再取 roundSeq 最大的
+        // 开态待批轮。直接遍历原始行会挑到"已被 chatFinished 覆盖、但旧 pending 行还在文件里"的
+        // 陈旧行（文件版 storeRound 是追加写），也可能在多开态待批轮时挑错轮次。
+        java.util.Map<String, Object> target = findOpenPendingRound(rounds);
         if (target == null) {
             return createMsg().setParam(RESULT, false).setParam("error", "no pending_approval round");
         }
@@ -183,11 +183,8 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         target.remove(AI_P_APPROVAL_ID);
         // 新鲜度校验：目标轮必须仍是该会话的待批轮——窗口内会话已继续的话，
         // 用陈旧快照重存会以 last-wins 覆盖新一轮（历史里终答丢失的故障类）
-        java.util.List<java.util.Map<String, Object>> fresh = loadRoundData(sessionId, userId);
-        java.util.Map<String, Object> freshTarget = null;
-        for (java.util.Map<String, Object> r : fresh) {
-            if (SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) freshTarget = r;
-        }
+        java.util.Map<String, Object> freshTarget =
+                findOpenPendingRound(loadRoundData(sessionId, userId));
         if (freshTarget == null
                 || !String.valueOf(freshTarget.get("roundId")).equals(String.valueOf(target.get("roundId")))) {
             return createMsg().setParam(RESULT, false).setParam("error", "断点状态已变化（会话已继续），未执行丢弃");
@@ -199,6 +196,47 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             return createMsg().setParam(RESULT, false).setParam("error", "丢弃未落盘（storeRound 失败），请重试");
         }
         return createMsg().setParam(RESULT, true);
+    }
+
+    /**
+     * 同 roundId last-wins（文件版 storeRound 为追加写，DB 版为删后插）。
+     * 断点丢弃/新鲜度校验必须与 assembleSession 用同一口径，否则会挑到被后续
+     * chatFinished 覆盖的旧 pending 行。
+     */
+    private java.util.LinkedHashMap<String, java.util.Map<String, Object>> latestRoundsByRoundId(
+            java.util.List<java.util.Map<String, Object>> rounds) {
+        java.util.LinkedHashMap<String, java.util.Map<String, Object>> byId = new java.util.LinkedHashMap<>();
+        if (rounds == null) return byId;
+        for (java.util.Map<String, Object> r : rounds) {
+            if (r == null) continue;
+            byId.put(String.valueOf(r.getOrDefault("roundId", "")), r);
+        }
+        return byId;
+    }
+
+    /** 开态待批轮：去重后状态仍为 pending_approval、roundSeq 最大者；无则 null */
+    private java.util.Map<String, Object> findOpenPendingRound(
+            java.util.List<java.util.Map<String, Object>> rounds) {
+        java.util.Map<String, Object> best = null;
+        int bestSeq = Integer.MIN_VALUE;
+        for (java.util.Map<String, Object> r : latestRoundsByRoundId(rounds).values()) {
+            if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
+            int seq = roundSeqOf(r);
+            if (seq > bestSeq) {
+                bestSeq = seq;
+                best = r;
+            }
+        }
+        return best;
+    }
+
+    /** 兼容各后端 roundSeq 类型（文件版 Integer、DB 版 objToInt、旧数据 String/Double） */
+    private static int roundSeqOf(java.util.Map<String, Object> r) {
+        Object v = r.get("roundSeq");
+        if (v instanceof Number) return ((Number) v).intValue();
+        if (v == null) return 0;
+        try { return (int) Double.parseDouble(String.valueOf(v).trim()); }
+        catch (Exception ignored) { return 0; }
     }
 
     /** 列出所有历史会话 */

@@ -58,6 +58,18 @@ public class TLMsgUtils {
         msgSystemArgs.add(MSG_P_TOWHO);
     }
 
+    /**
+     * 系统参数透传：只在来源值非空时复制。
+     * present-but-empty 的值会覆盖下游"缺省生成"逻辑（空 sessionId 会让子 agent/组把 "" 当会话 id，
+     * 派生出共用空尾的 sid），必须按"未提供"处理。
+     */
+    public static void copySystemParamIfNotEmpty(TLMsg from, TLMsg to, String key) {
+        if (from == null || to == null || key == null) return;
+        Object value = from.getSystemParam(key, null);
+        if (value != null && !String.valueOf(value).isEmpty())
+            to.setSystemParam(key, value);
+    }
+
     public static TLMsg makeMsgChain (TLMsg ... msgs ){
         int length = msgs.length ;
         if ( length ==1)

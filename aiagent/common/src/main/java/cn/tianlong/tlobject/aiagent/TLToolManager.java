@@ -260,10 +260,16 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 String desc = msgTool.getDescription();
                 if (desc == null || desc.isEmpty()) desc = msgId;
                 TLBaseModule target = owner;   // 默认目标 = 父 agent
-                // 显式 dest = 工厂级模块（跨 agent 可访问），直接从工厂获取
+                // 显式 dest = 工厂级模块（跨 agent 可访问），直接从工厂获取。
+                // 单个 dest 解析失败（模块 init 抛异常/配置缺失）只跳过该 msgTool，
+                // 不能让它中断整段 initFromConfig（后续 skill/agent/msgTool 全部不注册）。
                 if (dest != null && !dest.isEmpty()) {
-                    TLBaseModule destModule = (TLBaseModule) getModule(dest);
-                    if (destModule != null) target = destModule;
+                    try {
+                        TLBaseModule destModule = (TLBaseModule) getModule(dest);
+                        if (destModule != null) target = destModule;
+                    } catch (Exception e) {
+                        putLog("msgTool dest resolve failed: " + dest + " (" + e + ")", LogLevel.WARN);
+                    }
                 }
                 Map<String, Object> props = new LinkedHashMap<>();
                 String pfa = msgTool.getStringParam("paramsFromArgs", null);
@@ -506,11 +512,24 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             if (removedFn != null) {
                 String moduleName = removedFn.module instanceof TLBaseModule
                         ? ((TLBaseModule) removedFn.module).getName() : fnKey;
+                // 与 reloadFunction 对称：卸下工具后要显式 destroy，否则模块的看门狗线程 /
+                // 连接池 / 子进程会活到进程退出。两个例外不销毁：
+                //  - factoryShared 实例属于主工厂，其他 agent 可能仍在用；
+                //  - INSTANCE 注入的实例由调用方创建（无 modulesClass 配置），不归本管理器所有。
+                HashMap<String, String> cfg = modulesClass != null ? modulesClass.get(moduleName) : null;
+                boolean ownedInstance = cfg != null && !"true".equals(cfg.get("factoryShared"));
                 // modules 的 key 不统一：配置路径按模块名（getMyModule），INSTANCE 注入路径按函数名
                 modules.remove(moduleName);
                 if (!moduleName.equals(fnKey)) modules.remove(fnKey);
                 if (modulesClass != null) modulesClass.remove(moduleName);
                 if (modulesParams != null) modulesParams.remove(moduleName);
+                if (ownedInstance && removedFn.module instanceof TLBaseModule) {
+                    try {
+                        putMsg((TLBaseModule) removedFn.module, createMsg().setAction(MODULE_DESTROY));
+                    } catch (Exception e) {
+                        putLog("retire old " + type + " failed: " + e, LogLevel.WARN);
+                    }
+                }
                 invalidateToolDefs();
                 // registry 注册键 = 模块自身家族名（registerToRegistry），不能用"agent:函数名"拼
                 String registryKey = removedFn.module instanceof TLBaseModule

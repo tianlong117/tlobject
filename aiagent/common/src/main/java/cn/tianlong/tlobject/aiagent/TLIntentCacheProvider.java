@@ -600,7 +600,6 @@ public class TLIntentCacheProvider extends TLLlmProvider {
 
     private synchronized CacheEntry cacheGet(String key) { return cache.get(key); }
     private synchronized void cachePut(String key, CacheEntry e) { cache.put(key, e); }
-    private synchronized void cacheRemove(String key) { cache.remove(key); }
 
     // ======================== 委托 / 桩方法 ========================
 

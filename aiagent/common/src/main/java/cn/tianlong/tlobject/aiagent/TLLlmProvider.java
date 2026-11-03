@@ -748,14 +748,19 @@ public abstract class TLLlmProvider extends TLBaseModule implements TLAiAgentPar
             stats[0] += creation;
             stats[1] += hit;
             stats[2] += miss;
+            // 快照必须在锁内取：锁外读可能看到三个槽位更新到一半的中间态
+            return new long[]{stats[0], stats[1], stats[2]};
         }
-        return new long[]{stats[0], stats[1], stats[2]};
     }
 
     /** 获取指定 session 的累计缓存统计快照 */
     public long[] getSessionCacheStats(String sessionId) {
         long[] existing = sessionCacheStats.get(sessionId);
-        return existing != null ? new long[]{existing[0], existing[1], existing[2]} : new long[]{0L, 0L, 0L};
+        if (existing == null) return new long[]{0L, 0L, 0L};
+        // 与 accumulateCacheStats 同锁读快照；long[] 元素非 volatile，锁外读可能撕裂/读到中间态
+        synchronized (existing) {
+            return new long[]{existing[0], existing[1], existing[2]};
+        }
     }
 
     /** 清除指定 session 的缓存统计 */

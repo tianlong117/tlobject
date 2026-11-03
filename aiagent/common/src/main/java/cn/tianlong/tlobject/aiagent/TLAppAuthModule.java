@@ -144,12 +144,19 @@ public class TLAppAuthModule extends TLBaseModule {
     private TLMsg resolveUserInfo(String userId) {
         if (userModule == null || userModule.isEmpty())
             return null;
-        TLMsg result = putMsg(userModule, createMsg().setAction("getUserInfo").setParam("userId", userId));
-        if (result == null) return null;
-        // 确保有 userid 字段
-        if (result.getParam("userid") == null)
-            result.setParam("userid", userId);
-        return result;
+        try {
+            TLMsg result = putMsg(userModule, createMsg().setAction("getUserInfo").setParam("userId", userId));
+            if (result == null) return null;
+            // 确保有 userid 字段
+            if (result.getParam("userid") == null)
+                result.setParam("userid", userId);
+            return result;
+        } catch (Exception e) {
+            // 用户模块抖动/未就绪只跳过本批授权（既有 fail-open 语义），不能把异常抛出去
+            // 中断整批工具执行——putMsg 同步路径不吞异常
+            putLog("resolveUserInfo failed for " + userId + ": " + e, LogLevel.WARN, "appAuth");
+            return null;
+        }
     }
 
     // ======================== after 钩子：补 denied 结果 ========================
