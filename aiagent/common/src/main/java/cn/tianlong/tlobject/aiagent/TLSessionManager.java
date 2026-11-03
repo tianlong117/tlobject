@@ -82,7 +82,13 @@ public class TLSessionManager extends TLBaseSessionManager {
                     Integer prev = roundSeqCounters.putIfAbsent(counterKey, n);
                     lineCount = prev != null ? prev : n;
                 }
-                roundData.put("roundSeq", lineCount + 1);
+                // 显式带 roundSeq 的调用（discardPendingRound 重存已有轮）必须保留原值：
+                // 无条件重算会把非末尾的待批轮追加成最大序号，assembleSession 排序后
+                // 该轮跑到后面轮次之后，历史顺序错乱。普通 sessionUpdated（同一轮的多次
+                // 快照）不带 roundSeq，仍按行号生成——同 roundId last-wins 取最后一行。
+                if (!roundData.containsKey("roundSeq")) {
+                    roundData.put("roundSeq", lineCount + 1);
+                }
                 roundSeqCounters.put(counterKey, lineCount + 1);
                 roundData.put("timestamp", System.currentTimeMillis());
 

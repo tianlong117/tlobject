@@ -328,6 +328,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 chatMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
                 chatMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
                 chatMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+                // 原轮已有消息：resume 落盘按同 roundId last-wins 重写，只带新增量会把原轮覆盖丢历史
+                if (loaded.containsParam("stateRoundMessages"))
+                    chatMsg.setParam("resumeRoundMessages", loaded.getParam("stateRoundMessages"));
                 // resume 调用方没带用户消息（如批准触发的自动续跑）→ 用断点轮里的原话兜底，
                 // 否则断点轮 userMessage 被写空：重登视图丢问题、记忆条目退化
                 if (chatMsg.getStringParam(AI_P_USERMESSAGE, "").isEmpty()) {
@@ -415,6 +418,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
                 streamMsg.setParam("resumeTemperature", loaded.getDoubleParam("temperature", 0.7));
                 streamMsg.setParam("resumeMaxTokens", loaded.getIntParam("maxTokens", 4096));
                 streamMsg.setParam("resumeState", loaded.getStringParam("state", SESSION_STATE_CHECKPOINT));
+                // 原轮已有消息：resume 落盘按同 roundId last-wins 重写，只带新增量会把原轮覆盖丢历史
+                if (loaded.containsParam("stateRoundMessages"))
+                    streamMsg.setParam("resumeRoundMessages", loaded.getParam("stateRoundMessages"));
                 // resume 调用方没带用户消息（如批准触发的自动续跑）→ 用断点轮里的原话兜底（非流式同款）
                 if (streamMsg.getStringParam(AI_P_USERMESSAGE, "").isEmpty()) {
                     String loadedUm = loaded.getStringParam("userMessage", "");

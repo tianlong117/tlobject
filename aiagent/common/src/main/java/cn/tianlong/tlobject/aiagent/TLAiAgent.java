@@ -338,7 +338,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         List<TLConversationHistory> history;
         int msgStartIdx;
-        long coverSeq;
+        /**
+         * resume 时状态轮（待批/检查点）在 loadSession 里的已有消息块。
+         * 落盘时作为本轮前缀（原轮消息 + 新增量）：同 roundId 写入是 last-wins，
+         * 只写新增量会把原轮 messages 覆盖成"恢复后的部分"。
+         */
+        List<TLConversationHistory> resumeRoundMessages;
         String memoryContext;
         List<TLFunctionDefinition> toolDefs;
 
@@ -1381,7 +1386,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
 
-        prepareHistory(ctx, beforeResult);
+        prepareHistory(ctx);
         if (ctx.terminalResult != null) return;
 
         // 对话开始即保存 checkpoint 轮（含用户消息）
@@ -1391,7 +1396,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam("userId", ctx.userId)
                 .setParam("agentName", name)
                 .setParam("roundId", ctx.roundId)
-                .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
+                .setParam("messages", roundMessages(ctx))
                 .setParam("model", ctx.model)
                 .setParam("temperature", ctx.temperature)
                 .setParam("maxTokens", ctx.maxTokens)
@@ -1446,12 +1451,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 构建本轮 history：断点恢复 / LLM 直入 / 正常三分支。
      * 审批恢复的重工具执行仍在这里（与非流式语义一致）。
      */
-    private void prepareHistory(ChatRunContext ctx, TLMsg beforeResult) {
+    @SuppressWarnings("unchecked")
+    private void prepareHistory(ChatRunContext ctx) {
         TLMsg msg = ctx.msg;
         String sessionId = ctx.sessionId;
         List<TLConversationHistory> history;
         int msgStartIdx = 0;
-        long coverSeq = 0L;
         boolean resumedFromCheckpoint = false;
         String model = ctx.model;
         double temperature = ctx.temperature;
@@ -1459,6 +1464,21 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         boolean resume = msg.parseBoolean("resume", false);
         ctx.resume = resume;
+
+        // resume 语义成立的前提：调用方已把断点历史载入。TLAgentService 在 loadSession
+        // 失败时不设置 history——此前会静默落入正常分支（context 为空 → 当新对话跑），
+        // 恢复失败被伪装成成功。llmInput 直入是另一条独立通道，不在此守卫内。
+        if (resume && !msg.containsParam("history") && !msg.containsParam(AI_P_LLMINPUT)) {
+            ctx.terminalResult = createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "断点恢复失败：会话数据不可用");
+            return;
+        }
+
+        // 原轮已有消息块（service 从 loadSession 透传）：恢复轮的落盘前缀，防 last-wins 丢历史
+        if (msg.containsParam("resumeRoundMessages")) {
+            Object rm = msg.getParam("resumeRoundMessages");
+            if (rm instanceof List) ctx.resumeRoundMessages = (List<TLConversationHistory>) rm;
+        }
 
         if (resume && msg.containsParam("history")) {
             // resume=true 且调用方已传入 history → 从断点/历史会话恢复
@@ -1581,7 +1601,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 // L2: mid-loop checkpoint 恢复 / L1: completed 会话恢复
                 history = withContextSystem(loadedHistory);
                 msgStartIdx = history.size();
-                coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
                 model = nonEmpty(msg.getStringParam("resumeModel", ""), model);
                 temperature = msg.getDoubleParam("resumeTemperature", temperature);
                 maxTokens = msg.getIntParam("resumeMaxTokens", maxTokens);
@@ -1590,19 +1609,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         + " iter=0 historySize=" + history.size(), LogLevel.INFO);
             }
         } else if (msg.containsParam(AI_P_LLMINPUT)) {
-            // LLM 消息直入：调用方已提供完整 messages（如 trace 定点重放）
+            // LLM 消息直入：调用方已提供完整 messages（如 trace 定点重放）。
+            // 输入是"重放起点的消息前缀"；本轮落盘只应记重放新产生的消息——
+            // 从 0 记会把前缀整段当成新一轮增量，下次 continue 时与原轮重复膨胀。
             @SuppressWarnings("unchecked")
             List<TLConversationHistory> input =
                     (List<TLConversationHistory>) msg.getParam(AI_P_LLMINPUT);
             history = withContextSystem(input);
-            msgStartIdx = 0;
-            coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
+            msgStartIdx = history.size();
         } else {
             // 正常流程：从 context 构建历史（全量，摘要模式不 trim）。
             // noHistory 模式：不载入历史（每次白纸）
             history = ctx.noHistory ? new ArrayList<>() : getContextHistory(sessionId);
             msgStartIdx = history.size();
-            coverSeq = computeSessionCoverSeq(beforeResult, sessionId);
             // 附件归一化只在此处做：只有本分支才真正构建用户条目
             List<TLAttachmentRef> roundAttachments = normalizeAttachments(msg, sessionId, ctx.userId);
             history.add(buildUserEntry(ctx.userMessage, roundAttachments));
@@ -1610,7 +1629,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
         ctx.history = history;
         ctx.msgStartIdx = msgStartIdx;
-        ctx.coverSeq = coverSeq;
         ctx.model = model;
         ctx.temperature = temperature;
         ctx.maxTokens = maxTokens;
@@ -1642,21 +1660,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         while (Thread.interrupted()) { /* drain all pending interrupt flags */ }
         if (ctx.roundBegan) sessionRoundEnd(ctx.sessionId);
-    }
-
-    /** 上下文版错误收尾（旧 7 参重载保留给尚未迁移的流式路径）。 */
-    private void notifyChatError(ChatRunContext ctx, String errMsg) {
-        if (ctx.history == null) return;
-        notifySessionManager(createMsg()
-                .setAction("chatFinished")
-                .setParam("sessionId", ctx.sessionId)
-                .setParam("userId", ctx.userId)
-                .setParam("agentName", name)
-                .setParam("roundId", ctx.roundId)
-                .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
-                .setParam("userMessage", ctx.userMessage)
-                .setParam("response", errMsg));
-        traceStage(ctx.sessionId, ctx.rootSid, ctx.roundId, "roundEnd", "error", 0);
     }
 
     /**
@@ -1754,7 +1757,6 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         boolean effectiveReasoningVisible = ctx.reasoningVisible;
         List<TLConversationHistory> history = ctx.history;
         int msgStartIdx = ctx.msgStartIdx;
-        long coverSeq = ctx.coverSeq;
         String memoryContext = ctx.memoryContext;
         List<TLFunctionDefinition> toolDefs = ctx.toolDefs;
         boolean resume = ctx.resume;
@@ -1805,14 +1807,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("userId", ctx.userId)
                     .setParam("agentName", name)
                     .setParam("roundId", roundId)
-                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("messages", roundMessages(ctx))
                     .setParam("model", model)
                     .setParam("temperature", temperature)
                     .setParam("maxTokens", maxTokens)
                     .setParam("userMessage", userMessage));
             // 发送视图只构建一次：trace 的 llmRequest payload 必须和真正发给 LLM 的 messages 一致
             //（视图裁剪/manifest/base64 剥离/tool 对净化都在 buildSendList 内完成）
-            List<TLConversationHistory> sendList = buildSendList(history, coverSeq, memoryContext);
+            List<TLConversationHistory> sendList = buildSendList(history, memoryContext);
             TLMsg llmMsg = createMsg().setAction(LLM_COMPLETION)
                     .setParam(AI_P_MESSAGEHISTORY, sendList)
                     .setParam(AI_P_MODEL, model)
@@ -2023,6 +2025,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     finalResponse = "（操作已被用户拒绝"
                             + (rejectedReason.isEmpty() ? "" : "：" + rejectedReason) + "）";
                 }
+                // 收尾答复必须作为 assistant 消息落 history：只回 UI/chatFinished.response 的话，
+                // 重登后会话里只剩"用户提问 + 拒绝通知"，看不到 agent 的答复；下一轮 LLM 也缺这条上下文
+                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, finalResponse));
+                finalAssistantIdx = history.size() - 1;
                 break;
             }
             if (execPending) {
@@ -2037,7 +2043,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         .setParam("userId", ctx.userId)
                     .setParam("agentName", name)
                         .setParam("roundId", roundId)
-                        .setParam("messages", deltaMessages(history, msgStartIdx))
+                        .setParam("messages", roundMessages(ctx))
                         .setParam("model", model)
                         .setParam("temperature", temperature)
                         .setParam("maxTokens", maxTokens)
@@ -2096,7 +2102,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("userId", ctx.userId)
                     .setParam("agentName", name)
                     .setParam("roundId", roundId)
-                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("messages", roundMessages(ctx))
                     .setParam("model", model)
                     .setParam("temperature", temperature)
                     .setParam("maxTokens", maxTokens)
@@ -2111,6 +2117,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (aborted) {
             // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
             Thread.interrupted();
+            // 中断可能发生在工具执行中途：assistant(tool_calls) 已入 history、tool 结果未写。
+            // 落盘前净化（只动副本），否则会话文件里留一条非法 tool 对，重登视图/后续恢复
+            // 只能靠下游 sanitizeToolPairs 兜底（漏判即 400）。
+            List<TLConversationHistory> abortedMsgs = roundMessages(ctx);
+            sanitizeToolPairs(abortedMsgs);
             // 通知 SessionManager 会话中断，存为 completed 避免残留 checkpoint
             notifySessionManager(createMsg()
                     .setAction("chatAborted")
@@ -2118,7 +2129,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("userId", ctx.userId)
                         .setParam("agentName", name)
                     .setParam("roundId", roundId)
-                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("messages", abortedMsgs)
                     .setParam("userMessage", userMessage));
             // 只有用户/会话取消才叫 "by user"；执行器清理/超时/任务取消必须如实记录原因
             String abortReason = userStop ? "user"
@@ -2169,7 +2180,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam("userId", ctx.userId)
                             .setParam("agentName", name)
                     .setParam("roundId", roundId)
-                    .setParam("messages", deltaMessages(history, msgStartIdx))
+                    .setParam("messages", roundMessages(ctx))
                     .setParam("userMessage", userMessage)
                     .setParam("response", finalResponse));
         }
@@ -2233,9 +2244,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             ret.setParam(AI_P_REASONING, allReasoning.toString().trim());
         }
         // 会话首轮完成后异步起名（userId 必须在调用线程内取好——起名线程是异步的，ThreadLocal 取不到）
-        // noHistory 模式下 msgStartIdx 每轮都是 0，不加 !noHistory 会每轮都起一次起名 LLM 调用
+        // noHistory 模式下 msgStartIdx 每轮都是 0，不加 !noHistory 会每轮都起一次起名 LLM 调用。
+        // llmInput 是重放通道：历史内容不是"用户第一条消息"，不得拿来起名（语义错位）
         maybeGenerateSessionTitle(sessionId, ctx.userId, userMessage,
-                !noHistory && !resumedFromCheckpoint && msgStartIdx <= 1);
+                !noHistory && !resumedFromCheckpoint && !msg.containsParam(AI_P_LLMINPUT)
+                        && msgStartIdx <= 1);
         streamFinal(ctx, finalResponse);
         return ret;
     }
@@ -2259,31 +2272,32 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         ctx.sink.onError(message);
     }
 
-    /** LLM 错误收尾：人为停止不留断点；流式非人为错误保 checkpoint；非流式按原 doChat 收口。 */
+    /**
+     * LLM 错误收尾：人为停止不留断点；非人为错误（流式/非流式同语义）保持 checkpoint，
+     * 交给 findIncomplete 恢复。此前非流式发 chatFinished 把轮次收成 completed，
+     * 控制台默认路径反而丢断点，与流式自相矛盾。
+     */
     private void handleRunError(ChatRunContext ctx, String errMsg) {
         if (ctx.cancelled()) {
             // 防御性短路：正常路径在 LLM 错误分支之前已检查 cancelled
             if (ctx.history != null) {
+                List<TLConversationHistory> abortedMsgs = roundMessages(ctx);
+                sanitizeToolPairs(abortedMsgs);   // 与中断分支同：落盘前净化悬空 tool 对
                 notifySessionManager(createMsg()
                         .setAction("chatAborted")
                         .setParam("sessionId", ctx.sessionId)
                         .setParam("userId", ctx.userId)
                         .setParam("agentName", name)
                         .setParam("roundId", ctx.roundId)
-                        .setParam("messages", deltaMessages(ctx.history, ctx.msgStartIdx))
+                        .setParam("messages", abortedMsgs)
                         .setParam("userMessage", ctx.userMessage));
             }
             streamFinal(ctx, "⏹ 已中断");
             return;
         }
-        boolean streamRun = ctx.sink != null && !ctx.sink.isNull();
-        if (streamRun) {
-            // 与旧 onStreamResult 的 STREAMERROR 分支一致：非人为错误保持 checkpoint
-            putLog("LLM error kept as checkpoint: sessionId=" + ctx.sessionId
-                    + " err=" + errMsg, LogLevel.WARN);
-        } else {
-            notifyChatError(ctx, errMsg);
-        }
+        putLog("LLM error kept as checkpoint: sessionId=" + ctx.sessionId
+                + " err=" + errMsg, LogLevel.WARN);
+        traceStage(ctx.sessionId, ctx.rootSid, ctx.roundId, "roundEnd", "error", 0);
         streamError(ctx, errMsg);
     }
 
@@ -2547,18 +2561,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 恢复历史构造：context 默认 system 置顶 + DB 历史。
-     * DB 增量保存不含 index 0 的 context system，恢复必须显式补（先插再放，无需去重——
-     * 每次从 DB 历史重新构造且 REPLACE 全量替换，不会累积重复）。
-     * 子 agent（无 defaultSystemMessage，如 poetA/poetB）返回原列表，保持现状。
+     * 恢复历史构造：context 默认 system 置顶 + 历史。
+     * DB 增量保存不含 index 0 的 context system，恢复必须显式补（每次从 DB 历史重新构造
+     * 且 REPLACE 全量替换，不会累积重复）。
+     * 始终返回调用方独占的新列表：resume/llmInput 之后 history 会被就地增删（工具结果、
+     * 模板替换），直接返回调用方列表会让调用方持有的数据被污染。
+     * 历史首条已是 system 时替换而非再插一条（llmInput 可能自带 system，否则双 system 发给模型）。
      */
     private List<TLConversationHistory> withContextSystem(List<TLConversationHistory> loadedHistory) {
-        if (loadedHistory == null || loadedHistory.isEmpty()) return loadedHistory;
+        if (loadedHistory == null) return null;
         HashMap<String, String> ctxParams = modulesParams.get(contextModuleName);
         String sysTpl = ctxParams != null ? ctxParams.get("defaultSystemMessage") : null;
-        if (sysTpl == null || sysTpl.trim().isEmpty()) return loadedHistory;
+        boolean hasSys = sysTpl != null && !sysTpl.trim().isEmpty();
         List<TLConversationHistory> h = new ArrayList<>(loadedHistory.size() + 1);
-        h.add(new TLConversationHistory(TLConversationHistory.Role.system, sysTpl));
+        if (hasSys) {
+            h.add(new TLConversationHistory(TLConversationHistory.Role.system, sysTpl));
+            if (!loadedHistory.isEmpty()
+                    && loadedHistory.get(0).getRole() == TLConversationHistory.Role.system) {
+                h.addAll(loadedHistory.subList(1, loadedHistory.size()));
+                return h;
+            }
+        }
         h.addAll(loadedHistory);
         return h;
     }
@@ -2985,6 +3008,23 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         return new ArrayList<>(fullHistory.subList(startIdx, fullHistory.size()));
     }
 
+    /**
+     * 本轮要落盘的完整消息 = 恢复轮原消息前缀 + 本轮新增量。
+     * 同 roundId 的写入是 last-wins（文件版追加覆盖、DB 版删后插）：resume 只写新增量
+     * 会把原轮 messages（含 assistant(tool_calls) 等）永久覆盖丢——断点恢复后历史残缺。
+     * 返回新列表，调用方可安全增删。
+     */
+    private List<TLConversationHistory> roundMessages(ChatRunContext ctx) {
+        List<TLConversationHistory> delta = ctx.history == null
+                ? new ArrayList<>() : deltaMessages(ctx.history, ctx.msgStartIdx);
+        if (ctx.resumeRoundMessages == null || ctx.resumeRoundMessages.isEmpty()) return delta;
+        List<TLConversationHistory> out =
+                new ArrayList<>(ctx.resumeRoundMessages.size() + delta.size());
+        out.addAll(ctx.resumeRoundMessages);
+        out.addAll(delta);
+        return out;
+    }
+
     protected List<TLConversationHistory> getContextHistory(String sessionId) {
         TLMsg ctxMsg = createMsg()
                 .setAction(CONTEXT_GETMESSAGES)
@@ -3012,45 +3052,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 从记忆召回结果计算本会话摘要的最大 coverSeq（0 = 无摘要，视图取最新 contextViewSize 条）。
-     * 摘要条目：tag=session_summary 且 metadata.sessionId == 当前会话。
-     */
-    @SuppressWarnings("unchecked")
-    protected long computeSessionCoverSeq(TLMsg beforeResult, String sessionId) {
-        if (beforeResult == null || !beforeResult.containsParam(AI_P_MEMORYRESULT)) return 0L;
-        try {
-            List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
-                    beforeResult.getListParam(AI_P_MEMORYRESULT, null);
-            if (entries == null) return 0L;
-            long maxCover = 0L;
-            for (TLMemoryEntry e : entries) {
-                if (e == null || !"session_summary".equals(e.getTag())) continue;
-                Map<String, Object> meta = e.getMetadata();
-                if (meta == null) continue;
-                if (!sessionId.equals(meta.get("sessionId"))) continue;
-                Object cs = meta.get("coverSeq");
-                if (cs instanceof Number) {
-                    long v = ((Number) cs).longValue();
-                    if (v > maxCover) maxCover = v;
-                }
-            }
-            return maxCover;
-        } catch (Exception e) {
-            return 0L;
-        }
-    }
-
-    /**
      * 构建发送给 LLM 的视图列表：
      * system 区（默认 system + 记忆 system）恒保留；其余取尾部 contextViewSize 条原样。
      * 历史未超视图 → 直接全量（兼容现状）。
-     * 注意：不按 coverSeq 过滤——恢复/接管会话时摘要 coverSeq 紧跟最新会导致视图为空、
-     * LLM 看不到近期历史（"像重新开始"）；尾部截取天然只取最近内容，
-     * 摘要覆盖的更早内容本就不在尾部，无需排除。
      * 孤儿 tool 修正：视图开头是 tool 消息时向前补其 assistant(tool_calls)，保证 OpenAI 消息顺序约束。
      */
     protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
-                                                        long coverSeq, String memoryContext) {
+                                                        String memoryContext) {
         if (full.size() <= contextViewSize) {
             List<TLConversationHistory> all = copyList(full);
             if (memoryContext != null && !memoryContext.isEmpty()) {

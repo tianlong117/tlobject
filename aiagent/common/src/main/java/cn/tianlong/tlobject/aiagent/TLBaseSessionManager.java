@@ -408,9 +408,14 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             return Integer.compare(sa, sb);
         });
 
-        // 拼接 messages
+        // 拼接 messages；同时记录每个 roundId 贡献的块。
+        // resume 落盘需要"原轮已有消息"作为前缀：同 roundId 的写入是 last-wins（文件版追加、
+        // DB 版删后插），恢复轮只带新增量重写同一行会把原轮 messages 覆盖掉——断点前历史永久丢失。
         List<TLConversationHistory> history = new ArrayList<>();
+        java.util.Map<String, List<TLConversationHistory>> roundBlocks = new java.util.HashMap<>();
         for (java.util.Map<String, Object> r : sorted) {
+            String blockRoundId = String.valueOf(r.getOrDefault("roundId", ""));
+            int blockStart = history.size();
             Object msgs = r.get("messages");
             // 恢复时把本轮 userMessage 补回数组头：存量轮次的 messages 数组从 assistant 开始
             // （user 消息只在 round 的 user_message 字段单独存），不补则恢复后：
@@ -436,6 +441,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
                         history.add((TLConversationHistory) m);
                 }
             }
+            roundBlocks.put(blockRoundId, new ArrayList<>(history.subList(blockStart, history.size())));
         }
 
         // 待批轮优先作为"状态载体"：pending_approval 是开态，直到被 resume 收尾——
@@ -471,6 +477,11 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             result.setParam("pendingToolCall", stateRound.get("pendingToolCall"));
         if (stateRound.containsKey(AI_P_APPROVAL_ID))
             result.setParam(AI_P_APPROVAL_ID, stateRound.get(AI_P_APPROVAL_ID));
+        // 恢复入口（TLAgentService resume）把它作为本轮落盘前缀转给 agent，
+        // 保证恢复轮按同 roundId 重写时原轮消息不丢
+        List<TLConversationHistory> stateBlock =
+                roundBlocks.get(String.valueOf(stateRound.getOrDefault("roundId", "")));
+        if (stateBlock != null) result.setParam("stateRoundMessages", stateBlock);
 
         return result;
     }

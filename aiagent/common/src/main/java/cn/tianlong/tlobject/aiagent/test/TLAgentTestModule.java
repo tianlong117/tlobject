@@ -122,6 +122,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_CANCEL       = "test_mock_cancel";
     private static final String SID_BATCHTIMEOUT = "test_mock_batch_timeout";
     private static final String SID_CHECKPOINT   = "test_mock_checkpoint";
+    private static final String SID_CHECKPOINTRESUME = "test_mock_checkpointresume";
     private static final String SID_STREAMERR    = "test_mock_streamerr";
     private static final String SID_STREAMDIRECT = "test_mock_streamdirect";
     private static final String SID_TRUNC        = "test_mock_truncation";
@@ -136,6 +137,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final List<String> TEST_SESSIONS = Arrays.asList(
             SID_BASIC, SID_MULTITURN, SID_SINGLETOOL, SID_PARALLEL, SID_TIMEOUT,
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
+            SID_CHECKPOINTRESUME,
             SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY,
             SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION);
 
@@ -524,6 +526,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("outputValidation", new String[]{"32-输出客观校验", "test_bad_output 未注册"});
         TEST_CASES.put("finalOutputValidation", new String[]{"33-直出输出校验", "test_bad_final_output 未注册"});
         TEST_CASES.put("groupProgress",   new String[]{"31-Agent组进度", null});
+        TEST_CASES.put("checkpointResumeHistory", new String[]{"34-检查点恢复保留原轮历史", "需要 sessionManager"});
     }
 
     /**
@@ -596,6 +599,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "cancelexecution": return this::testCancelExecution;
             case "batchtimeout":    return this::testBatchTimeout;
             case "sessionrecovery": return this::testSessionRecovery;
+            case "checkpointresumehistory": return this::testCheckpointResumeHistory;
             case "streamerror":     return this::testStreamError;
             case "intentcache":     return this::testIntentCache;
             case "streamdirect":    return this::testStreamDirect;
@@ -1843,6 +1847,117 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 .setParam("error", "checkpoint round2 failed: " + r2.getStringParam("error", ""));
     }
 
+    // ======================== 场景 34: 检查点恢复保留原轮历史 ========================
+
+    /**
+     * mid-loop 检查点恢复（进程崩溃残留的 checkpoint 轮）：
+     * 原轮已有 [user, assistant(tool_calls), tool]。恢复轮沿用同一 roundId 落盘（收口断点），
+     * 但同 roundId 是 last-wins——若恢复只写新增量，原轮消息会被覆盖丢。
+     * 断言恢复后历史仍含原轮工具调用/结果 + 恢复产生的终答，且顺序正确。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg testCheckpointResumeHistory(Object fromWho, TLMsg msg) {
+        Object sm = getModuleInFactory("sessionManager");
+        if (!(sm instanceof IObject)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionManager 未配置");
+        }
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false).setParam("error", "mockProvider 未配置");
+
+        String sid = SID_CHECKPOINTRESUME;
+        String roundId = "r_cp_resume_1";
+        String toolCallId = "call_cp_resume_1";
+        try {
+            putMsg((IObject) sm, createMsg().setAction("deleteSession")
+                    .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        } catch (Exception ignored) {}
+
+        // 1. 造一个崩溃留下的检查点轮（工具已执行、终答未产生）
+        List<TLConversationHistory> seeded = new ArrayList<>();
+        seeded.add(new TLConversationHistory(TLConversationHistory.Role.user, "断点恢复历史测试"));
+        TLToolCall seedTc = TLMockProvider.createToolCall(toolCallId, FN_ECHO,
+                new HashMap<String, Object>() {{ put("message", "seed"); }});
+        seeded.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
+                new ArrayList<>(java.util.Collections.singletonList(seedTc))));
+        seeded.add(new TLConversationHistory(toolCallId, FN_ECHO, "partial echo result"));
+        putMsg((IObject) sm, createMsg().setAction("sessionUpdated")
+                .setParam("sessionId", sid)
+                .setParam("userId", TEST_USER_ID)
+                .setParam("agentName", "aiagent")
+                .setParam("roundId", roundId)
+                .setParam("messages", seeded)
+                .setParam("userMessage", "断点恢复历史测试")
+                .setParam("model", "mock")
+                .setParam("temperature", 0.7)
+                .setParam("maxTokens", 1024));
+
+        // 2. 按 service 语义 loadSession → resume（checkpoint 分支）
+        TLMsg loaded = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        if (!loaded.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "loadSession 失败: " + loaded.getStringParam("error", ""));
+        }
+        mp.clearAllResponses();
+        mp.enqueueResponse(mp.textResponse("断点恢复后的终答"));
+        TLMsg resume = createMsg().setAction(AGENT_CHAT)
+                .setSystemParam(AI_P_SESSIONID, sid)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                .setParam(AI_P_USERMESSAGE, "断点恢复历史测试")
+                .setParam("resume", true)
+                .setParam("history", loaded.getParam("history"))
+                .setParam("resumeState", SESSION_STATE_CHECKPOINT)
+                .setParam("resumeRoundId", loaded.getStringParam("roundId", roundId));
+        if (loaded.containsParam("stateRoundMessages")) {
+            resume.setParam("resumeRoundMessages", loaded.getParam("stateRoundMessages"));
+        }
+        TLMsg r = putMsg(M_AIAGENT, resume);
+        if (!r.parseBoolean(RESULT, false)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "resume 应成功，实为: " + r.getStringParam(AI_P_RESPONSE, ""));
+        }
+
+        // 3. 断言：原轮工具对 + 恢复终答都在，且工具结果在终答之前
+        TLMsg after = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        List<TLConversationHistory> hist = (List<TLConversationHistory>) after.getParam("history");
+        boolean hasToolCall = false, hasToolResult = false, hasFinal = false;
+        int idxToolResult = -1, idxFinal = -1;
+        if (hist != null) {
+            for (int i = 0; i < hist.size(); i++) {
+                TLConversationHistory m = hist.get(i);
+                if (m == null) continue;
+                if (m.isAssistantWithToolCalls() && m.getToolCalls() != null) {
+                    for (TLToolCall t : m.getToolCalls()) {
+                        if (t != null && toolCallId.equals(t.getId())) hasToolCall = true;
+                    }
+                }
+                if (m.getRole() == TLConversationHistory.Role.tool && toolCallId.equals(m.getToolCallId())) {
+                    hasToolResult = true;
+                    if (idxToolResult < 0) idxToolResult = i;
+                }
+                if (m.getRole() == TLConversationHistory.Role.assistant
+                        && m.getContent() != null && m.getContent().contains("断点恢复后的终答")) {
+                    hasFinal = true;
+                    idxFinal = i;
+                }
+            }
+        }
+        if (!hasToolCall || !hasToolResult || !hasFinal) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "检查点恢复后原轮历史丢失: toolCall=" + hasToolCall
+                            + " toolResult=" + hasToolResult + " final=" + hasFinal
+                            + " msgs=" + (hist == null ? "null" : hist.size()));
+        }
+        if (idxToolResult > idxFinal) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "检查点恢复后消息顺序错乱: toolIdx=" + idxToolResult
+                            + " finalIdx=" + idxFinal);
+        }
+        log("[TEST]   检查点恢复历史: 原轮工具对 + 恢复终答均保留");
+        return createMsg().setParam(RESULT, true);
+    }
+
     // ======================== 场景 10: 流式异常路径 ========================
 
     protected TLMsg testStreamError(Object fromWho, TLMsg msg) {
@@ -2883,6 +2998,20 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 .setParam("pendingToolCall", tc)
                 .setParam(AI_P_APPROVAL_ID, "probe_discard_1");
         putMsg((IObject) sm, upd);
+        // 1b. 待批轮之后写入一个普通轮次（模拟后台任务注入等）——待批断点不在末尾时，
+        //     discard 重存必须保留原 roundSeq，否则该轮会被重排到后面轮次之后（历史顺序错乱）
+        putMsg((IObject) sm, createMsg().setAction("chatFinished")
+                .setParam("sessionId", sid)
+                .setParam("userId", TEST_USER_ID)
+                .setParam("agentName", "aiagent")
+                .setParam("roundId", "r_discard_later")
+                .setParam("messages", new java.util.ArrayList<>(java.util.Arrays.asList(
+                        new TLConversationHistory(TLConversationHistory.Role.user, "后续轮次"))))
+                .setParam("userMessage", "后续轮次")
+                .setParam("model", "mock")
+                .setParam("temperature", 0.7)
+                .setParam("maxTokens", 1024)
+                .setParam("response", "后续轮次的回答"));
         // 2. findIncomplete（带 sessionId）应命中且带 state/approvalId
         TLMsg q = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
                 .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
@@ -2900,6 +3029,25 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
         if (!d.parseBoolean(RESULT, false)) {
             return createMsg().setParam(RESULT, false).setParam("error", "discardPendingRound 失败: " + d.getStringParam("error", ""));
+        }
+        // 2b. 丢弃后历史顺序：待批轮（已被重存为 completed）必须仍排在后续轮次之前
+        TLMsg assembled = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        List<TLConversationHistory> hist =
+                (List<TLConversationHistory>) assembled.getParam("history");
+        int idxPending = -1, idxLater = -1;
+        if (hist != null) {
+            for (int i = 0; i < hist.size(); i++) {
+                String c = hist.get(i) == null ? null : hist.get(i).getContent();
+                if (c == null) continue;
+                if (idxPending < 0 && c.contains("删除一个不存在的文件")) idxPending = i;
+                if (idxLater < 0 && c.contains("后续轮次")) idxLater = i;
+            }
+        }
+        if (idxPending < 0 || idxLater < 0 || idxPending > idxLater) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "discard 后轮次顺序错乱: pendingIdx=" + idxPending
+                            + " laterIdx=" + idxLater + "（discard 不得重排 roundSeq）");
         }
         TLMsg q2 = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
                 .setParam("userId", TEST_USER_ID).setParam("sessionId", sid));
@@ -3034,6 +3182,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         }
         TLMsg resumeMsg = buildResumeChat(approvalId, null, loadedHistory, loadedTc, sid)
                 .setParam("resumeRoundId", loaded.getStringParam("roundId", ""));
+        if (loaded.containsParam("stateRoundMessages")) {
+            resumeMsg.setParam("resumeRoundMessages", loaded.getParam("stateRoundMessages"));
+        }
         TLMsg r2 = putMsg(M_AIAGENT, resumeMsg);
         // 6. 批准后 resume：工具真执行（文件被删）
         if (!r2.parseBoolean(RESULT, false)) {
@@ -3042,6 +3193,38 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         }
         if (f.exists()) {
             return createMsg().setParam(RESULT, false).setParam("error", "批准恢复应执行删除，文件仍存在");
+        }
+        // 6b. 恢复后历史完整性：本轮应含 assistant(tool_calls) + tool 结果 + 终答
+        //     （checkpoint 分支"原轮被新增量覆盖"的专项回归见场景 34；
+        //       待批轮的 messages 已回滚成 [user]，本断言守端到端形态）
+        TLMsg loadedAfter = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                .setParam("sessionId", sid).setParam("userId", TEST_USER_ID));
+        List<TLConversationHistory> hAfter =
+                (List<TLConversationHistory>) loadedAfter.getParam("history");
+        boolean hasOriginalToolCall = false, hasToolResult = false, hasFinalAnswer = false;
+        if (hAfter != null) {
+            for (TLConversationHistory m : hAfter) {
+                if (m == null) continue;
+                if (m.isAssistantWithToolCalls() && m.getToolCalls() != null) {
+                    for (TLToolCall t : m.getToolCalls()) {
+                        if (t != null && "call_pending_1".equals(t.getId())) hasOriginalToolCall = true;
+                    }
+                }
+                if (m.getRole() == TLConversationHistory.Role.tool
+                        && "call_pending_1".equals(m.getToolCallId())) {
+                    hasToolResult = true;
+                }
+                if (m.getRole() == TLConversationHistory.Role.assistant
+                        && m.getContent() != null && m.getContent().contains("已删除测试文件")) {
+                    hasFinalAnswer = true;
+                }
+            }
+        }
+        if (!hasOriginalToolCall || !hasToolResult || !hasFinalAnswer) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "resume 后原轮历史丢失: toolCall=" + hasOriginalToolCall
+                            + " toolResult=" + hasToolResult + " finalAnswer=" + hasFinalAnswer
+                            + " msgs=" + (hAfter == null ? "null" : hAfter.size()));
         }
         // 7. 断点收口：resume 的 chatFinished（同 roundId）应把待批轮收成 completed
         TLMsg q3 = putMsg((IObject) sm, createMsg().setAction("findIncomplete")
