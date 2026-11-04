@@ -1,11 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <moduleConfig>
-    <!-- /test outputValidation 专用规则：测试技能返回非数字 total，必须被拒绝 -->
+    <!-- /test outputValidation 专用规则：测试技能返回非数字 total，必须被拒绝。
+         agent="aiagent" 是 Phase 2 的归属守卫：Turn 发工具调用时必须显式带
+         AI_P_AGENTNAME=aiagent；若回退成 fromWho.getName()（turn:...），规则不匹配，
+         场景 32/33 会 FAIL。 -->
     <rules>
         <rule tool="test_bad_output"
+              agent="aiagent"
               checks="total:number"
               retryable="false"/>
         <rule tool="test_bad_final_output"
+              agent="aiagent"
               checks="total:number"
               retryable="false"/>
     </rules>

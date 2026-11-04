@@ -121,6 +121,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
         // 进度事件上下文（executeTools 构造后填充；不参与并发控制）
         Object fromWho;
+        /** 调用方 Agent 名：优先取 AI_P_AGENTNAME（Turn 显式传），缺省回退 fromWho.getName() */
+        String agentName;
         String userId;
         String rootSessionId;
         String roundId;
@@ -211,8 +213,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         IObject validator = resolveOutputValidator();
         if (validator == null) return null;
         try {
-            String agentName = state.fromWho instanceof IObject
-                    ? ((IObject) state.fromWho).getName() : "";
+            String agentName = state.agentName != null ? state.agentName : "";
             TLMsg req = createMsg().setAction(OUTPUT_VALIDATE_ACTION)
                     .setParam("functionName", task.functionName != null ? task.functionName : "")
                     .setParam("moduleName", task.moduleName != null ? task.moduleName : "")
@@ -281,6 +282,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         CountDownLatch latch = new CountDownLatch(n);
         ExecutionState state = new ExecutionState(executionId, sessionId, latch);
         state.fromWho = fromWho;
+        state.agentName = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_AGENTNAME,
+                fromWho instanceof IObject ? ((IObject) fromWho).getName() : "toolExecutor");
         state.userId = userId;
         state.rootSessionId = rootSessionId;
         state.roundId = roundId;
@@ -347,7 +350,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         ? task.functionName
                         : (task.moduleName != null && !task.moduleName.isEmpty()
                                 ? task.moduleName : "(internal)");
-                traceStage(fromWho, sessionId, rootSessionId, roundId, "toolStart",
+                traceStage(state.agentName, sessionId, rootSessionId, roundId, "toolStart",
                         toolDisplay + " execId=" + executionId, 0);
             }
 
@@ -455,7 +458,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     else if (doneTask.moduleName != null && !doneTask.moduleName.isEmpty())
                         doneTool = doneTask.moduleName;
                 }
-                traceStage(fromWho, sessionId, rootSessionId, roundId, "toolEnd",
+                traceStage(state.agentName, sessionId, rootSessionId, roundId, "toolEnd",
                         "tool=" + doneTool + " state=" + toolState, System.currentTimeMillis() - startTs);
             }
 
@@ -893,11 +896,9 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     // ======================== 全链追踪打点 ========================
 
     /** 发 recordStage 给监控模块（未配监控时静默忽略，IGNOREMODULEISNULL） */
-    private void traceStage(Object fromWho, String sessionId, String rootSessionId, String roundId,
+    private void traceStage(String agentName, String sessionId, String rootSessionId, String roundId,
                             String stage, String detail, long durationMs) {
         try {
-            String agentName = fromWho instanceof TLBaseModule
-                    ? ((TLBaseModule) fromWho).getName() : "toolExecutor";
             TLMsg traceMsg = createMsg().setAction("recordStage")
                     .setParam("agentName", agentName)
                     .setParam(AI_P_SESSIONID, sessionId)
