@@ -10,6 +10,22 @@ import java.util.*;
 /**
  * 会话管理抽象基类——消息分发、参数提取、roundId 去重、history 组装。
  *
+ * <p><b>轮次状态（state）生命周期</b>——三个状态共用一列，但查找语义不同，改动前先读这段：</p>
+ * <ul>
+ *   <li>{@code checkpoint}：轮次进行中的最新快照（聊天入口、每次 LLM 迭代前、每批工具执行后各写一次）。
+ *       进程被杀时最后一行仍是 checkpoint → findIncomplete 视为"意外中断"，从该轮继续；
+ *       正常收尾写 completed 后按同 roundId last-wins 覆盖。</li>
+ *   <li>{@code pending_approval}：审批<b>开态</b>。审批拦截时写入，故意不写 completed
+ *       （否则断点会被覆盖成 completed，findIncomplete 再也找不到）；直到 resume 收尾或
+ *       discardPendingRound 丢弃才关闭。黏住语义：其后任何新轮次写入都不得把它藏起来
+ *       （assembleSession/findIncompleteMeta 有独立的"开态待批轮"查找分支）。</li>
+ *   <li>{@code completed}：轮次已关闭（正常完成 / 用户中断 / 断点被丢弃）。findIncomplete 不再返回。</li>
+ * </ul>
+ *
+ * <p>落盘粒度是"轮"，不是"迭代"：同一 roundId 的多次写入按 last-wins 收敛（文件版追加、
+ * DB 版删后插）。resume 沿用原 roundId 收尾，因此调用方必须带 {@code stateRoundMessages}
+ * 前缀，只写恢复后的新增量会把原轮 messages 永久覆盖丢。</p>
+ *
  * 子类只需实现 4 个存储相关方法，即可支持文件或数据库等不同后端。
  *
  * @author tianlong

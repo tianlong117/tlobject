@@ -132,6 +132,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_EMPTY        = "test_mock_emptyanswer";
     private static final String SID_OUTPUTVALIDATION = "test_mock_outputvalidation";
     private static final String SID_FINALOUTPUTVALIDATION = "test_mock_finaloutputvalidation";
+    private static final String SID_ABORTCTX     = "test_mock_abortctx";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
@@ -139,7 +140,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
             SID_CHECKPOINTRESUME,
             SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY,
-            SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION);
+            SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION, SID_ABORTCTX);
 
     // ======================== 构造器 ========================
 
@@ -527,6 +528,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("finalOutputValidation", new String[]{"33-直出输出校验", "test_bad_final_output 未注册"});
         TEST_CASES.put("groupProgress",   new String[]{"31-Agent组进度", null});
         TEST_CASES.put("checkpointResumeHistory", new String[]{"34-检查点恢复保留原轮历史", "需要 sessionManager"});
+        TEST_CASES.put("abortContext",    new String[]{"35-中断轮上下文与会话同口径", "test_sleep 未注册", "sessionManager"});
     }
 
     /**
@@ -624,6 +626,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "approvalresumelost": return this::testApprovalResumeLost;
             case "approvalcheckpointdiscard": return this::testApprovalCheckpointDiscard;
             case "approvalpendingcheckpoint": return this::testApprovalPendingCheckpoint;
+            case "abortcontext":    return this::testAbortContext;
             default:                return null;
         }
     }
@@ -1730,6 +1733,128 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             return createMsg().setParam(RESULT, false)
                     .setParam("error", "cancel test exception: " + e);
         }
+    }
+
+    // ======================== 场景 35: 中断轮 context/会话同口径 ========================
+
+    /**
+     * 中断轮此前只写 SessionManager、不写 aiContext：进程内下一轮看不到它，
+     * 重登 continue 又能看到——同一个"下一轮"两套历史；落盘也缺"已中断"终态。
+     * 断言：两侧都以 assistant「⏹ 已中断」收尾，且 session 里没有悬空 tool_calls。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg testAbortContext(Object fromWho, TLMsg msg) {
+        Object sm = getModuleInFactory("sessionManager");
+        if (!(sm instanceof IObject)) {
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionManager 未配置");
+        }
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false).setParam("error", "mockProvider 未配置");
+
+        String sessionId = SID_ABORTCTX;
+        try {
+            putMsg((IObject) sm, createMsg().setAction("deleteSession")
+                    .setParam("sessionId", sessionId).setParam("userId", TEST_USER_ID));
+        } catch (Exception ignored) {}
+
+        // sleep 5s，让取消落在工具执行中途（assistant(tool_calls) 已入史、结果未写）
+        TLToolCall tc = TLMockProvider.createToolCall("call_abort_ctx", FN_SLEEP,
+                new HashMap<String, Object>() {{ put("duration", 5000); }});
+        mp.enqueueResponse(mp.toolCallResponse(tc));
+
+        try {
+            AtomicReference<TLMsg> chatResult = new AtomicReference<>();
+            Thread chatThread = new Thread(() -> {
+                TLMsg cMsg = createMsg()
+                        .setAction(AGENT_CHAT)
+                        .setSystemParam(AI_P_SESSIONID, sessionId)
+                        .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                        .setParam(AI_P_USERMESSAGE, "中断上下文测试");
+                chatResult.set(putMsg(M_AIAGENT, cMsg));
+            }, "test-abort-context-chat");
+            chatThread.start();
+            Thread.sleep(500);
+            putMsg("toolExecutor", createMsg()
+                    .setAction(TODOOLECANCEL)
+                    .setParam(AI_P_SESSIONID, sessionId));
+            chatThread.join(10000);
+
+            TLMsg result = chatResult.get();
+            if (result == null || !result.parseBoolean(AI_P_CANCELLED, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "未走中断路径: result="
+                                + (result != null ? result.getStringParam(AI_P_RESPONSE, "") : "null"));
+            }
+
+            // 1) 会话落盘：末条 assistant「⏹ 已中断」，且悬空 tool_calls 已净化
+            TLMsg loaded = putMsg((IObject) sm, createMsg().setAction("loadSession")
+                    .setParam("sessionId", sessionId).setParam("userId", TEST_USER_ID));
+            if (!loaded.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "loadSession 失败: " + loaded.getStringParam("error", ""));
+            }
+            List<TLConversationHistory> sessionHist = (List<TLConversationHistory>) loaded.getParam("history");
+            String sessionErr = abortHistoryProblem(sessionHist, "会话");
+            if (sessionErr != null)
+                return createMsg().setParam(RESULT, false).setParam("error", sessionErr);
+
+            // 2) context 同口径：末条同样是「⏹ 已中断」，用户消息也在。
+            // 必须经 agent 自己的 getAgentContext 读——agent 的 aiContext 是私有实例
+            // （getMyModule 新建），工厂级 aiContext 单例是另一个，读它只会看到默认 system。
+            TLMsg ctxResp = putMsg(M_AIAGENT, createMsg().setAction(AGENT_GETCONTEXT)
+                    .setParam(AI_P_SESSIONID, sessionId));
+            List<TLConversationHistory> ctxHist = ctxResp == null ? null
+                    : (List<TLConversationHistory>) ctxResp.getListParam(AI_P_MESSAGEHISTORY, null);
+            String ctxErr = abortHistoryProblem(ctxHist, "context");
+            if (ctxErr != null)
+                return createMsg().setParam(RESULT, false).setParam("error", ctxErr);
+            boolean hasUser = false;
+            for (TLConversationHistory h : ctxHist) {
+                if (h != null && h.getRole() == TLConversationHistory.Role.user
+                        && h.getContent() != null && h.getContent().contains("中断上下文测试")) {
+                    hasUser = true;
+                    break;
+                }
+            }
+            if (!hasUser) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "context 缺本轮用户消息（中断轮未同步）");
+            }
+
+            log("[TEST]   中断轮: context 与会话均以「⏹ 已中断」收尾");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "abort context test exception: " + e);
+        }
+    }
+
+    /** 中断轮历史合法性检查：末条是「⏹ 已中断」assistant，且不存在悬空 assistant(tool_calls) */
+    private String abortHistoryProblem(List<TLConversationHistory> hist, String side) {
+        if (hist == null || hist.isEmpty()) return side + " 历史为空";
+        TLConversationHistory last = hist.get(hist.size() - 1);
+        if (last == null || last.getRole() != TLConversationHistory.Role.assistant
+                || last.getContent() == null || !last.getContent().contains("⏹ 已中断")) {
+            return side + " 末条不是中断终态: " + (last == null ? "null" : last.getRole() + "/" + last.getContent());
+        }
+        for (int i = 0; i < hist.size(); i++) {
+            TLConversationHistory h = hist.get(i);
+            if (h == null || !h.isAssistantWithToolCalls() || h.getToolCalls() == null) continue;
+            for (TLToolCall t : h.getToolCalls()) {
+                if (t == null || t.getId() == null) continue;
+                boolean hasResult = false;
+                for (int j = i + 1; j < hist.size(); j++) {
+                    TLConversationHistory r = hist.get(j);
+                    if (r != null && r.getRole() == TLConversationHistory.Role.tool
+                            && t.getId().equals(r.getToolCallId())) {
+                        hasResult = true;
+                        break;
+                    }
+                }
+                if (!hasResult) return side + " 存在悬空 tool_call: " + t.getId();
+            }
+        }
+        return null;
     }
 
     // ======================== 场景 8: 批次超时 ========================

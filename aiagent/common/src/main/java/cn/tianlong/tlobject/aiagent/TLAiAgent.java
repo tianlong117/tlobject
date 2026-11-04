@@ -84,6 +84,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 直出选项：作为工具被调用时，结果不需上游 LLM 再加工，原样直达最终用户（配置 directOutput，默认 false） */
     protected boolean directOutput = false;
 
+    /** 中断轮的终态文案：既回 UI，也作为 assistant 消息落盘（重登视图/下一轮上下文都能看到本轮已中断） */
+    private static final String ABORTED_FINAL = "⏹ 已中断";
+
     /** 是否把工具进度状态发布到 msgBus（UI 订阅）；默认关闭，主 agent 配 true，子 agent 不配 */
     protected boolean toolProgressToBus = false;
 
@@ -2113,24 +2116,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             finalResponse = "（已达最大迭代次数 " + maxIterations + "，可能未完成）";
         }
 
-        // ==== 中断分支：丢弃半截结果，不写 aiContext / 长期记忆，保持历史干净 ====
+        // ==== 中断分支：以「⏹ 已中断」收尾，context 与会话同口径落盘（不写长期记忆） ====
         if (aborted) {
-            // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
-            Thread.interrupted();
             // 中断可能发生在工具执行中途：assistant(tool_calls) 已入 history、tool 结果未写。
-            // 落盘前净化（只动副本），否则会话文件里留一条非法 tool 对，重登视图/后续恢复
-            // 只能靠下游 sanitizeToolPairs 兜底（漏判即 400）。
-            List<TLConversationHistory> abortedMsgs = roundMessages(ctx);
-            sanitizeToolPairs(abortedMsgs);
-            // 通知 SessionManager 会话中断，存为 completed 避免残留 checkpoint
-            notifySessionManager(createMsg()
-                    .setAction("chatAborted")
-                    .setParam("sessionId", sessionId)
-                    .setParam("userId", ctx.userId)
-                        .setParam("agentName", name)
-                    .setParam("roundId", roundId)
-                    .setParam("messages", abortedMsgs)
-                    .setParam("userMessage", userMessage));
+            // 收尾必须产生合法历史（净化悬空 tool 对 + 明确终态），否则会话文件里留一条非法 tool 对，
+            // 重登视图/后续恢复只能靠下游 sanitizeToolPairs 兜底（漏判即 400）。
+            persistAbortedRound(ctx, history, msgStartIdx, noHistory);
             // 只有用户/会话取消才叫 "by user"；执行器清理/超时/任务取消必须如实记录原因
             String abortReason = userStop ? "user"
                     : (abortDetail != null && !abortDetail.isEmpty() ? abortDetail : "cancelled");
@@ -2140,9 +2131,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 putLog("Chat aborted (" + abortReason + "): sessionId=" + sessionId, LogLevel.WARN);
             traceStage(sessionId, rootSid, roundId, "roundEnd", "aborted: " + abortReason, 0);
             long[] accCancel = accumulateTokenUsage(sessionId, turn);
-            streamFinal(ctx, "⏹ 已中断");
+            streamFinal(ctx, ABORTED_FINAL);
             return createMsg().setParam(RESULT, true).setParam(AI_P_CANCELLED, true)
-                    .setParam(AI_P_RESPONSE, "⏹ 已中断").setParam(AI_P_SESSIONID, sessionId)
+                    .setParam(AI_P_RESPONSE, ABORTED_FINAL).setParam(AI_P_SESSIONID, sessionId)
                     .setParam("abortReason", abortReason)
                     .setParam("iterations", iteration)
                     .setParam(AI_P_TOTALTOKENS, (int) turn[2])
@@ -2281,24 +2272,53 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         if (ctx.cancelled()) {
             // 防御性短路：正常路径在 LLM 错误分支之前已检查 cancelled
             if (ctx.history != null) {
-                List<TLConversationHistory> abortedMsgs = roundMessages(ctx);
-                sanitizeToolPairs(abortedMsgs);   // 与中断分支同：落盘前净化悬空 tool 对
-                notifySessionManager(createMsg()
-                        .setAction("chatAborted")
-                        .setParam("sessionId", ctx.sessionId)
-                        .setParam("userId", ctx.userId)
-                        .setParam("agentName", name)
-                        .setParam("roundId", ctx.roundId)
-                        .setParam("messages", abortedMsgs)
-                        .setParam("userMessage", ctx.userMessage));
+                // 与中断分支同一收尾：净化悬空 tool 对 + 终态标记 + context/会话同口径
+                persistAbortedRound(ctx, ctx.history, ctx.msgStartIdx, ctx.noHistory);
             }
-            streamFinal(ctx, "⏹ 已中断");
+            streamFinal(ctx, ABORTED_FINAL);
             return;
         }
         putLog("LLM error kept as checkpoint: sessionId=" + ctx.sessionId
                 + " err=" + errMsg, LogLevel.WARN);
         traceStage(ctx.sessionId, ctx.rootSid, ctx.roundId, "roundEnd", "error", 0);
         streamError(ctx, errMsg);
+    }
+
+    /**
+     * 中断轮收尾：净化悬空 tool 对 + 补「⏹ 已中断」终态，然后 context 与 SessionManager 同口径落盘。
+     * <p>此前只写会话不写 context：进程内下一轮看不到被中断的这一轮，重登 continue 又会把它
+     * 载入 context——同一个"下一轮"两套历史。中断轮不再"完全丢弃"，而是以合法终态结束；
+     * 长期记忆仍不保存（"已中断"不是可记忆的回复）。</p>
+     * <p>noHistory 只跳过 context；会话通知由 enableCheckpoint 控制（notifySessionManager 内判）。</p>
+     */
+    private void persistAbortedRound(ChatRunContext ctx, List<TLConversationHistory> history,
+                                     int msgStartIdx, boolean noHistory) {
+        // 先清除中断标志，防止后续 putLog → log4j RollingFileManager 因线程中断而报错
+        Thread.interrupted();
+        // 会话落盘：同 roundId last-wins，messages 必须是"本轮完整块"（resume 前缀 + 增量）
+        List<TLConversationHistory> abortedMsgs = roundMessages(ctx);
+        sanitizeToolPairs(abortedMsgs);
+        abortedMsgs.add(new TLConversationHistory(TLConversationHistory.Role.assistant, ABORTED_FINAL));
+        if (!noHistory && history != null) {
+            // context 用"本轮起点之前的全量 + 净化后的本轮增量"重建：resumeRoundMessages
+            // 已包含在 ctx.history 的前缀里，直接拿 roundMessages 会重复原轮块。
+            int end = Math.min(msgStartIdx, history.size());
+            List<TLConversationHistory> ctxMsgs = new ArrayList<>(history.subList(0, end));
+            List<TLConversationHistory> ctxRound = deltaMessages(history, msgStartIdx);
+            sanitizeToolPairs(ctxRound);
+            ctxRound.add(new TLConversationHistory(TLConversationHistory.Role.assistant, ABORTED_FINAL));
+            ctxMsgs.addAll(ctxRound);
+            saveContextHistory(ctx.sessionId, ctxMsgs);
+        }
+        // 通知 SessionManager 会话中断，存为 completed 避免残留 checkpoint
+        notifySessionManager(createMsg()
+                .setAction("chatAborted")
+                .setParam("sessionId", ctx.sessionId)
+                .setParam("userId", ctx.userId)
+                .setParam("agentName", name)
+                .setParam("roundId", ctx.roundId)
+                .setParam("messages", abortedMsgs)
+                .setParam("userMessage", ctx.userMessage));
     }
 
     /** 按序写工具结果 + 推实时工具事件（流式 UI 渲染卡片/截图）。 */
