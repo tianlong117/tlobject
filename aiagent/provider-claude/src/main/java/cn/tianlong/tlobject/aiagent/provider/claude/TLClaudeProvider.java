@@ -422,6 +422,7 @@ public class TLClaudeProvider extends TLLlmProvider {
         private final String resultFor;
         private final String resultAction;
         private final String sessionId;
+        private final String roundId;
         private final TLMsg originalMsg;
         private final StringBuilder contentBuilder = new StringBuilder();
         private final StringBuilder reasoningBuilder = new StringBuilder();
@@ -436,24 +437,28 @@ public class TLClaudeProvider extends TLLlmProvider {
             this.resultAction = resultAction;
             this.sessionId = sessionId;
             this.originalMsg = originalMsg;
+            this.roundId = originalMsg.getStringParam(AI_P_ROUNDID, "");
+        }
+
+        /** 流事件统一带 sessionId + roundId：Agent 侧据此丢弃上一轮的迟到事件。 */
+        private TLMsg streamEvent(String action) {
+            TLMsg m = createMsg().setAction(action).setParam(AI_P_SESSIONID, sessionId);
+            if (roundId != null && !roundId.isEmpty()) m.setParam(AI_P_ROUNDID, roundId);
+            return m;
         }
 
         @Override
         public void onFailure(Call call, IOException e) {
-            TLMsg errMsg = createMsg()
-                    .setAction(resultAction)
-                    .setParam(AI_P_STREAMERROR, e.getMessage())
-                    .setParam(AI_P_SESSIONID, sessionId);
+            TLMsg errMsg = streamEvent(resultAction)
+                    .setParam(AI_P_STREAMERROR, e.getMessage());
             putMsg(resultFor, errMsg);
         }
 
         @Override
         public void onResponse(Call call, Response response) throws IOException {
             if (!response.isSuccessful()) {
-                TLMsg errMsg = createMsg()
-                        .setAction(resultAction)
-                        .setParam(AI_P_STREAMERROR, "HTTP " + response.code())
-                        .setParam(AI_P_SESSIONID, sessionId);
+                TLMsg errMsg = streamEvent(resultAction)
+                        .setParam(AI_P_STREAMERROR, "HTTP " + response.code());
                 putMsg(resultFor, errMsg);
                 response.close();
                 return;
@@ -522,10 +527,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                                     if ("thinking_delta".equals(deltaType)) {
                                         String thinkingText = delta.get("thinking").getAsString();
                                         reasoningBuilder.append(thinkingText);
-                                        TLMsg reasoningChunkMsg = createMsg()
-                                                .setAction(resultAction)
-                                                .setParam(AI_P_REASONING_CHUNK, thinkingText)
-                                                .setParam(AI_P_SESSIONID, sessionId);
+                                        TLMsg reasoningChunkMsg = streamEvent(resultAction)
+                                                .setParam(AI_P_REASONING_CHUNK, thinkingText);
                                         putMsg(resultFor, reasoningChunkMsg);
                                     } else if ("signature_delta".equals(deltaType)) {
                                         // signature 是思考块的签名（base64），不是可读推理内容：
@@ -533,10 +536,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                                     } else if ("text_delta".equals(deltaType)) {
                                         String text = delta.get("text").getAsString();
                                         contentBuilder.append(text);
-                                        TLMsg chunkMsg = createMsg()
-                                                .setAction(resultAction)
-                                                .setParam(AI_P_CHUNK, text)
-                                                .setParam(AI_P_SESSIONID, sessionId);
+                                        TLMsg chunkMsg = streamEvent(resultAction)
+                                                .setParam(AI_P_CHUNK, text);
                                         putMsg(resultFor, chunkMsg);
                                     } else if ("input_json_delta".equals(deltaType)) {
                                         int index = chunk.has("index") ? chunk.get("index").getAsInt() : 0;
@@ -566,11 +567,9 @@ public class TLClaudeProvider extends TLLlmProvider {
 
                                 case "message_stop":
                                     // 消息完成
-                                    TLMsg doneMsg = createMsg()
-                                            .setAction(resultAction)
+                                    TLMsg doneMsg = streamEvent(resultAction)
                                             .setParam(AI_P_STREAMDONE, true)
-                                            .setParam(AI_P_RESPONSE, contentBuilder.toString())
-                                            .setParam(AI_P_SESSIONID, sessionId);
+                                            .setParam(AI_P_RESPONSE, contentBuilder.toString());
 
                                     if (reasoningBuilder.length() > 0) {
                                         doneMsg.setParam(AI_P_REASONING, reasoningBuilder.toString());
@@ -603,10 +602,8 @@ public class TLClaudeProvider extends TLLlmProvider {
                                     String errMsg = chunk.has("error")
                                             ? chunk.getAsJsonObject("error").get("message").getAsString()
                                             : "Unknown error";
-                                    TLMsg errorMsg = createMsg()
-                                            .setAction(resultAction)
-                                            .setParam(AI_P_STREAMERROR, errMsg)
-                                            .setParam(AI_P_SESSIONID, sessionId);
+                                    TLMsg errorMsg = streamEvent(resultAction)
+                                            .setParam(AI_P_STREAMERROR, errMsg);
                                     putMsg(resultFor, errorMsg);
                                     break;
 

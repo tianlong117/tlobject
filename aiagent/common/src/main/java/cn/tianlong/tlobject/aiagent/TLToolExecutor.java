@@ -43,6 +43,14 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
      */
     private long staleStateTimeoutMs = 600000;
 
+    /**
+     * 框架注入到 execMsg 的保留参数键。LLM arguments 里的同名键必须在注入前剥离：
+     * 执行器最后会逐项 setParam(args)，后写覆盖前写——审批看顶层 args、技能/MCP 读被覆盖值，
+     * 会让"顶层 operation=read + 内层 skillInput.operation=write"这类参数绕过操作级审批。
+     */
+    private static final List<String> RESERVED_TOOL_ARG_KEYS = List.of(
+            AI_P_SKILLINPUT, AI_P_TOOLNAME, AI_P_TOOLARGUMENTS, AI_P_TOOLID);
+
     // ======================== 数据结构 ========================
 
     /** Agent 解析好的单条执行任务 */
@@ -494,6 +502,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     }
 
     /**
+     * 剥离 LLM 提供的框架保留参数（返回新表，不改原始 args）。
+     * 业务参数 `operation`/`action` 等不在此列——word 等技能本身就用 action 当业务参数。
+     */
+    static Map<String, Object> stripReservedToolArgs(Map<String, Object> args) {
+        Map<String, Object> safe = args == null
+                ? new LinkedHashMap<>() : new LinkedHashMap<>(args);
+        for (String key : RESERVED_TOOL_ARG_KEYS) safe.remove(key);
+        return safe;
+    }
+
+    /**
      * 工具参数的身份字段净化：userId/sessionId/rootSessionId 只允许来自执行器注入的
      * systemArgs，LLM 工具参数里的同名字段一律覆盖（systemArgs 缺失则剔除）。
      *
@@ -597,6 +616,19 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             return null;
         }
 
+        // 先剥离框架保留参数：execMsg 最后会用 args 逐项 setParam，模型若在 arguments 里带
+        // skillInput/toolName/toolArguments/toolId，会覆盖框架注入值——审批看的是 task.args 顶层、
+        // 技能/MCP 执行读的是被覆盖后的值，可绕过操作级审批（2026-11-05 核实）。
+        Map<String, Object> cleanedArgs = stripReservedToolArgs(task.args);
+        if (task.args != null && cleanedArgs.size() != task.args.size()) {
+            List<String> dropped = new ArrayList<>();
+            for (String key : RESERVED_TOOL_ARG_KEYS) {
+                if (task.args.containsKey(key)) dropped.add(key);
+            }
+            putLog("Dropped LLM-supplied reserved tool args: " + dropped
+                    + " (tool=" + task.functionName + ")", LogLevel.WARN);
+        }
+        task.args = cleanedArgs;
         if (!MCP_CALLTOOL.equals(task.action)) {
             task.args = sanitizeIdentityArgs(task.args, msg);
         }

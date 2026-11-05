@@ -264,7 +264,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             return false;
         }
 
-        String summary = callSummaryLlm(provider, snapshot);
+        String summary = callSummaryLlm(provider, snapshot, sessionId);
         if (summary == null || summary.isEmpty()) {
             putLog("summary generation failed, buffer kept (session=" + sessionId + ")", LogLevel.WARN);
             return false;
@@ -343,8 +343,9 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
         return null;
     }
 
-    /** 调用 LLM 提炼摘要（非流式 completion，碎片拼成一条 user 消息） */
-    protected String callSummaryLlm(TLLlmProvider provider, List<String> fragments) {
+    /** 调用 LLM 提炼摘要（非流式 completion，碎片拼成一条 user 消息）。 */
+    protected String callSummaryLlm(TLLlmProvider provider, List<String> fragments,
+                                    String sessionId) {
         try {
             StringBuilder body = new StringBuilder();
             for (String f : fragments) {
@@ -360,6 +361,10 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                     //（2026-10-06 事故；与 evals/会话标题内部调用同款处理）
                     .setParam(AI_P_REASONING_MODE, AI_P_REASONING_MODE_DISABLED)
                     .setParam(AI_P_MAXTOKENS, 1024);
+            if (sessionId != null && !sessionId.isEmpty()) {
+                // trace 按 sessionId 隔离；缺省会全落 provider_default.trace（2026-11-05 核实）
+                llmMsg.setParam(AI_P_SESSIONID, sessionId);
+            }
             if (summaryModel != null && !summaryModel.isEmpty()) {
                 llmMsg.setParam(AI_P_MODEL, summaryModel);
             }
@@ -449,7 +454,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                         int n = Math.min(summaryBatchSize, pending.size());
                         List<String> batch = new ArrayList<>(pending.subList(0, n));
                         pending = new ArrayList<>(pending.subList(n, pending.size()));
-                        String summary = callSummaryLlm(provider, batch);
+                        String summary = callSummaryLlm(provider, batch, null);
                         if (summary == null || summary.isEmpty()) {
                             putLog("summary seed batch failed, remaining kept for retry (user=" + userId + ")", LogLevel.WARN);
                             return; // 剩余碎片下轮再试（未浓缩前照常召回）

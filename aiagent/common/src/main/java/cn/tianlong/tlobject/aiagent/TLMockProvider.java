@@ -134,6 +134,7 @@ public class TLMockProvider extends TLLlmProvider {
 
         // 启动后台线程按序发射 chunk → done 消息
         String resultAction = msg.getStringParam(RESULTACTION, "onStreamChunk");
+        String roundId = msg.getStringParam(AI_P_ROUNDID, "");
         Thread streamThread = new Thread(() -> {
             try {
                 // 短暂延迟让 Agent 初始化好流式接收链路
@@ -143,6 +144,10 @@ public class TLMockProvider extends TLLlmProvider {
                     // 覆盖 action 为 Provider msg 指定的 RESULTACTION（Agent 设 "onStreamResult"）
                     chunk.setAction(resultAction);
                     chunk.setParam(AI_P_SESSIONID, sessionId);
+                    // 与真实 Provider 同款：事件带 roundId，Agent 据此丢弃上一轮的迟到事件
+                    if (roundId != null && !roundId.isEmpty()) {
+                        chunk.setParam(AI_P_ROUNDID, roundId);
+                    }
                     putMsg(resultFor, chunk);
                 }
             } catch (InterruptedException ignored) {

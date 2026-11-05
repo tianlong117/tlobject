@@ -433,6 +433,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
 
+        @Override
+        public String collectedText() {
+            return streamedBuffer.toString();
+        }
+
         public void onChunk(String text) {
             if (text == null || text.isEmpty()) return;
             // 顺序依赖 onChunk 串行前提（见 streamedBuffer 注释）：forward 与 append 必须同序
@@ -1517,8 +1522,12 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             chatThreads.compute(ctx.sessionId,
                     (k, cur) -> (cur == Thread.currentThread()) ? null : cur);
             // 只有拿到锁的 worker 才拥有这些会话状态；锁失败的并发方不能删活跃方的 map
-            // 放锁守卫内：块外会让锁失败的并发方删掉活跃方的 handle，直接打断对方的流
-            streamHandles.remove(ctx.sessionId);
+            // 放锁守卫内：块外会让锁失败的并发方删掉活跃方的 handle，直接打断对方的流。
+            // 按 roundId 原子删除：旧轮收尾不能误删恰好在放锁后注册的新轮 handle。
+            StreamHandle currentHandle = streamHandles.get(ctx.sessionId);
+            if (currentHandle != null && ctx.roundId.equals(currentHandle.roundId)) {
+                streamHandles.remove(ctx.sessionId, currentHandle);
+            }
             // monitor 注册、ThreadLocal 上下文同样属于"持锁的这一层"：重入层不能替外层注销，
             // 否则外层后续循环拿不到 rootSessionId/userId、监控也提前消失
             if (ctx.monitorRegistered) {
@@ -2106,6 +2115,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
         StreamHandle handle = streamHandles.get(sessionId);
         if (handle == null) return null;   // 已收尾/迟到事件：丢弃
+        // 事件带 roundId 时按 roundId 过滤：/stop 后旧请求若仍在途，迟到的 chunk/done
+        // 不能命中同会话新轮次的 handle（handle 在 cleanup 时已按旧 roundId 移除）。
+        String eventRound = msg.getStringParam(AI_P_ROUNDID, null);
+        if (eventRound != null && !eventRound.isEmpty()
+                && !eventRound.equals(handle.roundId)) {
+            putLog("Dropped stale stream event: session=" + sessionId
+                    + " eventRound=" + eventRound + " handleRound=" + handle.roundId,
+                    LogLevel.DEBUG);
+            return null;
+        }
         if (msg.parseBoolean(AI_P_STREAMDONE, false)) {
             handle.complete(msg);
         } else if (msg.containsParam(AI_P_STREAMERROR)) {

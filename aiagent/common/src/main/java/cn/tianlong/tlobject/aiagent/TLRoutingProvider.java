@@ -141,6 +141,16 @@ public class TLRoutingProvider extends TLLlmProvider {
         return routeAndDelegate(msg);
     }
 
+    /**
+     * 取消必须转发给真正持有 OkHttpClient 的 delegate。
+     * 装饰器自身不发 HTTP，父类 cancel 只扫自己的空 dispatcher，/stop 会静默失效。
+     */
+    @Override
+    protected TLMsg cancel(Object fromWho, TLMsg msg) {
+        if (delegateProvider != null) return putMsg(delegateProvider, msg);
+        return super.cancel(fromWho, msg);
+    }
+
     @SuppressWarnings("unchecked")
     private TLMsg routeAndDelegate(TLMsg msg) {
         if (delegateProvider == null) {

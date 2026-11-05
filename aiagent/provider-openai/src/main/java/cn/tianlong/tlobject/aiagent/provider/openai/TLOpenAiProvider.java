@@ -566,6 +566,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
         private final String resultFor;
         private final String resultAction;
         private final String sessionId;
+        private final String roundId;
         private final TLMsg originalMsg;
         private final StringBuilder contentBuilder = new StringBuilder();
         private final StringBuilder reasoningBuilder = new StringBuilder();
@@ -578,24 +579,28 @@ public class TLOpenAiProvider extends TLLlmProvider {
             this.resultAction = resultAction;
             this.sessionId = sessionId;
             this.originalMsg = originalMsg;
+            this.roundId = originalMsg.getStringParam(AI_P_ROUNDID, "");
+        }
+
+        /** 流事件统一带 sessionId + roundId：Agent 侧据此丢弃上一轮的迟到事件。 */
+        private TLMsg streamEvent(String action) {
+            TLMsg m = createMsg().setAction(action).setParam(AI_P_SESSIONID, sessionId);
+            if (roundId != null && !roundId.isEmpty()) m.setParam(AI_P_ROUNDID, roundId);
+            return m;
         }
 
         @Override
         public void onFailure(Call call, IOException e) {
-            TLMsg errMsg = createMsg()
-                    .setAction(resultAction)
-                    .setParam(AI_P_STREAMERROR, e.getMessage())
-                    .setParam(AI_P_SESSIONID, sessionId);
+            TLMsg errMsg = streamEvent(resultAction)
+                    .setParam(AI_P_STREAMERROR, e.getMessage());
             putMsg(resultFor, errMsg);
         }
 
         @Override
         public void onResponse(Call call, Response response) throws IOException {
             if (!response.isSuccessful()) {
-                TLMsg errMsg = createMsg()
-                        .setAction(resultAction)
-                        .setParam(AI_P_STREAMERROR, "HTTP " + response.code())
-                        .setParam(AI_P_SESSIONID, sessionId);
+                TLMsg errMsg = streamEvent(resultAction)
+                        .setParam(AI_P_STREAMERROR, "HTTP " + response.code());
                 putMsg(resultFor, errMsg);
                 response.close();
                 return;
@@ -641,11 +646,9 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                 reasoningBuilder.setLength(0); // 已提升，doneMsg 不再重复携带
                                 contentFromReasoning = true;
                             }
-                            TLMsg doneMsg = createMsg()
-                                    .setAction(resultAction)
+                            TLMsg doneMsg = streamEvent(resultAction)
                                     .setParam(AI_P_STREAMDONE, true)
-                                    .setParam(AI_P_RESPONSE, finalContent)
-                                    .setParam(AI_P_SESSIONID, sessionId);
+                                    .setParam(AI_P_RESPONSE, finalContent);
                             if (finishReason != null) doneMsg.setParam(AI_P_FINISH_REASON, finishReason);
                             if (contentFromReasoning) doneMsg.setParam(AI_P_CONTENT_FROM_REASONING, true);
                             if (reasoningBuilder.length() > 0) {
@@ -674,10 +677,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                     String text = delta.get("content").getAsString();
                                     contentBuilder.append(text);
 
-                                    TLMsg chunkMsg = createMsg()
-                                            .setAction(resultAction)
-                                            .setParam(AI_P_CHUNK, text)
-                                            .setParam(AI_P_SESSIONID, sessionId);
+                                    TLMsg chunkMsg = streamEvent(resultAction)
+                                            .setParam(AI_P_CHUNK, text);
                                     putMsg(resultFor, chunkMsg);
                                 }
 
@@ -685,10 +686,8 @@ public class TLOpenAiProvider extends TLLlmProvider {
                                 if (delta != null && delta.has("reasoning_content") && !delta.get("reasoning_content").isJsonNull()) {
                                     String reasoningText = delta.get("reasoning_content").getAsString();
                                     reasoningBuilder.append(reasoningText);
-                                    TLMsg reasoningChunkMsg = createMsg()
-                                            .setAction(resultAction)
-                                            .setParam(AI_P_REASONING_CHUNK, reasoningText)
-                                            .setParam(AI_P_SESSIONID, sessionId);
+                                    TLMsg reasoningChunkMsg = streamEvent(resultAction)
+                                            .setParam(AI_P_REASONING_CHUNK, reasoningText);
                                     putMsg(resultFor, reasoningChunkMsg);
                                 }
 

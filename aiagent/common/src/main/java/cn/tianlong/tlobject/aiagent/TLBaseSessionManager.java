@@ -207,10 +207,17 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             return createMsg().setParam(RESULT, false).setParam("error", "断点状态已变化（会话已继续），未执行丢弃");
         }
         storeRound(target);
-        // 写后验证：storeRound 静默吞异常，不得在未落盘时谎报成功（假成功一族）
-        java.util.Map<String, Object> after = findIncompleteMeta(userId, sessionId);
-        if (after != null && SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(after.get("state")))) {
-            return createMsg().setParam(RESULT, false).setParam("error", "丢弃未落盘（storeRound 失败），请重试");
+        // 写后验证：storeRound 静默吞异常，不得在未落盘时谎报成功（假成功一族）。
+        // 只校验“目标轮”本身已变成 completed —— 不能用 findIncompleteMeta：
+        // 同会话若还有另一个开态待批轮，它会返回那一轮，导致本次已成功却误报失败；
+        // 用户按提示重试时会把第二个待批轮也丢弃。
+        String targetRoundId = String.valueOf(target.get("roundId"));
+        java.util.Map<String, Object> afterTarget =
+                latestRoundsByRoundId(loadRoundData(sessionId, userId)).get(targetRoundId);
+        if (afterTarget == null
+                || !SESSION_STATE_COMPLETED.equals(String.valueOf(afterTarget.get("state")))) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "丢弃未落盘（目标待批轮未更新，storeRound 失败），请重试");
         }
         return createMsg().setParam(RESULT, true);
     }

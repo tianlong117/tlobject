@@ -144,10 +144,22 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 finalAnswerStreamed = isStreaming();
                 String turnFinish = llmResponse.getStringParam(AI_P_FINISH_REASON, "");
                 String rawResponse = llmResponse.getStringParam(AI_P_RESPONSE, "");
+                if (rawResponse.isEmpty() && seed.streaming() && seed.sink != null) {
+                    // Provider 的 done 契约未强制携带完整正文：缺失时回退到 UI 已收到的 chunk，
+                    // 否则历史落「（无输出）」且 streamReplace 会把 UI 正文整体覆盖成占位符。
+                    String collected = seed.sink.collectedText();
+                    if (collected != null && !collected.isEmpty()) {
+                        rawResponse = collected;
+                        putLog("Stream done missing response; fallback to sink buffer ("
+                                + collected.length() + " chars)", LogLevel.WARN);
+                    }
+                }
                 String finalResponse = deps.observer.withTruncationNotice(rawResponse, turnFinish);
                 if (finalResponse.isEmpty())
                     finalResponse = deps.observer.emptyHistoryPlaceholder(turnFinish);
-                String stored = seed.streaming() ? finalResponse : rawResponse;
+                // 流式/非流式统一存带截断提示的 finalResponse：否则非流式的下一轮 LLM
+                // 不知道自己上一答被截断，与流式上下文语义分叉（返回给调用方的已是 finalResponse）。
+                String stored = finalResponse;
                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
                         stored.isEmpty() ? deps.observer.emptyHistoryPlaceholder(turnFinish) : stored));
                 finalAssistantIdx = history.size() - 1;

@@ -410,6 +410,16 @@ public class TLIntentCacheProvider extends TLLlmProvider {
                         .setParam("error", "TLIntentCacheProvider: no delegate configured");
     }
 
+    /**
+     * 取消必须转发给真正持有 OkHttpClient 的 delegate（链式装饰时逐层下传）。
+     * 父类 cancel 只扫装饰器自己的空 dispatcher，/stop 会静默失效。
+     */
+    @Override
+    protected TLMsg cancel(Object fromWho, TLMsg msg) {
+        if (delegateProvider != null) return putMsg(delegateProvider, msg);
+        return super.cancel(fromWho, msg);
+    }
+
     private TLMsg forward(TLMsg msg) {
         return putMsg(delegateProvider, msg);
     }
