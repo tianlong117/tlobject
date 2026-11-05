@@ -26,7 +26,10 @@ import java.util.*;
  * DB 版删后插）。resume 沿用原 roundId 收尾，因此调用方必须带 {@code stateRoundMessages}
  * 前缀，只写恢复后的新增量会把原轮 messages 永久覆盖丢。</p>
  *
- * 子类只需实现 4 个存储相关方法，即可支持文件或数据库等不同后端。
+ * 子类需实现下面 7 个存储相关方法，即可支持文件或数据库等不同后端。
+ * <b>storeRound 契约</b>：传入的 Map 可能没有 {@code roundSeq}（Agent 侧不生成）。
+ * 后端必须为每个新 roundId 分配该会话内单调递增的序号；同一 roundId 的 last-wins
+ * 重写必须沿用原序号（resume/checkpoint 收尾不能把轮次挪到末尾）。
  *
  * @author tianlong
  * @date 2026/8/2
@@ -246,7 +249,8 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         for (java.util.Map<String, Object> r : latestRoundsByRoundId(rounds).values()) {
             if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
             int seq = roundSeqOf(r);
-            if (seq > bestSeq) {
+            // 并列取迭代顺序更靠后的一条（loadRoundData 的稳定顺序）
+            if (seq >= bestSeq) {
                 bestSeq = seq;
                 best = r;
             }
@@ -413,13 +417,11 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
 
         // roundId → 最后一条
         java.util.LinkedHashMap<String, java.util.Map<String, Object>> roundMap = new java.util.LinkedHashMap<>();
-        java.util.Map<String, Object> lastRound = null;
         for (java.util.Map<String, Object> r : rounds) {
             String rid = (String) r.getOrDefault("roundId", "");
             roundMap.put(rid, r);
-            lastRound = r;
         }
-        if (lastRound == null) return null;
+        if (roundMap.isEmpty()) return null;
 
         // 按 roundSeq 排序
         java.util.List<java.util.Map<String, Object>> sorted = new java.util.ArrayList<>(roundMap.values());
@@ -430,6 +432,11 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             int sb = b.get("roundSeq") instanceof Number ? ((Number) b.get("roundSeq")).intValue() : 0;
             return Integer.compare(sa, sb);
         });
+        if (sorted.isEmpty()) return null;
+        // 状态轮必须取“排序后的最后”，不能取 loadRoundData 的物理最后一行：
+        // DB 后端 ORDER BY round_seq 在历史并列值（round_seq 全 1）时不保证物理顺序，
+        // 取物理末行会把最老一轮的 model/temperature/roundId/userMessage 当成恢复状态。
+        java.util.Map<String, Object> lastRound = sorted.get(sorted.size() - 1);
 
         // 拼接 messages；同时记录每个 roundId 贡献的块。
         // resume 落盘需要"原轮已有消息"作为前缀：同 roundId 的写入是 last-wins（文件版追加、
@@ -478,7 +485,9 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             int seq = r.get("roundSeq") instanceof Number ? ((Number) r.get("roundSeq")).intValue() : 0;
             int bestSeq = openPending != null && openPending.get("roundSeq") instanceof Number
                     ? ((Number) openPending.get("roundSeq")).intValue() : -1;
-            if (openPending == null || seq > bestSeq) openPending = r;
+            // 并列时取迭代顺序更靠后的一条（loadRoundData 已按 round_seq,id / 文件物理序稳定），
+            // 避免历史全 1 时把最老的待批轮当成“最后”。
+            if (openPending == null || seq >= bestSeq) openPending = r;
         }
         if (openPending != null) stateRound = openPending;
 

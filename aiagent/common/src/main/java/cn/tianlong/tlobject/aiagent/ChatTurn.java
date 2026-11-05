@@ -242,6 +242,11 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
             if (execPending) {
                 String approvalId = execResult.getStringParam(AI_P_APPROVAL_ID, "");
                 TLToolCall pendingTc = pickPendingToolCall(toolCalls, execResult);
+                if (pendingTc == null) {
+                    // 无法定位具体工具：仍落待批断点（供 UI 丢弃/审批），但恢复时不能执行
+                    putLog("Pending approval without locatable toolCall: approvalId=" + approvalId,
+                            LogLevel.ERROR);
+                }
                 deps.committer.checkpointPending(record(),
                         new PendingInfo(approvalId, pendingTc));
                 String finalResponse = execResult.getStringParam("finalResponse", "");
@@ -404,7 +409,12 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         }
     }
 
-    private TLToolCall pickPendingToolCall(List<TLToolCall> toolCalls, TLMsg execResult) {
+    /**
+     * 定位被审批拦截的那条 tool call。定位不到时不猜：猜 first 会让“批准 A”在恢复时
+     * 重放 B（且恢复路径带免复批标志）。只有批次仅一条工具时，缺 id 才允许兜底。
+     * 包级可见，供 ChatTurnPendingPickSelfTest 直接验证。
+     */
+    TLToolCall pickPendingToolCall(List<TLToolCall> toolCalls, TLMsg execResult) {
         if (toolCalls == null || toolCalls.isEmpty()) return null;
         String pendingId = execResult != null
                 ? execResult.getStringParam("pendingToolCallId", "") : "";
@@ -412,10 +422,18 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
             for (TLToolCall tc : toolCalls) {
                 if (tc != null && pendingId.equals(tc.getId())) return tc;
             }
-            putLog("pendingToolCallId not found in batch, falling back to first: " + pendingId,
+            putLog("pendingToolCallId not found in batch; refusing to guess: " + pendingId,
                     LogLevel.WARN);
+            return null;
         }
-        return toolCalls.get(0);
+        if (toolCalls.size() == 1) {
+            putLog("pendingToolCallId missing; single-tool batch, using the only tool",
+                    LogLevel.WARN);
+            return toolCalls.get(0);
+        }
+        putLog("pendingToolCallId missing; multi-tool batch cannot locate pending tool",
+                LogLevel.WARN);
+        return null;
     }
 
     // ==================== 终态 ====================

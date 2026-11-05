@@ -7,6 +7,7 @@ import cn.tianlong.tlobject.db.TLDatabase;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 数据库版会话管理器——基于框架 database 模块实现。
@@ -25,6 +26,18 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
 
     /** title 列迁移是否已完成（幂等探测；失败保持 false，下次写路径重试） */
     private volatile boolean titleColumnReady = false;
+
+    /**
+     * 每会话下一个 round_seq 的缓存。新 roundId 取该会话当前最大值+1；
+     * 同一 roundId 的 last-wins 重写沿用原 seq（见 resolveRoundSeq）。
+     */
+    private final ConcurrentHashMap<String, Long> roundSeqCounters = new ConcurrentHashMap<>();
+
+    /**
+     * 存量库 round_seq 重复（历史版本全部落 1）的修复只做一次。
+     * 失败保持 false，下次 loadRoundData 重试；修复按 id 重排，id 顺序即真实写入顺序。
+     */
+    private volatile boolean legacyRoundSeqRepaired = false;
 
     public TLDatabaseSessionManager() { super(); }
     public TLDatabaseSessionManager(String name) { super(name); }
@@ -78,7 +91,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             params.put("user_id", roundData.getOrDefault("userId", ""));
             params.put("agent_name", roundData.getOrDefault("agentName", ""));
             params.put("round_id", roundId);
-            params.put("round_seq", roundData.getOrDefault("roundSeq", 1));
+            params.put("round_seq", resolveRoundSeq(sessionId, roundId, roundData));
             params.put("state", state);
             params.put("user_message", roundData.getOrDefault("userMessage", ""));
             params.put("model", roundData.getOrDefault("model", ""));
@@ -153,11 +166,12 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
     protected java.util.List<java.util.Map<String, Object>> loadRoundData(String sessionId, String userId) {
         java.util.List<java.util.Map<String, Object>> rounds = new java.util.ArrayList<>();
         if (roundsTable == null) return rounds;
+        ensureLegacyRoundSeq();
         try {
             LinkedHashMap<String, Object> params = new LinkedHashMap<>();
             params.put("session_id", sessionId);
             TLMsg result = putMsg(roundsTable, createMsg().setAction(DB_QUERY)
-                    .setParam(DB_P_SQL, "select * from [table] where session_id=? order by round_seq")
+                    .setParam(DB_P_SQL, "select * from [table] where session_id=? order by round_seq, id")
                     .setParam(DB_P_PARAMS, params));
             java.util.List<java.util.Map<String, Object>> rows = getResultList(result);
             if (rows == null) return rounds;
@@ -410,6 +424,108 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             titleColumnReady = true;
         } catch (Exception e) {
             putLog("ai_sessions title 列迁移异常（下次重试）: " + e, LogLevel.WARN);
+        }
+    }
+
+    // ======================== round_seq 分配 / 存量修复 ========================
+
+    /**
+     * 新 roundId 分配该会话单调递增序号；同一 roundId 的 last-wins 重写沿用原序号。
+     * Agent 侧不生成 roundSeq（buildRoundData 也不写），DB 后端必须自己保证，
+     * 否则全部落默认 1，ORDER BY round_seq 在历史库上等于无排序。
+     */
+    private long resolveRoundSeq(String sessionId, String roundId, Map<String, Object> roundData) {
+        if (sessionId == null) sessionId = "";
+        Object explicit = roundData.get("roundSeq");
+        if (explicit instanceof Number) return ((Number) explicit).longValue();
+        Long existing = queryExistingRoundSeq(sessionId, roundId);
+        if (existing != null) return existing;
+        long base = roundSeqCounters.computeIfAbsent(sessionId, this::queryMaxRoundSeq);
+        return roundSeqCounters.merge(sessionId, 1L, Long::sum);
+    }
+
+    /** 同一 roundId 已存在的序号；没有返回 null。 */
+    private Long queryExistingRoundSeq(String sessionId, String roundId) {
+        if (roundsTable == null || roundId == null || roundId.isEmpty()) return null;
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("sid", sessionId);
+            p.put("rid", roundId);
+            TLMsg r = putMsg(roundsTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "select round_seq from [table] where session_id=? and round_id=? limit 1")
+                    .setParam(DB_P_PARAMS, p));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(r);
+            if (rows == null || rows.isEmpty()) return null;
+            java.util.Map<String, Object> row = rows.get(0);
+            Object v = row.containsKey("round_seq") ? row.get("round_seq") : row.get("roundSeq");
+            return objToLong(v);
+        } catch (Exception e) {
+            putLog("queryExistingRoundSeq failed: " + e, LogLevel.WARN);
+            return null;
+        }
+    }
+
+    /** 会话当前最大 round_seq；无行/失败返回 0。 */
+    private long queryMaxRoundSeq(String sessionId) {
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("sid", sessionId);
+            TLMsg r = putMsg(roundsTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "select max(round_seq) as max_seq from [table] where session_id=?")
+                    .setParam(DB_P_PARAMS, p));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(r);
+            if (rows == null || rows.isEmpty()) return 0L;
+            java.util.Map<String, Object> row = rows.get(0);
+            Object v = row.containsKey("max_seq") ? row.get("max_seq") : row.values().iterator().next();
+            return objToLong(v);
+        } catch (Exception e) {
+            putLog("queryMaxRoundSeq failed: " + e, LogLevel.WARN);
+            return 0L;
+        }
+    }
+
+    /**
+     * 存量修复：历史版本所有轮的 round_seq 都是 1（buildRoundData 不写、storeRound 默认 1）。
+     * 对“时序有重复序号”的会话按 id 重排（id 是自增主键，顺序即真实写入顺序）。
+     * 幂等：修复后各轮 seq 为唯一的 id，下一次 group by 不再命中。
+     */
+    private void ensureLegacyRoundSeq() {
+        if (legacyRoundSeqRepaired || roundsTable == null) return;
+        synchronized (this) {
+            if (legacyRoundSeqRepaired) return;
+            try {
+                TLMsg q = putMsg(roundsTable, createMsg().setAction(DB_QUERY)
+                        .setParam(DB_P_SQL, "select session_id from [table] group by session_id "
+                                + "having count(*) > count(distinct round_seq)"));
+                java.util.List<java.util.Map<String, Object>> dups = getResultList(q);
+                if (dups == null || dups.isEmpty()) {
+                    legacyRoundSeqRepaired = true;
+                    return;
+                }
+                int fixed = 0;
+                for (java.util.Map<String, Object> row : dups) {
+                    Object sidObj = row.containsKey("session_id") ? row.get("session_id") : row.get("sessionId");
+                    String sid = sidObj == null ? "" : String.valueOf(sidObj);
+                    if (sid.isEmpty()) { fixed++; continue; }
+                    LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+                    p.put("sid", sid);
+                    TLMsg u = putMsg(roundsTable, createMsg().setAction(DB_UPDATE)
+                            .setParam(DB_P_SQL, "update [table] set round_seq = id where session_id=?")
+                            .setParam(DB_P_PARAMS, p));
+                    if (u != null && u.parseBoolean(RESULT, true)) fixed++;
+                    else putLog("round_seq 回填失败: session=" + sid, LogLevel.WARN);
+                }
+                if (fixed == dups.size()) {
+                    legacyRoundSeqRepaired = true;
+                    roundSeqCounters.clear();   // 修复后旧缓存失效，下次按新 max 初始化
+                    putLog("ai_session_rounds round_seq 回填完成: " + fixed + " 个会话按 id 重排",
+                            LogLevel.INFO);
+                } else {
+                    putLog("ai_session_rounds round_seq 回填部分失败，下次 load 重试", LogLevel.WARN);
+                }
+            } catch (Exception e) {
+                putLog("ai_session_rounds round_seq 回填异常（下次重试）: " + e, LogLevel.WARN);
+            }
         }
     }
 

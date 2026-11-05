@@ -270,7 +270,8 @@ public class TLSessionManager extends TLBaseSessionManager {
                 if (!SESSION_STATE_PENDING_APPROVAL.equals(String.valueOf(r.get("state")))) continue;
                 int seq = 0;
                 try { seq = (int) Double.parseDouble(String.valueOf(r.getOrDefault("roundSeq", "0"))); } catch (Exception ignored) {}
-                if (seq > bestSeq) { bestSeq = seq; best = r; }
+                // 并列取迭代顺序更靠后的一条（文件物理序即写入序）
+                if (seq >= bestSeq) { bestSeq = seq; best = r; }
             }
             if (best != null) best.put("roundSeq", bestSeq);   // 还原为 int，与旧路径 roundSeq 类型一致
             return best;

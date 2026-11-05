@@ -57,6 +57,15 @@ public class TLBaseSessionManagerDiscardSelfTest implements TLAiAgentParamString
         TLMsg d4 = none.discard("s4", "u4");
         check("无待批轮时返回失败", !d4.parseBoolean(RESULT, false));
 
+        // 5) 物理最后一行不是最大 roundSeq → stateRound 必须取排序后的最后一条
+        //    （DB 后端 ORDER BY round_seq 在并列/物理序不可靠时会踩到）
+        FakeSessionManager order = new FakeSessionManager();
+        order.addRound("s5", "r2", 2, SESSION_STATE_COMPLETED);
+        order.addRound("s5", "r1", 1, SESSION_STATE_COMPLETED);
+        TLMsg asm = order.assemble("s5", "u5");
+        check("stateRound 取最大 roundSeq 而非物理末行",
+                "r2".equals(asm.getStringParam("roundId", "")));
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }
@@ -94,6 +103,10 @@ public class TLBaseSessionManagerDiscardSelfTest implements TLAiAgentParamString
         TLMsg discard(String sessionId, String userId) {
             return checkMsgAction(null, createMsg().setAction("discardPendingRound")
                     .setParam("sessionId", sessionId).setParam("userId", userId));
+        }
+
+        TLMsg assemble(String sessionId, String userId) {
+            return assembleSession(sessionId, userId);
         }
 
         @Override

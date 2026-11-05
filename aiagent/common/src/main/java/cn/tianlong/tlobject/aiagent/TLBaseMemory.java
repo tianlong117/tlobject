@@ -42,6 +42,11 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
     protected String summaryProviderName;
     /** 摘要用模型（可选，provider 支持参数覆盖则生效） */
     protected String summaryModel;
+    /**
+     * 摘要生成默认异步：store 只登记缓冲并起 daemon 线程，不阻塞 chat 收尾/终帧。
+     * 配 summaryAsync=false 可恢复同步（测试/排障）。
+     */
+    protected boolean summaryAsync = true;
     /** 摘要提示词（默认内置中文） */
     protected String summaryPrompt = DEFAULT_SUMMARY_PROMPT;
     protected static final String DEFAULT_SUMMARY_PROMPT =
@@ -96,6 +101,8 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             }
             summaryProviderName = params.get("summaryProvider");
             summaryModel = params.get("summaryModel");
+            if (params.get("summaryAsync") != null)
+                summaryAsync = Boolean.parseBoolean(params.get("summaryAsync"));
             if (params.get("summaryPrompt") != null && !params.get("summaryPrompt").isEmpty())
                 summaryPrompt = params.get("summaryPrompt");
         }
@@ -206,27 +213,56 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             int maxBuffer = batch * 3;
             while (buffer.size() > maxBuffer) buffer.remove(0);
         }
-        // 生成阶段不持锁：旧实现持全局锁同步 HTTP，所有会话的 store 都会被一个摘要请求卡住。
-        // 同会话用 summaryGenerating 互斥；成功后若又攒满一批，继续处理剩余。
-        while (true) {
-            List<String> snapshot;
-            long coverSeq;
-            synchronized (summaryBuffer) {
-                List<String> buffer = summaryBuffer.get(sessionId);
-                if (buffer == null || buffer.size() < batch || !summaryGenerating.add(sessionId))
-                    return;
-                snapshot = new ArrayList<>(buffer);
-                Long cs = summaryCoverSeq.get(sessionId);
-                coverSeq = cs != null ? cs : maxSeq;
-            }
-            boolean stored;
+        // 生成阶段不持锁；异步模式下 store 只登记/起 daemon，不阻塞 chat 收尾。
+        if (!hasSummaryBatch(sessionId, batch)) return;
+        if (!summaryGenerating.add(sessionId)) return;
+        if (summaryAsync) {
+            Thread t = new Thread(
+                    () -> runSummaryLoop(sessionId, userId, agentName, maxSeq, batch),
+                    "memory-summary-" + sessionId);
+            t.setDaemon(true);
             try {
-                stored = generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq);
-            } finally {
+                t.start();
+            } catch (Throwable e) {
                 summaryGenerating.remove(sessionId);
+                putLog("summary worker start failed: " + e, LogLevel.WARN);
             }
-            // 失败：缓冲原样保留，等下次 store 重试
-            if (!stored) return;
+        } else {
+            runSummaryLoop(sessionId, userId, agentName, maxSeq, batch);
+        }
+    }
+
+    /** 缓冲是否已满一批（与 runSummaryLoop 取快照用同一把锁）。 */
+    private boolean hasSummaryBatch(String sessionId, int batch) {
+        synchronized (summaryBuffer) {
+            List<String> buffer = summaryBuffer.get(sessionId);
+            return buffer != null && buffer.size() >= batch;
+        }
+    }
+
+    /**
+     * 摘要生成循环：调用方已占用 summaryGenerating；成功一批后若又攒满继续，
+     * 失败保留缓冲并退出（下次 store 重试）。同步/异步共用，防两套逻辑漂移。
+     */
+    private void runSummaryLoop(String sessionId, String userId, String agentName,
+                                long fallbackCoverSeq, int batch) {
+        try {
+            while (true) {
+                List<String> snapshot;
+                long coverSeq;
+                synchronized (summaryBuffer) {
+                    List<String> buffer = summaryBuffer.get(sessionId);
+                    if (buffer == null || buffer.size() < batch) return;
+                    snapshot = new ArrayList<>(buffer);
+                    Long cs = summaryCoverSeq.get(sessionId);
+                    coverSeq = cs != null ? cs : fallbackCoverSeq;
+                }
+                if (!generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq)) {
+                    return;
+                }
+            }
+        } finally {
+            summaryGenerating.remove(sessionId);
         }
     }
 

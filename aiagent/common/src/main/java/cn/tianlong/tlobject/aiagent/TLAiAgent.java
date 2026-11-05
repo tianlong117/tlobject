@@ -280,6 +280,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 会话管理模块名（SessionManager），Agent 通过发消息报告会话状态 */
     protected String sessionManagerName = "sessionManager";
+    /** SessionManager 缺失只告警一次，避免每个 checkpoint 刷屏 */
+    private volatile boolean sessionManagerWarned = false;
 
     /** 是否启用会话通知（发 sessionUpdated/chatFinished/chatAborted 给 SessionManager） */
     protected boolean enableCheckpoint = false;
@@ -1102,7 +1104,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     protected TLMsg stopChat(Object fromWho, TLMsg msg) {
-        String sid = msg.getStringParam(AI_P_SESSIONID, "default");
+        String sid = resolveSessionId(msg, "default");
         boolean cascade = msg.parseBoolean("cascade", false);
         cancelFlags.computeIfAbsent(sid, k -> new java.util.concurrent.atomic.AtomicBoolean()).set(true);
         // 1) 取消在途 LLM HTTP（级联模式跳过：子 agent 共享 provider，误杀会波及其他会话）
@@ -1156,7 +1158,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     LogLevel.WARN);
             msg = createMsg();
         }
-        String sessionId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_SESSIONID, "default");
+        String sessionId = resolveSessionId(msg, "default");
         String rootSid = TLMsgUtils.getSystemParamNonEmpty(msg, "rootSessionId", sessionId);
         String upstreamRoundId = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_ROUNDID, "");
         // resumeRoundId 为空串（老数据无 roundId）不能直接当本轮 id：空 roundId 会让该会话
@@ -1174,6 +1176,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 可空字符串参数回落：null/空串视为未配置 */
     private static String nonEmpty(String v, String def) {
         return (v == null || v.isEmpty()) ? def : v;
+    }
+
+    /**
+     * 统一 sessionId 取值：systemArgs 优先（chat 的既有契约），缺失/空串再回落 args
+     * （stopChat 的既有契约），最后用默认值。避免 doChat/chatStream 用 getSystemParam、
+     * stopChat 用 getStringParam 时，同一消息在两条路径算出不同 key。
+     */
+    static String resolveSessionId(TLMsg msg, String defaultValue) {
+        if (msg == null) return defaultValue;
+        String sid = TLMsgUtils.getSystemParamNonEmpty(msg, AI_P_SESSIONID, null);
+        if (sid == null || sid.isEmpty()) sid = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sid == null || sid.isEmpty() || "null".equals(sid)) return defaultValue;
+        return sid;
     }
 
     /**
@@ -1554,7 +1569,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 取消标志只在同步入口复位；异步入口在 chatStream 提交 worker 前复位。
         // runChat 里绝不能再复位：worker 启动会晚于 chatStream 返回，
         // 二次复位会抹掉这期间到达的 /stop（interrupt 因 chatThreads 尚未登记而落空）。
-        String sid = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        String sid = resolveSessionId(msg, "default");
         cancelFlags.computeIfAbsent(sid,
                 k -> new java.util.concurrent.atomic.AtomicBoolean()).set(false);
         return runChat(fromWho, msg, StreamSink.NullStreamSink.INSTANCE, false);
@@ -1991,7 +2006,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 编排、审批、断点、保存全部在 runChat 里；本方法不再做预处理。
      */
     protected TLMsg chatStream(Object fromWho, TLMsg msg) {
-        String sessionId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        String sessionId = resolveSessionId(msg, "default");
         // 与 doChat 同语义：复位取消标志，避免上次 /stop 的残留 true 影响本轮
         cancelFlags.computeIfAbsent(sessionId,
                 k -> new java.util.concurrent.atomic.AtomicBoolean()).set(false);
@@ -2414,8 +2429,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     @SuppressWarnings("unchecked")
     /** 发送会话通知给 SessionManager。由 Agent 的 enableCheckpoint 决定是否通知。返回应答（未发送时为 null） */
     private TLMsg notifySessionManager(TLMsg notificationMsg) {
-        if (enableCheckpoint) return putMsg(sessionManagerName, notificationMsg);
-        return null;
+        if (!enableCheckpoint) return null;
+        // 可选基础设施：模块名写错/模块创建失败时静默降级，不能按框架默认 shutdown(-1)
+        // 把整个应用退掉（一次 sessionUpdated 就足以杀死进程）。
+        notificationMsg.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg r = putMsg(sessionManagerName, notificationMsg);
+        // 缺模块分支返回 IGNOREMODULEISNULL=false；正常应答不含该键。
+        boolean missing = r != null && r.containsParam(IGNOREMODULEISNULL)
+                && !r.parseBoolean(IGNOREMODULEISNULL, true);
+        if (missing && !sessionManagerWarned) {
+            sessionManagerWarned = true;
+            putLog("SessionManager [" + sessionManagerName + "] 不可用：会话不会落盘/恢复，"
+                    + "请检查 enableCheckpoint 与 sessionManagerName 配置", LogLevel.WARN);
+        } else if (!missing) {
+            sessionManagerWarned = false;
+        }
+        return r;
     }
 
     // ======================== 会话标题 ========================
