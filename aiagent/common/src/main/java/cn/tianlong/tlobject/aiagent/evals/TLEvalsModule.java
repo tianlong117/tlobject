@@ -524,11 +524,21 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         return targetName;
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
+    @Override
+    protected void setModuleParams() {
+        super.setModuleParams();
+        if (params != null) {
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+        }
+    }
+
     /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
     private TLMsg putMsgToRegistry(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
-        return putMsg(controlCenter.trim(), msg);
+        if (controlCenterName == null) return null;
+        return putMsg(controlCenterName, msg);
     }
 
     /** 按 key 查注册表（控制中心/旧 moduleRegistry），未命中返回 null */

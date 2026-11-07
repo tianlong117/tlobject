@@ -72,13 +72,17 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         return this;
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
     @Override
     protected void setModuleParams() {
         super.setModuleParams();
         if (params == null) return;
-        if (params.get("generatorProvider") != null) generatorProvider = params.get("generatorProvider").trim();
-        if (params.get("evalCaseDir") != null) evalCaseDir = params.get("evalCaseDir").trim();
-        if (params.get("reasoningMode") != null) reasoningMode = params.get("reasoningMode").trim();
+        controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+        generatorProvider = getParamNonEmpty("generatorProvider", generatorProvider);
+        evalCaseDir = getParamNonEmpty("evalCaseDir", evalCaseDir);
+        reasoningMode = getParamNonEmpty("reasoningMode", reasoningMode);
         if (params.get("maxCases") != null && !params.get("maxCases").trim().isEmpty()) {
             try { maxCases = Integer.parseInt(params.get("maxCases").trim()); }
             catch (NumberFormatException e) { putLog("maxCases 不是整数，用默认 12: " + params.get("maxCases"), LogLevel.WARN); }
@@ -210,9 +214,8 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
 
     /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
     private TLMsg putMsgToRegistry(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
-        return putMsg(controlCenter.trim(), msg);
+        if (controlCenterName == null) return null;
+        return putMsg(controlCenterName, msg);
     }
 
     /** 目标是否存在：先查注册表（家族名），再按工厂模块名查 */

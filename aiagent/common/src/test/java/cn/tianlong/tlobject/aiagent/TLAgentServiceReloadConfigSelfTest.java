@@ -137,6 +137,7 @@ public class TLAgentServiceReloadConfigSelfTest {
         void setControlCenter(String name) {
             if (params == null) params = new java.util.HashMap<>();
             params.put("controlCenterName", name);
+            setModuleParams();
         }
         @Override protected TLBaseModule resolveReloadTarget(String name) { return target; }
         @Override protected TLMsg putToControlCenter(String controlCenter, TLMsg msg) {

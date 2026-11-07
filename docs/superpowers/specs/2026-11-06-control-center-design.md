@@ -166,7 +166,7 @@ if name 非空: putMsg(trim(name), msg)
 else: 不注册
 ```
 
-不做工厂存在性检查——启动分层保证控制中心在 `factoryBoot` 里先于所有会注册的模块启动。core 基类不感知控制中心。
+控制中心名在各模块 `setModuleParams()` 中解析一次存字段，注册点只读字段（避免每次注册重复查 param）。字符串参数统一用 `TLBaseModule.getParamNonEmpty(key[, default])`：null/空白视为未配置，返回 trim 后的值——配置是人写的，容错但不改语义。不做工厂存在性检查——启动分层保证控制中心在 `factoryBoot` 里先于所有会注册的模块启动。core 基类不感知控制中心。
 
 依据：启动分层保证控制中心在 `factoryBoot` 里先于所有会注册的模块启动；未配置控制中心的应用不注册。
 

@@ -96,6 +96,17 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         return this;
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
+    @Override
+    protected void setModuleParams() {
+        super.setModuleParams();
+        if (params != null) {
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+        }
+    }
+
     /**
      * 家族名代理为 owner：本模块只是 agent 的内部管理内脏，不应出现在对外命名链中。
      * 工厂给子工具起名用请求方家族名 → 工具家族名直接是 agent:tool（而非 agent:toolManager:tool），
@@ -335,9 +346,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
 
     /** 向控制中心注册；未配置 controlCenterName 时跳过。 */
     private TLMsg putMsgToRegistry(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
-        return putMsg(controlCenter.trim(), msg);
+        if (controlCenterName == null) return null;
+        return putMsg(controlCenterName, msg);
     }
 
     // ======================== Skill管理 ========================

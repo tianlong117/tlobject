@@ -2129,6 +2129,24 @@ public abstract class TLBaseModule extends TLBaseObject {
                 .setAction("getModuleInFactory").setParam(FACTORY_P_MODULENAME, moduleName));
         return returnMsg.getParam(FACTORY_R_MODULEINSTANCE);    }
 
+    /**
+     * 读取字符串参数：null/空白视为未配置返回 null，否则返回 trim 后的值。
+     * 用于模块名、路径、provider 名等"空值无效"的配置，避免空串覆盖默认值。
+     */
+    protected String getParamNonEmpty(String key) {
+        if (params == null) return null;
+        String value = params.get(key);
+        if (value == null) return null;
+        value = value.trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    /** 同 getParamNonEmpty；未配置/空白时返回默认值。 */
+    protected String getParamNonEmpty(String key, String defaultValue) {
+        String value = getParamNonEmpty(key);
+        return value != null ? value : defaultValue;
+    }
+
     protected void registInfactory(TLObjectFactory factory) {
         putMsg(factory, createMsg().setAction(FACTORY_REGISTINFACTORY)
                 .setParam(FACTORY_P_MODULENAME, name).setParam(INSTANCE, this));    }

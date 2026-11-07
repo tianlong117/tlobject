@@ -96,19 +96,17 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     @Override
     protected TLBaseModule init() { return this; }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
     @Override
     protected void setModuleParams() {
         super.setModuleParams();
         if (params != null) {
-            if (params.get("agentModule") != null) {
-                agentModule = params.get("agentModule");
-            }
-            if (params.get("sessionManager") != null) {
-                sessionManagerName = params.get("sessionManager");
-            }
-            if (params.get("approvalModule") != null) {
-                approvalModule = params.get("approvalModule");
-            }
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+            agentModule = getParamNonEmpty("agentModule", agentModule);
+            sessionManagerName = getParamNonEmpty("sessionManager", sessionManagerName);
+            approvalModule = getParamNonEmpty("approvalModule", approvalModule);
         }
     }
 
@@ -265,9 +263,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
     private TLMsg putMsgToRegistry(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
-        return putMsg(controlCenter.trim(), msg);
+        if (controlCenterName == null) return null;
+        return putMsg(controlCenterName, msg);
     }
 
     /** 按家族名从 registry 查找模块 */
@@ -704,9 +701,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String name = msg.getStringParam("name", msg.getStringParam("module", ""));
         if (name == null || name.isEmpty()) return fail("缺少参数: name");
 
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter != null && !controlCenter.trim().isEmpty())
-            return delegateReloadConfig(controlCenter.trim(), name, msg);
+        if (controlCenterName != null)
+            return delegateReloadConfig(controlCenterName, name, msg);
 
         TLBaseModule target = resolveReloadTarget(name);
         if (target == null) {
@@ -782,12 +778,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** 查看控制中心审计记录：console /audit 与 WebUI /api/command 共用。 */
     private TLMsg doAudit(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty())
-            return fail("控制中心未配置");
-        controlCenter = controlCenter.trim();
+        if (controlCenterName == null) return fail("控制中心未配置");
         int limit = msg.getIntParam("limit", 50);
-        TLMsg result = putToControlCenter(controlCenter, createMsg()
+        TLMsg result = putToControlCenter(controlCenterName, createMsg()
                 .setAction("auditList").setParam("limit", limit));
         if (result == null) return fail("控制中心未返回结果");
         Object recordsObj = result.getParam(RESULT);

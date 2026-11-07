@@ -541,21 +541,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
     @Override
     protected void setModuleParams() {
         if (params != null) {
-            if (params.get("defaultLlmProvider") != null)
-                defaultLlmProvider = params.get("defaultLlmProvider");
-            if (params.get("defaultMemoryStore") != null)
-                defaultMemoryStore = params.get("defaultMemoryStore");
-            if (params.get("contextModuleName") != null)
-                contextModuleName = params.get("contextModuleName");
-            if (params.get("approvalModule") != null && !params.get("approvalModule").isEmpty())
-                approvalModuleName = params.get("approvalModule");
-            if (params.get("description") != null)
-                agentDescription = params.get("description");
-            if (params.get("agentMd") != null)
-                agentMdPath = params.get("agentMd");
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+            defaultLlmProvider = getParamNonEmpty("defaultLlmProvider", defaultLlmProvider);
+            defaultMemoryStore = getParamNonEmpty("defaultMemoryStore", defaultMemoryStore);
+            contextModuleName = getParamNonEmpty("contextModuleName", contextModuleName);
+            approvalModuleName = getParamNonEmpty("approvalModule", approvalModuleName);
+            agentDescription = getParamNonEmpty("description", agentDescription);
+            agentMdPath = getParamNonEmpty("agentMd", agentMdPath);
             if (params.get("maxToolCallIterations") != null) {
                 try {
                     int v = Integer.parseInt(params.get("maxToolCallIterations").trim());
@@ -569,12 +567,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 } catch (NumberFormatException ignored) {
                 }
             }
-            if (params.get("defaultSkillPackageName") != null)
-                defaultSkillPackageName = params.get("defaultSkillPackageName");
-            if (params.get("defaultMemoryPackageName") != null)
-                defaultMemoryPackageName = params.get("defaultMemoryPackageName");
-            if (params.get("defaultModel") != null)
-                defaultModel = params.get("defaultModel");
+            defaultSkillPackageName = getParamNonEmpty("defaultSkillPackageName", defaultSkillPackageName);
+            defaultMemoryPackageName = getParamNonEmpty("defaultMemoryPackageName", defaultMemoryPackageName);
+            defaultModel = getParamNonEmpty("defaultModel", defaultModel);
             if (params.get("noHistory") != null)
                 noHistory = "true".equals(params.get("noHistory"));
             if (params.get("directOutput") != null)
@@ -611,12 +606,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 enableCheckpoint = "true".equals(params.get("enableCheckpoint"));
             if (params.get("autoSessionTitle") != null)
                 autoSessionTitle = !"false".equals(params.get("autoSessionTitle"));
-            if (params.get("sessionManagerName") != null)
-                sessionManagerName = params.get("sessionManagerName");
-            if (params.get("dataBasePath") != null)
-                dataBasePath = params.get("dataBasePath");
-            else if (params.get("sessionStorePath") != null)
-                dataBasePath = params.get("sessionStorePath"); // 兼容旧配置
+            sessionManagerName = getParamNonEmpty("sessionManagerName", sessionManagerName);
+            String dbPath = getParamNonEmpty("dataBasePath");
+            if (dbPath != null)
+                dataBasePath = dbPath;
+            else {
+                String legacyPath = getParamNonEmpty("sessionStorePath");
+                if (legacyPath != null) dataBasePath = legacyPath; // 兼容旧配置
+            }
             if (params.get("manifestMaxEntries") != null) {
                 try { manifestMaxEntries = Integer.parseInt(params.get("manifestMaxEntries")); }
                 catch (NumberFormatException ignored) {}
@@ -631,7 +628,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
             if (params.get("feedToolImages") != null)
                 feedToolImages = !"false".equals(params.get("feedToolImages"));
-            if (params.get("imageDeclareKey") != null) imageDeclareKey = params.get("imageDeclareKey");
+            imageDeclareKey = getParamNonEmpty("imageDeclareKey", imageDeclareKey);
             if (params.get("imageDataKeys") != null) {
                 imageDataKeys = new ArrayList<>();
                 for (String k : params.get("imageDataKeys").split(";"))
@@ -642,8 +639,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 catch (NumberFormatException ignored) {}
             }
             // 推理/思考链参数
-            if (params.get("reasoningMode") != null)
-                reasoningMode = params.get("reasoningMode");
+            reasoningMode = getParamNonEmpty("reasoningMode", reasoningMode);
             if (params.get("reasoningVisible") != null)
                 reasoningVisible = "true".equals(params.get("reasoningVisible"));
             if (params.get("thinkingBudget") != null) {
@@ -657,7 +653,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // 没有配置文件时（mconfig 非 myConfig 实例）跳过——作为子模块从父级继承 provider 等
         if (mconfig instanceof myConfig) {
             myConfig config = (myConfig) mconfig;
-            String namespace = params != null ? params.get("agentNamespace") : null;
+            String namespace = getParamNonEmpty("agentNamespace");
             // skills/agents 归工具管理模块（toolManager）注入其自己的 modulesClass，
             // agent 只注入 providers 与 memoryStores
             injectConfigs(config.getProviders(), namespace, false);
@@ -679,9 +675,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 显式配置为主提示，md 正文追加其后。
      */
     private void injectConfigSystemMessage() {
-        if (params == null) return;
-        String sm = params.get("systemMessage");
-        if (sm == null || sm.trim().isEmpty()) return;
+        String sm = getParamNonEmpty("systemMessage");
+        if (sm == null) return;
         HashMap<String, String> ctxParams =
                 modulesParams.computeIfAbsent(contextModuleName, k -> new HashMap<>());
         String existing = ctxParams.get("defaultSystemMessage");
@@ -2167,9 +2162,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(INSTANCE, module);
         // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter != null && !controlCenter.trim().isEmpty())
-            putMsg(controlCenter.trim(), msg);
+        if (controlCenterName != null)
+            putMsg(controlCenterName, msg);
     }
 
     /**

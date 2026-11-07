@@ -95,11 +95,14 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         return config;
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
     @Override
     protected void setModuleParams() {
         if (params != null) {
-            if (params.get("mode") != null)
-                mode = params.get("mode");
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
+            mode = getParamNonEmpty("mode", mode);
             if (params.get("directOutput") != null)
                 directOutput = "true".equals(params.get("directOutput"));
             if (params.get("waitTime") != null) {
@@ -112,10 +115,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             }
             if (params.get("progressToBus") != null)
                 progressToBus = "true".equals(params.get("progressToBus"));
-            if (params.get("description") != null)
-                agentDescription = params.get("description");
-            if (params.get("agentMd") != null)
-                agentMdPath = params.get("agentMd");
+            agentDescription = getParamNonEmpty("description", agentDescription);
+            agentMdPath = getParamNonEmpty("agentMd", agentMdPath);
         }
         // 误配负数会让审核循环语义不成立，统一按 0 轮处理
         if (maxReviewRounds < 0) maxReviewRounds = 0;
@@ -300,9 +301,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
 
     /** 向控制中心注册；未配置 controlCenterName 时跳过。 */
     private TLMsg putMsgToRegistry(TLMsg msg) {
-        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
-        return putMsg(controlCenter.trim(), msg);
+        if (controlCenterName == null) return null;
+        return putMsg(controlCenterName, msg);
     }
 
     protected synchronized TLMsg registerMember(Object fromWho, TLMsg msg) {

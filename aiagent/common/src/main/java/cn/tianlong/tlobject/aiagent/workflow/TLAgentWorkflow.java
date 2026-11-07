@@ -85,9 +85,13 @@ public class TLAgentWorkflow extends TLBaseModule
         return config;
     }
 
+    /** 工厂 commonParams 中的控制中心名；未配置为 null（启动时解析一次） */
+    private String controlCenterName;
+
     @Override
     protected void setModuleParams() {
         if (params != null) {
+            controlCenterName = getParamNonEmpty(CONTROLCENTER_NAME);
             if (params.get("maxParallel") != null) {
                 try { maxParallel = Integer.parseInt(params.get("maxParallel")); }
                 catch (NumberFormatException ignored) {}
@@ -96,9 +100,7 @@ public class TLAgentWorkflow extends TLBaseModule
                 try { workflowTimeout = Long.parseLong(params.get("workflowTimeout")); }
                 catch (NumberFormatException ignored) {}
             }
-            if (params.get("description") != null) {
-                description = params.get("description");
-            }
+            description = getParamNonEmpty("description", description);
             if (params.get("directOutput") != null) {
                 directOutput = "true".equals(params.get("directOutput"));
             }
@@ -109,15 +111,16 @@ public class TLAgentWorkflow extends TLBaseModule
             // 表达式生成的节点——后者拿不到 <node> 子元素，不能只挂在节点解析路径上
             mergeReducers = parseMergeConfig(params);
             // XML 表达式模式：启动期编译一次并缓存（失败回退 XML nodes/edges）
-            if (params.get("expression") != null) {
+            String expression = getParamNonEmpty("expression");
+            if (expression != null) {
                 try {
                     TLWorkflowExprParser.Compiled compiled =
-                            TLWorkflowExprParser.compile(params.get("expression"));
+                            TLWorkflowExprParser.compile(expression);
                     xmlExprNodes = compiled.nodes;
                     xmlExprEdges = compiled.edges;
                     applyMergeConfig(xmlExprNodes, compiled.namedByUser);
                     putLog("Workflow [" + name + "] expression compiled: "
-                            + params.get("expression"), LogLevel.DEBUG);
+                            + expression, LogLevel.DEBUG);
                 } catch (RuntimeException e) {
                     putLog("Workflow [" + name + "] expression parse failed: " + e.getMessage()
                             + " (fallback to XML nodes/edges)", LogLevel.ERROR);
@@ -379,9 +382,8 @@ public class TLAgentWorkflow extends TLBaseModule
             // 显式重注册（与 TLAgentGroup.registerToRegistry 同构：key = 模块自身家族名）
             String familyName = newModule.getFamilyName();
             if (familyName != null && !familyName.isEmpty()) {
-                String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
-                if (controlCenter != null && !controlCenter.trim().isEmpty())
-                    putMsg(controlCenter.trim(), createMsg().setAction(REGISTRY_REGISTER)
+                if (controlCenterName != null)
+                    putMsg(controlCenterName, createMsg().setAction(REGISTRY_REGISTER)
                             .setParam(REGISTRY_P_KEY, familyName)
                             .setParam(MODULENAME, nid)
                             .setParam(INSTANCE, newModule)
