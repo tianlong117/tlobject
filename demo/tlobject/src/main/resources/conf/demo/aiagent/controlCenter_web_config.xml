@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <moduleConfig>
     <params>
-        <!-- 可重载配置的模块白名单；* = 全部，空 = 全部禁止。
+        <!-- 可重载配置的模块白名单；分号分隔、不支持 *，空 = 全部禁止。
              outputValidator 由 toolExecutor 首次输出校验时懒创建，首次工具调用前 reload 会报"未运行" -->
-        <reloadableModules value="outputValidator"/>
+        <reloadableModules value="outputValidator;controlCenter;urlMap"/>
+        <!-- 可查看配置文件/运行参数的模块白名单（/config /params）；空 = 全部禁止 -->
+        <viewableModules value="outputValidator;controlCenter;urlMap"/>
         <auditLimit value="200"/>
     </params>
     <modules>

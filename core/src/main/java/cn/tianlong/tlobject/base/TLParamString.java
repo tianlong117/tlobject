@@ -133,6 +133,7 @@ public interface TLParamString {
     final String DOWITHMSG = "doWiThMsg";
     final String MODULE_GETMODULEBYMODULE = "getModuleByModule";
     final String MODULE_GETPARAM = "getParam";
+    final String MODULE_GETCONFIGFILE = "getConfigFileInfo";
     final String MODULE_SETPARAM = "setParam";
     final String MODULE_SETFIELD = "setField";
     final String MODULE_MSGTRANSFER = "msgTransfer";

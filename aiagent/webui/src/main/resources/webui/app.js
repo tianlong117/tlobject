@@ -1285,6 +1285,7 @@ function setPanelWidth(w) {
 function showTab(tabId) {
   document.querySelectorAll('#tabBar button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === tabId));
+  if (tabId === 'tab-config') loadReloadables();   // 配置 Tab：切到时自动拉可重载模块名单
 }
 /** 切换功能组：Tab 栏只显示该组的 Tab，并回到该组第一个 Tab（设置=Agent/Skill，调试=追踪） */
 function setPanelGroup(group) {
@@ -2203,6 +2204,102 @@ async function loadSkills() {
     renderTable(box, [['key', '家族名'], ['cls', '类']], rows);
     attachToolOps(box, rows);
   } catch (e) { box.innerHTML = '<div class="fail-msg">' + esc(e.message) + '</div>'; }
+}
+
+// ======================== 面板：配置重载 ========================
+/** 可重载配置模块列表（数据源：agentService reloadableModules）。
+ *  mode=none 显示"没有可重载配置的模块"；失败显示错误，不清成白板。 */
+async function loadReloadables() {
+  const box = $('#reloadablesBox');
+  if (!box) return;
+  box.innerHTML = '<div class="empty">加载中...</div>';
+  try {
+    const r = await apiCommand('reloadableModules', {});
+    if (!r.success) {
+      box.innerHTML = '<div class="fail-msg">✗ ' + esc(r.error || r.message || '加载失败') + '</div>';
+      return;
+    }
+    const d = r.data || {};
+    if (d.mode === 'none') {
+      box.innerHTML = '<div class="muted">' + esc(r.message || '没有可重载配置的模块') + '</div>';
+      return;
+    }
+    const modules = d.modules || [];
+    const rows = modules.map(m => ({
+      name: m.familyName && m.familyName !== m.name
+        ? (m.name + '（' + m.familyName + '）') : m.name,
+      status: m.reloadable ? '✓ 可重载' : ('✗ ' + (m.reason || '不可重载')),
+      file: m.configFile || '—',
+      _op: ''
+    }));
+    const wrap = document.createElement('div');
+    renderTable(wrap, [['name', '模块'], ['status', '状态'], ['file', '配置文件'], ['_op', '操作']], rows);
+    const trs = wrap.querySelectorAll('table.tbl tr');
+    modules.forEach((m, idx) => {
+      const tr = trs[idx + 1];
+      if (!tr) return;
+      const cell = tr.lastElementChild;
+      cell.innerHTML = '';
+      const mkBtn = (label, enabled, handler, disabledTitle) => {
+        const b = document.createElement('button');
+        b.textContent = label;
+        b.style.marginRight = '4px';
+        b.disabled = !enabled;
+        if (!enabled && disabledTitle) b.title = disabledTitle;
+        b.onclick = handler;
+        return b;
+      };
+      cell.appendChild(mkBtn('重载', !!m.reloadable,
+        () => reloadModuleConfigCmd(m.name)));
+      cell.appendChild(mkBtn('查看配置', m.viewable === true,
+        () => viewModuleConfig(m.name), '未在 viewableModules 白名单'));
+      cell.appendChild(mkBtn('查看参数', m.viewable === true,
+        () => viewModuleParams(m.name), '未在 viewableModules 白名单'));
+    });
+    box.innerHTML = '';
+    box.appendChild(wrap);
+  } catch (e) {
+    box.innerHTML = '<div class="fail-msg">✗ ' + esc(e.message) + '</div>';
+  }
+}
+
+/** 行内配置重载：成功刷新名单；失败只 toast，保留当前列表 */
+async function reloadModuleConfigCmd(name) {
+  try {
+    const r = await apiCommand('reloadModuleConfig', { name: name });
+    toast((r.success ? '✓ ' : '✗ ') + (r.message || r.error || ''), r.success ? 'ok' : 'err');
+    if (r.success) loadReloadables();
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+/** 查看类结果统一弹框（复用参数弹框，等宽 pre 展示；内容由后端截断/门禁） */
+function showViewModal(title, text) {
+  $('#pmTitle').textContent = title;
+  const body = $('#pmBody');
+  body.innerHTML = '';
+  const pre = document.createElement('pre');
+  pre.className = 'out';
+  pre.style.whiteSpace = 'pre-wrap';
+  pre.style.wordBreak = 'break-word';
+  pre.textContent = text || '';
+  body.appendChild(pre);
+  $('#paramModal').classList.remove('hidden');
+}
+
+async function viewModuleConfig(name) {
+  try {
+    const r = await apiCommand('configView', { name: name });
+    showViewModal('配置: ' + name,
+      r.success ? (r.message || '') : ('✗ ' + (r.error || r.message || '失败')));
+  } catch (e) { showViewModal('配置: ' + name, '✗ ' + e.message); }
+}
+
+async function viewModuleParams(name) {
+  try {
+    const r = await apiCommand('paramsView', { name: name });
+    showViewModal('运行参数: ' + name,
+      r.success ? (r.message || '') : ('✗ ' + (r.error || r.message || '失败')));
+  } catch (e) { showViewModal('运行参数: ' + name, '✗ ' + e.message); }
 }
 
 /** 列表表格右侧追加"操作"列：参数 / 卸载 / 重载，按行携带家族名自动操作。

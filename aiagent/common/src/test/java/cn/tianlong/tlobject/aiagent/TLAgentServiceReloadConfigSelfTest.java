@@ -4,6 +4,9 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -124,6 +127,139 @@ public class TLAgentServiceReloadConfigSelfTest {
                 .contains("allowed=true") && auditResp.getStringParam("message", "").contains("success=true"));
         check("audit 请求 action", auditSvc.ccRequest != null
                 && "auditList".equals(auditSvc.ccRequest.getAction()));
+
+        // reloadableModules：无控制中心
+        TestService noCc = new TestService();
+        TLMsg rlNoCc = noCc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("可重载查询无控制中心返回失败", !rlNoCc.parseBoolean("success", true));
+        check("可重载查询无控制中心原因", rlNoCc.getStringParam("error", "").contains("控制中心未配置"));
+
+        // reloadableModules：委托成功，data 包装为 {mode, whitelist, modules}
+        TestService rlSvc = new TestService();
+        rlSvc.setControlCenter("controlCenter");
+        List<Map<String, Object>> modules = new ArrayList<>();
+        Map<String, Object> mm = new LinkedHashMap<>();
+        mm.put("name", "outputValidator");
+        mm.put("familyName", "");
+        mm.put("running", true);
+        mm.put("configFile", "x.xml");
+        mm.put("reloadable", true);
+        mm.put("reason", "");
+        modules.add(mm);
+        List<String> wl = List.of("outputValidator");
+        rlSvc.ccResponse = new TLMsg().setParam("result", true)
+                .setParam("mode", "list").setParam("whitelist", wl).setParam("data", modules);
+        TLMsg rlOk = rlSvc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("可重载查询成功", rlOk.parseBoolean("success", false));
+        check("可重载查询 action", rlSvc.ccRequest != null
+                && "reloadableList".equals(rlSvc.ccRequest.getAction()));
+        check("可重载查询消息含模块名", rlOk.getStringParam("message", "").contains("outputValidator"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rlData = (Map<String, Object>) rlOk.getParam("data");
+        check("可重载 data 含 mode", rlData != null && "list".equals(rlData.get("mode")));
+        check("可重载 data 含 modules", rlData != null && rlData.get("modules") instanceof List);
+
+        rlSvc.ccResponse = new TLMsg().setParam("result", true)
+                .setParam("mode", "none").setParam("whitelist", List.of()).setParam("data", List.of());
+        TLMsg rlNone = rlSvc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("空白名单查询成功", rlNone.parseBoolean("success", false));
+        check("空白名单提示", rlNone.getStringParam("message", "").contains("没有可重载配置的模块"));
+
+        rlSvc.ccResponse = new TLMsg().setParam("result", false).setParam("error", "boom-list");
+        TLMsg rlFail = rlSvc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("可重载查询失败透传", !rlFail.parseBoolean("success", true)
+                && rlFail.getStringParam("error", "").contains("boom-list"));
+
+        rlSvc.ccResponse = null;
+        TLMsg rlNull = rlSvc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("可重载查询无响应返回失败", !rlNull.parseBoolean("success", true)
+                && rlNull.getStringParam("error", "").contains("未响应"));
+
+        rlSvc.ccResponse = new TLMsg().setParam("result", true)
+                .setParam("mode", "list").setParam("whitelist", List.of()).setParam("data", "bad");
+        TLMsg rlBad = rlSvc.checkMsgAction(null, new TLMsg().setAction("reloadableModules"));
+        check("可重载查询格式错误返回失败", !rlBad.parseBoolean("success", true)
+                && rlBad.getStringParam("error", "").contains("格式错误"));
+
+        // configView / paramsView：无控制中心
+        TestService noCcView = new TestService();
+        TLMsg cvNoCc = noCcView.checkMsgAction(null,
+                new TLMsg().setAction("configView").setParam("name", "mod"));
+        check("查看配置无控制中心返回失败", !cvNoCc.parseBoolean("success", true)
+                && cvNoCc.getStringParam("error", "").contains("控制中心未配置"));
+
+        // configView：委托成功、文案含元信息与最近重载
+        TestService viewSvc = new TestService();
+        viewSvc.setControlCenter("controlCenter");
+        Map<String, Object> lastReload = new LinkedHashMap<>();
+        lastReload.put("time", 1794000000000L);
+        lastReload.put("allowed", true);
+        lastReload.put("success", true);
+        lastReload.put("result", "配置已重载: mod");
+        Map<String, Object> cfgData = new LinkedHashMap<>();
+        cfgData.put("module", "mod");
+        cfgData.put("familyName", "");
+        cfgData.put("configFile", "x.xml");
+        cfgData.put("size", 10L);
+        cfgData.put("modifiedAt", 1794000000000L);
+        cfgData.put("sha256", "abcdef");
+        cfgData.put("content", "<moduleConfig/>");
+        cfgData.put("truncated", false);
+        cfgData.put("lastReload", lastReload);
+        viewSvc.ccResponse = new TLMsg().setParam("result", true).setParam("data", cfgData);
+        TLMsg cvOk = viewSvc.checkMsgAction(null,
+                new TLMsg().setAction("configView").setParam("name", "mod"));
+        check("查看配置成功", cvOk.parseBoolean("success", false));
+        check("查看配置委托 action", viewSvc.ccRequest != null
+                && "configView".equals(viewSvc.ccRequest.getAction()));
+        String cvMsg = cvOk.getStringParam("message", "");
+        check("查看配置文案含路径/哈希/内容",
+                cvMsg.contains("x.xml") && cvMsg.contains("abcdef")
+                        && cvMsg.contains("<moduleConfig/>"));
+        check("查看配置文案含最近重载", cvMsg.contains("配置已重载: mod"));
+        check("查看配置 data 透传", cvOk.getParam("data") == cfgData);
+
+        // paramsView：按键排序
+        Map<String, Object> paramsData = new LinkedHashMap<>();
+        paramsData.put("module", "mod");
+        paramsData.put("familyName", "");
+        Map<String, Object> ps = new LinkedHashMap<>();
+        ps.put("b", "2");
+        ps.put("a", "1");
+        paramsData.put("params", ps);
+        viewSvc.ccResponse = new TLMsg().setParam("result", true).setParam("data", paramsData);
+        TLMsg pvOk = viewSvc.checkMsgAction(null,
+                new TLMsg().setAction("paramsView").setParam("name", "mod"));
+        check("查看参数成功", pvOk.parseBoolean("success", false));
+        check("查看参数委托 action", viewSvc.ccRequest != null
+                && "paramsView".equals(viewSvc.ccRequest.getAction()));
+        String pvMsg = pvOk.getStringParam("message", "");
+        check("查看参数按键排序", pvMsg.indexOf("a = 1") >= 0
+                && pvMsg.indexOf("a = 1") < pvMsg.indexOf("b = 2"));
+
+        // 缺少 name
+        TLMsg cvNoName = viewSvc.checkMsgAction(null, new TLMsg().setAction("configView"));
+        check("查看缺少 name 返回失败", !cvNoName.parseBoolean("success", true)
+                && cvNoName.getStringParam("error", "").contains("用法"));
+
+        // 控制中心失败 / 无响应 / 格式错误
+        viewSvc.ccResponse = new TLMsg().setParam("result", false).setParam("error", "view denied");
+        TLMsg cvDenied = viewSvc.checkMsgAction(null,
+                new TLMsg().setAction("configView").setParam("name", "mod"));
+        check("查看失败透传", !cvDenied.parseBoolean("success", true)
+                && cvDenied.getStringParam("error", "").contains("view denied"));
+
+        viewSvc.ccResponse = null;
+        TLMsg cvNull = viewSvc.checkMsgAction(null,
+                new TLMsg().setAction("configView").setParam("name", "mod"));
+        check("查看无响应返回失败", !cvNull.parseBoolean("success", true)
+                && cvNull.getStringParam("error", "").contains("未响应"));
+
+        viewSvc.ccResponse = new TLMsg().setParam("result", true).setParam("data", "bad");
+        TLMsg cvBad = viewSvc.checkMsgAction(null,
+                new TLMsg().setAction("configView").setParam("name", "mod"));
+        check("查看格式错误返回失败", !cvBad.parseBoolean("success", true)
+                && cvBad.getStringParam("error", "").contains("格式错误"));
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);

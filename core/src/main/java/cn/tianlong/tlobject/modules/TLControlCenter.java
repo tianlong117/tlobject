@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.modules;
 
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
+import cn.tianlong.tlobject.base.TLModuleConfig;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 
@@ -23,13 +24,16 @@ import java.util.Map;
 public class TLControlCenter extends TLBaseModule {
 
     public static final String PARAM_RELOADABLE = "reloadableModules";
+    public static final String PARAM_VIEWABLE = "viewableModules";
     public static final String PARAM_AUDIT_LIMIT = "auditLimit";
     public static final int DEFAULT_AUDIT_LIMIT = 200;
 
     /** 内部私有注册表（familyName = 控制中心:moduleRegistry） */
     protected Object registryModule;
-    /** 可重载配置的模块白名单，分号分隔；* = 全部，空 = 全部禁止 */
+    /** 可重载配置的模块白名单，分号分隔；空 = 全部禁止；不支持通配符 */
     protected String reloadableModules;
+    /** 可查看配置文件/运行参数的模块白名单，分号分隔；空 = 全部禁止；不支持通配符 */
+    protected String viewableModules;
     protected int auditLimit = DEFAULT_AUDIT_LIMIT;
     protected final Deque<Map<String, Object>> auditRecords = new ArrayDeque<>();
     /** 是否显式指定了配置文件（由工厂创建时传入）；用于配置加载失败的 fail-fast */
@@ -54,10 +58,68 @@ public class TLControlCenter extends TLBaseModule {
         return super.setConfig();
     }
 
+    /**
+     * 白名单在每次 configure（启动/配置重载）时重新解析，保证 /reloadconfig controlCenter 后
+     * 新加/修改的 reloadableModules、viewableModules 立即生效。
+     */
+    @Override
+    protected void setModuleParams() {
+        super.setModuleParams();
+        parseWhitelists();
+    }
+
+    /**
+     * 解析两份白名单；通配符已废弃（fail-closed 并显式提示）。
+     *
+     * 控制中心的配置文件是白名单的唯一权威来源：重载时直接重新解析自己的配置文件，
+     * 而不是读合并后的 params（reloadConfig 对普通模块是"只合并不清理"，删掉的键
+     * 会残留在 params 里）。这样新增/修改/删除白名单项都能通过 /reloadconfig 生效。
+     * 没有配置文件（测试/编程式构造）时回退到 params。
+     */
+    protected void parseWhitelists() {
+        String r = null, v = null;
+        boolean authoritative = false;
+        if (configFile != null && !configFile.isEmpty()) {
+            try {
+                TLModuleConfig fresh = new TLModuleConfig(configFile,
+                        moduleFactory != null ? moduleFactory.getConfigDir() : "");
+                if (moduleFactory != null) fresh.setFactory(moduleFactory);
+                TLModuleConfig parsed = fresh.parse(configFile);
+                if (parsed != null && parsed.isParseOk()) {
+                    Map<String, String> fileParams = parsed.getParams();
+                    if (fileParams != null) {
+                        r = fileParams.get(PARAM_RELOADABLE);
+                        v = fileParams.get(PARAM_VIEWABLE);
+                    }
+                    authoritative = true;   // 文件解析成功：删掉的键不沿用旧值
+                }
+            } catch (Throwable t) {
+                putLog("控制中心白名单重新解析失败，沿用内存参数: " + t, LogLevel.WARN);
+            }
+        }
+        if (!authoritative) {
+            if (params == null) return;
+            r = params.get(PARAM_RELOADABLE);
+            v = params.get(PARAM_VIEWABLE);
+        }
+        reloadableModules = normalizeWhitelist(r, PARAM_RELOADABLE);
+        viewableModules = normalizeWhitelist(v, PARAM_VIEWABLE);
+    }
+
+    private String normalizeWhitelist(String value, String key) {
+        if (value != null && "*".equals(value.trim())) {
+            putLog(key + " 不支持通配符 *，已按\"全部禁止\"处理；请显式列出模块名",
+                    LogLevel.WARN);
+            return "";
+        }
+        return value;
+    }
+
     @Override
     protected TLBaseModule init() {
         if (params != null) {
-            reloadableModules = params.get(PARAM_RELOADABLE);
+            // 直接 init（测试/独立使用）时兜底；正常启动时 setModuleParams 已解析过一次
+            parseWhitelists();
             String limit = params.get(PARAM_AUDIT_LIMIT);
             if (limit != null && !limit.trim().isEmpty()) {
                 try {
@@ -118,6 +180,12 @@ public class TLControlCenter extends TLBaseModule {
                 return forwardToRegistry(msg);
             case "reloadModuleConfig":
                 return reloadModuleConfig(fromWho, msg);
+            case "reloadableList":
+                return reloadableList();
+            case "configView":
+                return configView(msg);
+            case "paramsView":
+                return paramsView(msg);
             case "auditList":
                 return auditList(msg);
             default:
@@ -194,6 +262,165 @@ public class TLControlCenter extends TLBaseModule {
                 .setParam("data", dataOf(name, result));
     }
 
+    /**
+     * 可重载配置模块查询（只读）：解析白名单并逐条解析实时状态。
+     * mode=list 时 data 与 whitelist 同序同长；mode=none 表示白名单为空（全部禁止）。
+     * 不写审计——审计只记录真正的 reload 操作。
+     */
+    protected TLMsg reloadableList() {
+        try {
+            String raw = reloadableModules == null ? "" : reloadableModules.trim();
+            List<String> whitelist = new ArrayList<>();
+            if (!raw.isEmpty()) {
+                for (String item : raw.split(";")) {
+                    String value = item.trim();
+                    if (!value.isEmpty() && !whitelist.contains(value)) whitelist.add(value);
+                }
+            }
+            List<Map<String, Object>> modules = new ArrayList<>();
+            for (String name : whitelist) {
+                TLBaseModule target = resolveReloadTarget(name);
+                String configFile = target == null || target.getConfigFile() == null
+                        ? "" : target.getConfigFile();
+                boolean reloadable = target != null && target.getConfigFile() != null;
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("name", name);
+                m.put("familyName", target == null || target.getFamilyName() == null
+                        ? "" : target.getFamilyName());
+                m.put("running", target != null);
+                m.put("configFile", configFile);
+                m.put("reloadable", reloadable);
+                m.put("viewable", isViewAllowed(name, target));
+                m.put("reason", reloadable ? ""
+                        : (target == null
+                                ? "模块未运行或不存在（未实例化的模块会在首次创建时读取新配置）"
+                                : "模块未加载配置文件"));
+                modules.add(m);
+            }
+            return createMsg().setParam(RESULT, true)
+                    .setParam("mode", whitelist.isEmpty() ? "none" : "list")
+                    .setParam("whitelist", whitelist)
+                    .setParam("data", modules);
+        } catch (Throwable t) {
+            putLog("reloadableList 异常: " + t, LogLevel.ERROR);
+            return createMsg().setParam(RESULT, false)
+                    .setParam(ERRORSTR, "查询可重载模块异常: " + t);
+        }
+    }
+
+    /** 查看模块配置文件（受 viewableModules 白名单约束）。 */
+    protected TLMsg configView(TLMsg msg) {
+        return viewModule(msg, true);
+    }
+
+    /** 查看模块运行参数（受 viewableModules 白名单约束）。 */
+    protected TLMsg paramsView(TLMsg msg) {
+        return viewModule(msg, false);
+    }
+
+    /**
+     * 受控查看：解析模块 → 白名单 → 通过基类框架动作读取 → 附最近重载记录 → 写审计。
+     * 配置文件走 getConfigFileInfo（runAction 层），运行参数走 getParam（同样是基类动作）。
+     */
+    private TLMsg viewModule(TLMsg msg, boolean config) {
+        String action = config ? "configView" : "paramsView";
+        String name = msg.getStringParam("name", msg.getStringParam("module", ""));
+        String userId = msg.getStringParam("userId", "");
+        if (name == null || name.isEmpty())
+            return viewFail(action, name, userId, false, "缺少参数: name");
+        TLBaseModule target = resolveReloadTarget(name);
+        if (target == null)
+            return viewFail(action, name, userId, false, "模块未运行或不存在: " + name
+                    + "（未实例化的模块会在首次创建时读取新配置）");
+        if (!isViewAllowed(name, target))
+            return viewFail(action, name, userId, false,
+                    "模块未在可查看白名单（viewableModules）中: " + displayName(name, target));
+        TLMsg result;
+        try {
+            result = putMsg(target, createMsg()
+                    .setAction(config ? MODULE_GETCONFIGFILE : MODULE_GETPARAM));
+        } catch (Throwable t) {
+            putLog(action + ": " + name + " 异常: " + t, LogLevel.ERROR);
+            return viewFail(action, name, userId, true, "查看异常: " + t);
+        }
+        if (result == null)
+            return viewFail(action, name, userId, true, "模块未响应查看请求: " + name);
+        if (!result.parseBoolean(RESULT, true)) {
+            Object errObj = result.getParam(ERRORSTR);
+            String err = errObj != null ? String.valueOf(errObj) : "未知错误";
+            if (err.isEmpty()) err = "未知错误";
+            return viewFail(action, name, userId, true, err);
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("module", name);
+        data.put("familyName", target.getFamilyName() == null ? "" : target.getFamilyName());
+        String summary;
+        if (config) {
+            Object file = result.getParam("configFile");
+            if (file == null)
+                return viewFail(action, name, userId, true, "模块未返回配置文件信息");
+            data.put("configFile", String.valueOf(file));
+            data.put("size", result.getParam("size"));
+            data.put("modifiedAt", result.getParam("modifiedAt"));
+            data.put("sha256", result.getStringParam("sha256", ""));
+            data.put("content", result.getStringParam("content", ""));
+            data.put("truncated", result.parseBoolean("truncated", false));
+            summary = "内容 " + result.getParam("size") + " 字节";
+        } else {
+            Map<String, Object> params = new LinkedHashMap<>();
+            Map<?, ?> raw = result.getArgs();
+            if (raw != null) {
+                for (Map.Entry<?, ?> e : raw.entrySet())
+                    params.put(String.valueOf(e.getKey()), e.getValue());
+            }
+            data.put("params", params);
+            summary = "参数 " + params.size() + " 个";
+        }
+        Map<String, Object> lastReload = lastReloadOf(name, target);
+        if (lastReload != null) data.put("lastReload", lastReload);
+        audit(userId, action, name, true, true, summary);
+        return createMsg().setParam(RESULT, true).setParam("data", data);
+    }
+
+    /** 查看策略/执行失败：写审计并返回失败（allowed 区分"白名单拒绝"与"放行后失败"）。 */
+    private TLMsg viewFail(String action, String target, String userId, boolean allowed, String error) {
+        audit(userId, action, target, allowed, false, error);
+        return createMsg().setParam(RESULT, false).setParam(ERRORSTR, error);
+    }
+
+    /** 最近一条重载该模块的审计记录（无则 null）；返回副本，调用方不能改审计历史。 */
+    private Map<String, Object> lastReloadOf(String requestedName, TLBaseModule target) {
+        String familyName = target.getFamilyName();
+        String moduleName = target.getName();
+        synchronized (auditRecords) {
+            Iterator<Map<String, Object>> it = auditRecords.descendingIterator();
+            while (it.hasNext()) {
+                Map<String, Object> rec = it.next();
+                if (!"reloadModuleConfig".equals(rec.get("action"))) continue;
+                String t = String.valueOf(rec.get("target"));
+                if (t.equals(requestedName)
+                        || (familyName != null && t.equals(familyName))
+                        || (moduleName != null && t.equals(moduleName)))
+                    return new LinkedHashMap<>(rec);
+            }
+        }
+        return null;
+    }
+
+    /** 查看白名单匹配：请求名 / familyName / name 任一命中；空全拒绝；不支持通配符。 */
+    protected boolean isViewAllowed(String requestedName, TLBaseModule target) {
+        String list = viewableModules;
+        if (list == null || list.trim().isEmpty()) return false;
+        for (String item : list.split(";")) {
+            String value = item.trim();
+            if (value.isEmpty()) continue;
+            if (value.equals(requestedName)) return true;
+            if (target != null && value.equals(target.getFamilyName())) return true;
+            if (target != null && value.equals(target.getName())) return true;
+        }
+        return false;
+    }
+
     /** 解析重载目标：registry 精确家族名 → 工厂已存在实例；不隐式创建。 */
     protected TLBaseModule resolveReloadTarget(String name) {
         TLBaseModule registered = findRegistered(name);
@@ -212,11 +439,10 @@ public class TLControlCenter extends TLBaseModule {
         return instance instanceof TLBaseModule ? (TLBaseModule) instance : null;
     }
 
-    /** 白名单匹配：请求名 / familyName / name 任一命中；* 全放行；空全拒绝。 */
+    /** 白名单匹配：请求名 / familyName / name 任一命中；空全拒绝；不支持通配符。 */
     protected boolean isReloadAllowed(String requestedName, TLBaseModule target) {
         String list = reloadableModules;
         if (list == null || list.trim().isEmpty()) return false;
-        if ("*".equals(list.trim())) return true;
         for (String item : list.split(";")) {
             String value = item.trim();
             if (value.isEmpty()) continue;

@@ -50,6 +50,16 @@ public class TLXmlConfigWriter {
     // ==================== 公共 API ====================
 
     /**
+     * 只读：读取配置文件原始字节（不备份、不改文件）。
+     * 复用 normalizePath 的路径规范化，与写操作看到的是同一个文件。
+     */
+    public static byte[] readFileBytes(String filePath) throws IOException {
+        if (filePath == null || filePath.isEmpty()) return null;
+        filePath = normalizePath(filePath);
+        return Files.readAllBytes(Paths.get(filePath));
+    }
+
+    /**
      * 从 XML 配置文件中删除指定名称的元素（仅匹配父元素的直接子元素）。
      * <p>
      * 在 {@code <parentTag>} 区段内查找 {@code name} 属性等于 {@code elementName} 的
@@ -185,7 +195,7 @@ public class TLXmlConfigWriter {
      * 路径规范化：去掉 Windows 路径前缀 "/"（如 /D:/... → D:/...），
      * 并用 {@link File#getAbsolutePath()} 消除双斜杠等不规范写法。
      */
-    private static String normalizePath(String filePath) {
+    public static String normalizePath(String filePath) {
         if (filePath == null) return null;
         // 去掉 Windows 绝对路径前面多余的 "/"
         if (filePath.matches("^/[A-Za-z]:[/\\\\].*")) {

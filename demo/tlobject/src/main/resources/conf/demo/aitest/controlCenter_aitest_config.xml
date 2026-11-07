@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <moduleConfig>
     <params>
-        <!-- 测试应用不做配置热加载：空 = 全部禁止 -->
+        <!-- 测试应用不做配置热加载/查看：空 = 全部禁止 -->
         <reloadableModules value=""/>
+        <viewableModules value=""/>
         <auditLimit value="200"/>
     </params>
     <modules>

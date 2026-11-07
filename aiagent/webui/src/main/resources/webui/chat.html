@@ -81,6 +81,7 @@
       <nav id="tabBar">
         <button data-tab="tab-agents" data-group="settings" class="active">Agent/Skill</button>
         <button data-tab="tab-mcp" data-group="settings">MCP</button>
+        <button data-tab="tab-config" data-group="settings">配置</button>
         <button data-tab="tab-trace" data-group="debug">追踪</button>
         <button data-tab="tab-eval" data-group="debug">评测/测试</button>
       </nav>
@@ -121,6 +122,13 @@
           <button onclick="mcpList()">已安装列表</button>
         </div>
         <div id="mcpListBox" class="box"></div>
+      </section>
+
+      <section id="tab-config" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="loadReloadables()">刷新</button>
+        </div>
+        <div id="reloadablesBox" class="box"></div>
       </section>
 
       <section id="tab-eval" class="tab-panel">

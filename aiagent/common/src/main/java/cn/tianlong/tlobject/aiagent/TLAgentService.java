@@ -52,6 +52,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("uninstall", "卸载 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("reload", "重载 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("reloadModuleConfig", "重载模块配置（如 outputValidator，不重启）");
+        ACTION_REGISTRY.put("reloadableModules", "列出可重载配置的模块及实时可用状态");
         ACTION_REGISTRY.put("audit", "查看控制中心控制操作审计（/audit [条数]）");
         ACTION_REGISTRY.put("agents", "列出已注册 Agent");
         ACTION_REGISTRY.put("skills", "列出已注册 Skill");
@@ -71,7 +72,9 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
         ACTION_REGISTRY.put("getCacheStats", "查询 Prompt 缓存统计");
         ACTION_REGISTRY.put("checkProvider", "检查 LLM Provider 可用性");
-        ACTION_REGISTRY.put("param", "查看工具的参数 (例: /param priceTeam)");
+        ACTION_REGISTRY.put("toolparam", "查看注册表内 Agent/Skill/Group 参数（/toolparam <家族名>）");
+        ACTION_REGISTRY.put("config", "查看模块配置文件（需控制中心 viewableModules 白名单）");
+        ACTION_REGISTRY.put("params", "查看模块运行参数（受同一白名单限制）");
         ACTION_REGISTRY.put("listCommands", "列出所有可用命令");
         ACTION_REGISTRY.put("mcpSearch", "搜索 MCP 服务器市场");
         ACTION_REGISTRY.put("mcpInstall", "从市场安装 MCP 服务器");
@@ -142,6 +145,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "reload":          return doReload(fromWho, msg);
             case "reloadModuleConfig":
                 return doReloadConfig(fromWho, msg);
+            case "reloadableModules":
+                return doReloadableModules(fromWho, msg);
             case "audit":           return doAudit(msg);
 
             // ── 查询 ──
@@ -197,6 +202,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             // ── 运行时参数 ──
             case "setParam":        return doSetParam(fromWho, msg);
             case "param":           return doParam(fromWho, msg);
+            case "configView":      return doView(msg, true);
+            case "paramsView":      return doView(msg, false);
 
             default: return null;
         }
@@ -774,6 +781,73 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
     /** 可覆盖：自测注入控制中心响应。 */
     protected TLMsg putToControlCenter(String controlCenter, TLMsg msg) {
         return putMsg(controlCenter, msg);
+    }
+
+    /**
+     * 列出可重载配置的模块（无参 /reloadconfig 与 WebUI 配置 Tab 共用）。
+     * 有控制中心：委托 reloadableList，包装成 {mode, whitelist, modules}；
+     * 无控制中心：直接模式无法枚举，如实报错。
+     */
+    private TLMsg doReloadableModules(Object fromWho, TLMsg msg) {
+        if (controlCenterName == null)
+            return fail("控制中心未配置：直接模式无法枚举，任何已实例化且带配置文件的模块均可直接重载");
+        TLMsg result;
+        try {
+            result = putToControlCenter(controlCenterName, createMsg().setAction("reloadableList"));
+        } catch (Throwable t) {
+            putLog("reloadableModules: 控制中心异常: " + t, LogLevel.ERROR);
+            return fail("控制中心异常: " + t);
+        }
+        if (result == null) return fail("控制中心未响应");
+        if (!result.parseBoolean(RESULT, true)) {
+            Object errObj = result.getParam("error");
+            String err = errObj != null ? String.valueOf(errObj) : "未知错误";
+            if (err.isEmpty()) err = "未知错误";
+            return fail(err);
+        }
+        String mode = result.getStringParam("mode", "");
+        Object whitelistObj = result.getParam("whitelist");
+        List<?> whitelist = whitelistObj instanceof List ? (List<?>) whitelistObj : List.of();
+        List<?> modules;
+        if ("list".equals(mode)) {
+            Object dataObj = result.getParam("data");
+            if (!(dataObj instanceof List)) return fail("控制中心返回格式错误：data 不是列表");
+            modules = (List<?>) dataObj;
+        } else if ("none".equals(mode)) {
+            modules = List.of();
+        } else {
+            return fail("控制中心返回格式错误：未知 mode=" + mode);
+        }
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("mode", mode);
+        data.put("whitelist", whitelist);
+        data.put("modules", modules);
+        return ok(formatReloadableMessage(mode, whitelist, modules), data);
+    }
+
+    /** 控制台可读文案：无名单时明确提示；有名单时逐条列出可重载状态。 */
+    private String formatReloadableMessage(String mode, List<?> whitelist, List<?> modules) {
+        if ("none".equals(mode))
+            return "没有可重载配置的模块（白名单为空；请在控制中心配置文件的 reloadableModules 中配置）";
+        StringBuilder sb = new StringBuilder("可重载配置模块（白名单 ")
+                .append(whitelist.size()).append(" 个）:");
+        for (Object o : modules) {
+            if (!(o instanceof Map)) continue;
+            Map<?, ?> m = (Map<?, ?>) o;
+            boolean reloadable = Boolean.TRUE.equals(m.get("reloadable"));
+            String name = String.valueOf(m.get("name"));
+            String family = m.get("familyName") == null ? "" : String.valueOf(m.get("familyName"));
+            String display = family.isEmpty() || family.equals(name) ? name : name + "（" + family + "）";
+            sb.append("\n  ").append(reloadable ? "✓ " : "✗ ").append(display);
+            if (reloadable) {
+                sb.append("  可重载  ")
+                        .append(m.get("configFile") == null ? "" : m.get("configFile"));
+            } else {
+                sb.append("  不可用  ")
+                        .append(m.get("reason") == null ? "" : m.get("reason"));
+            }
+        }
+        return sb.toString();
     }
 
     /** 查看控制中心审计记录：console /audit 与 WebUI /api/command 共用。 */
@@ -1934,6 +2008,98 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         putSafe(targetAgent(msg), createMsg().setAction(MODULE_SETPARAM)
                 .setParam(param, value));
         return ok(param + " = " + value);
+    }
+
+    /**
+     * /config <模块名> 与 /params <模块名>：受控查看（控制中心 viewableModules 白名单）。
+     * 有控制中心则委托 configView/paramsView；无控制中心无法应用白名单，直接失败。
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doView(TLMsg msg, boolean config) {
+        String name = msg.getStringParam("name", msg.getStringParam("module", ""));
+        if (name == null || name.isEmpty())
+            return fail(config ? "用法: /config <模块名>" : "用法: /params <模块名>");
+        if (controlCenterName == null)
+            return fail("控制中心未配置：查看需要 viewableModules 白名单");
+        TLMsg result;
+        try {
+            result = putToControlCenter(controlCenterName, createMsg()
+                    .setAction(config ? "configView" : "paramsView")
+                    .setParam("name", name)
+                    .setParam("userId", msg.getStringParam("userId", "")));
+        } catch (Throwable t) {
+            putLog((config ? "configView" : "paramsView") + ": " + name + " 异常: " + t,
+                    LogLevel.ERROR);
+            return fail("控制中心异常: " + t);
+        }
+        if (result == null) return fail("控制中心未响应");
+        if (!result.parseBoolean(RESULT, true)) {
+            Object errObj = result.getParam("error");
+            String err = errObj != null ? String.valueOf(errObj) : "未知错误";
+            if (err.isEmpty()) err = "未知错误";
+            return fail(err);
+        }
+        Object dataObj = result.getParam("data");
+        if (!(dataObj instanceof Map)) return fail("控制中心返回格式错误");
+        Map<String, Object> data = (Map<String, Object>) dataObj;
+        return ok(config ? formatConfigView(data) : formatParamsView(data), data);
+    }
+
+    /** 控制台 /config 文案：元信息 + 最近重载 + 原文。 */
+    private String formatConfigView(Map<String, Object> data) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("模块: ").append(viewStr(data.get("module")))
+                .append("\n配置文件: ").append(viewStr(data.get("configFile")))
+                .append("\n修改时间: ").append(viewFmtTime(data.get("modifiedAt")))
+                .append("\n大小: ").append(viewStr(data.get("size")))
+                .append(" 字节    SHA-256: ").append(viewStr(data.get("sha256")));
+        appendLastReload(sb, data.get("lastReload"));
+        String content = viewStr(data.get("content"));
+        sb.append("\n--- 文件内容 ---\n").append(content);
+        if (Boolean.TRUE.equals(data.get("truncated")))
+            sb.append("\n--- 内容已截断（只显示前 256 KiB，原文 ")
+                    .append(viewStr(data.get("size"))).append(" 字节）---");
+        if (content.contains("<include"))
+            sb.append("\n（包含 <include>，以上为本文件原文，未展开导入内容）");
+        return sb.toString();
+    }
+
+    /** 控制台 /params 文案：元信息 + 最近重载 + 按键排序的参数。 */
+    @SuppressWarnings("unchecked")
+    private String formatParamsView(Map<String, Object> data) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("模块: ").append(viewStr(data.get("module")));
+        appendLastReload(sb, data.get("lastReload"));
+        Map<String, Object> params = data.get("params") instanceof Map
+                ? (Map<String, Object>) data.get("params") : new LinkedHashMap<>();
+        sb.append("\n运行参数（").append(params.size()).append(" 个）:");
+        if (params.isEmpty()) return sb.append(" 无运行参数").toString();
+        List<String> keys = new ArrayList<>(params.keySet());
+        Collections.sort(keys);
+        for (String key : keys)
+            sb.append("\n  ").append(key).append(" = ").append(viewStr(params.get(key)));
+        return sb.toString();
+    }
+
+    private void appendLastReload(StringBuilder sb, Object lastReload) {
+        sb.append("\n最近重载: ");
+        if (!(lastReload instanceof Map)) {
+            sb.append("无记录");
+            return;
+        }
+        Map<?, ?> m = (Map<?, ?>) lastReload;
+        sb.append(viewFmtTime(m.get("time")))
+                .append("  allowed=").append(m.get("allowed"))
+                .append(" success=").append(m.get("success"))
+                .append("  ").append(viewStr(m.get("result")));
+    }
+
+    private String viewStr(Object o) { return o == null ? "" : String.valueOf(o); }
+
+    private String viewFmtTime(Object v) {
+        if (!(v instanceof Number) || ((Number) v).longValue() <= 0) return "无记录";
+        return new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                .format(new Date(((Number) v).longValue()));
     }
 
     /** /param <工具名|家族名> — 直接查模块的参数 */

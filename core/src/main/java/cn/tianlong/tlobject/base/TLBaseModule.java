@@ -7,7 +7,12 @@ import cn.tianlong.tlobject.utils.TLToolsUtils;
 import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.lang.reflect.Field;
+import java.security.MessageDigest;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.*;
@@ -1017,6 +1022,9 @@ public abstract class TLBaseModule extends TLBaseObject {
             case MODULE_GETPARAM:
                 returnMsg = getParam(fromWho, msg);
                 break;
+            case MODULE_GETCONFIGFILE:
+                returnMsg = getConfigFileInfo(fromWho, msg);
+                break;
             case MODULE_SETFIELD:
                 returnMsg =setField(fromWho, msg);
                 break;
@@ -1274,6 +1282,61 @@ public abstract class TLBaseModule extends TLBaseObject {
         String moduleName = (String) msg.getParam(FACTORY_P_MODULENAME);
         Object module = getModule(moduleName);
         return createMsg().setParam(FACTORY_R_MODULEINSTANCE, module).setParam(FACTORY_P_MODULENAME, moduleName);
+    }
+
+    /**
+     * 读取本模块配置文件的信息（只读）：路径/大小/修改时间/SHA-256/原文。
+     * 走 runAction 框架动作层，所有模块天然支持，不依赖子类 checkMsgAction 转发。
+     * 内容超过 256 KiB 时截断展示；SHA-256/大小按完整文件计算。
+     */
+    protected TLMsg getConfigFileInfo(Object fromWho, TLMsg msg) {
+        String file = configFile;
+        if (file == null || file.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam(ERRORSTR, "模块未加载配置文件");
+        try {
+            // 先规范化：工厂解析出的 Windows 路径可能带前导 "/"（/D:/...），
+            // Paths.get 不接受这种形式；normalizePath 与写配置时使用的是同一套规则。
+            String realFile = TLXmlConfigWriter.normalizePath(file);
+            if (realFile == null || realFile.isEmpty())
+                return createMsg().setParam(RESULT, false).setParam(ERRORSTR, "模块未加载配置文件");
+            Path path = Paths.get(realFile);
+            if (!Files.isRegularFile(path))
+                return createMsg().setParam(RESULT, false)
+                        .setParam(ERRORSTR, "配置文件不存在或不可读: " + realFile);
+            long size = Files.size(path);
+            if (size > 8L * 1024 * 1024)
+                return createMsg().setParam(RESULT, false)
+                        .setParam(ERRORSTR, "配置文件过大（" + size + " 字节），拒绝读取");
+            long modifiedAt = Files.getLastModifiedTime(path).toMillis();
+            byte[] bytes = TLXmlConfigWriter.readFileBytes(realFile);
+            if (bytes == null)
+                return createMsg().setParam(RESULT, false)
+                        .setParam(ERRORSTR, "配置文件不存在或不可读: " + realFile);
+            int cap = 256 * 1024;
+            boolean truncated = bytes.length > cap;
+            int len = truncated ? cap : bytes.length;
+            String content = new String(bytes, 0, len, StandardCharsets.UTF_8);
+            if (!content.isEmpty() && content.charAt(0) == '\uFEFF') content = content.substring(1);
+            return createMsg().setParam(RESULT, true)
+                    .setParam("configFile", realFile)
+                    .setParam("size", size)
+                    .setParam("modifiedAt", modifiedAt)
+                    .setParam("sha256", sha256Hex(bytes))
+                    .setParam("content", content)
+                    .setParam("truncated", truncated);
+        } catch (Throwable t) {
+            putLog(name + " 读取配置文件失败: " + t, LogLevel.ERROR, "getConfigFileInfo");
+            return createMsg().setParam(RESULT, false)
+                    .setParam(ERRORSTR, "读取配置文件失败: " + t.getMessage());
+        }
+    }
+
+    private static String sha256Hex(byte[] bytes) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        byte[] digest = md.digest(bytes);
+        StringBuilder sb = new StringBuilder(digest.length * 2);
+        for (byte b : digest) sb.append(String.format("%02x", b));
+        return sb.toString();
     }
 
     protected TLMsg getParam(Object fromWho, TLMsg msg) {

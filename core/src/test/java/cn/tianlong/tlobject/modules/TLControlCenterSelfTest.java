@@ -3,6 +3,10 @@ package cn.tianlong.tlobject.modules;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -14,7 +18,7 @@ import java.util.Map;
 public class TLControlCenterSelfTest {
     private static int passed = 0, failed = 0;
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         TestControlCenter cc = new TestControlCenter();
         TestRegistry registry = new TestRegistry("moduleRegistry");
         cc.registryModule = registry;
@@ -28,6 +32,16 @@ public class TLControlCenterSelfTest {
         check("未显式配置时允许空 startMsg", initResult == initCc);
         check("init 读取白名单", "x;y".equals(initCc.reloadableModules));
         check("负数 auditLimit 回退默认", initCc.auditLimit == 200);
+
+        InitTestControlCenter wildcardInit = new InitTestControlCenter(initRegistry);
+        wildcardInit.setParam("reloadableModules", " * ");
+        check("通配符 init 正常启动", wildcardInit.init() == wildcardInit);
+        check("通配符按全部禁止处理", "".equals(wildcardInit.reloadableModules));
+
+        InitTestControlCenter viewWildcard = new InitTestControlCenter(initRegistry);
+        viewWildcard.setParam("viewableModules", "*");
+        check("查看白名单通配符 init 正常启动", viewWildcard.init() == viewWildcard);
+        check("查看白名单通配符按全部禁止", "".equals(viewWildcard.viewableModules));
 
         FailFastControlCenter noConfigStart = new FailFastControlCenter(initRegistry);
         noConfigStart.setConfigState(true, null, false);
@@ -68,7 +82,7 @@ public class TLControlCenterSelfTest {
 
         cc.reloadableModules = "*";
         TLMsg r2b = cc.checkMsgAction(null, reloadCmd("denied", "u1"));
-        check("通配符放行", r2b.parseBoolean("result", false));
+        check("通配符不再放行", !r2b.parseBoolean("result", true));
         cc.reloadableModules = "allowed;cc:allowed;bad";
 
         FamilyNameModule family = new FamilyNameModule("family", "family.xml",
@@ -95,6 +109,51 @@ public class TLControlCenterSelfTest {
         TLMsg r4 = cc.checkMsgAction(null, reloadCmd("noConfig", "u1"));
         check("无配置文件拒绝", !r4.parseBoolean("result", true));
         check("无配置文件原因", r4.getStringParam("error", "").contains("配置文件"));
+
+        // ---- reloadableList（无参 /reloadconfig 的数据源）----
+        cc.reloadableModules = " allowed ; ; noConfig ; allowed ; ghost ";
+        TLMsg rl = cc.checkMsgAction(null, new TLMsg().setAction("reloadableList"));
+        check("查询返回成功", rl != null && rl.parseBoolean("result", false));
+        List<?> rlWhitelist = (List<?>) rl.getParam("whitelist");
+        check("白名单解析去空去重保序", rlWhitelist != null && rlWhitelist.size() == 3
+                && "allowed".equals(rlWhitelist.get(0))
+                && "noConfig".equals(rlWhitelist.get(1))
+                && "ghost".equals(rlWhitelist.get(2)));
+        check("名单模式 mode=list", "list".equals(rl.getStringParam("mode", "")));
+        List<?> rlModules = (List<?>) rl.getParam("data");
+        check("条目数与白名单一致", rlModules != null && rlModules.size() == 3);
+        Map<?, ?> mAllowed = (Map<?, ?>) rlModules.get(0);
+        Map<?, ?> mNoConfig = (Map<?, ?>) rlModules.get(1);
+        Map<?, ?> mGhost = (Map<?, ?>) rlModules.get(2);
+        check("已实例化+有配置可重载", Boolean.TRUE.equals(mAllowed.get("reloadable"))
+                && Boolean.TRUE.equals(mAllowed.get("running")));
+        check("无配置文件不可重载", Boolean.FALSE.equals(mNoConfig.get("reloadable"))
+                && Boolean.TRUE.equals(mNoConfig.get("running"))
+                && String.valueOf(mNoConfig.get("reason")).contains("配置文件"));
+        check("未运行不可重载", Boolean.FALSE.equals(mGhost.get("reloadable"))
+                && Boolean.FALSE.equals(mGhost.get("running"))
+                && String.valueOf(mGhost.get("reason")).contains("未运行"));
+
+        cc.reloadableModules = "family";
+        TLMsg rlFamily = cc.checkMsgAction(null, new TLMsg().setAction("reloadableList"));
+        Object mFamilyObj = ((List<?>) rlFamily.getParam("data")).get(0);
+        Map<?, ?> mFamily = (Map<?, ?>) mFamilyObj;
+        check("别名条目保留原文并给出 familyName",
+                "family".equals(mFamily.get("name")) && "cc:family".equals(mFamily.get("familyName")));
+
+        List<?> auditBefore = (List<?>) cc.checkMsgAction(null,
+                new TLMsg().setAction("auditList").setParam("limit", 999)).getParam("result");
+        cc.checkMsgAction(null, new TLMsg().setAction("reloadableList"));
+        List<?> auditAfter = (List<?>) cc.checkMsgAction(null,
+                new TLMsg().setAction("auditList").setParam("limit", 999)).getParam("result");
+        check("列表查询不写审计", auditBefore.size() == auditAfter.size());
+
+        cc.reloadableModules = "";
+        TLMsg rlNone = cc.checkMsgAction(null, new TLMsg().setAction("reloadableList"));
+        check("空白名单查询成功", rlNone.parseBoolean("result", false));
+        check("空白名单 mode=none", "none".equals(rlNone.getStringParam("mode", "")));
+        check("空白名单条目为空", ((List<?>) rlNone.getParam("data")).isEmpty());
+        cc.reloadableModules = "allowed;cc:allowed;bad";
 
         FakeModule bad = new FakeModule("bad", "bad.xml",
                 new TLMsg().setParam("result", false).setParam("error", "boom"));
@@ -126,6 +185,151 @@ public class TLControlCenterSelfTest {
 
         check("审计最新在前", records.size() > 0
                 && "bad".equals(((Map<?, ?>) records.get(0)).get("target")));
+
+        // ---- configView / paramsView（受 viewableModules 白名单）----
+        File cfgFile = File.createTempFile("ccview", ".xml");
+        String cfgText = "<moduleConfig><params><a value=\"1\"/></params></moduleConfig>";
+        Files.write(cfgFile.toPath(), cfgText.getBytes(StandardCharsets.UTF_8));
+        FakeModule viewMod = new FakeModule("viewMod", cfgFile.getAbsolutePath(), new TLMsg());
+        viewMod.setTestParams(Map.of("alpha", "1", "beta", "2"));
+        cc.checkMsgAction(null, new TLMsg().setAction("register")
+                .setParam("key", "viewMod").setParam("instance", viewMod));
+
+        cc.viewableModules = "";
+        TLMsg deniedEmpty = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                .setParam("name", "viewMod").setParam("userId", "u7"));
+        check("查看白名单为空拒绝", !deniedEmpty.parseBoolean("result", true));
+
+        cc.viewableModules = "viewMod";
+        TLMsg cv = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                .setParam("name", "viewMod").setParam("userId", "u7"));
+        check("配置文件查看成功", cv != null && cv.parseBoolean("result", false));
+        Map<?, ?> cvData = (Map<?, ?>) cv.getParam("data");
+        check("查看返回配置路径", cvData != null
+                && cfgFile.getAbsolutePath().equals(cvData.get("configFile")));
+        check("查看返回原文", cvData != null && cfgText.equals(cvData.get("content")));
+        check("查看返回 sha256/大小", cvData != null
+                && String.valueOf(cvData.get("sha256")).length() == 64
+                && Long.parseLong(String.valueOf(cvData.get("size")))
+                == cfgText.getBytes(StandardCharsets.UTF_8).length);
+        check("无重载记录时不带 lastReload", cvData != null && !cvData.containsKey("lastReload"));
+
+        TLMsg pv = cc.checkMsgAction(null, new TLMsg().setAction("paramsView")
+                .setParam("name", "viewMod").setParam("userId", "u7"));
+        check("运行参数查看成功", pv != null && pv.parseBoolean("result", false));
+        Map<?, ?> pvData = (Map<?, ?>) pv.getParam("data");
+        Map<?, ?> viewParams = pvData == null ? null : (Map<?, ?>) pvData.get("params");
+        check("运行参数内容完整", viewParams != null && "1".equals(viewParams.get("alpha"))
+                && "2".equals(viewParams.get("beta")));
+
+        cc.viewableModules = "other";
+        TLMsg cvDenied = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                .setParam("name", "viewMod").setParam("userId", "u8"));
+        check("白名单外禁止查看", !cvDenied.parseBoolean("result", true)
+                && cvDenied.getStringParam("error", "").contains("白名单"));
+        cc.viewableModules = "viewMod";
+
+        FakeModule noCfgView = new FakeModule("noCfgView", null, null);
+        noCfgView.setTestParams(Map.of("x", "y"));
+        cc.checkMsgAction(null, new TLMsg().setAction("register")
+                .setParam("key", "noCfgView").setParam("instance", noCfgView));
+        cc.viewableModules = "viewMod;noCfgView";
+        TLMsg noCfgCv = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                .setParam("name", "noCfgView").setParam("userId", "u9"));
+        check("无配置文件查看失败", !noCfgCv.parseBoolean("result", true)
+                && noCfgCv.getStringParam("error", "").contains("配置文件"));
+        TLMsg noCfgPv = cc.checkMsgAction(null, new TLMsg().setAction("paramsView")
+                .setParam("name", "noCfgView").setParam("userId", "u9"));
+        check("无配置文件仍可看运行参数", noCfgPv.parseBoolean("result", false));
+
+        // 回归：工厂解析出的 Windows 路径可能带前导 "/"（/D:/...）——必须规范化后再 Paths.get
+        String winAbs = cfgFile.getAbsolutePath();
+        if (winAbs.matches("^[A-Za-z]:.*")) {
+            FakeModule slashMod = new FakeModule("slashMod", "/" + winAbs, new TLMsg());
+            cc.checkMsgAction(null, new TLMsg().setAction("register")
+                    .setParam("key", "slashMod").setParam("instance", slashMod));
+            cc.viewableModules = "viewMod;noCfgView;slashMod";
+            TLMsg slashCv = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                    .setParam("name", "slashMod").setParam("userId", "u11"));
+            check("前导斜杠 Windows 路径可读", slashCv.parseBoolean("result", false));
+            Map<?, ?> slashData = (Map<?, ?>) slashCv.getParam("data");
+            check("前导斜杠路径已规范化", slashData != null
+                    && cfgText.equals(slashData.get("content"))
+                    && !String.valueOf(slashData.get("configFile")).startsWith("/"));
+            cc.viewableModules = "viewMod";
+        }
+
+        // 配置重载后白名单刷新（setModuleParams 路径）：追加的模块立即生效
+        TestControlCenter whitelistReload = new TestControlCenter();
+        whitelistReload.setTestParams(Map.of("viewableModules", "a;b",
+                "reloadableModules", "x"));
+        check("重载后查看白名单生效", whitelistReload.isViewAllowed("a", null)
+                && whitelistReload.isViewAllowed("b", null)
+                && !whitelistReload.isViewAllowed("c", null));
+        whitelistReload.setTestParams(Map.of("viewableModules", "a;b;c",
+                "reloadableModules", "x;y"));
+        check("重载追加白名单立即生效", whitelistReload.isViewAllowed("c", null)
+                && whitelistReload.reloadableModules.contains("y"));
+
+        // 白名单以配置文件为权威：删掉的条目重载后必须失效（不沿用合并 params 的旧值）
+        File wlFile = File.createTempFile("ccwhitelist", ".xml");
+        Files.write(wlFile.toPath(), ("<moduleConfig><params>"
+                + "<viewableModules value=\"a;b\"/><reloadableModules value=\"x\"/>"
+                + "</params></moduleConfig>").getBytes(StandardCharsets.UTF_8));
+        TestControlCenter wlCc = new TestControlCenter();
+        wlCc.useConfigFile(wlFile.getAbsolutePath());
+        wlCc.refreshModuleParams();
+        check("白名单文件解析生效", wlCc.isViewAllowed("a", null) && wlCc.isViewAllowed("b", null));
+        Files.write(wlFile.toPath(), ("<moduleConfig><params>"
+                + "<viewableModules value=\"a\"/><reloadableModules value=\"x\"/>"
+                + "</params></moduleConfig>").getBytes(StandardCharsets.UTF_8));
+        wlCc.refreshModuleParams();
+        check("白名单删除项重载后失效", wlCc.isViewAllowed("a", null)
+                && !wlCc.isViewAllowed("b", null));
+        wlFile.delete();
+
+        // viewable 标记进 reloadableList
+        cc.reloadableModules = "viewMod;noCfgView;allowed";
+        cc.viewableModules = "viewMod";
+        TLMsg rl2 = cc.checkMsgAction(null, new TLMsg().setAction("reloadableList"));
+        List<?> rl2Rows = (List<?>) rl2.getParam("data");
+        boolean viewableFlag = false, notViewableFlag = false;
+        for (Object o : rl2Rows) {
+            Map<?, ?> m = (Map<?, ?>) o;
+            if ("viewMod".equals(m.get("name")) && Boolean.TRUE.equals(m.get("viewable")))
+                viewableFlag = true;
+            if ("allowed".equals(m.get("name")) && Boolean.FALSE.equals(m.get("viewable")))
+                notViewableFlag = true;
+        }
+        check("reloadableList 带 viewable=true", viewableFlag);
+        check("reloadableList 带 viewable=false", notViewableFlag);
+        cc.reloadableModules = "allowed;cc:allowed;bad";
+
+        // 查看操作写审计（成功 + 拒绝）
+        TLMsg auditView = cc.checkMsgAction(null, new TLMsg().setAction("auditList").setParam("limit", 50));
+        List<?> viewRecords = (List<?>) auditView.getParam("result");
+        boolean viewAllowed = false, viewDenied = false;
+        for (Object o : viewRecords) {
+            Map<?, ?> m = (Map<?, ?>) o;
+            if ("configView".equals(m.get("action")) && Boolean.TRUE.equals(m.get("allowed")))
+                viewAllowed = true;
+            if ("configView".equals(m.get("action")) && Boolean.FALSE.equals(m.get("allowed")))
+                viewDenied = true;
+        }
+        check("查看成功被审计", viewAllowed);
+        check("查看拒绝被审计", viewDenied);
+
+        // 查看附带最近重载记录
+        cc.reloadableModules = "viewMod";
+        cc.viewableModules = "viewMod";
+        cc.checkMsgAction(null, reloadCmd("viewMod", "u10"));
+        TLMsg cv2 = cc.checkMsgAction(null, new TLMsg().setAction("configView")
+                .setParam("name", "viewMod").setParam("userId", "u10"));
+        Map<?, ?> cv2Data = (Map<?, ?>) cv2.getParam("data");
+        check("查看附带最近重载记录", cv2Data != null && cv2Data.get("lastReload") instanceof Map
+                && Boolean.TRUE.equals(((Map<?, ?>) cv2Data.get("lastReload")).get("success")));
+        cc.reloadableModules = "allowed;cc:allowed;bad";
+        cfgFile.delete();
 
         TLMsg r6 = cc.checkMsgAction(null, new TLMsg().setAction("reloadModuleConfig"));
         check("缺少 name 返回失败", !r6.parseBoolean("result", true));
@@ -160,6 +364,12 @@ public class TLControlCenterSelfTest {
 
     static class TestControlCenter extends TLControlCenter {
         TestControlCenter() { super("controlCenterSelfTest"); }
+        void setTestParams(Map<String, String> p) {
+            this.params = new HashMap<>(p);
+            setModuleParams();
+        }
+        void useConfigFile(String f) { this.configFile = f; }
+        void refreshModuleParams() { setModuleParams(); }
         @Override public void putLog(String content, LogLevel logLevel) { }
         @Override public void putLog(String content, LogLevel logLevel, String tag) { }
     }
@@ -227,6 +437,10 @@ public class TLControlCenterSelfTest {
         FakeModule(String name, String configFile, TLMsg reloadResponse) {
             super(name, configFile);
             this.reloadResponse = reloadResponse;
+        }
+
+        void setTestParams(Map<String, String> p) {
+            this.params = new HashMap<>(p);
         }
 
         @Override protected TLMsg reloadConfig(Object fromWho, TLMsg msg) { return reloadResponse; }

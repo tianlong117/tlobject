@@ -1029,12 +1029,35 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 msg.setAction("clear").setParam(AI_P_SESSIONID, sessionId);
                 break;
 
-            case "param":
+            case "toolparam":
                 if (parts.length < 2) {
-                    System.out.println("用法: /param <工具名>");
+                    System.out.println("用法: /toolparam <家族名>（查看注册表内 Agent/Skill/Group 参数）");
                     return null;
                 }
                 msg.setAction("param").setParam("toolName", parts[1]);
+                break;
+
+            case "param":
+                System.out.println("已更名为 /toolparam（查看注册表内 Agent/Skill 参数）；"
+                        + "查看模块运行参数请用 /params <模块名>");
+                return null;
+
+            case "config":
+            case "cfg":
+                if (parts.length < 2) {
+                    System.out.println("用法: /config <模块名>（查看模块配置文件，"
+                            + "需在控制中心 viewableModules 白名单）");
+                    return null;
+                }
+                msg.setAction("configView").setParam("name", parts[1]);
+                break;
+
+            case "params":
+                if (parts.length < 2) {
+                    System.out.println("用法: /params <模块名>（查看模块运行参数，受同一白名单限制）");
+                    return null;
+                }
+                msg.setAction("paramsView").setParam("name", parts[1]);
                 break;
 
             case "img":
@@ -1206,8 +1229,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             case "reloadconfig":
             case "rcfg":
                 if (parts.length < 2) {
-                    System.out.println("用法: /reloadconfig <模块名>（例如 outputValidator）");
-                    return null;
+                    msg.setAction("reloadableModules");   // 无参 = 列出可重载模块及实时状态
+                    break;
                 }
                 msg.setAction("reloadModuleConfig")
                         .setParam("name", parts[1])
@@ -1767,6 +1790,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "reload":
                 case "reloadModuleConfig":
                     System.out.println("✓ " + message);
+                    break;
+                case "reloadableModules":
+                    System.out.println(message);
+                    break;
+                case "configView":
+                case "paramsView":
+                    System.out.println(message);
                     break;
                 case "mcpSearch":
                     printMcpSearchResult(data, message);
@@ -2900,13 +2930,15 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /reload -s <家族名>        重载脚本Skill  (例如 app:skillDir)");
         System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
         System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
-        System.out.println("  /reloadconfig <模块名>      重载模块配置（如 outputValidator），不重启");
+        System.out.println("  /reloadconfig [模块名]      无参=列出可重载配置模块；带模块名=重载配置（如 outputValidator），不重启");
         System.out.println("  /audit [条数]              查看控制中心的配置重载审计（默认 50 条）");
         System.out.println();
         System.out.println("查询命令:");
         System.out.println("  /agents [ownerName]    列出已注册的Agent");
         System.out.println("  /skills [ownerName]    列出已注册的Skill");
-        System.out.println("  /param <工具名>        查看工具模块的参数");
+        System.out.println("  /toolparam <家族名>     查看注册表内 Agent/Skill/Group 参数（旧 /param 已更名）");
+        System.out.println("  /config <模块名>        查看模块配置文件（受控制中心 viewableModules 限制）");
+        System.out.println("  /params <模块名>        查看模块运行参数（受同一名单限制）");
         System.out.println("  /help                  显示此帮助");
         System.out.println();
         System.out.println("审批与授权:");
