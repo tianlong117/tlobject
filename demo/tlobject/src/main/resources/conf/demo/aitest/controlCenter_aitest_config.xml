@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 测试应用不做配置热加载：空 = 全部禁止 -->
+        <reloadableModules value=""/>
+        <auditLimit value="200"/>
+    </params>
+    <modules>
+        <module name="moduleRegistry"
+                classfile="cn.tianlong.tlobject.modules.TLModuleRegistry"/>
+    </modules>
+    <startMsg>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="sessionManager"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="httpRequestSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="fileOperationSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="evals"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
+        <msg action="runAllTests" destination="agentTestModule"/>
+    </startMsg>
+</moduleConfig>

@@ -208,11 +208,18 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
 
     // ======================== 材料与探测 ========================
 
+    /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
+    private TLMsg putMsgToRegistry(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
+        return putMsg(controlCenter.trim(), msg);
+    }
+
     /** 目标是否存在：先查注册表（家族名），再按工厂模块名查 */
     private boolean targetExists(String target) {
         TLMsg getMsg = createMsg().setAction(REGISTRY_GET).setParam(REGISTRY_P_KEY, target);
         getMsg.setSystemParam(IGNOREMODULEISNULL, true);
-        TLMsg r = putMsg(DEFAULTMODULEREGISTRY, getMsg);
+        TLMsg r = putMsgToRegistry(getMsg);
         if (r != null && r.getParam(INSTANCE) instanceof IObject) return true;
         if (target.contains(":")) return false;   // 家族名不在注册表里就是没有
         try {
@@ -248,7 +255,7 @@ public class TLEvalCaseGenerator extends TLBaseModule implements TLAiAgentParamS
         try {
             TLMsg listMsg = createMsg().setAction(REGISTRY_LIST).setParam(REGISTRY_P_OWNERNAME, target);
             listMsg.setSystemParam(IGNOREMODULEISNULL, true);
-            TLMsg r = putMsg(DEFAULTMODULEREGISTRY, listMsg);
+            TLMsg r = putMsgToRegistry(listMsg);
             List<Map<String, Object>> children =
                     r == null ? null : (List<Map<String, Object>>) r.getParam(RESULT);
             if (children != null && !children.isEmpty()) {

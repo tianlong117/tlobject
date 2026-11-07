@@ -111,6 +111,13 @@ Built-in modules extending `TLBaseModule`:
 - `AiAgentDemoModule` — 8 场景自动化测试（全部通过）
 - `ChatDemo` / `AIStart`（aistart.bat，config `conf/demo/aiagent/`）— 交互式对话，支持 `/stream` `/thinking` `/clear` `/exit` `/test` `/eval` `/mcp` `/approve` `/sessions` `/continue` `/resume`
 
+**控制中心（core `TLControlCenter` + aiagent `TLAgentControlCenter`）：**
+- `TLControlCenter`（core）是通用机制：启动编排（配置文件 `<startMsg>`）、模块注册门面、配置重载白名单、审计。`TLAgentControlCenter`（aiagent/common，继承前者）承载 AI 专属策略（用户分级/命令授权、服务暂停、agent 编排等），三套 aiagent 应用配置使用该子类；其他应用可直接用 core 版本。
+- 启动分层：`factoryBoot` 只创建基础设施（`logThreadPool`/`threadPool`/`database`）与控制中心；应用模块由控制中心的 `<startMsg>` 创建。控制中心把 `<startMsg>` 交给工厂的 `bootstrapModules` 以工厂为发送者执行，应用模块的 `familyName` 保持裸名（否则会被加上 `controlCenter:` 前缀，破坏注册键）。
+- 注册目标由工厂 `commonParams` 的 `controlCenterName` 指定；未配置时不注册，配置后直接发给控制中心（不做工厂存在性检查——启动分层保证控制中心先启动）。检查在各 aiagent 模块的注册点本地完成，core 基类不感知控制中心。基础设施层（L1）模块不得自注册。
+- 内部注册表是控制中心的私有子模块，外部只通过控制中心访问。配置重载白名单 `reloadableModules`（分号分隔，`*` 全放行，空全拒绝）；审计记录含 `allowed`（策略是否放行）与 `success`（执行是否成功），控制台 `/audit [条数]`、WebUI `/api/command`（action=audit）可查。控制中心显式配置了 configfile 但加载失败或缺少 `<startMsg>` 时拒绝启动（fail-fast）。
+- 测试隔离：`TLTestAgentGroup` 直接构造、不走 `commonParams`，故意使用旧 `moduleRegistry`，避免假成员污染生产注册表。
+
 **关键实现要点:**
 - **流式/非流式统一编排**：`runChat → prepareChat → runChatLoop` 唯一一份；流式差异只在 `LlmCall`（`StreamLlmCall` 发起 SSE + 等 per-call `StreamHandle`）和 `StreamSink`（`ForwardStreamSink` 推 UI / `NullStreamSink` 丢弃）。`chatStream` 把同一 `runChat` 丢到工作线程后立即返回 null；`onStreamResult` 只做 chunk 转发与句柄唤醒，**不再承载工具循环**。工具迭代轮默认非流式（`STREAM_TOOL_ROUNDS=false`）。`chatStreamSync` 已删除（原仅测试调用且无工具循环）。
 - **流式入口的轮次登记**：`chatStream` 在提交 worker **之前**同步 `sessionRoundBegin`（关闭 `injectTaskResult` 的空闲窗口），worker 用 `preBegan=true` 跳过重复 begin；提交失败由入口 `sessionRoundEnd` 收尾。

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <params>
+        <!-- 可重载配置的模块白名单；* = 全部，空 = 全部禁止。
+             outputValidator 由 toolExecutor 首次输出校验时懒创建，首次工具调用前 reload 会报"未运行" -->
+        <reloadableModules value="outputValidator"/>
+        <auditLimit value="200"/>
+    </params>
+    <modules>
+        <module name="moduleRegistry"
+                classfile="cn.tianlong.tlobject.modules.TLModuleRegistry"/>
+    </modules>
+    <startMsg>
+        <msg action="getModule" destination="moduleFactory" moduleName="dbSessionManager"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentService"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="outputGuard"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="webui"/>
+        <msg action="startWeb" destination="webui" waitFlag="false" usePreReturnMsg="false"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="jettyServer" usePreReturnMsg="false"/>
+        <msg action="run" destination="jettyServer" waitFlag="false" usePreReturnMsg="false"/>
+    </startMsg>
+</moduleConfig>

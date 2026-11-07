@@ -379,11 +379,13 @@ public class TLAgentWorkflow extends TLBaseModule
             // 显式重注册（与 TLAgentGroup.registerToRegistry 同构：key = 模块自身家族名）
             String familyName = newModule.getFamilyName();
             if (familyName != null && !familyName.isEmpty()) {
-                putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_REGISTER)
-                        .setParam(REGISTRY_P_KEY, familyName)
-                        .setParam(MODULENAME, nid)
-                        .setParam(INSTANCE, newModule)
-                        .setSystemParam(IGNOREMODULEISNULL, true));
+                String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+                if (controlCenter != null && !controlCenter.trim().isEmpty())
+                    putMsg(controlCenter.trim(), createMsg().setAction(REGISTRY_REGISTER)
+                            .setParam(REGISTRY_P_KEY, familyName)
+                            .setParam(MODULENAME, nid)
+                            .setParam(INSTANCE, newModule)
+                            .setSystemParam(IGNOREMODULEISNULL, true));
             }
             putLog("Workflow node module reloaded: " + nid + " (workflow " + name + ")", LogLevel.DEBUG);
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, nid);

@@ -317,7 +317,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /**
-     * 向全局 moduleRegistry 注册工具子模块，以模块自身家族名字为 key
+     * 向注册表（控制中心/旧 moduleRegistry）注册工具子模块，以模块自身家族名字为 key
      * （agent:tool（经 getFamilyName 代理）——工具是 toolManager 的私有子模块）。
      * registry 未配置时静默跳过（IGNOREMODULEISNULL）。
      */
@@ -330,7 +330,14 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 .setParam(MODULENAME, subName)
                 .setParam(INSTANCE, module);
         msg.setSystemParam(IGNOREMODULEISNULL, true);
-        putMsg(DEFAULTMODULEREGISTRY, msg);
+        putMsgToRegistry(msg);
+    }
+
+    /** 向控制中心注册；未配置 controlCenterName 时跳过。 */
+    private TLMsg putMsgToRegistry(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
+        return putMsg(controlCenter.trim(), msg);
     }
 
     // ======================== Skill管理 ========================
@@ -454,7 +461,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         // 从 registry 注销（本模块家族名代理为 agent 家族名，键 = agent:moduleName，与注册一致）。
         // IGNOREMODULEISNULL：未配置 moduleRegistry 的部署不能因为一次正常卸载就 shutdown(-1)
         String key = getFamilyName() + ":" + moduleName;
-        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+        putMsgToRegistry(createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, key)
                 .setSystemParam(IGNOREMODULEISNULL, true));
 
@@ -538,7 +545,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                         ? ((TLBaseModule) removedFn.module).getFamilyName()
                         : getFamilyName() + ":" + moduleName;
                 if (registryKey != null && !registryKey.isEmpty()) {
-                    putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+                    putMsgToRegistry(createMsg().setAction(REGISTRY_UNREGISTER)
                             .setParam(REGISTRY_P_KEY, registryKey)
                             .setSystemParam(IGNOREMODULEISNULL, true));
                 }

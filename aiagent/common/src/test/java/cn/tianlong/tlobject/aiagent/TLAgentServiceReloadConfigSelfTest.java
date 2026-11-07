@@ -69,14 +69,80 @@ public class TLAgentServiceReloadConfigSelfTest {
         check("成功映射 file", d9 != null && "a.xml".equals(String.valueOf(d9.get("file"))));
         check("成功消息含 rules", r9.getStringParam("message", "").contains("rules=2"));
 
+        // 控制中心委托：成功
+        TestService delegated = new TestService();
+        delegated.setControlCenter("controlCenter");
+        delegated.ccResponse = new TLMsg().setParam("result", true)
+                .setParam("message", "配置已重载: fromCC")
+                .setParam("data", java.util.Map.of("module", "fromCC"));
+        TLMsg rc1 = delegated.checkMsgAction(null,
+                cmd("fromCC").setParam("userId", "console_user"));
+        check("委托控制中心成功", rc1.parseBoolean("success", false));
+        check("委托返回消息", rc1.getStringParam("message", "").contains("fromCC"));
+        check("委托消息 action", delegated.ccRequest != null
+                && "reloadModuleConfig".equals(delegated.ccRequest.getAction()));
+        check("委托消息 name", delegated.ccRequest != null
+                && "fromCC".equals(delegated.ccRequest.getStringParam("name", "")));
+        check("委托消息 userId", delegated.ccRequest != null
+                && "console_user".equals(delegated.ccRequest.getStringParam("userId", "")));
+
+        // 控制中心委托：拒绝
+        TestService denied = new TestService();
+        denied.setControlCenter("controlCenter");
+        denied.ccResponse = new TLMsg().setParam("result", false)
+                .setParam("error", "模块未在可重载白名单中");
+        TLMsg rc2 = denied.checkMsgAction(null, cmd("anyModule"));
+        check("委托拒绝透传", !rc2.parseBoolean("success", true));
+        check("委托拒绝原因", rc2.getStringParam("error", "").contains("白名单"));
+
+        TestService nullResp = new TestService();
+        nullResp.setControlCenter("controlCenter");
+        nullResp.ccResponse = null;
+        TLMsg rc3 = nullResp.checkMsgAction(null, cmd("anyModule"));
+        check("控制中心无响应返回失败", !rc3.parseBoolean("success", true)
+                && rc3.getStringParam("error", "").contains("未返回结果"));
+
+        // audit 命令：委托控制中心 auditList 并格式化输出
+        TestService auditSvc = new TestService();
+        auditSvc.setControlCenter("controlCenter");
+        java.util.List<java.util.Map<String, Object>> auditRecords = new java.util.ArrayList<>();
+        java.util.Map<String, Object> rec = new java.util.LinkedHashMap<>();
+        rec.put("time", 1L);
+        rec.put("userId", "console_user");
+        rec.put("action", "reloadModuleConfig");
+        rec.put("target", "outputValidator");
+        rec.put("allowed", true);
+        rec.put("success", true);
+        rec.put("result", "配置已重载");
+        auditRecords.add(rec);
+        auditSvc.ccResponse = new TLMsg().setParam("result", auditRecords);
+        TLMsg auditResp = auditSvc.checkMsgAction(null,
+                new TLMsg().setAction("audit").setParam("limit", 10));
+        check("audit 命令成功", auditResp.parseBoolean("success", false));
+        check("audit 输出含目标", auditResp.getStringParam("message", "").contains("outputValidator"));
+        check("audit 输出含 allowed/success", auditResp.getStringParam("message", "")
+                .contains("allowed=true") && auditResp.getStringParam("message", "").contains("success=true"));
+        check("audit 请求 action", auditSvc.ccRequest != null
+                && "auditList".equals(auditSvc.ccRequest.getAction()));
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }
 
     static class TestService extends TLAgentService {
         TLBaseModule target;
+        TLMsg ccResponse;
+        TLMsg ccRequest;
         TestService() { super("reloadConfigTest"); }
+        void setControlCenter(String name) {
+            if (params == null) params = new java.util.HashMap<>();
+            params.put("controlCenterName", name);
+        }
         @Override protected TLBaseModule resolveReloadTarget(String name) { return target; }
+        @Override protected TLMsg putToControlCenter(String controlCenter, TLMsg msg) {
+            ccRequest = msg;
+            return ccResponse;
+        }
         @Override public void putLog(String content, LogLevel logLevel) { }
         @Override public void putLog(String content, LogLevel logLevel, String tag) { }
     }

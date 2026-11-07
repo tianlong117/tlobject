@@ -295,7 +295,14 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                 .setParam(INSTANCE, module);
         // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
-        putMsg(DEFAULTMODULEREGISTRY, msg);
+        putMsgToRegistry(msg);
+    }
+
+    /** 向控制中心注册；未配置 controlCenterName 时跳过。 */
+    private TLMsg putMsgToRegistry(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
+        return putMsg(controlCenter.trim(), msg);
     }
 
     protected synchronized TLMsg registerMember(Object fromWho, TLMsg msg) {
@@ -383,7 +390,7 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
 
         // 从 registry 注销（成员家族名 = 本组家族名:成员名，级联清理其子节点）
         String registryKey = oldModule != null ? oldModule.getFamilyName() : getName() + ":" + agentName;
-        putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_UNREGISTER)
+        putMsgToRegistry(createMsg().setAction(REGISTRY_UNREGISTER)
                 .setParam(REGISTRY_P_KEY, registryKey).setSystemParam(IGNOREMODULEISNULL, true));
 
         // 持久化：从配置文件删除

@@ -2153,7 +2153,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     }
 
     /**
-     * 向全局 moduleRegistry 注册子模块，以家族名字为 key。
+     * 向注册表（控制中心/旧 moduleRegistry）注册子模块，以家族名字为 key。
      * registry 未配置时静默跳过（IGNOREMODULEISNULL）。
      * public：TLToolManager（工具管理内脏）经此注册 skill/agent。
      */
@@ -2167,7 +2167,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 .setParam(INSTANCE, module);
         // owner 由 familyName 自描述，type 由 instanceof 判断，无需额外存储
         msg.setSystemParam(IGNOREMODULEISNULL, true);
-        putMsg(DEFAULTMODULEREGISTRY, msg);
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter != null && !controlCenter.trim().isEmpty())
+            putMsg(controlCenter.trim(), msg);
     }
 
     /**

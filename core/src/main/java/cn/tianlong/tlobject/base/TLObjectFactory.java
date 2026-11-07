@@ -347,6 +347,9 @@ public class TLObjectFactory extends TLBaseModule {
             case FACTORY_GETMODULE:
                 returnMsg = getModule(fromWho, msg);
                 break;
+            case FACTORY_BOOTSTRAPMODULES:
+                returnMsg = bootstrapModules(fromWho, msg);
+                break;
             case FACTORY_RELOADMODULE:
                 reloadModule(fromWho, msg);
                 break;
@@ -408,6 +411,23 @@ public class TLObjectFactory extends TLBaseModule {
         }
         return moduleList ;
     }
+
+    /**
+     * 代模块执行启动序列：以工厂自身为发送者逐条执行，保持 familyName 语义。
+     * 由控制中心用 <startMsg> 发起；工厂仍是模块创建者。
+     * 返回 true 只表示序列已执行；单条消息失败不改变返回值（与 factoryBoot 语义一致）。
+     */
+    @SuppressWarnings("unchecked")
+    protected TLMsg bootstrapModules(Object fromWho, TLMsg msg) {
+        Object list = msg.getParam("msgList");
+        if (!(list instanceof ArrayList)) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam(ERRORSTR, "msgList 缺失或类型错误");
+        }
+        doMsgList((ArrayList<TLMsg>) list, null, null);
+        return createMsg().setParam(RESULT, true);
+    }
+
     private TLMsg getModuleParam(Object fromWho, TLMsg msg) {
         String moduleName = (String) msg.getParam(MODULENAME);
         HashMap<String, String> moduleParamMap =getModuleParam(moduleName, (HashMap<String, String>) null);

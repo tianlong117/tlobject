@@ -22,11 +22,22 @@
         <package value="cn.tianlong.java.demo.aiagent"/>
     </params>
 
+    <commonParams>
+        <controlCenterName value="controlCenter"/>
+    </commonParams>
+
     <modulesParams>
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题。"/>
     </modulesParams>
 
     <modules>
+        <!-- 工厂级控制中心：core 通用机制 + aiagent 策略子类 -->
+        <module name="controlCenter"
+                classfile="cn.tianlong.tlobject.aiagent.TLAgentControlCenter"
+                singleton="true"
+                necessary="yes"
+                configfile="controlCenter_aitest_config.xml"/>
+
         <!-- 主测试模块 -->
         <module name="aiAgentDemo"
                 classfile=".AiAgentDemoModule"
@@ -66,52 +77,8 @@
 
     </modules>
 
-    <!-- ===== 工厂启动序列 ===== -->
     <factoryBoot>
-        <!-- 先获取日志模块 -->
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
-
-        <!-- 获取AI Agent核心模块（触发初始化） -->
-        <msg action="getModule" destination="moduleFactory" moduleName="aiagent"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="aiContext"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="sessionManager"/>
-
-        <!-- 获取内置模块 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="openAiProvider"/>
-        <!-- 评测裁判用的（带凭据）——启动即实例化，配错了在启动时就能看见 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="httpRequestSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="fileOperationSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="shortTermMemory"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="longTermMemory"/>
-
-        <!-- 获取Demo测试模块和工作流模块 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="aiAgentDemo"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="demoWorkflow"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="agentMonitor"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="streamCallback"/>
-
-        <!-- 获取监管Agent -->
-        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
-
-        <!-- 获取审批模块（测试床：审查人=TLTestApprovalReviewer，见 approvalGate_config.xml） -->
-        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
-
-        <!-- 获取认证模块和桥接模块 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
-
-        <!-- 获取评测模块 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="evals"/>
-
-        <!-- 获取测试模块 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
-
-        <!-- 触发 Mock Provider 单元测试 -->
-        <msg action="runAllTests" destination="agentTestModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="controlCenter"/>
     </factoryBoot>
 </moduleConfig>

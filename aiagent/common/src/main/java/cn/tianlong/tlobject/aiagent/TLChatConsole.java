@@ -1209,7 +1209,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("用法: /reloadconfig <模块名>（例如 outputValidator）");
                     return null;
                 }
-                msg.setAction("reloadModuleConfig").setParam("name", parts[1]);
+                msg.setAction("reloadModuleConfig")
+                        .setParam("name", parts[1])
+                        .setParam("userId", userId);
+                break;
+
+            case "audit":
+                msg.setAction("audit");
+                if (parts.length > 1) {
+                    try {
+                        msg.setParam("limit", Integer.parseInt(parts[1]));
+                    } catch (NumberFormatException e) {
+                        System.out.println("用法: /audit [条数]");
+                        return null;
+                    }
+                }
                 break;
 
             case "approve":
@@ -1766,6 +1780,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case "mcpInstall":
                 case "mcpRemove":
                     System.out.println("✓ " + message);
+                    break;
+                case "audit":
+                    System.out.println(message);
                     break;
                 default:
                     System.out.println("✓ " + message);
@@ -2884,6 +2901,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /reload -a <家族名>        重载Agent      (例如 app:myAgent)");
         System.out.println("  /reload -bs <家族名>       重载Java BaseSkill (例如 app:mySkill)");
         System.out.println("  /reloadconfig <模块名>      重载模块配置（如 outputValidator），不重启");
+        System.out.println("  /audit [条数]              查看控制中心的配置重载审计（默认 50 条）");
         System.out.println();
         System.out.println("查询命令:");
         System.out.println("  /agents [ownerName]    列出已注册的Agent");

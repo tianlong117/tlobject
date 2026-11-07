@@ -16,6 +16,7 @@
         <ifLog value="true"/>
         <logWait value="false" />
         <loglevel value="trace"/>
+        <controlCenterName value="controlCenter"/>
     </commonParams>
     <modulesParams>
         <module name="agentService" agentModule="aiagent_master" sessionManager="dbSessionManager" />
@@ -29,6 +30,12 @@
         <module name="appAuthModule"   authModule="auth" userModule="demoUserModule" />
     </modulesParams>
     <modules>
+        <!-- 工厂级控制中心：core 通用机制 + aiagent 策略子类 -->
+        <module name="controlCenter"
+                classfile="cn.tianlong.tlobject.aiagent.TLAgentControlCenter"
+                singleton="true"
+                necessary="yes"
+                configfile="controlCenter_config.xml"/>
         <!-- 主控Agent（独立模块名，避免递归） -->
         <module name="aiagent_master" sameClassAs="aiagent"  configfile="aiagent_master_config.xml"/>
         <module name="outputGuard" classfile="cn.tianlong.tlobject.aiagent.TLOutputGuard"/>
@@ -55,29 +62,10 @@
                 connTimeOut="30"
                 readTimeOut="120"/>
     </modules>
-    <factoryBoot>threadPool
+    <factoryBoot>
         <msg action="getModule" destination="moduleFactory" moduleName="logThreadPool"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="threadPool"    usePreReturnMsg="false" />
-        <msg action="getModule" destination="moduleFactory" moduleName="database"      usePreReturnMsg="false" />
-        <msg action="getModule" destination="moduleFactory" moduleName="dbSessionManager"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="myopenAiProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="agentService"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="outputGuard" />
-        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor" />
-        <msg action="getModule" destination="moduleFactory" moduleName="approvalGate" />
-        <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="outputValidator"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="toolExecutor"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
-
-        <!-- 单元测试模块（/test 命令）：Mock Provider + 辅助 Skill + 测试编排
-             测试目标为独立 aiagent 实例（aiagent_config.xml），不影响 aiagent_master 对话 -->
-        <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="agentTestModule"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="threadPool" usePreReturnMsg="false"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="database" usePreReturnMsg="false"/>
+        <msg action="getModule" destination="moduleFactory" moduleName="controlCenter"/>
     </factoryBoot>
 </moduleConfig>

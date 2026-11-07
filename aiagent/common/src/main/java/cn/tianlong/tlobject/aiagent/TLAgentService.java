@@ -52,6 +52,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("uninstall", "卸载 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("reload", "重载 Skill/Agent/BaseSkill");
         ACTION_REGISTRY.put("reloadModuleConfig", "重载模块配置（如 outputValidator，不重启）");
+        ACTION_REGISTRY.put("audit", "查看控制中心控制操作审计（/audit [条数]）");
         ACTION_REGISTRY.put("agents", "列出已注册 Agent");
         ACTION_REGISTRY.put("skills", "列出已注册 Skill");
         ACTION_REGISTRY.put("sessions", "列出所有历史会话");
@@ -143,6 +144,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "reload":          return doReload(fromWho, msg);
             case "reloadModuleConfig":
                 return doReloadConfig(fromWho, msg);
+            case "audit":           return doAudit(msg);
 
             // ── 查询 ──
             case "agents":          return doListAgents(fromWho, msg);
@@ -250,15 +252,22 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return msg.getStringParam("targetAgent", agentModule);
     }
 
-    /** 从 moduleRegistry 按家族名查找模块实例 */
+    /** 从注册表（控制中心/旧 moduleRegistry）按家族名查找模块实例 */
     private TLBaseModule findAgentInstance(String familyName) {
-        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, createMsg().setAction(REGISTRY_GET)
+        TLMsg result = putMsgToRegistry(createMsg().setAction(REGISTRY_GET)
                 .setParam(REGISTRY_P_KEY, familyName));
         if (result != null) {
             Object inst = result.getParam(INSTANCE);
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
         }
         return null;
+    }
+
+    /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
+    private TLMsg putMsgToRegistry(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
+        return putMsg(controlCenter.trim(), msg);
     }
 
     /** 按家族名从 registry 查找模块 */
@@ -695,6 +704,10 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String name = msg.getStringParam("name", msg.getStringParam("module", ""));
         if (name == null || name.isEmpty()) return fail("缺少参数: name");
 
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter != null && !controlCenter.trim().isEmpty())
+            return delegateReloadConfig(controlCenter.trim(), name, msg);
+
         TLBaseModule target = resolveReloadTarget(name);
         if (target == null) {
             return fail("模块未运行或不存在: " + name
@@ -737,6 +750,64 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         return ok(message, data);
     }
 
+    /** 委托控制中心执行 reload 治理，结果映射回本服务的 success/message/error/data。 */
+    private TLMsg delegateReloadConfig(String controlCenter, String name, TLMsg msg) {
+        TLMsg delegated = createMsg()
+                .setAction("reloadModuleConfig")
+                .setParam("name", name)
+                .setParam("userId", msg.getStringParam("userId", ""));
+        TLMsg result;
+        try {
+            result = putToControlCenter(controlCenter, delegated);
+        } catch (Throwable t) {
+            putLog("reloadModuleConfig(controlCenter): " + name + " 异常: " + t, LogLevel.ERROR);
+            return fail("模块配置重载异常: " + t);
+        }
+        if (result == null)
+            return fail("控制中心未返回结果: " + name);
+        if (!result.parseBoolean(RESULT, true)) {
+            Object errObj = result.getParam("error");
+            String err = errObj != null ? String.valueOf(errObj) : "未知错误";
+            if (err.isEmpty()) err = "未知错误";
+            return fail(err);
+        }
+        String message = result.getStringParam("message", "配置已重载: " + name);
+        return ok(message, result.getParam("data"));
+    }
+
+    /** 可覆盖：自测注入控制中心响应。 */
+    protected TLMsg putToControlCenter(String controlCenter, TLMsg msg) {
+        return putMsg(controlCenter, msg);
+    }
+
+    /** 查看控制中心审计记录：console /audit 与 WebUI /api/command 共用。 */
+    private TLMsg doAudit(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty())
+            return fail("控制中心未配置");
+        controlCenter = controlCenter.trim();
+        int limit = msg.getIntParam("limit", 50);
+        TLMsg result = putToControlCenter(controlCenter, createMsg()
+                .setAction("auditList").setParam("limit", limit));
+        if (result == null) return fail("控制中心未返回结果");
+        Object recordsObj = result.getParam(RESULT);
+        if (!(recordsObj instanceof java.util.List)) return fail("审计结果格式错误");
+        java.util.List<?> records = (java.util.List<?>) recordsObj;
+        StringBuilder sb = new StringBuilder("审计记录（" + records.size() + " 条）:");
+        for (Object o : records) {
+            if (!(o instanceof java.util.Map)) continue;
+            java.util.Map<?, ?> m = (java.util.Map<?, ?>) o;
+            sb.append("\n").append(m.get("time"))
+                    .append(" user=").append(m.get("userId"))
+                    .append(" ").append(m.get("action"))
+                    .append(" target=").append(m.get("target"))
+                    .append(" allowed=").append(m.get("allowed"))
+                    .append(" success=").append(m.get("success"))
+                    .append(" ").append(m.get("result"));
+        }
+        return ok(sb.toString(), records);
+    }
+
     /** 解析重载目标：registry 精确家族名 → 工厂已存在实例；不隐式创建 */
     protected TLBaseModule resolveReloadTarget(String name) {
         TLBaseModule target = findAgentInstance(name);
@@ -754,8 +825,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         TLMsg listMsg = createMsg().setAction(REGISTRY_LIST);
         if (ownerName != null && !ownerName.isEmpty()) listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
 
-        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
-        if (result == null) return fail("moduleRegistry 未配置");
+        TLMsg result = putMsgToRegistry(listMsg);
+        if (result == null) return fail("注册表未配置");
         java.util.List<Map<String, Object>> modules = (java.util.List<Map<String, Object>>) result.getParam(RESULT);
         if (modules == null || modules.isEmpty()) return ok("无 Agent", java.util.List.of());
 
@@ -791,7 +862,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         TLMsg getMsg = createMsg().setAction(REGISTRY_GET)
                 .setParam(REGISTRY_P_KEY, agentModule + ":schedule_task");
         getMsg.setSystemParam(IGNOREMODULEISNULL, true);
-        TLMsg got = putMsg(DEFAULTMODULEREGISTRY, getMsg);
+        TLMsg got = putMsgToRegistry(getMsg);
         Object skill = got == null ? null : got.getParam(INSTANCE);
         if (!(skill instanceof IObject))
             return fail("未找到定时任务技能 " + agentModule + ":schedule_task（请确认 " + agentModule + " 已配置该技能）");
@@ -823,7 +894,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         TLMsg getMsg = createMsg().setAction(REGISTRY_GET)
                 .setParam(REGISTRY_P_KEY, agentModule + ":schedule_task");
         getMsg.setSystemParam(IGNOREMODULEISNULL, true);
-        TLMsg got = putMsg(DEFAULTMODULEREGISTRY, getMsg);
+        TLMsg got = putMsgToRegistry(getMsg);
         Object skill = got == null ? null : got.getParam(INSTANCE);
         if (!(skill instanceof IObject))
             return fail("未找到任务技能 " + agentModule + ":schedule_task");
@@ -874,8 +945,8 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         TLMsg listMsg = createMsg().setAction(REGISTRY_LIST);
         if (ownerName != null && !ownerName.isEmpty()) listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
 
-        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
-        if (result == null) return fail("moduleRegistry 未配置");
+        TLMsg result = putMsgToRegistry(listMsg);
+        if (result == null) return fail("注册表未配置");
         java.util.List<Map<String, Object>> modules = (java.util.List<Map<String, Object>>) result.getParam(RESULT);
         if (modules == null || modules.isEmpty()) return ok("无 Skill", java.util.List.of());
 
@@ -1877,7 +1948,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         String toolName = msg.getStringParam("toolName", "");
         if (toolName.isEmpty()) return fail("用法: /param <工具名或家族名>");
         // 1) 按家族名从注册表查（aiagent_master:priceTeam 这类）
-        TLMsg regResult = putMsg(DEFAULTMODULEREGISTRY,
+        TLMsg regResult = putMsgToRegistry(
                 createMsg().setAction(REGISTRY_GET).setParam(REGISTRY_P_KEY, toolName));
         Object module = regResult != null ? regResult.getParam(INSTANCE) : null;
         if (!(module instanceof IObject))
@@ -2013,7 +2084,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         TLMsg listMsg = createMsg().setAction(REGISTRY_LIST);
         if (ownerName != null && !ownerName.isEmpty()) listMsg.setParam(REGISTRY_P_OWNERNAME, ownerName);
 
-        TLMsg result = putMsg(DEFAULTMODULEREGISTRY, listMsg);
+        TLMsg result = putMsgToRegistry(listMsg);
         if (result == null || !result.parseBoolean(RESULT, true)) {
             return fail("无法获取已安装模块列表");
         }

@@ -363,7 +363,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         targets.add(new CascadeTarget(rootAgent, "agent_chat", rootAgent));
 
         try {
-            TLMsg listResult = putMsg(DEFAULTMODULEREGISTRY,
+            TLMsg listResult = putMsgToRegistry(
                     createMsg().setAction(REGISTRY_LIST)
                             .setSystemParam(IGNOREMODULEISNULL, true)
                             .setParam(REGISTRY_P_OWNERNAME, rootAgent));
@@ -506,7 +506,7 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
 
     /**
      * 解析目标模块。
-     * 1) 先按完整 familyName 查 moduleRegistry（如 "aiagent_master:httpRequestSkill"）；
+     * 1) 先按完整 familyName 查注册表（控制中心/旧 moduleRegistry，如 "aiagent_master:httpRequestSkill"）；
      * 2) 裸名（无冒号）再按默认家族前缀查（targetAgent + ":" + name）——
      *    子 Agent 与全局工厂模块重名时保证评测目标取到注册表中的 Agent；
      * 3) 仍无则返回名字字符串（由 putMsg 按正常工厂流程查找）。
@@ -524,9 +524,16 @@ public class TLEvalsModule extends TLBaseModule implements TLAiAgentParamString 
         return targetName;
     }
 
-    /** 按 key 查 moduleRegistry，未命中返回 null */
+    /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */
+    private TLMsg putMsgToRegistry(TLMsg msg) {
+        String controlCenter = params == null ? null : params.get(CONTROLCENTER_NAME);
+        if (controlCenter == null || controlCenter.trim().isEmpty()) return null;
+        return putMsg(controlCenter.trim(), msg);
+    }
+
+    /** 按 key 查注册表（控制中心/旧 moduleRegistry），未命中返回 null */
     private Object registryGet(String key) {
-        TLMsg getResult = putMsg(DEFAULTMODULEREGISTRY,
+        TLMsg getResult = putMsgToRegistry(
                 createMsg().setAction(REGISTRY_GET)
                         .setSystemParam(IGNOREMODULEISNULL, true)
                         .setParam(REGISTRY_P_KEY, key));

@@ -20,6 +20,8 @@ public interface TLParamString {
     final String DEFAULTMODULEMONITOR = "moduleMonitor";
     final String DEFAULTCHECKPOINTMODULE = "checkpoint";
     final String DEFAULTMODULEREGISTRY = "moduleRegistry";
+    /** 工厂级控制中心模块名参数键（由工厂 commonParams 注入；未配置回退旧注册表） */
+    final String CONTROLCENTER_NAME = "controlCenterName";
     /**    模块名 *      */
     final String M_MSGBROADCAST = "msgBroadCast";
     final String M_HTTPCLIENT = "httpClient";
@@ -70,6 +72,8 @@ public interface TLParamString {
 
     final String FACTORY_ADDFACTORY = "addFactory";
     final String FACTORY_GETMODULE = "getModule";
+    /** 工厂代执行启动序列：以工厂为发送者逐条执行消息列表（保 familyName 语义） */
+    final String FACTORY_BOOTSTRAPMODULES = "bootstrapModules";
     final String FACTORY_GETMODULEPARAM = "getModuleParam";
     final String FACTORY_RELOADMODULE = "reloadModule";
     final String FACTORY_REGISTINFACTORY = "registInFactory";
