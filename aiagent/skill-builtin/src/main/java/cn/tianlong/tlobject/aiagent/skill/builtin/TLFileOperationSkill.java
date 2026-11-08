@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
+import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -29,6 +30,8 @@ public class TLFileOperationSkill extends TLBaseSkill {
 
     /** 允许操作的根目录（安全限制） */
     private String allowedRootPath = ".";
+    /** workspaceMode=true：相对路径与 search/glob 根解析到 workspace/{userId}，绝对路径原样使用 */
+    private boolean workspaceMode = false;
     /** 最大文件读取大小 */
     private int maxReadSize = 1024 * 1024; // 1MB
     /** 区间读（offset/limit）允许的最大文件大小——再大只能先 search 定位内容 */
@@ -65,6 +68,8 @@ public class TLFileOperationSkill extends TLBaseSkill {
         if (params != null) {
             if (params.get("allowedRootPath") != null)
                 allowedRootPath = params.get("allowedRootPath");
+            if (params.get("workspaceMode") != null)
+                workspaceMode = parseBoolParam(params.get("workspaceMode"));
             if (params.get("maxReadSize") != null) {
                 try { maxReadSize = Integer.parseInt(params.get("maxReadSize")); }
                 catch (NumberFormatException ignored) {}
@@ -84,11 +89,8 @@ public class TLFileOperationSkill extends TLBaseSkill {
             opProp.put("required", true);
             parameterSchema.put("operation", opProp);
 
-            Map<String, Object> pathProp = new LinkedHashMap<>();
-            pathProp.put("type", "string");
-            pathProp.put("description", "File or directory path (relative to allowed root)");
-            pathProp.put("required", true);
-            parameterSchema.put("path", pathProp);
+            // workspaceMode 在 params 解析后已确定；末尾还会整体刷新一次描述
+            parameterSchema.put("path", pathProp());
 
             Map<String, Object> contentProp = new LinkedHashMap<>();
             contentProp.put("type", "string");
@@ -105,6 +107,27 @@ public class TLFileOperationSkill extends TLBaseSkill {
             parameterSchema.put("glob", prop("string", "search: only search files matching this glob (default *)."));
             parameterSchema.put("max_results", prop("number", "search/glob: result cap (defaults 50 / 200)."));
         }
+
+        // path 描述随 workspaceMode 变化：parameterSchema 只在首建，而 setModuleParams 会被
+        // setParam/reloadConfig 重入——每次重入刷新，否则运行期改配置后模型看到的路径语义
+        // 与实际相反（与 TLWordJavaSkill 同一模式）。
+        parameterSchema.put("path", pathProp());
+    }
+
+    /** path 参数描述：随 workspaceMode 变化（schema 只首建，setModuleParams 可重入，每次刷新） */
+    private String pathDescription() {
+        return workspaceMode
+                ? "File or directory path (relative to the current user workspace)"
+                : "File or directory path (relative to allowed root)";
+    }
+
+    /** path 参数属性（保留 required；描述按当前 workspaceMode 刷新） */
+    private Map<String, Object> pathProp() {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("type", "string");
+        m.put("description", pathDescription());
+        m.put("required", true);
+        return m;
     }
 
     /** schema 属性小工厂：parameterSchema 里除 operation/path/content 外的单层 {type, description} 属性 */
@@ -140,32 +163,43 @@ public class TLFileOperationSkill extends TLBaseSkill {
         String content = contentRaw == null ? "" : String.valueOf(contentRaw);   // 显式 null→""，防 getBytes NPE 把 JVM 内部文案泄给 LLM
 
         String op = operation.toLowerCase();
-        boolean rootScoped = op.equals("search") || op.equals("glob");   // 全库导航：遍历 allowedRoot，不需要 path
+        boolean rootScoped = op.equals("search") || op.equals("glob");   // 全库导航：遍历根（workspaceMode 时为用户 workspace），不需要 path
         if (path.isEmpty() && !rootScoped) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error: path is required");
         }
 
-        // 安全检查：确保路径在允许范围内
+        // 路径解析：workspaceMode=true 时相对路径按 workspace/{userId} 解析、绝对路径原样使用，
+        // 不在此处做 allowedRoot 硬校验（越界交给执行器的路径守卫→审批）；false 时保持旧行为
         try {
-            Path allowedRoot = Paths.get(allowedRootPath).toAbsolutePath().normalize();
-            Path resolvedPath = allowedRoot.resolve(path).normalize().toAbsolutePath();
-            // 越界必须显式失败：绝不能"改用文件名"静默改投——那会让 write/edit/delete
-            // 操作到用户以为之外的另一个文件，而且回执看起来成功（比直接报错更危险）。
-            if (!resolvedPath.startsWith(allowedRoot)) {
-                return createMsg().setParam(RESULT, false)
-                        .setParam(AI_P_SKILLOUTPUT, "Error: path is outside allowed root: " + resolvedPath
-                                + " (allowed root: " + allowedRoot
-                                + "). Pass a path relative to the allowed root.");
+            Path allowedRoot;
+            Path resolvedPath;
+            if (workspaceMode) {
+                // 按需建用户 workspace；建不出来不在这里报错——真正读/写时会给出准确错误
+                allowedRoot = TLUserWorkspace.ensureUserRoot(msg);
+                resolvedPath = TLUserWorkspace.resolveInput(msg, path);
+            } else {
+                allowedRoot = Paths.get(allowedRootPath).toAbsolutePath().normalize();
+                resolvedPath = allowedRoot.resolve(path).normalize().toAbsolutePath();
+                // 越界必须显式失败：绝不能"改用文件名"静默改投——那会让 write/edit/delete
+                // 操作到用户以为之外的另一个文件，而且回执看起来成功（比直接报错更危险）。
+                if (!resolvedPath.startsWith(allowedRoot)) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "Error: path is outside allowed root: " + resolvedPath
+                                    + " (allowed root: " + allowedRoot
+                                    + "). Pass a path relative to the allowed root.");
+                }
             }
 
             switch (op) {
                 case "search":
-                    return doSearch(asString(input.getOrDefault("pattern", ""), ""),
+                    return doSearch(allowedRoot,
+                            asString(input.getOrDefault("pattern", ""), ""),
                             asString(input.getOrDefault("glob", "*"), "*"),
                             toInt(input.get("max_results"), 50));
                 case "glob":
-                    return doGlob(asString(input.getOrDefault("pattern", ""), ""),
+                    return doGlob(allowedRoot,
+                            asString(input.getOrDefault("pattern", ""), ""),
                             toInt(input.get("max_results"), 200));
                 case "read": {
                     // 区分"没传"与"传了但非法"——非法值显式报错，不静默回落整文件读
@@ -456,16 +490,15 @@ public class TLFileOperationSkill extends TLBaseSkill {
         }
     }
 
-    // ---- search / glob：代码库导航（走 allowedRoot，不按单文件 path 参数）----
+    // ---- search / glob：代码库导航（走根——workspaceMode 时为用户 workspace；不按单文件 path 参数）----
 
-    private TLMsg doSearch(String pattern, String globFilter, int maxResults) {
+    private TLMsg doSearch(Path rootDir, String pattern, String globFilter, int maxResults) {
         try {
             if (pattern.isEmpty()) return err("pattern is required for search");
             Pattern re = Pattern.compile(pattern);
             String gf = (globFilter == null || globFilter.isEmpty()) ? "*" : globFilter;
             PathMatcher pm = FileSystems.getDefault().getPathMatcher("glob:" + gf);
             List<String> excludes = excludeSet();
-            Path rootDir = allowedRoot();
             StringBuilder sb = new StringBuilder();
             int hits = 0;
             boolean skipped = false;   // 病态正则（StackOverflowError 是 Error）逐行消化的标记
@@ -522,12 +555,11 @@ public class TLFileOperationSkill extends TLBaseSkill {
         }
     }
 
-    private TLMsg doGlob(String pattern, int maxResults) {
+    private TLMsg doGlob(Path rootDir, String pattern, int maxResults) {
         try {
             if (pattern.isEmpty()) return err("pattern is required for glob");
             PathMatcher pm = FileSystems.getDefault().getPathMatcher("glob:" + pattern);
             List<String> excludes = excludeSet();
-            Path rootDir = allowedRoot();
             StringBuilder sb = new StringBuilder();
             int n = 0;
             boolean budgetHit = false;
@@ -553,10 +585,6 @@ public class TLFileOperationSkill extends TLBaseSkill {
         } catch (Exception e) {
             return err("Glob error: " + e.getMessage());
         }
-    }
-
-    private Path allowedRoot() {
-        return Paths.get(allowedRootPath).toAbsolutePath().normalize();
     }
 
     private List<String> excludeSet() {

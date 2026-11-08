@@ -5,6 +5,13 @@
              场景 approvalResumeExecute 依赖"执行器真的会问审批"来验证免复批。
              未启用时该场景会假绿（门禁根本不会被问到）。 -->
         <approvalModule value="approvalGate"/>
+        <!-- 路径守卫：workspace/{userId} 外读写需审批、跨用户直接拒绝。
+             开启时，所有在 TLUserWorkspace.PATH_ARGS 登记的工具（file_operation/word）
+             必须同时配置 workspaceMode="true"；只开守卫不开 workspaceMode 属于
+             fail-open 的错误配置（技能仍写旧根，守卫却按 workspace 判定）。
+             未配置 approvalModule 时守卫会 WARN；越界路径的 NEED_APPROVAL 退化为放行
+             （未配置审批 = 功能未启用），跨用户仍硬拒绝。 -->
+        <pathGuard value="true"/>
         <!-- 与生产默认一致：0=不限时；staleState 清理阈值保持默认 600000（含 approvalWaiters
              与"调用线程存活"两道跳过守卫） -->
         <executionTimeoutMs value="0"/>

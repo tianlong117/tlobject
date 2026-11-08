@@ -30,12 +30,19 @@
                sameClassAs="codeExecutionSkill"
                statup="true"
                skillName="code_execution"
+               workspaceMode="true"
                skillDescription="Execute inline code snippets in Python or JavaScript. Python stdout is UTF-8; when reading files, pass the correct encoding to open() (e.g. encoding='gbk' for GBK files)."/>
 
+        <!-- allowedScriptDir 必须显式配成 workspace 的绝对路径：默认 "." 在 scriptExecutionSkill 里
+             按**配置目录**（target/classes/conf/…）解析，workspace 脚本会在 CWD 切换逻辑之前
+             就被判"outside allowed directory"；配绝对路径后 workspace/{userId} 内的脚本可用。
+             发布版不写死机器路径：需要执行 workspace 内脚本时，请自行加
+             allowedScriptDir="/你的项目根/workspace"。 -->
         <skill name="scriptExecutionSkill"
                sameClassAs="scriptExecutionSkill"
                statup="true"
                skillName="script_execution"
+               workspaceMode="true"
                skillDescription="Execute an existing script file (.py, .sh, .js etc.) and return its output."/>
     </skills>
 

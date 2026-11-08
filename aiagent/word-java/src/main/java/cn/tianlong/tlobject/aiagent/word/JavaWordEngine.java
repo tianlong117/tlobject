@@ -19,7 +19,9 @@ import java.util.Map;
  *   写（其余）→ JSON 回执 map（ok/action/path/bytes，replace 系另带 replaced/skipped）。
  *
  * 路径规则：裸文件名（不含 / 与 \）落 workDir；含分隔符的相对路径按 allowedRoot 解析；
- * 越出 allowedRoot 一律报错（不像旧 fileOperationSkill 那样悄悄改投裸名——那不可预测）。
+ * 绝对路径原样使用。默认越出 allowedRoot 一律报错（不像旧 fileOperationSkill 那样悄悄改投
+ * 裸名——那不可预测）；{@link Config#allowOutsideRoot}=true 时跳过该判定，越界交给调用方的
+ * 路径守卫（workspaceMode 用：绝对路径经审批，不再在这里硬拒）。
  * 扩展名白名单只有 .docx，.doc/.docm 等给出明确提示。
  *
  * 创建日期：2026/10/07 作者:tianlong
@@ -29,6 +31,8 @@ public class JavaWordEngine {
     public static class Config {
         public Path allowedRoot;
         public Path workDir;
+        /** true = 不做 startsWith(allowedRoot) 拒绝（绝对/相对越界路径原样使用，交给外部路径守卫） */
+        public boolean allowOutsideRoot = false;
         public boolean backup;            // 改动前是否留 .bak.docx（默认关，原子写已够安全）
         /** 中文排版（layout="chinese"，默认）：H1 居中 + 正文段落首行缩进 2 字符；false = plain */
         public boolean chineseLayout = true;
@@ -90,9 +94,11 @@ public class JavaWordEngine {
         if (raw == null || raw.trim().isEmpty()) throw new IOException("path is required");
         String s = raw.trim();
         boolean bare = s.indexOf('/') < 0 && s.indexOf('\\') < 0;
+        // Path.resolve(绝对路径) 原样返回绝对路径，故绝对路径不需要单独分支
         Path p = bare ? cfg.workDir.resolve(s) : cfg.allowedRoot.resolve(s);
         p = p.normalize().toAbsolutePath();
-        if (!p.startsWith(cfg.allowedRoot.toAbsolutePath().normalize()))
+        if (!cfg.allowOutsideRoot
+                && !p.startsWith(cfg.allowedRoot.toAbsolutePath().normalize()))
             throw new IOException("path outside allowed root (" + cfg.allowedRoot + "): " + raw);
         String lower = p.getFileName().toString().toLowerCase();
         if (!lower.endsWith(".docx"))

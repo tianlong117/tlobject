@@ -3,15 +3,18 @@
     <!-- ===== HITL 人工审批模块配置 =====
          此模块为全局单例，所有 Agent 共享同一套审批规则。
          启用方式：共享工具执行器自身配置（toolExecutor_config.xml 的 approvalModule=approvalGate），
-         全应用统一启用；规则按工具名匹配——危险工具（file_operation/code_execution）只在子 agent
+         全应用统一启用；规则按工具名匹配——危险工具（code_execution/script_execution）只在子 agent
          上，天然审批下沉，master 打不中规则不受影响。
          会话/用户隔离由审批请求消息携带的 sessionId/userId 保证（拒绝记忆按会话键）。
 
          规则为结构化 &lt;rules&gt; 段（见下方），操作名提取逻辑（见 TLApprovalModule.extractOperation）:
-           file_operation → args.operation (read/write/edit/list/exists/delete/search/glob)
-           http_request   → args.method (GET/POST/PUT/DELETE)
-           word           → args.action (delete_paragraph/set_table_cell/create/…，即 word 的动作名)
+           priceTeam      → rule="*"（任意操作都命中）
            code_execution / script_execution → 无操作参数，命中即审批
+         路径类工具不再配动作级规则：
+           file_operation / word → workspace/{userId} 内免审，越界访问由执行器的 path_access
+                                  动态审批覆盖（forceApproval，不依赖规则名），跨用户由路径守卫硬拒绝；
+           MCP write_file        → 由 TLMcpAgent.userWorkspaceScoped 处理（跨用户/根外路径在转发前
+                                  拒绝），不经过执行器的 path_access 审批。
     -->
     <params>
         <!-- 审查人实现类（全限定名）
@@ -39,50 +42,26 @@
          description : 人可读说明（审批弹框中展示）
          action      : 需审批的操作列表（逗号分隔，如 "delete,write"）；不配或 rule="*" = 全部操作 -->
     <rules>
-        <rule name="file_operation"
-              statup="true"
-              description="删除/写入/编辑文件需要审批"
-              action="delete,write,edit"/>
-
-        <!-- ===== MCP filesystem 写工具 =====
-             MCP 的函数名是 agentName_toolName（filesystemMcp_write_file /
-             filesystemMcpWrite_write_file），不走 file_operation 的 allowedRootPath；
-             其允许根在各 agent 的 server-filesystem args（已收到 workspace/ 沙箱），
-             这里再挂一层审批。不配 action = 该工具全部操作都审批。 -->
-        <rule name="filesystemMcp_write_file"
-              statup="true"
-              description="MCP 文件写入需要审批（filesystemMcp / fileAgent）"/>
-        <rule name="filesystemMcpWrite_write_file"
-              statup="true"
-              description="MCP 文件写入需要审批（filesystemMcpWrite / 店员 agent）"/>
+        <!-- ===== 路径策略（2026-11-07）=====
+             file_operation / word：workspace/{userId} 内全部免审（含读写删与 word 覆盖动作）；
+             越界访问由执行器的 path_access 动态审批覆盖（forceApproval，不依赖规则名）；
+             跨用户由路径守卫硬拒绝，不进入审批。
+             MCP write_file：由 TLMcpAgent.userWorkspaceScoped 在转发前拦截（跨用户/根外拒绝），
+             不经过执行器的 path_access 审批。
+             因此这里不再配置 file_operation / word / MCP write_file 的动作级规则。 -->
 
         <rule name="priceTeam"
               statup="true"
               description="询价/下单需要审批"
               rule="*"/>
 
-        <!-- ===== word（Word 文档读写技能）=====
-             背景：word 技能（TLWordJavaSkill，函数名 word）此前完全未挂审批规则——
-             它能直接覆盖/删除已有文档内容，却连 file_operation 的 delete/write 那点门禁都没有。
-
-             门禁边界（刻意只卡"整块覆盖已有内容"的动作，与 file_operation 的 delete/write 同级）：
-               需审批 — delete_paragraph（删整段）
-                        set_paragraph（整段替换）
-                        set_table_cell（整格替换，顺带丢掉格内其他段落）
-                        create（overwrite=true 时覆盖已有文件）
-                        fill_template（output 缺省 = 就地覆盖输入模板）
-               不审批 — replace（原地文本替换，保留格式，且有 skipped 回执告知跳过哪些段）
-                        insert_paragraph / append / add_table_row（纯新增，不毁已有内容）
-                        read / outline / tables / info（只读）
-             为什么不整工具全审：word 是高频编辑工具（改错别字、加一行都要调），
-             每次弹框会让日常编辑不可用；只卡覆盖类动作，保护与可用性才平衡。
-
-             注意 action 列表里填的是 word 的动作名（extractOperation 的 default 分支取 args.action），
-             不是 "delete"/"write" 这类通用操作名——写错会因"提取不到操作名"而整工具全审（取安全侧）。
-             新增 word 动作时，若是覆盖类，记得加进这里。 -->
-        <rule name="word"
+        <!-- 任意代码/脚本执行都必须审批：工具层无法事前判断它会读写哪些路径；
+             子进程 CWD 已指向 workspace/{userId}，可用“本轮/本会话免审”减少弹框。 -->
+        <rule name="code_execution"
               statup="true"
-              description="Word 文档：整段/整单元格覆盖、删除段落、覆盖已有文件需要审批"
-              action="delete_paragraph,set_paragraph,set_table_cell,create,fill_template"/>
+              description="执行代码需要审批"/>
+        <rule name="script_execution"
+              statup="true"
+              description="执行脚本需要审批"/>
     </rules>
 </moduleConfig>

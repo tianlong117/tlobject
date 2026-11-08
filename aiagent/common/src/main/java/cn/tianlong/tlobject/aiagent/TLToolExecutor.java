@@ -43,6 +43,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
      */
     private long staleStateTimeoutMs = 600000;
 
+    /** 路径守卫：workspace 外读写需审批、跨用户直接拒绝（2026-11-07） */
+    private boolean pathGuard = false;
+    /** "pathGuard 已启用但未配置审批模块"的 WARN 只打一次（未配置审批模块 = NEED_APPROVAL 放行，跨用户仍硬拒绝） */
+    private boolean pathGuardWarned = false;
+
     /**
      * 框架注入到 execMsg 的保留参数键。LLM arguments 里的同名键必须在注入前剥离：
      * 执行器最后会逐项 setParam(args)，后写覆盖前写——审批看顶层 args、技能/MCP 读被覆盖值，
@@ -178,6 +183,8 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 executionTimeoutMs = Long.parseLong(params.get("executionTimeoutMs"));
             if (params.get("staleStateTimeoutMs") != null)
                 staleStateTimeoutMs = Long.parseLong(params.get("staleStateTimeoutMs"));
+            if (params.get("pathGuard") != null)
+                pathGuard = Boolean.parseBoolean(params.get("pathGuard"));
         }
     }
 
@@ -331,10 +338,13 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 if (task.timeoutMs > 0)
                     execMsg.setSystemParam(TASKTIMEOUT, task.timeoutMs);
                 // 断点恢复的"已批准"执行：人工已就本次调用做过决策，不得再次过门禁。
-                // 仅单任务批次生效——多任务批次里"批准一个"不等于"批准全部"（T7 的恢复路径就是单任务）
+                // 仅单任务批次生效——多任务批次里"批准一个"不等于"批准全部"（T7 的恢复路径就是单任务）。
+                // 来源决定跳过哪道门禁：path_access 跳过路径门禁、static（或空）跳过静态门禁。
                 if (tasks.size() <= 1
                         && TLApprovalRequest.APPROVED.equals(String.valueOf(msg.getSystemParam(AI_P_APPROVAL_DECISION, "")))) {
                     execMsg.setSystemParam(AI_P_APPROVAL_DECISION, TLApprovalRequest.APPROVED);
+                    Object origin = msg.getSystemParam(AI_P_APPROVAL_ORIGIN, null);
+                    if (origin != null) execMsg.setSystemParam(AI_P_APPROVAL_ORIGIN, origin);
                 }
                 TLMsg taskResult = putMsgNoWait(this, execMsg);
                 Object ttObj = taskResult == null ? null : taskResult.getParam(THREADPOOL_TASK);
@@ -661,10 +671,75 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             // 归一化：外部驱动可能传枚举/Boolean 等非 String，直接 equals 永远不命中
             boolean preApproved = TLApprovalRequest.APPROVED.equals(
                     String.valueOf(msg.getSystemParam(AI_P_APPROVAL_DECISION, "")));
+            // 免复批只跳过"发起断点的那道门禁"：路径审批断点恢复后静态规则仍须评估，
+            // 静态审批断点恢复后路径守卫仍须评估（路径门禁先于静态门禁）。
+            // 空 origin（旧调用方）按 static 处理：跳过静态门禁，路径门禁照常评估。
+            String approvalOrigin = String.valueOf(msg.getSystemParam(AI_P_APPROVAL_ORIGIN, ""));
+            boolean preApprovedPath = preApproved && "path_access".equals(approvalOrigin);
+            boolean preApprovedStatic = preApproved && !preApprovedPath;
             String approvalToolName = task.functionName != null && !task.functionName.isEmpty()
                     ? task.functionName : task.moduleName;
+
+            // ==== 路径守卫（先于静态审批）====
+            if (pathGuard) {
+                if (!pathGuardWarned && approvalModule == null
+                        && (approvalModuleName == null || approvalModuleName.isEmpty())) {
+                    pathGuardWarned = true;
+                    putLog("pathGuard 已启用但未配置 approvalModule：越界路径的 NEED_APPROVAL 将放行"
+                            + "（跨用户仍硬拒绝；未配置审批 = 功能未启用）", LogLevel.WARN);
+                }
+                TLUserWorkspace.Decision pd =
+                        TLUserWorkspace.evaluate(task.functionName, task.args, msg);
+                if (pd.kind == TLUserWorkspace.Decision.Kind.DENY) {
+                    putLog("Path guard DENY: tool=" + approvalToolName + " paths=" + pd.outsidePaths
+                            + " reason=" + pd.error, LogLevel.INFO);
+                    // ToolResult.state 是控制态字符串域（pending/rejected/...），与执行器进度状态
+                    // TOOL_STATUS_ERROR 不是同一域，这里保留字面量 "error"
+                    finishTask(state, task, idx,
+                            new ToolResult(task.toolCallId,
+                                    "⚠️ 路径访问被拒绝：" + pd.error, "error", "路径跨用户"),
+                            TOOL_STATUS_ERROR, 0L, "路径越权");
+                    return null;
+                }
+                if (pd.kind == TLUserWorkspace.Decision.Kind.NEED_APPROVAL && preApprovedPath) {
+                    putLog("Path approval bypassed (pre-approved resume, origin=path_access): "
+                            + approvalToolName + " toolCallId=" + task.toolCallId, LogLevel.INFO);
+                }
+                if (pd.kind == TLUserWorkspace.Decision.Kind.NEED_APPROVAL && !preApprovedPath) {
+                    state.approvalWaiters.incrementAndGet();
+                    try {
+                        String op = pathOperation(task);
+                        String outsideText = pd.outsidePaths.toString();
+
+                        // 强制审批的元数据走 extra；toolArgs 传真实工具参数——断点恢复时
+                        // TLAiAgent 会把 approvalModifiedArguments 写回原 tool_call，合成参数
+                        // （{operation,path}）会让真实调用丢字段（如 file_operation 丢 content）
+                        Map<String, Object> extra = new LinkedHashMap<>();
+                        extra.put(AI_P_APPROVAL_FORCE, true);
+                        extra.put(AI_P_APPROVAL_RULEID, "path_access");
+                        extra.put("operation", op);
+                        extra.put("description", "访问工作目录之外的文件/目录需要审批: "
+                                + outsideText + " (工具: " + approvalToolName + ")");
+
+                        putLog("Path guard NEED_APPROVAL: tool=" + approvalToolName
+                                + " paths=" + outsideText + " op=" + op, LogLevel.INFO);
+                        TLMsg pathApproval = checkApprovalGate(
+                                task.toolCallId, task.args, "path_access",
+                                String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")),
+                                String.valueOf(msg.getSystemParam("userId", "default")),
+                                String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")),
+                                String.valueOf(msg.getSystemParam("rootSessionId",
+                                        String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")))),
+                                extra);
+                        if (blockedByApproval(state, task, idx, pathApproval)) return null;
+                    } finally {
+                        state.approvalWaiters.decrementAndGet();
+                    }
+                }
+            }
+
             TLMsg approvalResult = null;
-            if (!preApproved) {
+            if (!preApprovedStatic) {
                 state.approvalWaiters.incrementAndGet();
                 try {
                     approvalResult = checkApprovalGate(task.toolCallId, task.args, approvalToolName,
@@ -672,30 +747,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             String.valueOf(msg.getSystemParam("userId", "default")),
                             String.valueOf(msg.getSystemParam(AI_P_ROUNDID, "")),
                             String.valueOf(msg.getSystemParam("rootSessionId",
-                                    String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")))));
+                                    String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default")))),
+                            null);
                 } finally {
                     state.approvalWaiters.decrementAndGet();
                 }
             } else {
-                putLog("Approval bypassed (pre-approved resume): " + approvalToolName
-                        + " toolCallId=" + task.toolCallId, LogLevel.INFO);
+                putLog("Static approval bypassed (pre-approved resume, origin="
+                        + (approvalOrigin.isEmpty() ? "legacy/empty" : approvalOrigin) + "): "
+                        + approvalToolName + " toolCallId=" + task.toolCallId, LogLevel.INFO);
             }
-            if (approvalResult != null) {
-                String approvalState = approvalResult.getStringParam(AI_P_APPROVAL_STATE, "");
-                ToolResult tr = new ToolResult(task.toolCallId,
-                        approvalResult.getStringParam(AI_P_SKILLOUTPUT, ""));
-                tr.state = approvalState;
-                if ("rejected".equals(approvalState))
-                    tr.stateExtra = approvalResult.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
-                if ("pending".equals(approvalState))
-                    tr.approvalId = approvalResult.getStringParam(AI_P_APPROVAL_ID, "");
-                String status = "pending".equals(approvalState) ? TOOL_STATUS_PENDING
-                        : ("rejected".equals(approvalState) ? TOOL_STATUS_REJECTED : TOOL_STATUS_ERROR);
-                String text = "pending".equals(approvalState) ? "等待审批"
-                        : ("rejected".equals(approvalState) ? tr.stateExtra : approvalState);
-                finishTask(state, task, idx, tr, status, 0L, text);
-                return null;
-            }
+            if (blockedByApproval(state, task, idx, approvalResult)) return null;
 
             if (task.module == null) {
                 finishTask(state, task, idx,
@@ -862,7 +924,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
      */
     private TLMsg checkApprovalGate(String toolCallId, Map<String, Object> toolArgs,
                                      String toolName, String sessionId, String userId, String roundId,
-                                     String rootSessionId) {
+                                     String rootSessionId, Map<String, Object> extraParams) {
         if (approvalModule == null && approvalModuleName != null && !approvalModuleName.isEmpty()) {
             // 模块创建（getModule 触发构造/init）本身可能抛异常——与请求/putMsg 一样按 fail-closed
             // 收口，否则异常逃到 doToolExec 外层 catch，会变成不具 rejected 形状的通用执行错误
@@ -891,16 +953,20 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         if (approvalModule == null) return null;   // 未配置审批模块 = 功能未启用（与"配置了但不可用"区分）
 
         try {
-            TLMsg result = putMsg(approvalModule,
-                    createMsg().setAction(APPROVAL_REQUEST)
-                            .setParam("toolName", toolName)
-                            .setParam("toolArgs", toolArgs != null
-                                    ? new LinkedHashMap<>(toolArgs) : new LinkedHashMap<>())
-                            .setSystemParam(AI_P_SESSIONID, sessionId)
-                            .setSystemParam("userId", userId)
-                            .setParam("toolCallId", toolCallId)
-                            .setSystemParam(AI_P_ROUNDID, roundId)
-                            .setSystemParam("rootSessionId", rootSessionId));
+            TLMsg req = createMsg().setAction(APPROVAL_REQUEST)
+                    .setParam("toolName", toolName)
+                    .setParam("toolArgs", toolArgs != null
+                            ? new LinkedHashMap<>(toolArgs) : new LinkedHashMap<>())
+                    .setSystemParam(AI_P_SESSIONID, sessionId)
+                    .setSystemParam("userId", userId)
+                    .setParam("toolCallId", toolCallId)
+                    .setSystemParam(AI_P_ROUNDID, roundId)
+                    .setSystemParam("rootSessionId", rootSessionId);
+            if (extraParams != null) {
+                for (Map.Entry<String, Object> e : extraParams.entrySet())
+                    req.setParam(e.getKey(), e.getValue());
+            }
+            TLMsg result = putMsg(approvalModule, req);
 
             if (result == null) {
                 putLog("Approval gate no response → 拒绝执行（安全默认）", LogLevel.ERROR);
@@ -913,6 +979,54 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             putLog("checkApprovalGate error: " + e.toString() + " → 拒绝执行（安全默认）", LogLevel.ERROR);
             return buildApprovalUnavailable("审批门禁异常（非用户拒绝，可稍后重试）");
         }
+    }
+
+    /** file_operation/word 的操作归类：read / write / delete */
+    private static String pathOperation(ToolTask task) {
+        String fn = task.functionName == null ? "" : task.functionName;
+        Map<String, Object> args = task.args == null ? Collections.emptyMap() : task.args;
+        if ("file_operation".equals(fn)) {
+            Object op = args.get("operation");
+            String s = op == null ? "read" : String.valueOf(op).toLowerCase();
+            switch (s) {
+                case "read": case "list": case "exists": case "search": case "glob":
+                    return "read";
+                case "delete":
+                    return "delete";
+                default:
+                    return "write";
+            }
+        }
+        if ("word".equals(fn)) {
+            Object action = args.get("action");
+            String s = action == null ? "" : String.valueOf(action).toLowerCase();
+            switch (s) {
+                case "read": case "outline": case "tables": case "info":
+                    return "read";
+                default:
+                    return "write";
+            }
+        }
+        return "write";
+    }
+
+    /** 审批拦截结果统一收口：路径审批与静态审批共用 */
+    private boolean blockedByApproval(ExecutionState st, ToolTask task, int idx, TLMsg approvalResult) {
+        if (approvalResult == null) return false;
+        String approvalState = approvalResult.getStringParam(AI_P_APPROVAL_STATE, "");
+        ToolResult tr = new ToolResult(task.toolCallId,
+                approvalResult.getStringParam(AI_P_SKILLOUTPUT, ""));
+        tr.state = approvalState;
+        if ("rejected".equals(approvalState))
+            tr.stateExtra = approvalResult.getStringParam(AI_P_APPROVAL_REJECTREASON, "用户拒绝");
+        if ("pending".equals(approvalState))
+            tr.approvalId = approvalResult.getStringParam(AI_P_APPROVAL_ID, "");
+        String status = "pending".equals(approvalState) ? TOOL_STATUS_PENDING
+                : ("rejected".equals(approvalState) ? TOOL_STATUS_REJECTED : TOOL_STATUS_ERROR);
+        String text = "pending".equals(approvalState) ? "等待审批"
+                : ("rejected".equals(approvalState) ? tr.stateExtra : approvalState);
+        finishTask(st, task, idx, tr, status, 0L, text);
+        return true;
     }
 
     /** 审批不可用时的 fail-closed 结果：工具不执行，但状态必须是 UNAVAILABLE 而不是 REJECTED——

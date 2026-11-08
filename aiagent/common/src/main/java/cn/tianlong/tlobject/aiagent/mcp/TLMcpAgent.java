@@ -9,6 +9,7 @@ import cn.tianlong.tlobject.utils.TLDataUtils;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -46,6 +47,12 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
 
     /** 工具白名单（逗号分隔），为空则全部暴露 */
     private String toolFilter;
+
+    /** true = filesystem 类 MCP：相对路径按 {userId}/ 重写，跨用户拒绝（默认 false 保持旧行为） */
+    private boolean userWorkspaceScoped = false;
+
+    /** MCP server 的根目录（与 server-filesystem 的 args 根一致；空 = tlobject.workspaceRoot） */
+    private String pathRoot;
 
     // ======================== 运行时字段 ========================
 
@@ -116,6 +123,10 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
                 agentDescription = params.get("description");
             if (params.get("tools") != null)
                 toolFilter = params.get("tools");
+            if (params.get("userWorkspaceScoped") != null)
+                userWorkspaceScoped = Boolean.parseBoolean(params.get("userWorkspaceScoped"));
+            if (params.get("pathRoot") != null)
+                pathRoot = params.get("pathRoot");
             if (params.get("retryIntervalMs") != null) {
                 try { retryIntervalMs = Long.parseLong(params.get("retryIntervalMs")); }
                 catch (NumberFormatException ignored) {}
@@ -452,6 +463,96 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
         return functionNameToTool.get(functionName);
     }
 
+    // ======================== 路径作用域 ========================
+
+    /**
+     * 创建（按需）pathRoot 下当前用户的根目录。
+     *
+     * <p>filesystem MCP 的 write_file 不会创建父目录，也 chdir 不进不存在的目录：
+     * 新用户的第一次相对路径写入会因 {@code pathRoot/{uid}} 不存在而失败。
+     * 这里只保证用户根存在，嵌套目录仍由模型用 file_operation 创建（或由 MCP 自身支持）。</p>
+     *
+     * @return 创建后的用户根（绝对规范化路径）
+     */
+    static Path ensureScopedUserRoot(Path pathRoot, String userId) throws Exception {
+        Path root = pathRoot.toAbsolutePath().normalize();
+        Path own = root.resolve(cn.tianlong.tlobject.aiagent.TLPathSafety.safeSegment(userId, "default")).normalize();
+        java.nio.file.Files.createDirectories(own);
+        return own;
+    }
+
+    /**
+     * 把 MCP 文件类参数改写为用户 workspace 作用域。
+     * 相对路径 → {uid}/...；绝对路径在自己的 workspace 内 → 相对 root 的 {uid}/...；
+     * 跨用户 → 拒绝；root 之外 → 拒绝并提示改用 file_operation。
+     */
+    static Map<String, Object> scopeArguments(Map<String, Object> args,
+                                              String userId, Path pathRoot) throws Exception {
+        if (args == null) return null;
+        Path root = pathRoot.toAbsolutePath().normalize();
+        String seg = cn.tianlong.tlobject.aiagent.TLPathSafety.safeSegment(userId, "default");
+        Path own = root.resolve(seg).normalize();
+        Map<String, Object> out = new LinkedHashMap<>(args);
+        // 已知 filesystem MCP 的路径参数键（move_file 用 source/destination）；
+        // 新工具若引入别的路径键，必须加到这里，否则其路径会绕过作用域约束。
+        for (String key : new String[]{"path", "paths", "source", "destination"}) {
+            Object v = out.get(key);
+            if (v instanceof String) {
+                out.put(key, scopeOne((String) v, seg, own, root));
+            } else if (v instanceof List) {
+                List<String> rewritten = new ArrayList<>();
+                for (Object item : (List<?>) v) {
+                    if (item instanceof String) rewritten.add(scopeOne((String) item, seg, own, root));
+                }
+                out.put(key, rewritten);
+            }
+        }
+        return out;
+    }
+
+    private static String scopeOne(String raw, String seg, Path own, Path root) throws Exception {
+        if (raw == null || raw.trim().isEmpty()) return raw;
+        String s = raw.trim();
+        try {
+            Path p = java.nio.file.Paths.get(s);
+            Path abs;
+            if (p.isAbsolute()) {
+                abs = p.normalize().toAbsolutePath();
+                if (isCrossUserUnderRoot(abs, root, seg))
+                    throw new Exception("无权访问其他用户目录: " + abs);
+                if (!cn.tianlong.tlobject.aiagent.TLUserWorkspace.isInside(abs, own))
+                    throw new Exception("MCP 只允许访问用户工作目录，外部路径请改用 file_operation（会走审批）: " + abs);
+            } else {
+                String first = p.normalize().getNameCount() > 0 ? p.normalize().getName(0).toString() : "";
+                // 首段已是自己的 uid（Windows 下可能大小写不同）时直接挂 root，不再重复加 seg
+                abs = sameSegment(first, seg) ? root.resolve(p).normalize() : own.resolve(p).normalize();
+                if (isCrossUserUnderRoot(abs, root, seg))
+                    throw new Exception("无权访问其他用户目录: " + abs);
+                if (!cn.tianlong.tlobject.aiagent.TLUserWorkspace.isInside(abs, own))
+                    throw new Exception("MCP 只允许访问用户工作目录，外部路径请改用 file_operation（会走审批）: " + abs);
+            }
+            return root.relativize(abs).toString().replace('\\', '/');
+        } catch (java.io.IOError e) {
+            // 盘符相对路径（如 "a:b.py"）在 Windows 上 toAbsolutePath 取不到该盘工作目录即抛
+            // IOError（Error 族）。不在这里收口会逃出执行器的 catch(Exception) 杀死工作线程。
+            // InvalidPathException 仍按原有 unchecked 路径外抛（文案由上层统一处理）。
+            throw new Exception("非法路径: " + raw);
+        }
+    }
+
+    /** 按 MCP 自己的根判定跨用户（不能复用 TLUserWorkspace.baseRoot：pathRoot 可能不同） */
+    private static boolean isCrossUserUnderRoot(Path abs, Path root, String seg) {
+        if (!cn.tianlong.tlobject.aiagent.TLUserWorkspace.isInside(abs, root) || abs.equals(root))
+            return false;
+        Path rel = root.relativize(abs);
+        return rel.getNameCount() > 0 && !sameSegment(rel.getName(0).toString(), seg);
+    }
+
+    /** 路径段比较：Windows 大小写不敏感（Path.equals），POSIX 保持敏感——与 TLUserWorkspace.sameSegment 一致 */
+    private static boolean sameSegment(String a, String b) {
+        return java.nio.file.Paths.get(a).equals(java.nio.file.Paths.get(b));
+    }
+
     // ======================== 消息处理方法 ========================
 
     private TLMsg handleCallTool(Object fromWho, TLMsg msg) {
@@ -461,6 +562,28 @@ public class TLMcpAgent extends TLBaseModule implements TLAiAgentParamString, IA
         if (toolName.isEmpty()) {
             return createMsg().setParam(RESULT, false)
                     .setParam(AI_P_SKILLOUTPUT, "Error: toolName required");
+        }
+        if (userWorkspaceScoped) {
+            try {
+                Path root = (pathRoot == null || pathRoot.trim().isEmpty())
+                        ? cn.tianlong.tlobject.aiagent.TLUserWorkspace.baseRoot()
+                        : java.nio.file.Paths.get(pathRoot);
+                String uid = cn.tianlong.tlobject.aiagent.TLUserWorkspace.userId(msg);
+                // filesystem MCP 的 write_file 不能 chdir 进不存在的父目录：新用户首次写入前
+                // 先创建 pathRoot/{uid}。嵌套目录不在本守卫职责内（模型可用 file_operation 建）。
+                try {
+                    ensureScopedUserRoot(root, uid);
+                } catch (Exception | java.io.IOError e) {
+                    String err = e.getMessage() != null ? e.getMessage() : e.toString();
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "Error: 无法创建用户工作目录: " + err);
+                }
+                args = scopeArguments(args, uid, root);
+            } catch (Exception | java.io.IOError e) {
+                String err = e.getMessage() != null ? e.getMessage() : e.toString();
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error: " + err);
+            }
         }
         return callTool(toolName, args);
     }

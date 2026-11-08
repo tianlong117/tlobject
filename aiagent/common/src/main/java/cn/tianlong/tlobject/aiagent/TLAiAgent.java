@@ -1396,14 +1396,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                         ? (TLToolCall) msg.getParam("pendingToolCall") : null;
                 String savedApprovalId = msg.getStringParam(AI_P_APPROVAL_ID, "");
 
-                // 决策写回：调用方带了 decision（外部驱动）直接用；否则向审批模块查终态
+                // 决策写回：调用方带了 decision（外部驱动）直接用；否则向审批模块查终态。
+                // 审批来源（path_access/static）必须查：线上同一次调用可能先后过路径门禁与静态门禁，
+                // 恢复时只跳过"发起断点的那道门禁"——一律跳过会让路径审批断点绕过静态规则。
                 String decision = msg.getStringParam(AI_P_APPROVAL_DECISION, "");
-                TLMsg approvalState = null;
+                TLMsg approvalState = queryApproval(savedApprovalId);
                 if (decision.isEmpty()) {
-                    approvalState = queryApproval(savedApprovalId);
                     decision = approvalState != null
                             ? approvalState.getStringParam("decision", "pending") : "pending";
                 }
+                // 查询失败/gate 不可用 → 按 static：静态门禁按已批准跳过，路径门禁照常评估（兼容旧调用方）
+                String approvalOrigin = approvalState != null
+                        && "path_access".equals(approvalState.getStringParam(AI_P_APPROVAL_TOOLNAME, ""))
+                        ? "path_access" : "static";
                 if ("approved".equals(decision) && savedTc != null) {
                     @SuppressWarnings("unchecked")
                     java.util.Map<String, Object> modifiedArgs =
@@ -1437,7 +1442,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                                     .setSystemParam("userId", ctx.userId)
                                     .setSystemParam("rootSessionId", ctx.rootSid)
                                     .setSystemParam(AI_P_ROUNDID, ctx.roundId)
-                                    .setSystemParam(AI_P_APPROVAL_DECISION, "approved"));   // 免复批
+                                    .setSystemParam(AI_P_APPROVAL_DECISION, "approved")   // 免复批
+                                    .setSystemParam(AI_P_APPROVAL_ORIGIN, approvalOrigin));  // 只跳过来源门禁
                     List<TLAttachmentRef> pendingImages = new ArrayList<>();
                     TLToolExecutor.ToolResult singleResult = null;
                     if (singleExecResult != null) {
@@ -3080,6 +3086,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             case "sessionId": return sessionId;
             case "agentName": return name;
             case "agentDescription": return agentDescription != null ? agentDescription : "";
+            case "userId": return TLUserWorkspace.userId(msg);
+            case "userWorkspace":
+                return TLUserWorkspace.userRoot(msg).toString().replace('\\', '/');
         }
         // 4. 未匹配 → 原样保留，不破坏模板
         return "{{" + key + "}}";

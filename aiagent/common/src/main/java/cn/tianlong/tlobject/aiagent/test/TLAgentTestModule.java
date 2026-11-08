@@ -529,6 +529,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("groupProgress",   new String[]{"31-Agent组进度", null});
         TEST_CASES.put("checkpointResumeHistory", new String[]{"34-检查点恢复保留原轮历史", "需要 sessionManager"});
         TEST_CASES.put("abortContext",    new String[]{"35-中断轮上下文与会话同口径", "test_sleep 未注册", "sessionManager"});
+        TEST_CASES.put("workspaceIsolation", new String[]{"36-用户 workspace 路径矩阵", null});
     }
 
     /**
@@ -627,6 +628,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "approvalcheckpointdiscard": return this::testApprovalCheckpointDiscard;
             case "approvalpendingcheckpoint": return this::testApprovalPendingCheckpoint;
             case "abortcontext":    return this::testAbortContext;
+            case "workspaceisolation": return this::testWorkspaceIsolation;
             default:                return null;
         }
     }
@@ -1857,6 +1859,69 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return null;
     }
 
+    // ======================== 场景 36: 用户 workspace 路径矩阵 ========================
+
+    /**
+     * 消息级策略测试：自己的 workspace 与自己的 data 放行、跨用户拒绝、外部路径需审批。
+     * 只读判定，不调 LLM、不写真实文件，也不修改任何全局状态（workspace 根用默认值）；
+     * 执行器集成见 TLToolExecutorPathGuardSelfTest。
+     */
+    protected TLMsg testWorkspaceIsolation(Object fromWho, TLMsg msg) {
+        try {
+            TLMsg m = new TLMsg()
+                    .setSystemParam(AI_P_USERID, TEST_USER_ID)
+                    .setSystemParam(AI_P_SESSIONID, "workspace_isolation");
+
+            if (!TEST_USER_ID.equals(TLUserWorkspace.userId(m)))
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "userId 解析错误: " + TLUserWorkspace.userId(m));
+
+            TLUserWorkspace.Decision inside = TLUserWorkspace.evaluate("file_operation",
+                    java.util.Map.<String, Object>of("operation", "write", "path", "rel.txt"), m);
+            if (inside.kind != TLUserWorkspace.Decision.Kind.ALLOW)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "workspace 内应 ALLOW，实为 " + inside.kind);
+
+            java.nio.file.Path ownData = java.nio.file.Paths.get("data")
+                    .toAbsolutePath().normalize()
+                    .resolve(TEST_USER_ID).resolve("uploads/x.png");
+            TLUserWorkspace.Decision data = TLUserWorkspace.evaluate("file_operation",
+                    java.util.Map.<String, Object>of("operation", "read", "path", ownData.toString()), m);
+            if (data.kind != TLUserWorkspace.Decision.Kind.ALLOW)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "自己的 data 应 ALLOW，实为 " + data.kind);
+
+            java.nio.file.Path other = TLUserWorkspace.baseRoot()
+                    .resolve(TEST_USER_ID + "-other").resolve("x.txt");
+            TLUserWorkspace.Decision cross = TLUserWorkspace.evaluate("file_operation",
+                    java.util.Map.<String, Object>of("operation", "read", "path", other.toString()), m);
+            if (cross.kind != TLUserWorkspace.Decision.Kind.DENY)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "跨用户应 DENY，实为 " + cross.kind);
+            if (!cross.error.contains("无权访问其他用户目录"))
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "跨用户错误文案异常: " + cross.error);
+
+            java.nio.file.Path outside = TLUserWorkspace.baseRoot()
+                    .resolveSibling("tlws-outside-" + System.nanoTime() + ".txt");
+            TLUserWorkspace.Decision out = TLUserWorkspace.evaluate("word",
+                    java.util.Map.<String, Object>of(
+                            "action", "create", "path", "a.docx", "output", outside.toString()), m);
+            if (out.kind != TLUserWorkspace.Decision.Kind.NEED_APPROVAL)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "外部路径应 NEED_APPROVAL，实为 " + out.kind);
+            if (!out.outsidePaths.contains(outside))
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "outsidePaths 未包含外部路径: " + out.outsidePaths);
+
+            log("[TEST]   workspace: 内放行 / 自身 data 放行 / 跨用户拒绝 / 外部审批 通过");
+            return createMsg().setParam(RESULT, true);
+        } catch (Exception e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "workspace isolation exception: " + e);
+        }
+    }
+
     // ======================== 场景 8: 批次超时 ========================
 
     @SuppressWarnings("unchecked")
@@ -2933,8 +2998,14 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, true);
     }
 
-    /** 断点恢复测试用的临时文件（相对启动目录；file_operation 默认根 "."） */
-    protected static final String RESUME_PROBE_FILE = "data/aitest_resume_probe.txt";
+    /**
+     * 断点恢复测试用的临时文件：放在测试用户 workspace 内，用绝对路径传给 file_operation
+     * （aitest 配置 workspaceMode=true 时相对路径落 workspace/{userId}，旧的相对 data/ 路径
+     * 会让工具删到另一个文件；绝对路径对 workspaceMode 开/关都成立，且执行器路径守卫信任自己的
+     * workspace）。正斜杠避免 JSON 字符串里的反斜杠转义问题。
+     */
+    protected static final String RESUME_PROBE_FILE = TLUserWorkspace.userRoot(TEST_USER_ID)
+            .resolve("data/aitest_resume_probe.txt").toString().replace('\\', '/');
 
     private TLMsg buildResumeChat(String approvalId, Object decision, List<TLConversationHistory> history,
                                   TLToolCall tc, String sessionId) {
@@ -3185,8 +3256,9 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, true);
     }
 
-    /** 场景 28 待批断点探针文件（相对启动目录；file_operation 默认根 "."） */
-    protected static final String PENDING_PROBE_FILE = "data/aitest_pending_probe.txt";
+    /** 场景 28 待批断点探针文件：同 {@link #RESUME_PROBE_FILE}，绝对路径落测试用户 workspace */
+    protected static final String PENDING_PROBE_FILE = TLUserWorkspace.userRoot(TEST_USER_ID)
+            .resolve("data/aitest_pending_probe.txt").toString().replace('\\', '/');
 
     /**
      * 待批断点生命周期（端到端）：真工具（file_operation delete）触发审批 → 无人接收转断点：

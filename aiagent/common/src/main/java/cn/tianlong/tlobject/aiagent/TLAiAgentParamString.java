@@ -485,15 +485,21 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_APPROVAL_TOOLNAME = "approvalToolName";
     /** 待审批的工具参数 */
     String AI_P_APPROVAL_TOOLARGS = "approvalToolArguments";
-    /** 审批决策：approved / rejected。执行器同时将其用作免复批旁路令牌——值=approved 时跳过审批门禁
-     * （断点恢复的已批准执行，仅单任务批次生效） */
+    /** 审批决策：approved / rejected。执行器同时将其用作免复批旁路令牌——值=approved 时只跳过与 approvalOrigin
+     * 匹配的门禁（空/static 跳过静态门禁，path_access 跳过路径门禁），仅单任务批次生效 */
     String AI_P_APPROVAL_DECISION = "approvalDecision";
+    /** 恢复时审批来源：path_access = 路径门禁；static = 静态规则门禁 */
+    String AI_P_APPROVAL_ORIGIN = "approvalOrigin";
     /** 审批是否处于断点态（defer 后为 true；弹框陈旧提示/自动续跑判据） */
     String AI_P_APPROVAL_DEFERRED = "approvalDeferred";
     /** 拒绝原因 */
     String AI_P_APPROVAL_REJECTREASON = "approvalRejectReason";
     /** 用户修改后的参数 */
     String AI_P_APPROVAL_MODIFIEDARGS = "approvalModifiedArguments";
+    /** 强制审批：跳过规则匹配，用于路径守卫等“动态触发”的审批 */
+    String AI_P_APPROVAL_FORCE = "forceApproval";
+    /** 动态审批的规则 id（授权键之一） */
+    String AI_P_APPROVAL_RULEID = "ruleId";
     /** 内建工具：LLM 主动请求人工审批 */
     String AGENT_REQUIREAPPROVAL = "require_approval";
 

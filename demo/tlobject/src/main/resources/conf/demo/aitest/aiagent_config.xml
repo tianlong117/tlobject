@@ -122,6 +122,7 @@
                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"
                statup="true"
                skillName="file_operation"
+               workspaceMode="true"
                skillDescription="Read and write files on the local filesystem. Supports reading text files and writing content to files. Operations: read, write, list, exists, delete."/>
 
         <skill name="codeExecutionSkill"

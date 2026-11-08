@@ -22,6 +22,7 @@
                sameClassAs="fileOperationSkill"
                statup="true"
                skillName="file_operation"
+               workspaceMode="true"
                allowedRootPath="."
                timeout="0"
                skillDescription="Read, write and edit files on the local filesystem. Operations: read (pass offset/limit to read a RANGE of a large file, output has line numbers; the 'N| ' prefix is display-only - do not copy it into old_string), write, edit (exact old_string->new_string replace; add context if not unique; set replace_all; prefer edit over write for existing files - never rewrite a whole file for a small change), list, exists, delete, search (regex content search, optional glob filter, default skips .git/node_modules/target dirs), glob (find files by pattern like **/*.py). Set backup=true on write/edit to keep a &lt;file>.bak. After changing code, run it to verify."/>
@@ -31,6 +32,7 @@
                sameClassAs="codeExecutionSkill"
                statup="true"
                skillName="code_execution"
+               workspaceMode="true"
                maxExecutionTime="300"
                skillDescription="Execute inline code snippets in Python or JavaScript. Python stdout is UTF-8; when reading files, pass the correct encoding to open() (e.g. encoding='gbk' for GBK files)."/>
         <!-- allowedScriptDir：注意相对路径（含默认 "."）是相对**配置目录**解析（不是进程工作目录）——
@@ -40,6 +42,7 @@
                sameClassAs="scriptExecutionSkill"
                statup="true"
                skillName="script_execution"
+               workspaceMode="true"
                maxExecutionTime="300"
                allowedScriptDir="."
                skillDescription="Execute an existing script file (.py, .sh, .js etc.) and return its output."/>

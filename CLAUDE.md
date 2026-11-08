@@ -24,7 +24,7 @@ mvn clean package -DskipTests
 mvn clean install -pl database -am -DskipTests
 ```
 
-No JUnit test framework is configured. Instead there are two layers of self-testing: runnable `main()` examples in the demo module, and `TLAgentTestModule` (aiagent, Mock Provider 驱动) — 9 deterministic test scenarios runnable via `/test` console command or `runAllTests` message (config: `conf/demo/aitest/` and `conf/demo/aiagent/`).
+No JUnit test framework is configured. Instead there are two layers of self-testing: runnable `main()` examples in the demo module, and `TLAgentTestModule` (aiagent, Mock Provider 驱动) — 36 deterministic test scenarios runnable via `/test` console command or `runAllTests` message (config: `conf/demo/aitest/` and `conf/demo/aiagent/`).
 
 ## Architecture
 
@@ -169,6 +169,14 @@ Built-in modules extending `TLBaseModule`:
       <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手..."/>
   </modulesParams>
   ```
+- **用户 workspace 与路径审批（2026-11-07）**：agent 生成文件默认落 `workspace/{userId}`（系统属性 `tlobject.workspaceRoot` 可覆盖）；
+  `file_operation`/`word` 的 `workspaceMode`、`code_execution`/`script_execution` 的 `workspaceMode`、
+  MCP 的 `userWorkspaceScoped` 默认关闭，demo 配置已开启。`TLToolExecutor` 的 `pathGuard` 在执行前判定：
+  自己的 workspace/data 放行、跨用户直接拒绝、workspace 外通过 `path_access` 强制审批（支持仅本次/本轮/本会话）；
+  `code_execution`/`script_execution` 每次执行审批。主 agent 提示词用 `{{userWorkspace}}`，禁止从历史记忆推断输出路径。
+  守护：`TLUserWorkspaceSelfTest`、`TLToolExecutorPathGuardSelfTest`、`TLApprovalModuleForcedSelfTest`、
+  `TLMcpAgentPathScopeSelfTest`、`FileWorkspaceModeSelfTest`、`WorkspaceModeExecutionSelfTest`、
+  `WordWorkspaceModeSelfTest`、`TLAiAgentVarSelfTest`、`/test workspaceIsolation`。
 
 **HITL 审批 (`approvalGate`，全局单例):**
 - 规则键是 **LLM 函数名**（`file_operation:delete`），不是模块名（`fileOperationSkill`）——审批门禁按 `ToolTask.functionName` 匹配
@@ -186,7 +194,7 @@ Built-in modules extending `TLBaseModule`:
 - **已知边界**：子 agent 委托路径的 pending 不上浮（fileAgent/codeAgent `enableCheckpoint=false` + `executeAsTool` 只转发输出文本）→ 委托类危险工具的"离线转断点"不成立，现阶段只在 master 自有 gated 工具上生效
 
 **单元测试 (`/test` 命令):**
-- 测试目标为独立 `aiagent` 实例（与主控 aiagent_master 隔离，不污染 /sessions），Mock Provider 驱动 9 场景
+- 测试目标为独立 `aiagent` 实例（与主控 aiagent_master 隔离，不污染 /sessions），Mock Provider 驱动 36 场景
 - chat 应用接入：`conf/demo/aiagent/` 的 `aiagent_config.xml` + `agentTestModule_config.xml`；两 demo 配置目录（aiagent/aitest）禁止互相引用，只共享 `conf/tlobject/`
 
 ### Configuration

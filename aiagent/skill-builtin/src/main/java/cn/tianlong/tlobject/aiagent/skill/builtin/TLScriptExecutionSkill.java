@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
+import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -24,6 +25,8 @@ import java.util.concurrent.TimeUnit;
  * - allowedScriptDir: 允许的脚本目录，默认 "."（当前工作目录）
  * - maxExecutionTime: 超时秒数，默认 60
  * - maxOutputSize: 最大输出字节数，默认 1MB
+ * - workspaceMode: 默认 false。true 时若脚本位于 workspace/{userId} 内，子进程 CWD 切到该
+ *   workspace（脚本的相对路径读写落在用户工作区）；脚本在 workspace 外（内置技能脚本）保持原 CWD。
  *
  * 创建日期：2026/7/7
  * 作者:tianlong
@@ -64,6 +67,13 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     /** 最大输出大小 */
     private int maxOutputSize = 1024 * 1024; // 1MB
 
+    /**
+     * workspaceMode=true：脚本位于 workspace/{userId} 内时子进程 CWD 切到该 workspace；
+     * 脚本在 workspace 外保持原 CWD（内置技能脚本如 browser/desktop/cloudRevenue 依赖它）。
+     * 默认 false = 旧行为。
+     */
+    private boolean workspaceMode = false;
+
     public TLScriptExecutionSkill() { super(); }
     public TLScriptExecutionSkill(String name) { super(name); }
     public TLScriptExecutionSkill(String name, TLObjectFactory factory) { super(name, factory); }
@@ -85,6 +95,8 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                 try { maxOutputSize = Integer.parseInt(params.get("maxOutputSize")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("workspaceMode") != null)
+                workspaceMode = Boolean.parseBoolean(params.get("workspaceMode"));
         }
 
         super.setModuleParams();
@@ -198,6 +210,15 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                         .setParam(AI_P_SKILLOUTPUT, "Error: script path is outside allowed directory: " + allowedRoot);
             }
 
+            // 跨用户硬拒绝：codeAgent 的 allowedScriptDir 是共享 workspace 根，仅有目录白名单时
+            // 用户 A 可通过一次会话级授权执行 bob/x.py。此检查与 workspaceMode 无关——workspace
+            // 外的内置脚本不属于任何用户，不会被判跨用户。
+            String uid = TLUserWorkspace.userId(msg);
+            if (TLUserWorkspace.isCrossUser(resolvedScript, uid)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_SKILLOUTPUT, "Error: 无权访问其他用户目录: " + resolvedScript);
+            }
+
             if (!Files.exists(resolvedScript)) {
                 return createMsg().setParam(RESULT, false)
                         .setParam(AI_P_SKILLOUTPUT, "Error: script not found: " + resolvedScript
@@ -209,7 +230,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
                         .setParam(AI_P_SKILLOUTPUT, "Error: not a file: " + resolvedScript);
             }
 
-            return executeScript(resolvedScript, arguments);
+            return executeScript(resolvedScript, arguments, msg);
 
         } catch (InvalidPathException e) {
             return createMsg().setParam(RESULT, false)
@@ -228,10 +249,14 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     }
 
     /**
-     * 通过子进程执行脚本文件
+     * 通过子进程执行脚本文件。
+     * workspaceMode=true 时：不主动创建 workspace（脚本能位于其中即说明目录已存在）；
+     * 仅当脚本位于该 workspace 内时才把子进程 CWD 切过去，workspace 外的脚本
+     * （内置技能脚本）保持原 CWD。
      */
-    private TLMsg executeScript(Path scriptPath, String arguments) {
+    private TLMsg executeScript(Path scriptPath, String arguments, TLMsg msg) {
         try {
+            Path ws = workspaceMode ? TLUserWorkspace.userRoot(msg) : null;
             // 构建命令：interpreter + script + args
             List<String> cmdList = new ArrayList<>();
             cmdList.add(interpreter);
@@ -247,6 +272,8 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
             // PYTHONIOENCODING 对所有 python 解释器生效，不影响其他脚本。
             if ("python".equalsIgnoreCase(interpreter) || interpreter.startsWith("python"))
                 pb.environment().put("PYTHONIOENCODING", "utf-8");
+            if (ws != null && TLUserWorkspace.isInside(scriptPath, ws))
+                pb.directory(ws.toFile());   // 脚本在用户工作区：相对路径读写落 workspace
 
             putLog("Executing script: " + String.join(" ", cmdList), LogLevel.DEBUG);
 

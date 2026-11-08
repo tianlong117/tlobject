@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.skill.builtin;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
 import cn.tianlong.tlobject.aiagent.TLProcessRegistry;
+import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -11,6 +12,7 @@ import javax.script.ScriptEngineManager;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -29,6 +31,12 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
     private int maxExecutionTime = 30;
     /** 最大输出大小 */
     private int maxOutputSize = 1024 * 100; // 100KB
+    /**
+     * workspaceMode=true：Python 子进程 CWD 设为 workspace/{userId}（按需创建），
+     * 脚本里的相对路径读写落在用户工作区；临时脚本文件本身仍在系统临时目录。
+     * 默认 false = 旧行为（继承本进程 CWD）。
+     */
+    private boolean workspaceMode = false;
 
     public TLCodeExecutionSkill() {
         super();
@@ -61,6 +69,8 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
                 try { maxOutputSize = Integer.parseInt(params.get("maxOutputSize")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("workspaceMode") != null)
+                workspaceMode = Boolean.parseBoolean(params.get("workspaceMode"));
         }
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
@@ -103,7 +113,7 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
         try {
             switch (language.toLowerCase()) {
                 case "python":
-                    return executePython(code);
+                    return executePython(code, msg);
                 case "javascript":
                 case "js":
                     return executeJavaScript(code);
@@ -146,9 +156,10 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
     }
 
     /**
-     * 通过子进程执行Python代码
+     * 通过子进程执行Python代码。
+     * workspaceMode=true 时子进程工作目录切到 workspace/{userId}（临时脚本仍放系统临时目录）。
      */
-    private TLMsg executePython(String code) {
+    private TLMsg executePython(String code, TLMsg msg) {
         File tempFile = null;
         try {
             // 将代码写入临时文件（固定 UTF-8）：Python 3 按 UTF-8 解析源码，
@@ -167,6 +178,24 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             // 注意：PYTHONIOENCODING 只影响 stdio，不改变 open() 的文件编码；
             // GBK 文章仍由脚本用 encoding='gbk' 读取，不会被转坏。
             pb.environment().put("PYTHONIOENCODING", "utf-8");
+            if (workspaceMode) {
+                // 用户工作区作为子进程 CWD：脚本的相对路径读写不落到应用启动目录。
+                // 创建失败必须 fail-closed 并如实报告——把不存在的目录交给 pb.start() 会
+                // 抛 IOException，被下面的通用 catch 伪装成"Python 未安装"。
+                Path ws = TLUserWorkspace.userRoot(msg);
+                try {
+                    Files.createDirectories(ws);
+                } catch (IOException e) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "Cannot create user workspace: " + ws
+                                    + " (" + e.getMessage() + ")");
+                }
+                if (!Files.isDirectory(ws)) {
+                    return createMsg().setParam(RESULT, false)
+                            .setParam(AI_P_SKILLOUTPUT, "Cannot create user workspace: " + ws);
+                }
+                pb.directory(ws.toFile());
+            }
 
             Process process = pb.start();
             Thread owner = Thread.currentThread();

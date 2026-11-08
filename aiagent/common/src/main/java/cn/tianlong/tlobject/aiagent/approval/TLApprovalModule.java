@@ -102,6 +102,9 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
     /** 拒绝记忆上限 */
     private static final int MAX_REJECTED_OPS = 200;
 
+    /** 强制审批未显式提供 ruleId 的 WARN 只打一次（避免每单刷屏） */
+    private boolean forcedRuleIdWarned = false;
+
     /** 拒绝记忆键的序列化器：保留值类型（Integer 1 与 String "1" 不能混成同一个键） */
     private static final com.google.gson.Gson KEY_GSON = new com.google.gson.Gson();
 
@@ -484,7 +487,35 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         String userId = String.valueOf(msg.getSystemParam("userId", ""));
 
         // 1. 规则判定 + 2. 授权命中自动批准（规则匹配与操作提取共用一趟）
-        RuleMatch match = matchRule(toolName, toolArgs);
+        // forceApproval=true：路径守卫等动态触发场景跳过规则匹配，直接进入审批。
+        boolean forced = msg.parseBoolean(AI_P_APPROVAL_FORCE, false);
+        RuleMatch match;
+        if (forced) {
+            match = new RuleMatch();
+            match.required = true;
+            match.ruleId = msg.getStringParam(AI_P_APPROVAL_RULEID, "");
+            if (match.ruleId == null || match.ruleId.isEmpty()) {
+                // 兜底用 toolName 而不是某个固定串：未来的强制审批调用方各自成键，
+                // 不会因为共享隐含 ruleId 而"批一单放行另一家"
+                match.ruleId = toolName != null ? toolName : "";
+                if (!forcedRuleIdWarned) {
+                    forcedRuleIdWarned = true;
+                    putLog("强制审批未提供 ruleId，按 toolName 兜底（tool=" + toolName
+                            + "）；调用方应显式传 ruleId", LogLevel.WARN);
+                }
+            }
+            // operation 优先取显式消息参数：真实 word 参数用 action（如 create），
+            // 而授权键应按 read/write/delete 粒度（由调用方归类后传入）
+            String explicitOp = msg.getStringParam("operation", "");
+            if (explicitOp != null && !explicitOp.isEmpty()) {
+                match.operation = explicitOp.toLowerCase();
+            } else {
+                String extracted = extractOperation(toolName, toolArgs);
+                match.operation = extracted != null ? extracted : "";
+            }
+        } else {
+            match = matchRule(toolName, toolArgs);
+        }
         if (!match.required) {
             return createMsg().setParam(AI_P_APPROVAL_STATE, "approved");
         }
@@ -508,9 +539,14 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         request.setRootSessionId(rootSessionId);
         request.setRuleId(match.ruleId);
         request.setUserId(userId);
-        // 命中规则的人可读说明（弹框展示）
-        String ruleDesc = findMatchedRuleDescription(toolName);
-        if (ruleDesc != null) request.setDescription(ruleDesc);
+        // 命中规则的人可读说明（弹框展示）；强制审批可显式传 description
+        String forcedDescription = msg.getStringParam("description", "");
+        if (!forcedDescription.isEmpty()) {
+            request.setDescription(forcedDescription);
+        } else {
+            String ruleDesc = findMatchedRuleDescription(toolName);
+            if (ruleDesc != null) request.setDescription(ruleDesc);
+        }
         request.setOperation(operation);
         request.setRiskLevel(riskLevel);
         request.setRationale(rationale);

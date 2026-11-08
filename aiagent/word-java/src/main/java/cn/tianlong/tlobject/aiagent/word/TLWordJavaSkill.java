@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.word;
 
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
+import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -8,6 +9,7 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -17,8 +19,11 @@ import java.util.Map;
  * 读/写/改 .docx：正文、标题层级、表格、模板占位符填充。仅支持 .docx（.doc 请先另存）。
  *
  * 配置参数（XML params）：
- *   allowedRootPath  允许操作的根目录（默认 "."，按进程 CWD 解析）
- *   workDir          裸文件名落到的工作目录（默认 data/documents）
+ *   allowedRootPath  允许操作的根目录（默认 "."，按进程 CWD 解析）；workspaceMode=true 时被忽略
+ *   workDir          裸文件名落到的工作目录（默认 data/documents）；workspaceMode=true 时被忽略
+ *   workspaceMode    true = 改用每用户 workspace/{userId}（TLUserWorkspace）作为 allowedRoot 与
+ *                    workDir，并放开 allowedRoot 硬校验（绝对路径交给执行器路径守卫→审批）；
+ *                    false（默认）= 上面的旧行为不变
  *   backup           true = 每个改内容的动作前留一份 xxx.bak.docx（默认 false）
  *   layout           排版默认值 chinese|plain（默认 chinese = H1 居中 + 正文首行缩进 2 字符；
  *                    plain = 不加对齐/缩进，适合英文文档/诗歌）；单次调用可覆盖
@@ -29,6 +34,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
 
     private String allowedRootPath = ".";
     private String workDir = "data/documents";
+    /** true = allowedRoot/workDir 切到每用户 workspace/{userId}，并放开 allowedRoot 硬校验 */
+    private boolean workspaceMode = false;
     /** 改动前是否留 .bak.docx：XML params 配默认值，单次调用可用 backup 参数覆盖 */
     private boolean backup = false;
     /** 排版默认值：chinese = H1 居中 + 正文首行缩进 2 字符；plain = 不加任何对齐/缩进 */
@@ -43,6 +50,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
         if (params != null) {
             if (params.get("allowedRootPath") != null) allowedRootPath = params.get("allowedRootPath");
             if (params.get("workDir") != null) workDir = params.get("workDir");
+            if (params.get("workspaceMode") != null)
+                workspaceMode = Boolean.parseBoolean(params.get("workspaceMode"));
             if (params.get("backup") != null) backup = Boolean.parseBoolean(params.get("backup"));
             String rawLayout = params.get("layout");
             if (rawLayout == null || rawLayout.trim().isEmpty()) {
@@ -102,7 +111,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "set_paragraph(path,index,text) | insert_paragraph(path,index,text,style?,position?) | "
                     + "delete_paragraph(path,index) | set_table_cell(path,table,row,col,text) | "
                     + "add_table_row(path,table,values?) | fill_template(path,data,output?)", true));
-            parameterSchema.put("path", prop("string", "File path: bare name → work dir; relative → allowed root; absolute must be inside allowed root"));
+            // workspaceMode 在 params 解析后已确定：schema 只建一次，描述必须按生效模式给出
+            parameterSchema.put("path", prop("string", pathDescription()));
             parameterSchema.put("content", prop("string", "Markdown content for create/append"));
             parameterSchema.put("find", prop("string", "Text to find (literal) for replace"));
             parameterSchema.put("replace", prop("string", "Replacement text"));
@@ -123,6 +133,11 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
         }
 
+        // path 描述随 workspaceMode 变化：parameterSchema 只在首建，而 setModuleParams 会被
+        // setParam/reloadConfig 重入——每次重入刷新，否则运行期改配置后模型看到的路径语义
+        // （裸名/相对/绝对各自落到哪）与实际相反。
+        parameterSchema.put("path", prop("string", pathDescription()));
+
         // layout 描述里插了动态默认值（Current default: <layout>）：parameterSchema 只在首建，
         // 而 setModuleParams 会被 setParam/reloadConfig 重入——每次重入刷新这一条，
         // 否则运行期改配置后模型看到的默认值提示与实际相反（对抗性评审 M1 实测）。
@@ -130,6 +145,13 @@ public class TLWordJavaSkill extends TLBaseSkill {
                 + "centered + 2-character first-line indent on body paragraphs; plain = no "
                 + "alignment/indent added (use for English documents, poetry, code blocks, or "
                 + "inserting into a document you did not create). Current default: " + layout));
+    }
+
+    /** path 参数描述：随 workspaceMode 变化（schema 只首建，setModuleParams 可重入，每次刷新） */
+    private String pathDescription() {
+        return workspaceMode
+                ? "File path: bare name or relative → current user workspace; absolute paths allowed (outside workspace requires approval)"
+                : "File path: bare name → work dir; relative → allowed root; absolute must be inside allowed root";
     }
 
     private Map<String, Object> prop(String type, String desc) { return prop(type, desc, false); }
@@ -219,15 +241,25 @@ public class TLWordJavaSkill extends TLBaseSkill {
      *  被局部 catch 转成干净 JSON 回执，见 execute。 */
     private JavaWordEngine ensureEngine(TLMsg msg, Map<String, Object> input, boolean chineseLayout) {
         JavaWordEngine.Config cfg = new JavaWordEngine.Config();
-        cfg.allowedRoot = Paths.get(allowedRootPath);
-        cfg.chineseLayout = chineseLayout;
-        Object sysUser = msg.getSystemParam(AI_P_USERID, null);
-        String userId = (sysUser != null && !String.valueOf(sysUser).isEmpty())
-                ? String.valueOf(sysUser) : msg.getStringParam(AI_P_USERID, null);
-        if (userId == null || userId.isEmpty()) {
-            userId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+        if (workspaceMode) {
+            // 每用户 workspace：allowedRoot 与 workDir 同一个根，裸名/相对路径都落用户区内。
+            // 绝对路径不再在这里硬拒（allowOutsideRoot）——越界由执行器路径守卫判定（跨用户硬拒、
+            // 其余走审批）。workspace 目录按需创建；建不出来不在这里报错，真正写文件时会给出准确错误。
+            Path ws = TLUserWorkspace.ensureUserRoot(msg);
+            cfg.allowedRoot = ws;
+            cfg.workDir = ws;
+            cfg.allowOutsideRoot = true;
+        } else {
+            cfg.allowedRoot = Paths.get(allowedRootPath);
+            Object sysUser = msg.getSystemParam(AI_P_USERID, null);
+            String userId = (sysUser != null && !String.valueOf(sysUser).isEmpty())
+                    ? String.valueOf(sysUser) : msg.getStringParam(AI_P_USERID, null);
+            if (userId == null || userId.isEmpty()) {
+                userId = String.valueOf(msg.getSystemParam(AI_P_SESSIONID, "default"));
+            }
+            cfg.workDir = Paths.get(workDir).resolve(userId);
         }
-        cfg.workDir = Paths.get(workDir).resolve(userId);
+        cfg.chineseLayout = chineseLayout;
         cfg.backup = (input != null && input.containsKey("backup"))
                 ? Boolean.parseBoolean(String.valueOf(input.get("backup")))
                 : backup;
