@@ -31,7 +31,6 @@ import org.jline.utils.NonBlockingReader;
  * TLAgentService 负责所有命令的实际执行。
  *
  * 配置参数 (XML params):
- *   agentModule   — 目标 Agent 模块名，默认 "aiagent"
  *   serviceModule — Agent 公共服务模块名，默认 "agentService"
  *   sessionId     — 默认会话 ID
  *   streamMode    — 默认流式模式，默认 "false"
@@ -42,7 +41,6 @@ import org.jline.utils.NonBlockingReader;
  */
 public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString {
 
-    private String agentModule = "aiagent";
     private String serviceModule = "agentService";
     private String userId = "console_user";
     /** 控制台附件导入根目录：须与 attachmentStore 的 dataBasePath 一致（默认 ./data/） */
@@ -147,7 +145,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     protected void setModuleParams() {
         super.setModuleParams();
         if (params != null) {
-            if (params.get("agentModule") != null) agentModule = params.get("agentModule");
             if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
             if (params.get("userId") != null) userId = params.get("userId");
             if (params.get("dataBasePath") != null) {
@@ -458,7 +455,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
         // 从 agentService 获取命令列表（供 Tab 补全/帮助）
         populateCommandCache();
-        printSkills();
 
         // 检测断点会话
         try {
@@ -2870,24 +2866,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             }
         } catch (Exception e) {
             // 获取失败时本地命令仍可用
-        }
-    }
-
-    /** 打印已注册 Skill */
-    @SuppressWarnings("unchecked")
-    /** 启动时打印已注册 Skill 的友好描述（直接查 agent，不走 registry 格式） */
-    private void printSkills() {
-        TLMsg result = putSafe(agentModule, createMsg().setAction(AGENT_LISTSKILLS));
-        if (result != null) {
-            java.util.List<String> skills = (java.util.List<String>) result.getListParam("skills", java.util.List.of());
-            if (skills.isEmpty()) {
-                System.out.println("⚠ 警告: 没有注册任何Skill！Tool Call功能不可用。");
-            } else {
-                System.out.println("已注册的Skill (" + skills.size() + "个):");
-                for (String name : skills) {
-                    System.out.println("  - " + name);
-                }
-            }
         }
     }
 

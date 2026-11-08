@@ -20,7 +20,7 @@
     </commonParams>
     <modulesParams>
         <module name="agentService" agentModule="aiagent_master" sessionManager="dbSessionManager" />
-        <module name="chatConsole" agentModule="aiagent_master" sessionManager="dbSessionManager"
+        <module name="chatConsole" sessionManager="dbSessionManager"
                 subscribeToolProgress="true" subscribeWorkflowProgress="true" />
         <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手，可以使用工具来帮助用户完成任务。请用简洁清晰的语言回答问题!。"/>
         <!-- outputGuard 输出护栏规则：amountLimit=金额超限预警；forbiddenTerms=禁止词替换。
