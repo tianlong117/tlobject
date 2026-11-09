@@ -4,7 +4,7 @@ import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.aiagent.TLAttachmentRef;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
-import cn.tianlong.tlobject.aiagent.TLPathSafety;
+import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
@@ -396,18 +396,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     // ======================== 聊天 ========================
 
     /**
-     * 用户目录名净化：userId 来自登录输入，拼进文件路径前必须去掉路径分隔符等字符，
-     * 防止 "alice/../bob" 这类 userId 让 data/{userId} 落到别人的目录。
-     */
-    private static String safeUserId(String userId) {
-        return TLPathSafety.safeSegment(userId, "default");
-    }
-
-    /**
-     * 附件归一化：前端传的是相对 data/{userId}/ 的路径（如 uploads/saved.png），
-     * 这里补成绝对路径再交 agent —— agent 侧 attachmentStore.register 只接受本用户 data/{uid}/ 内的真实文件。
-     * ⚠ 不能只补成相对路径 "data/{uid}/uploads/xxx"：register 对相对路径会再拼一次 userRoot（data/{uid}），
-     * 变成 data/{uid}/data/{uid}/... 而报"文件不存在"。
+     * 附件归一化：前端传的是相对 workspace/{userId}/ 的路径（如 uploads/saved.png），
+     * 这里补成绝对路径再交 agent —— agent 侧 attachmentStore.register 接受本用户 workspace/data 内的真实文件。
      */
     @SuppressWarnings("unchecked")
     private static List<Object> normalizeAttachments(List<Object> attachments, String userId) {
@@ -417,7 +407,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             Map<String, Object> m = new LinkedHashMap<>((Map<String, Object>) o);
             Object p = m.get("path");
             if (p != null && !new java.io.File(String.valueOf(p)).isAbsolute()) {
-                m.put("path", new java.io.File("data/" + safeUserId(userId) + "/" + p).getAbsolutePath());
+                m.put("path", TLUserWorkspace.resolveUploadPath(userId, String.valueOf(p)).toString());
             }
             m.put("origin", "user");
             norm.add(m);
@@ -638,7 +628,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         String userId = currentUserId();
         if (userId == null) return notLogin();
         try {
-            String filePath = "data/" + safeUserId(userId) + "/uploads";   // 相对启动目录；目录名净化防路径穿越
+            String filePath = TLUserWorkspace.uploadsDir(userId).toString();   // 用户上传件统一落 workspace
             TLMsg r = putMsg("uploadFile", createMsg().setAction(UPLOADFILE_UPLOAD)
                     .setParam(UPLOADFILE_P_FILESIZE, uploadSizeMaxMB * 1024 * 1024)   // int 字节，覆盖模块默认 1MB
                     .setParam(UPLOADFILE_P_FILEPATH, filePath));                     // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
@@ -666,8 +656,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
     }
 
+    /** 出图路径解析：相对路径按用户 workspace，允许本用户 workspace 或 data（旧上传件/自动附件） */
+    static java.io.File resolveImageFile(String userId, String path) {
+        java.nio.file.Path resolved = TLUserWorkspace.resolveExistingUpload(userId, path);
+        if (resolved == null || !TLUserWorkspace.isTrusted(resolved, userId)) return null;
+        return resolved.toFile();
+    }
+
     /**
-     * 附件出图：路径必须在当前用户的 data/{userId}/ 内；走 putStream 二进制输出（不走 outJson）。
+     * 附件出图：路径必须在本用户 workspace 或 data 内；走 putStream 二进制输出（不走 outJson）。
      * <p>path 来源：urlMap 未配 clientType/clientVars（二进制输出不能走 jsonClient），
      * 因此 GET query 不会进 msg 参数——优先取 msg 参数（兼容 POST/程序内调用），
      * 取不到再直接读 {@code request.getParameter("path")}（Servlet 容器按 application/x-www-form-urlencoded
@@ -686,12 +683,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         if (path.isEmpty()) return null;
         try {
-            String safeUid = safeUserId(userId);
-            java.io.File f = new java.io.File(path);
-            if (!f.isAbsolute()) f = new java.io.File("data/" + safeUid + "/" + path);
-            String root = new java.io.File("data/" + safeUid).getCanonicalPath() + java.io.File.separator;
-            if (!(f.getCanonicalPath().startsWith(root))) return null;   // 越权：直接断连不输出
-            if (!f.isFile()) return null;
+            java.io.File f = resolveImageFile(userId, path);
+            if (f == null) return null;   // 越权/不存在：直接断连不输出
             try (java.io.InputStream in = new java.io.FileInputStream(f)) {
                 putStream(f.getName(), in);        // 继承自 TLWServModule，按扩展名自动设 image/* content-type
             }

@@ -751,6 +751,16 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     public void runStartMsg() {
         putLog("=== [TLAiAgent] runStartMsg name=" + name + " configFile=" + configFile + " ===", LogLevel.INFO);
 
+        // attachmentStore 是懒加载模块：不能只靠它的 runStartMsg 做旧上传件迁移。
+        // agent 启动阶段触发一次（默认 data/ 根，每 JVM 一次；幂等）——否则首次上传前
+        // data/{uid}/uploads 永远留在原处，部署方看不到迁移结果。
+        TLUploadMigration.Result uploadMigration = TLUploadMigration.migrateOnce();
+        if (uploadMigration.moved > 0)
+            putLog("=== [TLAiAgent] 已迁移 " + uploadMigration.moved + " 个旧上传件到 workspace ===",
+                    LogLevel.INFO);
+        for (String warning : uploadMigration.warnings)
+            putLog("=== [TLAiAgent] 上传件迁移 " + warning + " ===", LogLevel.WARN);
+
         // 统一初始化所有模块（配置段 = 类型，不走 instanceof 检查）
         if (mconfig instanceof myConfig) {
             myConfig config = (myConfig) mconfig;

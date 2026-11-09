@@ -172,6 +172,15 @@ public class TLToolExecutorPathGuardSelfTest implements TLAiAgentParamString {
             check("自己的 data 放行", skill.called && approval.forcedCalls == 0);
             check("自己的 data 只过静态审批（1 次）", approval.calls == 1);
 
+            // 9b) 自己的 workspace 上传件：放行，只过静态审批
+            approval = new ApprovalStub();
+            skill = new StubSkill();
+            Path wsUpload = tmp.resolve("alice/uploads/pic.png").toAbsolutePath().normalize();
+            r = run(approval, null, skill, false, "file_operation",
+                    argsMap("operation", "read", "path", wsUpload.toString()));
+            check("自己的 workspace 上传件放行", skill.called && approval.forcedCalls == 0);
+            check("自己的 workspace 上传件只过静态审批（1 次）", approval.calls == 1);
+
             // 10) 配置了审批模块但不可用：fail-closed（不执行，状态 unavailable）
             approval = new ApprovalStub();
             skill = new StubSkill();

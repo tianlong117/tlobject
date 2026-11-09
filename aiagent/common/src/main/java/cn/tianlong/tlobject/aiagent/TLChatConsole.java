@@ -43,8 +43,6 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     private String serviceModule = "agentService";
     private String userId = "console_user";
-    /** 控制台附件导入根目录：须与 attachmentStore 的 dataBasePath 一致（默认 ./data/） */
-    private String dataBasePath = "./data/";
     /** 会被 /continue、切换会话写；msgBus 回调线程读（进度过滤）——必须可见 */
     private volatile String sessionId;
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
@@ -118,6 +116,23 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     @Override
     protected TLBaseModule init() { return this; }
 
+    /** /img 导入：把本机文件拷入 workspace/{uid}/uploads，返回目标文件；源不存在或复制失败返回 null */
+    static java.io.File importAttachment(String userId, String srcPath) {
+        try {
+            java.io.File src = new java.io.File(srcPath);
+            if (!src.isFile()) return null;
+            java.io.File dir = TLUserWorkspace.uploadsDir(userId).toFile();
+            if (!dir.exists() && !dir.mkdirs()) return null;
+            java.io.File dst = new java.io.File(dir,
+                    System.currentTimeMillis() + "_" + src.getName());
+            java.nio.file.Files.copy(src.toPath(), dst.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return dst;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     @Override
     protected TLMsg destroy(Object fromWho, TLMsg msg) {
         // 从总线注销订阅，否则模块卸载/重载后旧实例仍留在 receivers 里，继续 ack 审批事件。
@@ -148,8 +163,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
             if (params.get("userId") != null) userId = params.get("userId");
             if (params.get("dataBasePath") != null) {
-                dataBasePath = params.get("dataBasePath");
-                if (!dataBasePath.endsWith("/")) dataBasePath += "/";
+                putLog("dataBasePath 参数已废弃：上传件统一落在 workspace/{userId}/uploads",
+                        cn.tianlong.tlobject.modules.LogLevel.WARN);
             }
             if (params.get("sessionId") != null) sessionId = params.get("sessionId");
             if (params.get("streamMode") != null) streamMode = "true".equals(params.get("streamMode"));
@@ -1075,23 +1090,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("✗ 文件不存在: " + src.getAbsolutePath());
                     return null;
                 }
-                try {
-                    // ⚠ 必须拷进 data/{userId}/uploads/：attachmentStore.register 只接受
-                    //    本用户目录内的路径（跨用户越权防护），控制台的本机任意路径要先导入。
-                    //    userId 必须与 attachmentStore 同规则净化（".." / 分隔符不能上跳出 data/）
-                    String safeUid = TLPathSafety.safeSegment(userId, "default");
-                    java.io.File dir = new java.io.File(dataBasePath + safeUid + "/uploads");
-                    dir.mkdirs();
-                    java.io.File dst = new java.io.File(dir,
-                            System.currentTimeMillis() + "_" + src.getName());
-                    java.nio.file.Files.copy(src.toPath(), dst.toPath(),
-                            java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                    pendingAttachments.add(dst.getAbsolutePath());
-                    System.out.println("✓ 已登记附件 (" + pendingAttachments.size() + "): "
-                            + src.getName());
-                } catch (Exception e) {
-                    System.out.println("✗ 附件导入失败: " + e.getMessage());
+                java.io.File dst = importAttachment(userId, arg);
+                if (dst == null) {
+                    System.out.println("✗ 附件导入失败: " + arg);
+                    return null;
                 }
+                pendingAttachments.add(dst.getAbsolutePath());
+                System.out.println("✓ 已登记附件 (" + pendingAttachments.size() + "): "
+                        + src.getName());
                 return null;
             }
 

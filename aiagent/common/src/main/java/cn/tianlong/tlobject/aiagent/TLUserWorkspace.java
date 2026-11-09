@@ -14,7 +14,9 @@ import java.util.*;
  * <p>约定：
  * <ul>
  *   <li>用户工作目录 = {@code <tlobject.workspaceRoot>/<safeUserId>}，默认 {@code workspace/<userId>}；</li>
- *   <li>自己的 {@code data/{uid}}、{@code data/documents/{uid}} 视为可信区；</li>
+ *   <li>自己的 {@code data/{uid}}、{@code data/documents/{uid}} 视为可信区；
+ *       {@code data/{uid}/uploads} 仅兼容 2026-11-09 前的旧上传件（新上传件在
+ *       {@code workspace/{uid}/uploads}，见 {@link #uploadsDir(String)}）；</li>
  *   <li>其他用户的 workspace，以及其他用户 {@code data/{uid}/...} 下的已知 per-user 子目录
  *       视为跨用户，硬拒绝。已知子目录及其归属模块：{@code uploads}/{@code attachments}
  *       （上传件与附件）、{@code longterm_memory}（{@code TLLongTermMemoryModule}）、
@@ -62,7 +64,8 @@ public final class TLUserWorkspace implements TLAiAgentParamString {
 
     /**
      * {@code data/{uid}/} 下已知的 per-user 子目录（路径第二段），归属：
-     * uploads/attachments（上传件/附件）、longterm_memory（{@code TLLongTermMemoryModule}）、
+     * uploads（旧上传件位置，仅为兼容存量；新上传件在 workspace）、
+     * attachments（系统自动附件）、longterm_memory（{@code TLLongTermMemoryModule}）、
      * tasks（任务中心）、traces（Provider trace）、session_store（{@code TLSessionManager}）、
      * scheduled_tasks（{@code TLScheduleTaskSkill}）。
      *
@@ -121,6 +124,60 @@ public final class TLUserWorkspace implements TLAiAgentParamString {
         Path p = userRoot(msg);
         try { Files.createDirectories(p); } catch (Exception ignored) { }
         return p;
+    }
+
+    /** 用户上传件目录：workspace/{userId}/uploads（绝对、规范化） */
+    public static Path uploadsDir(String userId) {
+        return userRoot(userId).resolve("uploads").normalize();
+    }
+
+    public static Path uploadsDir(TLMsg msg) {
+        return uploadsDir(userId(msg));
+    }
+
+    /** 上传件目录，按需创建；创建失败不抛（真正的写入会给出准确错误） */
+    public static Path ensureUploadsDir(TLMsg msg) {
+        Path p = uploadsDir(msg);
+        try { Files.createDirectories(p); } catch (Exception ignored) { }
+        return p;
+    }
+
+    /**
+     * 解析上传件路径（只计算，不保证存在）：相对路径按 workspace/{userId} 解析
+     * （前端 {@code uploads/xxx} 即落到 {@code workspace/{uid}/uploads/xxx}）；绝对路径原样规范化。
+     */
+    public static Path resolveUploadPath(String userId, String raw) {
+        Path p = Paths.get(raw);
+        if (!p.isAbsolute()) p = userRoot(userId).resolve(p);
+        return p.normalize().toAbsolutePath();
+    }
+
+    /**
+     * 查找上传件实际文件（只返回存在的普通文件，否则 null）：
+     * <ul>
+     *   <li>相对路径：先 workspace/{uid}/{raw}，再旧 data/{uid}/{raw}；</li>
+     *   <li>绝对路径：先原样；若落在旧 data/{uid}/uploads 内且文件已不在，
+     *       按文件名回退到 workspace/{uid}/uploads。</li>
+     * </ul>
+     */
+    public static Path resolveExistingUpload(String userId, String raw) {
+        String seg = TLPathSafety.safeSegment(userId, "default");
+        Path p;
+        try { p = Paths.get(raw); } catch (InvalidPathException e) { return null; }
+        Path dataUser = Paths.get("data").toAbsolutePath().normalize().resolve(seg);
+        if (!p.isAbsolute()) {
+            Path inWorkspace = userRoot(seg).resolve(raw).normalize().toAbsolutePath();
+            if (Files.isRegularFile(inWorkspace)) return inWorkspace;
+            Path legacy = dataUser.resolve(raw).normalize().toAbsolutePath();
+            return Files.isRegularFile(legacy) ? legacy : null;
+        }
+        Path abs = p.normalize().toAbsolutePath();
+        if (Files.isRegularFile(abs)) return abs;
+        if (isInside(abs, dataUser.resolve("uploads"))) {
+            Path mapped = uploadsDir(seg).resolve(abs.getFileName()).normalize().toAbsolutePath();
+            if (Files.isRegularFile(mapped)) return mapped;
+        }
+        return null;
     }
 
     /** 相对路径按用户 workspace 解析；绝对路径原样规范化 */

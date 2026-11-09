@@ -52,6 +52,45 @@ public class TLUserWorkspaceSelfTest implements TLAiAgentParamString {
             check("绝对路径原样",
                     TLUserWorkspace.resolveInput(alice, absInput.toString()).equals(absInput.normalize()));
 
+            // ===== 上传件位置 =====
+            check("uploadsDir = workspace/{uid}/uploads",
+                    TLUserWorkspace.uploadsDir("alice").equals(tmp.resolve("alice").resolve("uploads")));
+            check("resolveUploadPath 相对路径按 workspace 解析",
+                    TLUserWorkspace.resolveUploadPath("alice", "uploads/pic.png")
+                            .equals(tmp.resolve("alice/uploads/pic.png").toAbsolutePath().normalize()));
+
+            Path wsUpload = tmp.resolve("alice/uploads/pic.png");
+            Files.createDirectories(wsUpload.getParent());
+            Files.write(wsUpload, new byte[]{1});
+            check("resolveExistingUpload 相对路径命中 workspace",
+                    wsUpload.toAbsolutePath().normalize()
+                            .equals(TLUserWorkspace.resolveExistingUpload("alice", "uploads/pic.png")));
+            check("自己的 workspace 上传件可信",
+                    TLUserWorkspace.isTrusted(wsUpload, "alice"));
+            check("别人的 workspace 上传件跨用户",
+                    TLUserWorkspace.isCrossUser(tmp.resolve("bob/uploads/pic.png"), "alice"));
+
+            // 旧 data/{uid}/uploads：相对路径回退 + 迁移后绝对路径按文件名回退
+            String legacyUid = "tlws-legacy-" + System.nanoTime();
+            Path legacyUser = Paths.get("data").toAbsolutePath().normalize().resolve(legacyUid);
+            Path legacyFile = legacyUser.resolve("uploads/old.png");
+            Files.createDirectories(legacyFile.getParent());
+            Files.write(legacyFile, new byte[]{2});
+            try {
+                check("旧 data 上传件相对路径回退",
+                        legacyFile.toAbsolutePath().normalize()
+                                .equals(TLUserWorkspace.resolveExistingUpload(legacyUid, "uploads/old.png")));
+                Path moved = tmp.resolve(legacyUid).resolve("uploads/old.png");
+                Files.createDirectories(moved.getParent());
+                Files.write(moved, new byte[]{3});
+                Files.delete(legacyFile);
+                check("旧绝对路径按文件名回退到 workspace",
+                        moved.toAbsolutePath().normalize().equals(
+                                TLUserWorkspace.resolveExistingUpload(legacyUid, legacyFile.toString())));
+            } finally {
+                deleteRecursively(legacyUser);
+            }
+
             Files.createDirectories(tmp.resolve("bob"));
             Path bobDir = tmp.resolve("bob");
             Path bobFile = tmp.resolve("bob").resolve("b.txt");

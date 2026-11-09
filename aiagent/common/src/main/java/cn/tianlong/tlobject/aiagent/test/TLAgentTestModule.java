@@ -1891,6 +1891,13 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 return createMsg().setParam(RESULT, false)
                         .setParam("error", "自己的 data 应 ALLOW，实为 " + data.kind);
 
+            java.nio.file.Path ownUpload = TLUserWorkspace.uploadsDir(TEST_USER_ID).resolve("x.png");
+            TLUserWorkspace.Decision upload = TLUserWorkspace.evaluate("file_operation",
+                    java.util.Map.<String, Object>of("operation", "read", "path", ownUpload.toString()), m);
+            if (upload.kind != TLUserWorkspace.Decision.Kind.ALLOW)
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "自己的 workspace 上传件应 ALLOW，实为 " + upload.kind);
+
             java.nio.file.Path other = TLUserWorkspace.baseRoot()
                     .resolve(TEST_USER_ID + "-other").resolve("x.txt");
             TLUserWorkspace.Decision cross = TLUserWorkspace.evaluate("file_operation",

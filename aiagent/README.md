@@ -631,6 +631,7 @@ Allows the LLM to read and write the local file system.
 - **Semantics**: relative paths and bare file names resolve to `workspace/{userId}`; absolute paths are used as-is, and out-of-workspace paths go through the executor `pathGuard` approval.
 - **User workspace**: `workspace/{userId}` (`userId` sanitized by `TLPathSafety`); the base root can be overridden with the `tlobject.workspaceRoot` system property (tests / special deployments).
 - **Path matrix**: own `workspace/{uid}`, `data/{uid}`, and `data/documents/{uid}` are allowed; other users' workspace/data are hard-denied without an approval prompt; everything else triggers `path_access` approval (once / round / session); `code_execution` and `script_execution` require approval on every call.
+- **Uploads**: web UI uploads and console `/img` imports live in `workspace/{uid}/uploads`; `data/{uid}/uploads` is the legacy location, migrated idempotently at startup by `TLUploadMigration` (triggered from `TLAiAgent.runStartMsg` — `attachmentStore` is lazy-loaded) and read-compatible by filename for old sessions. Uploads are never auto-cleaned.
 - **Execution**: under `workspaceMode` the subprocess CWD is the user workspace; `script_execution` switches CWD only when the script itself is inside the workspace (built-in skill scripts keep their original CWD).
 - **MCP filesystem**: `userWorkspaceScoped=true` (default `false`) plus `pathRoot` (defaults to `tlobject.workspaceRoot`); relative paths are rewritten to `{uid}/...`, and cross-user or outside-`pathRoot` paths are rejected.
 

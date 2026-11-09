@@ -19,8 +19,8 @@ import java.util.*;
  * 本体是模块（配置进 XML，工厂单例）；两个静态方法供 provider 热路径零往返调用。
  *
  * 存储布局：
- *   data/{uid}/attachments/auto/{hash[0:2]}/{hash}.{ext}   自动产物（截图/base64 输入），内容哈希去重
- *   data/{uid}/uploads/...                                 用户上传件原地引用，不复制
+ *   workspace/{uid}/uploads/...                            用户上传件（原地引用，不复制）
+ *   data/{uid}/attachments/auto/{hash[0:2]}/{hash}.{ext}   系统自动产物（截图/base64 输入），内容哈希去重
  *
  * 创建日期：2026/10/5
  * 作者:tianlong
@@ -57,6 +57,13 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
     @Override
     public void runStartMsg() {          // ⚠ 基类签名为无参 void，不是 TLMsg
         super.runStartMsg();
+        // 先把旧 dataBasePath/{uid}/uploads 迁到 workspace/{uid}/uploads
+        //（幂等；正常部署已由 agent 启动阶段的 migrateOnce 完成，这里覆盖自定义数据根）
+        TLUploadMigration.Result migration = TLUploadMigration.migrate(new File(dataBasePath).toPath());
+        if (migration.moved > 0)
+            putLog("attach: 已迁移 " + migration.moved + " 个旧上传件到 workspace", LogLevel.INFO);
+        for (String warning : migration.warnings)
+            putLog("attach: 迁移 " + warning, LogLevel.WARN);
         // 启动清理：所有用户目录各清一次（失败不影响启动）
         try {
             File root = new File(dataBasePath);
@@ -89,10 +96,26 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
         if (path.isEmpty()) return fail("path 为空");
 
         File f = new File(path);
-        if (!f.isAbsolute()) f = new File(userRoot(userId), path);
+        boolean absolute = f.isAbsolute();
+        if (!absolute) {
+            // 相对路径按 workspace/{uid} 解析；旧调用方传 uploads/xxx 时回退到 dataBasePath/{uid}
+            f = TLUserWorkspace.resolveUploadPath(userId, path).toFile();
+            if (!f.isFile()) {
+                File legacy = new File(userRoot(userId), path);
+                if (legacy.isFile()) f = legacy;
+            }
+        } else if (!f.isFile()) {
+            // 绝对旧路径（dataBasePath/{uid}/uploads/...）已迁移：按文件名回退到 workspace 上传目录
+            File legacyUploads = new File(userRoot(userId), "uploads");
+            if (isUnder(f, legacyUploads)) {
+                File mapped = new File(TLUserWorkspace.uploadsDir(userId).toFile(), f.getName());
+                if (mapped.isFile()) f = mapped;
+            }
+        }
         if (!f.isFile()) return fail("文件不存在: " + path);
-        // 越界判定必须收在本用户目录内（data/{uid}/）：只校验 data/ 会让调用方指向别人的目录
-        if (!isUnder(f, userRoot(userId))) return fail("路径越界: " + path);
+        // 越界判定：只接受本用户 workspace 或 data（上传件在 workspace，自动附件/旧件在 data）
+        if (!isUnderAny(f, userRoot(userId), TLUserWorkspace.userRoot(userId).toFile()))
+            return fail("路径越界: " + path);
         if (name.isEmpty()) name = f.getName();
 
         Map<String, Object> sn = sniff(f);
@@ -260,17 +283,14 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
     private int cleanupUser(String userId) {
         int removed = 0;
         long cutoff = System.currentTimeMillis() - (long) retentionDays * 24 * 3600 * 1000;
-        for (String sub : new String[]{"attachments", "uploads"}) {
-            File dir = new File(userRoot(userId), sub);
-            List<File> files = new ArrayList<>();
-            collect(dir, files);
-            for (File f : files)
-                if (f.lastModified() < cutoff && f.delete()) removed++;
-        }
-        // 总量上限：按 mtime LRU 淘汰（只统计两个附件目录）
+        File dir = new File(userRoot(userId), "attachments");
+        List<File> files = new ArrayList<>();
+        collect(dir, files);
+        for (File f : files)
+            if (f.lastModified() < cutoff && f.delete()) removed++;
+        // 总量上限：只统计自动附件（用户上传件在 workspace，不自动清理）
         List<File> all = new ArrayList<>();
         collect(new File(userRoot(userId), "attachments"), all);
-        collect(new File(userRoot(userId), "uploads"), all);
         long total = 0;
         for (File f : all) total += f.length();
         long cap = (long) storeMaxMB * 1024 * 1024;
@@ -319,6 +339,11 @@ public class TLAttachmentStore extends TLBaseModule implements TLAiAgentParamStr
         try {
             return f.getCanonicalPath().startsWith(root.getCanonicalPath() + File.separator);
         } catch (IOException e) { return false; }
+    }
+
+    private static boolean isUnderAny(File f, File... roots) {
+        for (File root : roots) if (isUnder(f, root)) return true;
+        return false;
     }
 
     private static String sha256(byte[] b) throws Exception {

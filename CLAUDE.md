@@ -177,6 +177,14 @@ Built-in modules extending `TLBaseModule`:
   守护：`TLUserWorkspaceSelfTest`、`TLToolExecutorPathGuardSelfTest`、`TLApprovalModuleForcedSelfTest`、
   `TLMcpAgentPathScopeSelfTest`、`FileWorkspaceModeSelfTest`、`WorkspaceModeExecutionSelfTest`、
   `WordWorkspaceModeSelfTest`、`TLAiAgentVarSelfTest`、`/test workspaceIsolation`。
+- **上传件归属（2026-11-09）**：用户上传件（webui `/api/upload`、控制台 `/img` 导入）统一落
+  `workspace/{userId}/uploads`；`data/{uid}/uploads` 仅作旧数据位置，启动时由 `TLUploadMigration`
+  幂等迁移（目标同名不覆盖，失败保留源）。**迁移不能只放 `TLAttachmentStore.runStartMsg`**——它
+  是懒加载模块（首次附件操作才实例化），已在 `TLAiAgent.runStartMsg` 调 `migrateOnce()`。
+  旧会话里的绝对路径按文件名回退到新位置。
+  上传件不再参与 TTL/LRU 清理——那套只作用于 `data/{uid}/attachments` 的系统自动附件。
+  守护：`TLAttachmentStoreUploadsSelfTest`、`TLWebChatModuleUploadsSelfTest`、
+  `TLChatConsoleUploadsSelfTest`、`ViewImagePathSelfTest`。
 
 **HITL 审批 (`approvalGate`，全局单例):**
 - 规则键是 **LLM 函数名**（`file_operation:delete`），不是模块名（`fileOperationSkill`）——审批门禁按 `ToolTask.functionName` 匹配
