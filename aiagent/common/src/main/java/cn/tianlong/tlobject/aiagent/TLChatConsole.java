@@ -2351,14 +2351,27 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         thinkingThread.start();
     }
 
-    /** 停止思考动画并清空当前行 */
+    /** 停止思考动画并清空当前行（非流式结果/通知路径：当前行是动画或空提示符，不含正文） */
     private void stopThinking() {
+        stopThinking(true);
+    }
+
+    /**
+     * 停止思考动画。
+     *
+     * @param clearLine 是否清除当前行。流式收尾必须传"动画是否在跑"：chunk 是 System.out.print
+     *   输出（不带换行），当前行就是刚流式写完的正文，无条件 {@code \r\033[K} 会把短答案整行抹掉
+     *   （用户看到内容一闪而过，最后只剩 token 汇总）；只有动画确实在跑时这一行才属于动画、可以清。
+     */
+    private void stopThinking(boolean clearLine) {
         thinking = false;
         if (thinkingThread != null) {
             thinkingThread.interrupt();
             thinkingThread = null;
         }
-        System.out.print("\r\033[K");
+        if (clearLine) {
+            System.out.print("\r\033[K");
+        }
         System.out.flush();
     }
 
@@ -2517,7 +2530,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** 流式结束事件（主线程收尾） */
     private void onStreamEnd(String error, String reasoning) {
-        stopThinking();
+        // 当前行是流式正文（chunk 无换行）：只有动画在跑时才能清行，否则会把答案抹掉
+        boolean wasThinking = thinking;
+        stopThinking(wasThinking);
         if (reasoning != null && !reasoning.isEmpty()) {
             displayReasoning(reasoning);
         }
