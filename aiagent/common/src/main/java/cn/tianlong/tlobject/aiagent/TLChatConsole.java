@@ -262,12 +262,20 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
     }
 
-    /** 事件总线按 userId + 当前 sessionId 过滤（后台任务 task_* 不混入当前对话）。 */
+    /**
+     * 事件总线按 userId + 当前会话过滤（后台任务 task_* 不混入当前对话）。
+     * 会话匹配 sessionId 或 rootSessionId：组员/工作流节点/子 agent 的工具执行用派生 sid
+     * （如 group_member:base），只匹配 sessionId 会整条丢掉——与 onWorkflowProgressEvent 同口径。
+     * 后台任务使用自己的 task_* 作 root，不会被本会话的 root 匹配误收。
+     */
     private TLMsg onToolProgressEvent(TLMsg msg) {
         String evtUser = msg.getStringParam("userId", "");
         if (!userId.equals(evtUser)) return null;
         String evtSid = msg.getStringParam("sessionId", "");
-        if (sessionId == null || !sessionId.equals(evtSid)) return null;
+        String evtRoot = msg.getStringParam("rootSessionId", "");
+        boolean match = sessionId != null
+                && (sessionId.equals(evtSid) || sessionId.equals(evtRoot));
+        if (!match) return null;
         offer(new ConsoleEvent(EventType.TOOL_PROGRESS, formatToolProgress(msg), null));
         return running ? createMsg().setParam(RESULT, true) : null;
     }
