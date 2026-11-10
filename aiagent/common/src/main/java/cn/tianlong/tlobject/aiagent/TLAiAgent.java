@@ -2867,21 +2867,22 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * 发送视图 token 预算裁剪（只作用本次发送拷贝，不写回 context，不影响保存/恢复）：
      * 超预算时从最旧的非 system 消息开始丢（工具链完整性交给 sanitizeToolPairs 兜底——
      * 被丢的 assistant(tool_calls) 其后续 tool 响应会成为孤儿被一并清理）；
-     * 丢到只剩单条仍超（单条消息自身巨量，如大文件读取/整段粘贴）则按 0.8 比例循环截断内容。
+     * 最后一条 user（本轮提问）永不整条删除——删掉后模型只能看到 system，
+     * 旧实现还会被下方 size&lt;=1 跳过截断，等于静默丢问题；
+     * 单条消息自身超预算（如大文件读取/整段粘贴）则按 0.8 比例循环截断内容。
      * token 为无 tokenizer 粗估（CJK≈1.25/字、ASCII≈0.35/字符 + 结构开销），预算已留 10% 裕量。
      */
     private void trimToContextBudget(List<TLConversationHistory> list) {
-        if (contextTokenLimit <= 0 || list.size() <= 1) return;
+        if (contextTokenLimit <= 0) return;
         long budget = (long) (contextTokenLimit * 0.9) - defaultMaxTokens;
         if (budget < 2000) budget = 2000;
-        while (estimateTokens(list) > budget && list.size() > 1) {
-            int idx = 0;
-            while (idx < list.size() && list.get(idx).getRole() == TLConversationHistory.Role.system) idx++;
-            if (idx >= list.size()) break;
+        while (estimateTokens(list) > budget) {
+            int idx = firstNonSystemIndex(list);
+            // idx == lastUser 说明本轮提问之前已无更旧的非 system 消息：保留提问交给下方截断
+            if (idx < 0 || idx == lastUserIndex(list) || countNonSystem(list) <= 1) break;
             list.remove(idx);
         }
         sanitizeToolPairs(list);
-        if (list.size() <= 1) return;
         // 单条消息自身超预算：循环按 0.8 比例截断最长的非 system 消息（下限 200 字符防死循环）
         int guard = 0;
         while (estimateTokens(list) > budget && guard++ < 8) {
@@ -2900,6 +2901,27 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             int keep = Math.max(200, (int) (content.length() * 0.8));
             h.setContent(content.substring(0, keep) + "\n…(内容过长，发送时已截断)");
         }
+    }
+
+    /** 第一条非 system 消息的下标；全是 system 返回 -1（system 不整条删，也不参与截断） */
+    private static int firstNonSystemIndex(List<TLConversationHistory> list) {
+        for (int i = 0; i < list.size(); i++)
+            if (list.get(i).getRole() != TLConversationHistory.Role.system) return i;
+        return -1;
+    }
+
+    /** 最后一条 user 消息的下标；没有 user 返回 -1（llmInput/回放等消息序列） */
+    private static int lastUserIndex(List<TLConversationHistory> list) {
+        for (int i = list.size() - 1; i >= 0; i--)
+            if (list.get(i).getRole() == TLConversationHistory.Role.user) return i;
+        return -1;
+    }
+
+    private static int countNonSystem(List<TLConversationHistory> list) {
+        int n = 0;
+        for (TLConversationHistory h : list)
+            if (h.getRole() != TLConversationHistory.Role.system) n++;
+        return n;
     }
 
     /** 无 tokenizer 的粗估：CJK≈1.25 token/字、ASCII≈0.35 token/字符，外加每条消息/工具调用结构开销 */

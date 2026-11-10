@@ -324,6 +324,9 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             putMsg(sessTable, createMsg().setAction(DB_DELETE)
                     .setParam(DB_P_SQL, "delete from [table] where session_id=?")
                     .setParam(DB_P_PARAMS, p));
+        // 内存序号缓存同步清掉：删除后以同 id 重建会话时从 1 重新起算，
+        // 否则 queryMaxRoundSeq=0 与缓存旧值不一致，seq 从旧 max+1 起跳
+        roundSeqCounters.remove(sessionId);
     }
 
     // ======================== setSessionTitle ========================
