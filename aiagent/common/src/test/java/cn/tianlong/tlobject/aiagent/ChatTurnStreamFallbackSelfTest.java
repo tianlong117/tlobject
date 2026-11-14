@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 /**
@@ -41,6 +42,11 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
                 ChatTurn.looksLikeClarification("需要我用哪一版？"));
         check("澄清识别：完成后顺带建议不误判",
                 !ChatTurn.looksLikeClarification("已生成。目录里多了两个临时文件，要不要删你说。"));
+
+        // 6) 门禁集成：澄清问句只调一次 LLM 就收尾，不能自行续跑
+        runClarificationGateCase();
+        // 7) 门禁集成：非澄清答复仍有 pending todo 时仍会续跑（澄清豁免不能把门禁关死）
+        runGateRetryCase();
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
@@ -115,6 +121,7 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         private final String response;
         private final String finishReason;
         private final String reasoning;
+        int calls;
 
         FakeProvider(String response) { this(response, null, null); }
 
@@ -132,6 +139,7 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         @Override protected TLBaseModule init() { return this; }
 
         @Override protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+            calls++;
             TLMsg r = createMsg().setParam(RESULT, true);
             if (response != null) r.setParam(AI_P_RESPONSE, response);
             if (finishReason != null) r.setParam(AI_P_FINISH_REASON, finishReason);
@@ -162,6 +170,48 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
                 && committer.lastRecord != null && !committer.lastRecord.history.isEmpty()
                 && "think-token".equals(committer.lastRecord.history
                         .get(committer.lastRecord.history.size() - 1).getReasoningContent()));
+    }
+
+    /** 带“1 项待执行”todo 的 history；用于门禁集成用例。 */
+    private static TurnSeed gateSeed() {
+        List<TLConversationHistory> history = new ArrayList<>();
+        history.add(new TLConversationHistory(TLConversationHistory.Role.user, "把肺癌HTML转成Word"));
+        List<TLToolCall> calls = new ArrayList<>();
+        calls.add(new TLToolCall("tc1", "todo", new LinkedHashMap<>()));
+        history.add(new TLConversationHistory(TLConversationHistory.Role.assistant, calls));
+        history.add(new TLConversationHistory("tc1", "todo",
+                "任务清单（1 项：1 待执行）：\n- [ ] 生成 Word"));
+        return new TurnSeed(new TLMsg().setParam(AI_P_USERMESSAGE, "把肺癌HTML转成Word"),
+                "sg", "sg", "rg", "ug", "agent", "把肺癌HTML转成Word",
+                TurnPlan.NORMAL, history, 0, null, null, new ArrayList<>(),
+                "test-model", 0.0, 0, "off", false, false, false, 10, 0, true, 2,
+                StreamSink.NullStreamSink.INSTANCE, () -> false, null);
+    }
+
+    private static void runClarificationGateCase() {
+        FakeProvider provider = new FakeProvider("天龙，探完了。请你回一句：用哪版。");
+        FakeCommitter committer = new FakeCommitter();
+        FakeObserver observer = new FakeObserver();
+        new ChatTurn("turn:test:gate1", gateSeed(),
+                new TurnDeps(null, null, provider, null, null,
+                        (history, memory, roundStartIdx) -> new ArrayList<>(history),
+                        committer, observer, null, null, null)).run();
+        check("门禁：澄清问句只调一次 LLM（不自行续跑）", provider.calls == 1);
+        check("门禁：澄清问句终态 Completed", committer.lastOutcome instanceof TurnOutcome.Completed);
+    }
+
+    private static void runGateRetryCase() {
+        FakeProvider provider = new FakeProvider("已完成。");
+        FakeCommitter committer = new FakeCommitter();
+        FakeObserver observer = new FakeObserver();
+        new ChatTurn("turn:test:gate2", gateSeed(),
+                new TurnDeps(null, null, provider, null, null,
+                        (history, memory, roundStartIdx) -> new ArrayList<>(history),
+                        committer, observer, null, null, null)).run();
+        check("门禁：非澄清答复仍续跑两次（calls=3）", provider.calls == 3);
+        boolean completed = committer.lastOutcome instanceof TurnOutcome.Completed;
+        String resp = completed ? ((TurnOutcome.Completed) committer.lastOutcome).response() : "";
+        check("门禁：重试用尽终答标注未完成", resp.contains("清单仍有未完成项"));
     }
 
     static class FakeSink implements StreamSink {
