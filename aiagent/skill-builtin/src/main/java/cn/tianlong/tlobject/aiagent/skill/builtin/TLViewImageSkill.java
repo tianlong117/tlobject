@@ -9,8 +9,13 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * view_image：把已落盘的图片"给模型看"。
@@ -41,13 +46,14 @@ public class TLViewImageSkill extends TLBaseSkill {
         if (skillName == null || skillName.isEmpty() || skillName.equals(name))
             skillName = "view_image";
         if (skillDescription == null || skillDescription.isEmpty() || skillDescription.endsWith(" skill"))
-            skillDescription = "View an image attachment's actual content. Call with the path shown in the "
-                    + "attachment manifest. Only images that were uploaded or produced in this conversation can be viewed.";
+            skillDescription = "View an image file in the user's workspace: pass an absolute or workspace-relative "
+                    + "path (e.g. uploads/a.png), or just the file name when it is unique. Works for images uploaded "
+                    + "in chat or via the management page, and images produced in this conversation.";
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
             Map<String, Object> pathProp = new LinkedHashMap<>();
             pathProp.put("type", "string");
-            pathProp.put("description", "Image file path (as shown in the [附件] manifest)");
+            pathProp.put("description", "Image path: workspace-relative (uploads/a.png), absolute, or a unique file name");
             pathProp.put("required", true);
             parameterSchema.put("path", pathProp);
         }
@@ -64,7 +70,17 @@ public class TLViewImageSkill extends TLBaseSkill {
         String userId = TLUserWorkspace.userId(msg);
         // 旧 data 绝对路径在迁移后按文件名回退到 workspace；仍保留调用方路径供附件白名单比对
         java.nio.file.Path resolved = TLUserWorkspace.resolveExistingUpload(userId, path);
-        if (resolved == null) return err("Error: file not found: " + path);
+        String imagePath = path;
+        if (resolved == null) {
+            // 管理页上传的文件可能在 workspace 子目录里，用户/模型只给文件名——唯一同名才采用
+            List<java.nio.file.Path> hits = findByBaseName(userId, path);
+            if (hits.isEmpty()) return err("Error: file not found: " + path);
+            if (hits.size() > 1)
+                return err("Error: multiple files named '" + path + "', pass a workspace-relative path: "
+                        + relativeNames(userId, hits));
+            resolved = hits.get(0);
+            imagePath = relativeName(userId, resolved);   // 模型下一轮/附件白名单都用这个相对路径
+        }
         File f = resolved.toFile();
         if (!underUserData(f, userId)) {
             putLog("view_image 拒绝用户 " + userId + " 的 workspace/data 之外的路径: "
@@ -73,11 +89,64 @@ public class TLViewImageSkill extends TLBaseSkill {
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("image_path", path);
+        out.put("image_path", imagePath);
         out.put("image_for_model", true);          // 技能表态：这张图给模型看
         out.put("name", f.getName());
         out.put("ok", true);
         return createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, gson.toJson(out));
+    }
+
+    /**
+     * 裸文件名兜底：在 workspace 内按文件名查找图片（带路径分隔符不查）。
+     * 跳过 symlink；最多扫描 20000 个条目（超出即停，避免大 workspace 拖慢）。
+     */
+    private List<Path> findByBaseName(String userId, String path) {
+        List<Path> hits = new ArrayList<>();
+        String name = path == null ? "" : path.trim();
+        if (name.isEmpty() || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) return hits;
+        Path root = TLUserWorkspace.userRoot(userId);
+        if (!Files.isDirectory(root)) return hits;
+        try (Stream<Path> s = Files.walk(root, 12)) {
+            s.limit(20000).forEach(p -> {
+                try {
+                    if (Files.isSymbolicLink(p) || !Files.isRegularFile(p)) return;
+                    Path fn = p.getFileName();
+                    if (fn != null && isImageName(fn.toString())
+                            && name.equalsIgnoreCase(fn.toString())) hits.add(p);
+                } catch (Exception ignored) {
+                    // 扫描期间被删/无权限：跳过
+                }
+            });
+        } catch (Exception ignored) {
+            // 遍历失败：按未找到处理
+        }
+        return hits;
+    }
+
+    private static boolean isImageName(String name) {
+        String n = name.toLowerCase();
+        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
+                || n.endsWith(".gif") || n.endsWith(".webp") || n.endsWith(".bmp");
+    }
+
+    /** workspace 相对路径（统一 /，供模型与附件白名单使用）。 */
+    private static String relativeName(String userId, Path p) {
+        try {
+            return TLUserWorkspace.userRoot(userId).toAbsolutePath().normalize()
+                    .relativize(p.toAbsolutePath().normalize()).toString().replace('\\', '/');
+        } catch (Exception e) {
+            return p.toString();
+        }
+    }
+
+    private static String relativeNames(String userId, List<Path> hits) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < hits.size() && i < 5; i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(relativeName(userId, hits.get(i)));
+        }
+        if (hits.size() > 5) sb.append(", …");
+        return sb.toString();
     }
 
     private TLMsg err(String text) {

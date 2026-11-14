@@ -89,6 +89,21 @@ public class ViewImagePathSelfTest extends TLViewImageSkill implements TLAiAgent
             Path outside = tmp.resolve("outside.png");
             Files.write(outside, new byte[]{5});
             check("外部图片拒绝", !ok(call(s, "alice", outside.toString())));
+
+            // 裸文件名兜底：管理页可把图片传到任意子目录，用户/模型只报文件名
+            Path deepImg = tmp.resolve("alice/docs/deep/only.png");
+            Files.createDirectories(deepImg.getParent());
+            Files.write(deepImg, new byte[]{6});
+            TLMsg okName = call(s, "alice", "only.png");
+            check("裸文件名唯一时按 workspace 搜索", ok(okName));
+            check("回退时返回 workspace 相对路径",
+                    "docs/deep/only.png".equals(imagePath(okName)));
+
+            Files.write(tmp.resolve("alice/docs/dup.png"), new byte[]{7});
+            Files.write(tmp.resolve("alice/docs/deep/dup.png"), new byte[]{8});
+            TLMsg dup = call(s, "alice", "dup.png");
+            check("多个同名文件拒绝并提示用相对路径", !ok(dup)
+                    && dup.getStringParam(AI_P_SKILLOUTPUT, "").contains("multiple files"));
         } finally {
             if (old == null) System.clearProperty(TLUserWorkspace.P_WORKSPACE_ROOT);
             else System.setProperty(TLUserWorkspace.P_WORKSPACE_ROOT, old);

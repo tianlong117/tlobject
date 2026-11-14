@@ -4,6 +4,9 @@ import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -214,9 +217,11 @@ final class AttachmentPipeline implements TLAiAgentParamString {
                 if (!o.has(key) || o.get(key).isJsonNull()) continue;
                 String v = o.get(key).getAsString();
                 if (key.endsWith("_path")) {
-                    // 引用型：只能看"本会话已登记的附件"（白名单），防模型被诱导去读任意文件
-                    if (!isRegisteredPath(history, v)) {
-                        owner.putLog("[VISION] 路径不在本会话附件白名单内，拒绝注入: " + v, LogLevel.WARN);
+                    // 引用型：本会话已登记的附件，或本用户 workspace 内既存文件（管理页上传/
+                    // 工具产物）。data/{uid} 等其它位置仍只认"本会话已登记"，防诱导读其他私有文件。
+                    if (!isAllowedImagePath(history, v, userId)) {
+                        owner.putLog("[VISION] 路径不在图片白名单内（非本会话附件且不在 workspace）: "
+                                + v, LogLevel.WARN);
                         return null;
                     }
                     TLMsg r = owner.putMsg(M_ATTACHMENTSTORE, owner.createMsg().setAction(ATTACH_REGISTER)
@@ -273,6 +278,33 @@ final class AttachmentPipeline implements TLAiAgentParamString {
             return changed ? gson.toJson(o) : output;
         } catch (Exception e) {
             return output;
+        }
+    }
+
+    /** 图片注入白名单：本会话已登记附件，或本用户 workspace 内既存文件。 */
+    static boolean isAllowedImagePath(List<TLConversationHistory> history, String path, String userId) {
+        return isRegisteredPath(history, path) || isInUserWorkspace(path, userId);
+    }
+
+    /**
+     * 路径真实落在本用户 workspace 内（相对路径按 workspace 根解析；canonical 解 symlink 防逃逸）。
+     * 只放行 workspace：data/{uid} 下旧附件/自动附件仍必须走"本会话已登记"白名单。
+     */
+    static boolean isInUserWorkspace(String path, String userId) {
+        if (path == null || path.trim().isEmpty() || userId == null || userId.trim().isEmpty())
+            return false;
+        try {
+            Path root = TLUserWorkspace.userRoot(userId);
+            if (!Files.isDirectory(root)) return false;
+            Path p = Paths.get(path.trim());
+            if (!p.isAbsolute()) p = root.resolve(p);
+            p = p.normalize();
+            if (!Files.isRegularFile(p)) return false;
+            Path realRoot = root.toRealPath();
+            Path real = p.toRealPath();
+            return real.startsWith(realRoot) && !real.equals(realRoot);
+        } catch (Exception e) {
+            return false;
         }
     }
 
