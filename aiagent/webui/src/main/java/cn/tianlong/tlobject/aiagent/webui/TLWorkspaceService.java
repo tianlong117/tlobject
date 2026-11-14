@@ -79,4 +79,12 @@ public final class TLWorkspaceService {
             return false;
         }
     }
+
+    /** 批量删除：逐条走同一安全校验；返回成功删除条数（部分失败不影响其余）。 */
+    public static int deleteAll(String userId, List<String> paths) {
+        if (paths == null || paths.isEmpty()) return 0;
+        int deleted = 0;
+        for (String p : paths) if (delete(userId, p)) deleted++;
+        return deleted;
+    }
 }

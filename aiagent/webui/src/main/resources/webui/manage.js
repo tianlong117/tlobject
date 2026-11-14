@@ -1,6 +1,6 @@
-/* AI Agent 管理页面：工作空间文件列表 / 下载 / 删除（独立页面） */
+/* AI Agent 管理页面：工作空间文件列表 / 下载 / 单选或批量删除（独立页面） */
 const $ = s => document.querySelector(s);
-const state = { files: [], truncated: false, filter: '' };
+const state = { files: [], truncated: false, filter: '', selected: new Set() };
 
 /** 与 app.js 同款：POST JSON；401 回登录态。 */
 async function apiJson(path, body) {
@@ -37,6 +37,7 @@ async function boot() {
 }
 
 async function load() {
+  state.selected.clear();
   try {
     const r = await apiJson('/api/workspace/list', {});
     state.files = Array.isArray(r.files) ? r.files : [];
@@ -47,10 +48,15 @@ async function load() {
   }
 }
 
-function render() {
+function visibleFiles() {
   const filter = state.filter.trim().toLowerCase();
-  const files = state.files.filter(f =>
+  return state.files.filter(f =>
     !filter || String(f.path || '').toLowerCase().includes(filter));
+}
+
+function render() {
+  const files = visibleFiles();
+  const filter = state.filter.trim().toLowerCase();
   const total = files.reduce((sum, f) => sum + (Number(f.size) || 0), 0);
   $('#mCount').textContent = '共 ' + files.length + ' 个文件' + (filter ? '（已筛选）' : '');
   $('#mSummary').textContent = '总大小 ' + fmtSize(total)
@@ -63,16 +69,33 @@ function render() {
     empty.className = 'm-empty';
     empty.textContent = filter ? '没有匹配的文件' : '工作空间里还没有文件';
     list.appendChild(empty);
+    updateSelectionUI();
     return;
   }
 
   const table = document.createElement('table');
   table.className = 'm-table';
-  table.innerHTML = '<thead><tr><th>文件</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>';
+  table.innerHTML = '<thead><tr>'
+    + '<th class="m-check-col"><input type="checkbox" id="mSelectAll" title="全选当前列表"></th>'
+    + '<th>文件</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>';
   const tbody = document.createElement('tbody');
   files.forEach(f => {
     const path = String(f.path || '');
     const tr = document.createElement('tr');
+
+    const tdCheck = document.createElement('td');
+    tdCheck.className = 'm-check-col';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'm-check';
+    cb.dataset.path = path;
+    cb.checked = state.selected.has(path);
+    cb.title = '选择 ' + path;
+    cb.onchange = () => {
+      if (cb.checked) state.selected.add(path); else state.selected.delete(path);
+      updateSelectionUI();
+    };
+    tdCheck.appendChild(cb);
 
     const tdFile = document.createElement('td');
     tdFile.className = 'm-file';
@@ -104,6 +127,7 @@ function render() {
     tdAct.appendChild(a);
     tdAct.appendChild(del);
 
+    tr.appendChild(tdCheck);
     tr.appendChild(tdFile);
     tr.appendChild(tdSize);
     tr.appendChild(tdTime);
@@ -112,6 +136,57 @@ function render() {
   });
   table.appendChild(tbody);
   list.appendChild(table);
+
+  const allBox = table.querySelector('#mSelectAll');
+  if (allBox) {
+    allBox.onchange = () => {
+      if (allBox.checked) files.forEach(f => state.selected.add(String(f.path || '')));
+      else files.forEach(f => state.selected.delete(String(f.path || '')));
+      updateSelectionUI();
+    };
+  }
+  updateSelectionUI();
+}
+
+/** 同步全选框（含 indeterminate）与“删除选中”按钮文案/禁用态。 */
+function updateSelectionUI() {
+  const files = visibleFiles();
+  const allBox = document.querySelector('#mSelectAll');
+  if (allBox) {
+    const selectedVisible = files.filter(f => state.selected.has(String(f.path || ''))).length;
+    allBox.checked = files.length > 0 && selectedVisible === files.length;
+    allBox.indeterminate = selectedVisible > 0 && selectedVisible < files.length;
+  }
+  document.querySelectorAll('input.m-check').forEach(cb => {
+    cb.checked = state.selected.has(cb.dataset.path);
+  });
+  const btn = $('#mDeleteSelected');
+  if (btn) {
+    btn.disabled = state.selected.size === 0;
+    btn.textContent = state.selected.size ? '删除选中（' + state.selected.size + '）' : '删除选中';
+  }
+}
+
+async function deleteSelected() {
+  const paths = [...state.selected];
+  if (!paths.length) return;
+  const preview = paths.slice(0, 8).join('\n') + (paths.length > 8 ? '\n…' : '');
+  if (!confirm('确定删除选中的 ' + paths.length + ' 个文件？\n\n' + preview
+      + '\n\n删除后不可恢复。')) return;
+  try {
+    const r = await apiJson('/api/workspace/delete', { paths });
+    const deleted = Number(r.deleted) || 0;
+    const total = Number(r.total) || paths.length;
+    if (deleted < total) {
+      notice('已删除 ' + deleted + '/' + total + ' 个，部分失败：' + (r.error || '文件不存在或无权删除'), true);
+    } else {
+      notice('已删除 ' + deleted + ' 个文件', false);
+    }
+    state.selected.clear();
+    await load();
+  } catch (e) {
+    notice('删除失败：' + e.message, true);
+  }
 }
 
 async function deleteFile(path) {
@@ -151,6 +226,11 @@ function notice(text, isErr) {
 
 document.addEventListener('DOMContentLoaded', () => {
   $('#mRefresh').onclick = load;
-  $('#mFilter').oninput = e => { state.filter = e.target.value; render(); };
+  $('#mFilter').oninput = e => {
+    state.filter = e.target.value;
+    state.selected.clear();   // 筛选后旧勾选不可见，避免误删
+    render();
+  };
+  $('#mDeleteSelected').onclick = deleteSelected;
   boot();
 });

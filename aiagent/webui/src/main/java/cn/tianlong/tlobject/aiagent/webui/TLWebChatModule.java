@@ -748,22 +748,48 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return outJson(out, null);
     }
 
-    /** 工作空间管理：删除当前用户 workspace 内普通文件（只允许自己 workspace，目录/越权拒绝）。 */
+    /**
+     * 工作空间管理：删除当前用户 workspace 内普通文件（支持单选 path / 多选 paths）。
+     * 只允许自己 workspace，目录/越权/不存在的条目失败；多选时部分失败不影响其余并返回计数。
+     */
     private TLMsg doWorkspaceDelete(TLMsg msg) {
         String userId = currentUserId();
         if (userId == null) return notLogin();
-        String path = msg.getStringParam("path", "");
-        if (path.isEmpty()) {
-            HttpServletRequest req = getRequest();
-            if (req != null) {
-                String p = req.getParameter("path");
-                if (p != null) path = p;
+        List<String> paths = new ArrayList<>();
+        Object rawPaths = msg.getParam("paths");
+        if (rawPaths instanceof List) {
+            for (Object o : (List<?>) rawPaths) {
+                if (o != null && !String.valueOf(o).trim().isEmpty())
+                    paths.add(String.valueOf(o));
             }
+        } else if (rawPaths instanceof String) {
+            for (String p : ((String) rawPaths).split("[;\\n]"))
+                if (!p.trim().isEmpty()) paths.add(p.trim());
         }
-        boolean ok = TLWorkspaceService.delete(userId, path);
+        if (paths.isEmpty()) {
+            String path = msg.getStringParam("path", "");
+            if (path.isEmpty()) {
+                HttpServletRequest req = getRequest();
+                if (req != null) {
+                    String p = req.getParameter("path");
+                    if (p != null) path = p;
+                }
+            }
+            if (!path.trim().isEmpty()) paths.add(path.trim());
+        }
+        if (paths.isEmpty()) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("success", false);
+            out.put("error", "缺少文件路径");
+            return outJson(out, null);
+        }
+        int total = paths.size();
+        int deleted = TLWorkspaceService.deleteAll(userId, paths);
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("success", ok);
-        if (!ok) out.put("error", "文件不存在或无权删除");
+        out.put("success", deleted == total);
+        out.put("deleted", deleted);
+        out.put("total", total);
+        if (deleted < total) out.put("error", "部分文件不存在或无权删除");
         return outJson(out, null);
     }
 

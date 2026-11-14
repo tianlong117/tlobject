@@ -69,6 +69,10 @@ body {
 .m-table th, .m-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid #232838; vertical-align: middle; }
 .m-table th { color: #8b93a5; font-weight: 500; font-size: 12px; background: #1b1e27; position: sticky; top: 0; z-index: 1; }
 .m-table tbody tr:hover { background: #1c2130; }
+.m-check-col { width: 36px; text-align: center; }
+.m-check-col input[type="checkbox"], .m-toolbar input[type="checkbox"] {
+  accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer;
+}
 .m-file { color: #d8dde6; word-break: break-all; }
 .m-size, .m-time { color: #9aa3b2; white-space: nowrap; }
 .m-actions { white-space: nowrap; }
@@ -81,6 +85,7 @@ body {
   border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px;
 }
 .m-danger:hover { background: #3b1d24; color: #fecaca; }
+.m-danger:disabled { opacity: .45; cursor: not-allowed; }
 .m-empty { padding: 40px 16px; text-align: center; color: #6b7280; }
 
 .m-login { display: flex; align-items: center; justify-content: center; height: 100vh; }

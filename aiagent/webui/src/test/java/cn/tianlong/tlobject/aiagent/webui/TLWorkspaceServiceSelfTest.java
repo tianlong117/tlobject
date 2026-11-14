@@ -26,9 +26,13 @@ public class TLWorkspaceServiceSelfTest {
         Files.createDirectories(sub);
         Path a = user.resolve("a.txt");
         Path b = sub.resolve("b.md");
+        Path c = user.resolve("c.txt");
+        Path d = user.resolve("d.txt");
         Path secret = root.resolve("secret.txt");
         Files.write(a, "a".getBytes(StandardCharsets.UTF_8));
         Files.write(b, "b".getBytes(StandardCharsets.UTF_8));
+        Files.write(c, "c".getBytes(StandardCharsets.UTF_8));
+        Files.write(d, "d".getBytes(StandardCharsets.UTF_8));
         Files.write(secret, "secret".getBytes(StandardCharsets.UTF_8));
         System.setProperty(TLUserWorkspace.P_WORKSPACE_ROOT, root.toString());
         try {
@@ -47,9 +51,13 @@ public class TLWorkspaceServiceSelfTest {
             check("6 目录不能通过文件删除接口删除", !TLWorkspaceService.delete("alice", "sub")
                     && Files.isDirectory(sub));
             check("7 别的用户列表为空", TLWorkspaceService.list("bob").files.isEmpty());
+            int deleted = TLWorkspaceService.deleteAll("alice",
+                    List.of("c.txt", "d.txt", "../secret.txt", "missing.txt"));
+            check("8 批量删除 2/4（越权/不存在失败）", deleted == 2
+                    && !Files.exists(c) && !Files.exists(d) && Files.exists(secret));
         } finally {
             System.clearProperty(TLUserWorkspace.P_WORKSPACE_ROOT);
-            for (Path p : new Path[]{a, b, secret}) {
+            for (Path p : new Path[]{a, b, c, d, secret}) {
                 try { Files.deleteIfExists(p); } catch (Exception ignored) { }
             }
             try { Files.deleteIfExists(sub); } catch (Exception ignored) { }
