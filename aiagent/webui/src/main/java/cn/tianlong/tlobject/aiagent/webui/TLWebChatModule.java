@@ -224,6 +224,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doImage(msg);
             case "download":
                 return doDownload(msg);
+            case "workspaceList":
+                return doWorkspaceList();
+            case "workspaceDelete":
+                return doWorkspaceDelete(msg);
             case "chatStream":
                 return doChatStream(msg);
             case "events":
@@ -724,6 +728,38 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             putLog("download serve failed: " + e, LogLevel.WARN);
         }
         return null;
+    }
+
+    /** 工作空间管理：列出当前用户 workspace 内文件（管理页面）。 */
+    private TLMsg doWorkspaceList() {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        TLWorkspaceService.Listing listing = TLWorkspaceService.list(userId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", true);
+        out.put("files", listing.files);
+        out.put("count", listing.files.size());
+        out.put("truncated", listing.truncated);
+        return outJson(out, null);
+    }
+
+    /** 工作空间管理：删除当前用户 workspace 内普通文件（只允许自己 workspace，目录/越权拒绝）。 */
+    private TLMsg doWorkspaceDelete(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String path = msg.getStringParam("path", "");
+        if (path.isEmpty()) {
+            HttpServletRequest req = getRequest();
+            if (req != null) {
+                String p = req.getParameter("path");
+                if (p != null) path = p;
+            }
+        }
+        boolean ok = TLWorkspaceService.delete(userId, path);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", ok);
+        if (!ok) out.put("error", "文件不存在或无权删除");
+        return outJson(out, null);
     }
 
     /**

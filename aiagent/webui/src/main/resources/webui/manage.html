@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Agent 管理</title>
+<link rel="stylesheet" href="/webui/manage.css">
+</head>
+<body>
+
+<!-- 管理页面（独立页面；/webui/manage.html，从对话页顶栏「管理」新标签打开） -->
+<div id="manageApp" class="m-app hidden">
+  <header class="m-header">
+    <span class="m-brand">🗂 AI Agent 管理</span>
+    <span id="mUser" class="m-user"></span>
+    <a class="m-link" href="/webui/chat.html" target="_blank">返回对话</a>
+  </header>
+  <div class="m-body">
+    <aside class="m-side">
+      <div class="m-side-title">管理功能</div>
+      <button class="m-nav active" data-view="workspace">📁 工作空间管理</button>
+      <div class="m-side-note">更多管理功能后续接入</div>
+    </aside>
+    <main class="m-main">
+      <div class="m-title">
+        <h2>工作空间管理</h2>
+        <span id="mSummary" class="m-muted"></span>
+      </div>
+      <div class="m-toolbar">
+        <button id="mRefresh" class="m-primary" type="button">刷新</button>
+        <input id="mFilter" placeholder="按文件名 / 路径筛选">
+        <span id="mCount" class="m-muted"></span>
+      </div>
+      <div id="mNotice" class="m-notice hidden"></div>
+      <div id="mList" class="m-list"></div>
+    </main>
+  </div>
+</div>
+
+<div id="mLogin" class="m-login hidden">
+  <div class="m-login-box">
+    <h1>🗂 AI Agent 管理</h1>
+    <p>未登录或会话已失效。</p>
+    <p><a href="/webui/chat.html">返回登录 / 对话</a></p>
+  </div>
+</div>
+
+<script src="/webui/manage.js"></script>
+</body>
+</html>
