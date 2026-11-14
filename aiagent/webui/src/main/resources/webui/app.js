@@ -359,9 +359,45 @@ function appendMsg(role, content, box) {
   const d = document.createElement('div');
   d.className = 'msg ' + role;
   d.textContent = content == null ? '' : content;
+  if (role === 'ai') linkifyDownloads(d);
   (box || curBox()).appendChild(d);
   scrollChat(box);
   return d;
+}
+
+/** 生成文件下载：助手文本里的 workspace 文件路径后面补一个「下载」链接。
+ *  只匹配 D:\.../D:/... 或 workspace\.../workspace/... 且以常见文档扩展名结尾；
+ *  服务端 /api/download 由 TLDownloadService 校验，只允许本用户 workspace。 */
+const DL_PATH_RE = /(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z]:[\\/]|workspace[\\/])[^\s"'<>，。；：、（）()]+?\.(?:html?|png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|md|txt|csv|json|zip|rar|7z))(?=[\s"'`，。；：、（）()]|$)/gi;
+function linkifyDownloads(el) {
+  if (!el || el.dataset.dlLinked) return;
+  el.dataset.dlLinked = '1';
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(node => {
+    const parent = node.parentNode;
+    if (!parent || parent.closest('a, details, summary')) return;   // 不处理已有链接/折叠的原始输出
+    const text = node.nodeValue || '';
+    if (text.length < 8) return;
+    DL_PATH_RE.lastIndex = 0;
+    let m, last = 0, frag = null;
+    while ((m = DL_PATH_RE.exec(text))) {
+      if (!frag) frag = document.createDocumentFragment();
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const a = document.createElement('a');
+      a.className = 'dl-link';
+      a.href = '/api/download?path=' + encodeURIComponent(m[1]);
+      a.setAttribute('download', '');
+      a.title = m[1];
+      a.textContent = '下载';
+      frag.appendChild(a);
+      last = m.index + m[1].length;
+    }
+    if (!frag) return;
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    parent.replaceChild(frag, node);
+  });
 }
 /** 双击原图：全屏 lightbox 查看，点击遮罩关闭（懒创建单例） */
 function showLightbox(src) {
@@ -676,6 +712,7 @@ function appendReasoning(el, reasoning) {
 }
 function finishAssistantMsg(holder, evt) {
   holder.cursor.remove();
+  linkifyDownloads(holder.el);
   if (evt.reasoning) appendReasoning(holder.el, evt.reasoning);
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -763,6 +800,7 @@ async function plainChat(msg) {
       // FIX: 原计划用 holder.el.firstChild.textContent —— 无推理时 firstChild 是光标（随后被 remove 导致回复丢失）、有推理时是 details 元素（被 textContent 摧毁）。
       // 修正：先移除光标，再在推理块之后追加文本节点
       holder.el.appendChild(document.createTextNode(r.response || ''));
+      linkifyDownloads(holder.el);
       if (r.tokens && r.tokens.total) {
         const meta = document.createElement('div');
         meta.className = 'meta';

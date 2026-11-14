@@ -322,3 +322,7 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 
 /* 断点态审批的陈旧提示（重放弹框标注发起时间，避免误当成刚刚的操作） */
 .ap-stale { color:#fbbf24; font-size:12px; margin:4px 0; }
+
+/* 生成文件下载链接（助手文本自动识别 workspace 路径） */
+.dl-link { margin-left: 4px; color: #58a6ff; font-size: 12px; text-decoration: underline; white-space: nowrap; }
+.dl-link:hover { color: #79b8ff; }

@@ -222,6 +222,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doUpload();
             case "image":
                 return doImage(msg);
+            case "download":
+                return doDownload(msg);
             case "chatStream":
                 return doChatStream(msg);
             case "events":
@@ -692,6 +694,36 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             putLog("image serve failed: " + e, LogLevel.WARN);
         }
         return null;   // 自己写输出，不走 outJson（先例：doChatStream）
+    }
+
+    /**
+     * 生成文件下载：路径必须在本用户 workspace 内（TLDownloadService 统一解析 + realpath 校验）。
+     * 与 doImage 同款：二进制输出由 putStream 自己写，不走 outJson；path 取 msg 参数或 request query。
+     */
+    private TLMsg doDownload(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String path = msg.getStringParam("path", "");
+        if (path.isEmpty()) {
+            HttpServletRequest req = getRequest();
+            if (req != null) {
+                String p = req.getParameter("path");
+                if (p != null) path = p;
+            }
+        }
+        if (path.isEmpty()) return null;
+        try {
+            java.io.File f = TLDownloadService.resolve(userId, path);
+            if (f == null) return null;   // 越权/不存在：不输出
+            try (java.io.InputStream in = new java.io.FileInputStream(f)) {
+                // putStream：非图片扩展名（html/pdf/docx/zip…）自动 application/octet-stream + attachment；
+                // 图片为 inline，前端链接带 download 属性仍会强制下载
+                putStream(f.getName(), in);
+            }
+        } catch (Exception e) {
+            putLog("download serve failed: " + e, LogLevel.WARN);
+        }
+        return null;
     }
 
     /**
