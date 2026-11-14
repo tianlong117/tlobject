@@ -780,6 +780,17 @@ function appendReasoning(el, reasoning) {
 }
 function finishAssistantMsg(holder, evt) {
   holder.cursor.remove();
+  // 工具循环里工具卡片追加在助手气泡后面，而终答仍写在早先的助手气泡里；
+  // 自动滚到底部只看得到工具卡片，用户会以为"执行一下就停了"。
+  // 终答气泡移到所有 tool-result 卡片之后，保证最后看到的是回答。
+  const parent = holder.el.parentNode;
+  if (parent) {
+    let hasToolAfter = false;
+    for (let n = holder.el.nextSibling; n; n = n.nextSibling) {
+      if (n.classList && n.classList.contains('tool-result')) { hasToolAfter = true; break; }
+    }
+    if (hasToolAfter) parent.appendChild(holder.el);
+  }
   linkifyDownloads(holder.el);
   const answerText = holder.el.textContent;
   if (evt.reasoning) appendReasoning(holder.el, evt.reasoning);
