@@ -402,6 +402,8 @@ function linkifyDownloads(el) {
 
 /** 本轮生成文件（sid → 路径数组）：工具结果里抽出来，收尾时在答复下方渲染下载框。 */
 const TURN_FILES = {};
+/** 本轮被“看图”的输入文件（sid → Set<规范化路径>）：view_image 的图片是输入，不进下载框。 */
+const TURN_INPUT_FILES = {};
 
 /** 只收用户 workspace 内的路径：/api/download 的边界也是 workspace；
  *  工具输出里常出现“检查了某个根目录路径，不存在”的完整路径，不能当生成文件。 */
@@ -420,16 +422,48 @@ function extractFilePaths(text) {
   return out;
 }
 
-function collectTurnFiles(sid, text) {
+/** 路径规范化键（Windows 路径大小写/斜杠不敏感）。 */
+function normPathKey(p) {
+  return String(p || '').replace(/\\/g, '/').toLowerCase();
+}
+
+/** 从工具输出里识别“给模型看的图片”声明（与后端 image_for_model 契约一致），返回 image_path。 */
+function declaredImagePath(text) {
+  if (!text || text.charAt(0) !== '{' || text.indexOf('image_for_model') < 0) return null;
+  try {
+    const o = JSON.parse(text);
+    if (o && o.image_for_model === true && o.image_path) return String(o.image_path);
+  } catch (e) { /* 非 JSON */ }
+  return null;
+}
+
+function markInputFile(sid, path) {
+  if (!sid || !path) return;
+  if (!TURN_INPUT_FILES[sid]) TURN_INPUT_FILES[sid] = new Set();
+  TURN_INPUT_FILES[sid].add(normPathKey(path));
+}
+
+/** 工具输出收集：view_image（或声明 image_for_model）的路径是“输入图片”，不进下载框。 */
+function collectTurnFiles(sid, text, toolName) {
   if (!sid || !text) return;
+  if (toolName === 'view_image') {
+    const p = declaredImagePath(text);
+    if (p) markInputFile(sid, p);
+    // 失败信息里的路径也按输入处理，避免把“找不到的路径”当生成文件
+    extractFilePaths(text).forEach(x => markInputFile(sid, x));
+    return;
+  }
+  const declared = declaredImagePath(text);
+  if (declared) { markInputFile(sid, declared); return; }
   const list = TURN_FILES[sid] || (TURN_FILES[sid] = []);
   extractFilePaths(text).forEach(p => { if (!list.includes(p)) list.push(p); });
 }
 
 /** 从候选路径里挑最终要展示的下载文件：
  *  优先最终答复点名的文件（避免把输入 HTML/临时脚本都列出来），排除脚本/备份/_tmp/_build；
- *  没点名时回退到所有非脚本文件。 */
-function pickDeliverableFiles(paths, answerText) {
+ *  没点名时回退到所有非脚本文件。输入图片（本轮 view_image 看过的，以及同名被查看的文件）
+ *  一律不算“生成文件”，否则分析图片后会在答复下方误出下载框。 */
+function pickDeliverableFiles(paths, answerText, inputSet) {
   if (!paths || !paths.length) return [];
   const seen = new Set(), uniq = [];
   paths.forEach(p => {
@@ -443,9 +477,10 @@ function pickDeliverableFiles(paths, answerText) {
   while ((m = nameRe.exec(answerText || ''))) mentioned.add(m[1]);
   const isNoise = p => /\.(py|js|bat|cmd|sh|bak|broken)$/i.test(p)
       || /^_tmp/i.test(baseOf(p)) || /^_build/i.test(baseOf(p));
-  let out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p)
+  const isInput = p => inputSet instanceof Set && inputSet.has(normPathKey(p));
+  let out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p) && !isInput(p)
       && (!mentioned.size || mentioned.has(baseOf(p))));
-  if (!out.length) out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p));
+  if (!out.length) out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p) && !isInput(p));
   return out;
 }
 
@@ -811,8 +846,12 @@ function finishAssistantMsg(holder, evt) {
   info += (info ? ')' : '');
   meta.textContent = info;
   holder.el.appendChild(meta);
-  const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText);
-  if (holder.sid) TURN_FILES[holder.sid] = [];
+  const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText,
+      TURN_INPUT_FILES[holder.sid]);
+  if (holder.sid) {
+    TURN_FILES[holder.sid] = [];
+    TURN_INPUT_FILES[holder.sid] = new Set();
+  }
   if (files.length) renderDownloadBox(holder.el, files);
   scrollChat(holder.box);
 }
@@ -846,7 +885,8 @@ async function sendMessage() {
     return;
   }
   input.value = '';   // 发送即清空输入框（放在守卫之后：被 busy/kicked 拒绝时不丢草稿）
-  TURN_FILES[sid] = [];   // 新任务：清空上一轮收集的生成文件
+  TURN_FILES[sid] = [];         // 新任务：清空上一轮收集的生成文件
+  TURN_INPUT_FILES[sid] = new Set();   // 以及上一轮的输入图片
   const userBubble = appendMsg('user', msg);
   // 本地即时缩略图：url 与服务端 toJsonable 生成同构（doImage 把相对路径解析到 data/{userId}/）
   if (view.uploads.length) {
@@ -1017,7 +1057,7 @@ async function streamChat(msg, opts) {
           }
           if (evt.toolEvent) {
             clearIdle();
-            collectTurnFiles(sid, evt.toolOutput);   // 收尾时在答复下方生成下载框
+            collectTurnFiles(sid, evt.toolOutput, evt.toolName);   // 收尾时在答复下方生成下载框
             renderToolResult(evt.toolName, evt.toolOutput, holder.box);
             armIdle();
           }
@@ -2072,18 +2112,28 @@ async function continueSession(sid, silent) {
       appendSysMsg('已恢复会话 ' + target + ' (' + (r.data.count || 0) + ' 条历史)');
       // 历史回放：工具结果里的文件路径按轮收集，下载框落在该轮最后一条 assistant 下面
       let replayFiles = [];
+      let replayInputs = new Set();
       let lastAiEl = null;
       const flushReplayFiles = () => {
-        if (!replayFiles.length) return;
-        const files = pickDeliverableFiles(replayFiles, lastAiEl ? lastAiEl.textContent : '');
+        const files = pickDeliverableFiles(replayFiles, lastAiEl ? lastAiEl.textContent : '',
+            replayInputs);
         replayFiles = [];
+        replayInputs = new Set();   // 输入图片也按轮清空
         if (files.length && lastAiEl) renderDownloadBox(lastAiEl, files);
       };
       (r.data.history || []).forEach(h => {
         const hasAtts = !!(h && h.attachments && h.attachments.length);
         if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
         if (h.role === 'tool') {   // 工具结果消息（截图不渲染）；文件路径参与下载框
-          replayFiles.push(...extractFilePaths(h.content));
+          if (h.name === 'view_image') {   // 看图是输入：路径不进下载框
+            const p = declaredImagePath(h.content);
+            if (p) replayInputs.add(normPathKey(p));
+            extractFilePaths(h.content).forEach(x => replayInputs.add(normPathKey(x)));
+          } else {
+            const declared = declaredImagePath(h.content);
+            if (declared) replayInputs.add(normPathKey(declared));
+            else replayFiles.push(...extractFilePaths(h.content));
+          }
           renderToolResult('tool', h.content);
           return;
         }
