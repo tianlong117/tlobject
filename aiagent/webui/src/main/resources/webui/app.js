@@ -2134,7 +2134,7 @@ async function continueSession(sid, silent) {
             if (declared) replayInputs.add(normPathKey(declared));
             else replayFiles.push(...extractFilePaths(h.content));
           }
-          renderToolResult('tool', h.content);
+          renderToolResult(h.name || 'tool', h.content);   // 回放也显示工具名（toJsonable 已带 name）
           return;
         }
         const isToolImage = h.role === 'user'

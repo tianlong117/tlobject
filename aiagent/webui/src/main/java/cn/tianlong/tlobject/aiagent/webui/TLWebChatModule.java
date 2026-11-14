@@ -1938,6 +1938,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("role", String.valueOf(ch.getRole()).toLowerCase());
             m.put("content", ch.getContent());
+            // 工具名：历史回放的卡片标题与“view_image 输入图不进下载框”都依赖它
+            if (ch.getName() != null && !ch.getName().isEmpty()) m.put("name", ch.getName());
             if (ch.hasAttachments()) m.put("attachments", toJsonable(ch.getAttachments()));
             if (ch.hasImages()) m.put("images", toJsonable(ch.getImages()));
             return m;
