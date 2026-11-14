@@ -36,30 +36,45 @@ public class TLWorkspaceServiceSelfTest {
         Files.write(secret, "secret".getBytes(StandardCharsets.UTF_8));
         System.setProperty(TLUserWorkspace.P_WORKSPACE_ROOT, root.toString());
         try {
-            TLWorkspaceService.Listing listing = TLWorkspaceService.list("alice");
-            check("1 列出当前用户文件（含子目录）", names(listing.files).contains("a.txt")
-                    && names(listing.files).contains("sub/b.md"));
-            check("2 不列出 workspace 外文件", !names(listing.files).contains("../secret.txt")
-                    && !names(listing.files).contains("secret.txt"));
+            TLWorkspaceService.Listing rootListing = TLWorkspaceService.list("alice", "");
+            check("1 根目录只列直接子项（文件 + 文件夹）",
+                    names(rootListing.entries).contains("a.txt")
+                            && names(rootListing.entries).contains("sub")
+                            && !names(rootListing.entries).contains("sub/b.md"));
+            TLWorkspaceService.Listing subListing = TLWorkspaceService.list("alice", "sub");
+            check("2 进入子文件夹列出 b.md", subListing != null
+                    && names(subListing.entries).contains("sub/b.md"));
+            check("3 不列出 workspace 外文件", !names(rootListing.entries).contains("secret.txt"));
+            check("4 越界目录列表为 null", TLWorkspaceService.list("alice", "../") == null);
 
-            check("3 删除自己 workspace 内文件", TLWorkspaceService.delete("alice", "a.txt")
+            check("5 删除自己 workspace 内文件", TLWorkspaceService.delete("alice", "a.txt")
                     && !Files.exists(a));
-            check("4 ../ 越界删除被拒", !TLWorkspaceService.delete("alice", "../secret.txt")
+            check("6 ../ 越界删除被拒", !TLWorkspaceService.delete("alice", "../secret.txt")
                     && Files.exists(secret));
-            check("5 别的用户不能删本用户文件", !TLWorkspaceService.delete("bob", "sub/b.md")
+            check("7 别的用户不能删本用户文件", !TLWorkspaceService.delete("bob", "sub/b.md")
                     && Files.exists(b));
-            check("6 目录不能通过文件删除接口删除", !TLWorkspaceService.delete("alice", "sub")
+            check("8 目录不能通过文件删除接口删除", !TLWorkspaceService.delete("alice", "sub")
                     && Files.isDirectory(sub));
-            check("7 别的用户列表为空", TLWorkspaceService.list("bob").files.isEmpty());
+            check("9 别的用户列表为空", TLWorkspaceService.list("bob", "").entries.isEmpty());
             int deleted = TLWorkspaceService.deleteAll("alice",
                     List.of("c.txt", "d.txt", "../secret.txt", "missing.txt"));
-            check("8 批量删除 2/4（越权/不存在失败）", deleted == 2
+            check("10 批量删除 2/4（越权/不存在失败）", deleted == 2
                     && !Files.exists(c) && !Files.exists(d) && Files.exists(secret));
+
+            Path newDir = TLWorkspaceService.mkdir("alice", "", "newdir");
+            check("11 新建文件夹", newDir != null && Files.isDirectory(user.resolve("newdir")));
+            check("12 同名/非法文件夹被拒",
+                    TLWorkspaceService.mkdir("alice", "", "newdir") == null
+                            && TLWorkspaceService.mkdir("alice", "", "../evil") == null);
+            TLWorkspaceService.Listing newListing = TLWorkspaceService.list("alice", "newdir");
+            check("13 进入新建文件夹（空）", newListing != null && newListing.entries.isEmpty());
+            try { Files.deleteIfExists(user.resolve("newdir")); } catch (Exception ignored) { }
         } finally {
             System.clearProperty(TLUserWorkspace.P_WORKSPACE_ROOT);
             for (Path p : new Path[]{a, b, c, d, secret}) {
                 try { Files.deleteIfExists(p); } catch (Exception ignored) { }
             }
+            try { Files.deleteIfExists(user.resolve("newdir")); } catch (Exception ignored) { }
             try { Files.deleteIfExists(sub); } catch (Exception ignored) { }
             try { Files.deleteIfExists(user); } catch (Exception ignored) { }
             try { Files.deleteIfExists(root); } catch (Exception ignored) { }

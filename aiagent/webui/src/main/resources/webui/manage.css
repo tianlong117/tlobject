@@ -46,6 +46,20 @@ body {
 .m-title h2 { margin: 0; font-size: 18px; font-weight: 600; }
 .m-muted { color: #8b93a5; font-size: 12px; }
 
+.m-breadcrumb {
+  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
+  margin-bottom: 8px; min-height: 26px;
+}
+.m-crumb {
+  background: none; border: none; color: #58a6ff; cursor: pointer;
+  padding: 3px 5px; border-radius: 4px; font-size: 13px;
+}
+.m-crumb:hover { background: #1e2330; color: #79b8ff; }
+.m-crumb-current { color: #d8dde6; cursor: default; }
+.m-crumb-current:hover { background: none; color: #d8dde6; }
+.m-crumb-sep { color: #4b5563; font-size: 12px; }
+.m-up { margin-left: 10px; color: #9aa3b2; }
+
 .m-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .m-toolbar input {
   width: min(320px, 50vw); background: #12141a; border: 1px solid #2a2f3d;
@@ -79,6 +93,13 @@ body {
   accent-color: #3b82f6; width: 15px; height: 15px; cursor: pointer;
 }
 .m-file { color: #d8dde6; word-break: break-all; }
+.m-dir-name { cursor: pointer; color: #93c5fd; }
+.m-dir-name:hover { text-decoration: underline; }
+.m-act-btn {
+  background: none; border: 1px solid #2a3550; color: #93c5fd;
+  border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px;
+}
+.m-act-btn:hover { background: #1e3a5f; }
 .m-size, .m-time { color: #9aa3b2; white-space: nowrap; }
 .m-actions { white-space: nowrap; }
 .m-act {

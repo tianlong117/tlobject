@@ -225,9 +225,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "download":
                 return doDownload(msg);
             case "workspaceList":
-                return doWorkspaceList();
+                return doWorkspaceList(msg);
             case "workspaceDelete":
                 return doWorkspaceDelete(msg);
+            case "workspaceMkdir":
+                return doWorkspaceMkdir(msg);
+            case "workspaceUpload":
+                return doWorkspaceUpload();
             case "chatStream":
                 return doChatStream(msg);
             case "events":
@@ -633,11 +637,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private TLMsg doUpload() {
         String userId = currentUserId();
         if (userId == null) return notLogin();
+        return uploadToDir(TLUserWorkspace.uploadsDir(userId));   // 聊天上传仍落 workspace/uploads
+    }
+
+    /** 上传 multipart 到指定目录（调用方已完成身份/目录校验）。 */
+    private TLMsg uploadToDir(java.nio.file.Path targetDir) {
         try {
-            String filePath = TLUserWorkspace.uploadsDir(userId).toString();   // 用户上传件统一落 workspace
             TLMsg r = putMsg("uploadFile", createMsg().setAction(UPLOADFILE_UPLOAD)
                     .setParam(UPLOADFILE_P_FILESIZE, uploadSizeMaxMB * 1024 * 1024)   // int 字节，覆盖模块默认 1MB
-                    .setParam(UPLOADFILE_P_FILEPATH, filePath));                     // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
+                    .setParam(UPLOADFILE_P_FILEPATH, targetDir.toString()));          // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
             if (r == null) return outJson(failMap("上传模块无响应"), null);
             if (r.parseBoolean(UPLOADFILE_R_ERROR, false)) {
                 Map<String, Object> e = new LinkedHashMap<>();
@@ -735,17 +743,67 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return null;
     }
 
-    /** 工作空间管理：列出当前用户 workspace 内文件（管理页面）。 */
-    private TLMsg doWorkspaceList() {
+    /** 工作空间管理：列出当前目录的直接子项（文件夹 + 普通文件）。 */
+    private TLMsg doWorkspaceList(TLMsg msg) {
         String userId = currentUserId();
         if (userId == null) return notLogin();
-        TLWorkspaceService.Listing listing = TLWorkspaceService.list(userId);
+        String dir = msg.getStringParam("dir", "");
+        if (dir.isEmpty()) {
+            HttpServletRequest req = getRequest();
+            if (req != null) {
+                String d = req.getParameter("dir");
+                if (d != null) dir = d;
+            }
+        }
+        TLWorkspaceService.Listing listing = TLWorkspaceService.list(userId, dir);
+        if (listing == null) return outJson(failMap("目录不存在或无权访问"), null);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("success", true);
-        out.put("files", listing.files);
-        out.put("count", listing.files.size());
+        out.put("dir", listing.dir);
+        out.put("parent", listing.parent);
+        out.put("entries", listing.entries);
+        out.put("count", listing.entries.size());
         out.put("truncated", listing.truncated);
         return outJson(out, null);
+    }
+
+    /** 工作空间管理：在当前目录下新建文件夹。 */
+    private TLMsg doWorkspaceMkdir(TLMsg msg) {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String dir = msg.getStringParam("dir", "");
+        String name = msg.getStringParam("name", "");
+        HttpServletRequest req = getRequest();
+        if (req != null) {
+            if (dir.isEmpty()) {
+                String d = req.getParameter("dir");
+                if (d != null) dir = d;
+            }
+            if (name.isEmpty()) {
+                String n = req.getParameter("name");
+                if (n != null) name = n;
+            }
+        }
+        java.nio.file.Path p = TLWorkspaceService.mkdir(userId, dir, name);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", p != null);
+        if (p == null) out.put("error", "文件夹名为空/非法/已存在，或父目录无权访问");
+        return outJson(out, null);
+    }
+
+    /** 工作空间管理：上传文件到当前目录（multipart；dir 走 query 串）。 */
+    private TLMsg doWorkspaceUpload() {
+        String userId = currentUserId();
+        if (userId == null) return notLogin();
+        String dir = "";
+        HttpServletRequest req = getRequest();
+        if (req != null) {
+            String d = req.getParameter("dir");
+            if (d != null) dir = d;
+        }
+        java.nio.file.Path target = TLWorkspaceService.ensureDir(userId, dir);   // 根未建时按需创建
+        if (target == null) return outJson(failMap("目标文件夹不存在或无权访问"), null);
+        return uploadToDir(target);
     }
 
     /**
