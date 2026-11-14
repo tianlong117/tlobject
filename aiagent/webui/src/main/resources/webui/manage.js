@@ -1,4 +1,4 @@
-/* AI Agent 管理页面：工作空间目录浏览 / 上传 / 新建文件夹 / 下载 / 删除（文件夹递归） */
+/* AI Agent 管理页面：工作空间目录浏览 / 上传 / 新建文件夹 / 下载 / 删除（文件夹递归）/ 排序 */
 const $ = s => document.querySelector(s);
 const state = {
   dir: '',           // 当前目录（相对 workspace 根，'' = 根）
@@ -6,7 +6,9 @@ const state = {
   entries: [],       // 当前目录直接子项：{type:'dir'|'file', path, name, size?, mtime}
   truncated: false,
   filter: '',
-  selected: new Set()   // 只存文件 path（批量删除仅文件；文件夹走行内删除按钮）
+  selected: new Set(),  // 只存文件 path（批量删除仅文件；文件夹走行内删除按钮）
+  sortBy: 'name',       // name | type | size | mtime
+  sortDir: 1            // 1 升序 / -1 降序；文件夹恒在最前
 };
 
 /** 与 app.js 同款：POST JSON；401 回登录态。 */
@@ -67,6 +69,78 @@ function visibleEntries() {
   });
 }
 
+/** 文件类型分组（按类型排序时先按分组序，再按扩展名）。 */
+const FILE_TYPE_GROUPS = [
+  ['图片', ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'ico', 'tif', 'tiff']],
+  ['文档', ['doc', 'docx', 'pdf', 'odt', 'rtf']],
+  ['表格', ['xls', 'xlsx', 'csv', 'ods']],
+  ['演示', ['ppt', 'pptx', 'odp']],
+  ['压缩包', ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz']],
+  ['网页', ['html', 'htm', 'css']],
+  ['数据', ['json', 'xml', 'yaml', 'yml', 'sql']],
+  ['代码', ['py', 'java', 'js', 'ts', 'c', 'cpp', 'h', 'go', 'rs', 'sh', 'bat', 'ps1']],
+  ['音视频', ['mp3', 'wav', 'flac', 'mp4', 'avi', 'mov', 'mkv', 'webm']],
+  ['文本', ['txt', 'md', 'log', 'ini', 'conf', 'properties']]
+];
+
+/** 文件名 → {rank, ext, label}；未知扩展名归“其他”，无扩展名单独一组排在最后。 */
+function fileType(name) {
+  const s = String(name || '');
+  const dot = s.lastIndexOf('.');
+  const ext = dot > 0 && dot < s.length - 1 ? s.slice(dot + 1).toLowerCase() : '';
+  for (let i = 0; i < FILE_TYPE_GROUPS.length; i++) {
+    if (FILE_TYPE_GROUPS[i][1].includes(ext)) {
+      return { rank: i, ext, label: FILE_TYPE_GROUPS[i][0] };
+    }
+  }
+  return { rank: FILE_TYPE_GROUPS.length + (ext ? 0 : 1), ext, label: ext ? '其他' : '无扩展名' };
+}
+
+function nameCmp(a, b) {
+  return String(a.name || a.path || '').localeCompare(
+      String(b.name || b.path || ''), 'zh-Hans-CN', { numeric: true, sensitivity: 'base' });
+}
+
+/** 排序：文件夹恒在最前，组内按当前列/方向；并列时按名称。 */
+function compareEntries(a, b) {
+  const dirA = a.type === 'dir', dirB = b.type === 'dir';
+  if (dirA !== dirB) return dirA ? -1 : 1;
+  let r = 0;
+  if (state.sortBy === 'size') {
+    r = (Number(a.size) || 0) - (Number(b.size) || 0);
+  } else if (state.sortBy === 'mtime') {
+    r = (Number(a.mtime) || 0) - (Number(b.mtime) || 0);
+  } else if (state.sortBy === 'type') {
+    const ta = dirA ? { rank: -1, ext: '' } : fileType(a.name || a.path);
+    const tb = dirB ? { rank: -1, ext: '' } : fileType(b.name || b.path);
+    r = ta.rank - tb.rank || ta.ext.localeCompare(tb.ext);
+  }
+  if (!r) r = nameCmp(a, b);
+  return r * state.sortDir;
+}
+
+function sortedEntries(entries) {
+  return entries.slice().sort(compareEntries);
+}
+
+/** 可排序表头（点击切换升/降序；首点 name/type 升序、size/mtime 降序）。 */
+function sortableTh(key, label) {
+  const active = state.sortBy === key;
+  const mark = active ? (state.sortDir > 0 ? ' ▲' : ' ▼') : '';
+  return '<th class="m-sortable' + (active ? ' m-sort-active' : '')
+      + '" data-sort="' + key + '" title="点击按' + label + '排序">' + label + mark + '</th>';
+}
+
+function toggleSort(key) {
+  if (state.sortBy === key) {
+    state.sortDir = -state.sortDir;
+  } else {
+    state.sortBy = key;
+    state.sortDir = (key === 'size' || key === 'mtime') ? -1 : 1;
+  }
+  render();
+}
+
 function render() {
   renderBreadcrumb();
   const entries = visibleEntries();
@@ -94,9 +168,13 @@ function render() {
   table.className = 'm-table';
   table.innerHTML = '<thead><tr>'
     + '<th class="m-check-col"><input type="checkbox" id="mSelectAll" title="全选当前文件夹的文件"></th>'
-    + '<th>名称</th><th>大小</th><th>修改时间</th><th>操作</th></tr></thead>';
+    + sortableTh('name', '名称')
+    + sortableTh('type', '类型')
+    + sortableTh('size', '大小')
+    + sortableTh('mtime', '修改时间')
+    + '<th>操作</th></tr></thead>';
   const tbody = document.createElement('tbody');
-  entries.forEach(x => {
+  sortedEntries(entries).forEach(x => {
     const path = String(x.path || '');
     const isDir = x.type === 'dir';
     const tr = document.createElement('tr');
@@ -125,6 +203,16 @@ function render() {
     if (isDir) {
       tdName.classList.add('m-dir-name');
       tdName.onclick = () => load(path);
+    }
+
+    const tdType = document.createElement('td');
+    tdType.className = 'm-type';
+    if (isDir) {
+      tdType.textContent = '文件夹';
+    } else {
+      const t = fileType(x.name || path);
+      tdType.textContent = t.label;
+      tdType.title = t.ext ? t.ext.toUpperCase() : '无扩展名';
     }
 
     const tdSize = document.createElement('td');
@@ -170,6 +258,7 @@ function render() {
 
     tr.appendChild(tdCheck);
     tr.appendChild(tdName);
+    tr.appendChild(tdType);
     tr.appendChild(tdSize);
     tr.appendChild(tdTime);
     tr.appendChild(tdAct);
@@ -372,6 +461,11 @@ function notice(text, isErr) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  // 表头排序（委托到列表容器：表格每次 render 重建，监听器不随之丢失）
+  $('#mList').addEventListener('click', e => {
+    const th = e.target.closest && e.target.closest('th[data-sort]');
+    if (th) toggleSort(th.dataset.sort);
+  });
   $('#mRefresh').onclick = () => load(state.dir);
   $('#mFilter').oninput = e => {
     state.filter = e.target.value;
