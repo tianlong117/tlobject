@@ -399,6 +399,74 @@ function linkifyDownloads(el) {
     parent.replaceChild(frag, node);
   });
 }
+
+/** 本轮生成文件（sid → 路径数组）：工具结果里抽出来，收尾时在答复下方渲染下载框。 */
+const TURN_FILES = {};
+
+function extractFilePaths(text) {
+  if (!text) return [];
+  DL_PATH_RE.lastIndex = 0;
+  const out = [];
+  let m;
+  while ((m = DL_PATH_RE.exec(text))) out.push(m[1]);
+  return out;
+}
+
+function collectTurnFiles(sid, text) {
+  if (!sid || !text) return;
+  const list = TURN_FILES[sid] || (TURN_FILES[sid] = []);
+  extractFilePaths(text).forEach(p => { if (!list.includes(p)) list.push(p); });
+}
+
+/** 从候选路径里挑最终要展示的下载文件：
+ *  优先最终答复点名的文件（避免把输入 HTML/临时脚本都列出来），排除脚本/备份/_tmp/_build；
+ *  没点名时回退到所有非脚本文件。 */
+function pickDeliverableFiles(paths, answerText) {
+  if (!paths || !paths.length) return [];
+  const seen = new Set(), uniq = [];
+  paths.forEach(p => {
+    const k = String(p).toLowerCase();
+    if (!seen.has(k)) { seen.add(k); uniq.push(p); }
+  });
+  const baseOf = p => String(p).split(/[\\/]/).pop();
+  const mentioned = new Set();
+  const nameRe = /([^\s，。；：、（）()"'`<>]+\.(?:html?|png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|md|txt|csv|json|zip|rar|7z))/gi;
+  let m;
+  while ((m = nameRe.exec(answerText || ''))) mentioned.add(m[1]);
+  const isNoise = p => /\.(py|js|bat|cmd|sh|bak|broken)$/i.test(p)
+      || /^_tmp/i.test(baseOf(p)) || /^_build/i.test(baseOf(p));
+  let out = uniq.filter(p => !isNoise(p) && (!mentioned.size || mentioned.has(baseOf(p))));
+  if (!out.length) out = uniq.filter(p => !isNoise(p));
+  return out;
+}
+
+/** 答复下方的独立下载框（像工具进度框，但保留在聊天流里）。 */
+function renderDownloadBox(afterEl, files) {
+  if (!afterEl || !afterEl.parentNode || !files || !files.length) return;
+  const box = document.createElement('div');
+  box.className = 'dl-box';
+  const head = document.createElement('div');
+  head.className = 'dl-head';
+  head.textContent = '生成文件（' + files.length + '） · 点击下载';
+  box.appendChild(head);
+  files.forEach(path => {
+    const row = document.createElement('div');
+    row.className = 'dl-row';
+    const name = document.createElement('span');
+    name.className = 'dl-name';
+    name.textContent = String(path).split(/[\\/]/).pop();
+    name.title = path;
+    const a = document.createElement('a');
+    a.href = '/api/download?path=' + encodeURIComponent(path);
+    a.setAttribute('download', '');
+    a.textContent = '下载';
+    row.appendChild(name);
+    row.appendChild(a);
+    box.appendChild(row);
+  });
+  afterEl.parentNode.insertBefore(box, afterEl.nextSibling);
+  scrollChat(afterEl.parentNode);
+}
 /** 双击原图：全屏 lightbox 查看，点击遮罩关闭（懒创建单例） */
 function showLightbox(src) {
   let lb = document.getElementById('lightbox');
@@ -713,6 +781,7 @@ function appendReasoning(el, reasoning) {
 function finishAssistantMsg(holder, evt) {
   holder.cursor.remove();
   linkifyDownloads(holder.el);
+  const answerText = holder.el.textContent;
   if (evt.reasoning) appendReasoning(holder.el, evt.reasoning);
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -722,6 +791,9 @@ function finishAssistantMsg(holder, evt) {
   info += (info ? ')' : '');
   meta.textContent = info;
   holder.el.appendChild(meta);
+  const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText);
+  if (holder.sid) TURN_FILES[holder.sid] = [];
+  if (files.length) renderDownloadBox(holder.el, files);
   scrollChat(holder.box);
 }
 function scrollChat(box) {
@@ -754,6 +826,7 @@ async function sendMessage() {
     return;
   }
   input.value = '';   // 发送即清空输入框（放在守卫之后：被 busy/kicked 拒绝时不丢草稿）
+  TURN_FILES[sid] = [];   // 新任务：清空上一轮收集的生成文件
   const userBubble = appendMsg('user', msg);
   // 本地即时缩略图：url 与服务端 toJsonable 生成同构（doImage 把相对路径解析到 data/{userId}/）
   if (view.uploads.length) {
@@ -801,6 +874,8 @@ async function plainChat(msg) {
       // 修正：先移除光标，再在推理块之后追加文本节点
       holder.el.appendChild(document.createTextNode(r.response || ''));
       linkifyDownloads(holder.el);
+      const answerFiles = pickDeliverableFiles(extractFilePaths(r.response || ''), r.response || '');
+      if (answerFiles.length) renderDownloadBox(holder.el, answerFiles);
       if (r.tokens && r.tokens.total) {
         const meta = document.createElement('div');
         meta.className = 'meta';
@@ -828,6 +903,7 @@ async function streamChat(msg, opts) {
   // 防御：opts 指定了会话但当前视图不一致时先切过去，否则 holder.el 会落进错误的 box
   if (opts.sessionId && opts.sessionId !== state.sessionId) switchSessionView(opts.sessionId);
   const holder = startAssistantMsg();
+  holder.sid = sid;
   setBusy(true, sid);
   const ctrl = new AbortController();
   viewOf(sid).abort = ctrl;
@@ -921,6 +997,7 @@ async function streamChat(msg, opts) {
           }
           if (evt.toolEvent) {
             clearIdle();
+            collectTurnFiles(sid, evt.toolOutput);   // 收尾时在答复下方生成下载框
             renderToolResult(evt.toolName, evt.toolOutput, holder.box);
             armIdle();
           }
@@ -1973,13 +2050,37 @@ async function continueSession(sid, silent) {
       }
       clearSessionBox(target);           // 重建该会话视图：避免与上次浏览时渲染的旧内容重复
       appendSysMsg('已恢复会话 ' + target + ' (' + (r.data.count || 0) + ' 条历史)');
+      // 历史回放：工具结果里的文件路径按轮收集，下载框落在该轮最后一条 assistant 下面
+      let replayFiles = [];
+      let lastAiEl = null;
+      const flushReplayFiles = () => {
+        if (!replayFiles.length) return;
+        const files = pickDeliverableFiles(replayFiles, lastAiEl ? lastAiEl.textContent : '');
+        replayFiles = [];
+        if (files.length && lastAiEl) renderDownloadBox(lastAiEl, files);
+      };
       (r.data.history || []).forEach(h => {
         const hasAtts = !!(h && h.attachments && h.attachments.length);
         if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
-        if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（截图不渲染）
+        if (h.role === 'tool') {   // 工具结果消息（截图不渲染）；文件路径参与下载框
+          replayFiles.push(...extractFilePaths(h.content));
+          renderToolResult('tool', h.content);
+          return;
+        }
+        const isToolImage = h.role === 'user'
+            && String(h.content || '').startsWith('[工具结果：图片]');
+        if (h.role === 'user' && !isToolImage) {   // 真正的用户消息 = 新一轮边界
+          flushReplayFiles();
+          lastAiEl = null;
+        }
         const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
         if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
+        else {
+          replayFiles.push(...extractFilePaths(h.content));
+          lastAiEl = el;
+        }
       });
+      flushReplayFiles();
       restoreTaskCards(target);          // 历史渲染完再补该会话的后台任务卡片（清屏时被一并清掉）
 
       // 会话占用声明（登录级互斥）：

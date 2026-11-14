@@ -326,3 +326,13 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 /* 生成文件下载链接（助手文本自动识别 workspace 路径） */
 .dl-link { margin-left: 4px; color: #58a6ff; font-size: 12px; text-decoration: underline; white-space: nowrap; }
 .dl-link:hover { color: #79b8ff; }
+
+/* 生成文件下载框（答复下方，像工具进度框但保留在聊天流） */
+.dl-box { align-self: flex-start; margin: 2px 0 10px; border: 1px solid #2a3550;
+          background: #171d2a; border-radius: 8px; padding: 8px 12px; max-width: min(560px, 100%); }
+.dl-head { color: #93a7c8; font-size: 12px; margin-bottom: 4px; }
+.dl-row { display: flex; align-items: center; gap: 12px; padding: 5px 0; border-top: 1px solid #232b3c; }
+.dl-row:first-of-type { border-top: none; }
+.dl-name { flex: 1; color: #d8dde6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-row a { color: #58a6ff; font-size: 13px; text-decoration: underline; white-space: nowrap; }
+.dl-row a:hover { color: #79b8ff; }
