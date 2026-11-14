@@ -3,9 +3,14 @@ package cn.tianlong.tlobject.aiagent.webui;
 import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -13,7 +18,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 /**
- * 工作空间文件管理（管理页面用）：按目录浏览、建文件夹、删除文件。
+ * 工作空间文件管理（管理页面用）：按目录浏览、建文件夹、删除文件/文件夹（文件夹递归删除）。
  *
  * <p>安全边界与下载一致：只允许 {@code workspace/{userId}} 内、真实路径仍在 workspace 的
  * 普通文件/目录；不跟随软链（目录项用 NOFOLLOW_LINKS 跳过 symlink，路径用 realpath 校验）。
@@ -182,6 +187,89 @@ public final class TLWorkspaceService {
         int deleted = 0;
         for (String p : paths) if (delete(userId, p)) deleted++;
         return deleted;
+    }
+
+    /**
+     * 删除文件或文件夹（仅管理页「删除文件夹」使用；文件夹递归删除其全部内容，
+     * 不跟随 symlink）。workspace 根本身不可删；越权/不存在返回 false。
+     */
+    public static boolean deleteEntry(String userId, String rawPath) {
+        Path p = resolveEntry(userId, rawPath);
+        if (p == null) return false;
+        try {
+            if (Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)) {
+                Files.delete(p);
+                return true;
+            }
+            if (Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)) return deleteTree(p);
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 解析 workspace 内的文件或文件夹（真实路径校验）；根目录本身、越权、不存在返回 null。
+     * 相对路径先按进程 CWD、再按 workspace 根解析（与 {@link TLDownloadService} 同口径）。
+     */
+    public static Path resolveEntry(String userId, String rawPath) {
+        if (userId == null || rawPath == null || rawPath.trim().isEmpty()) return null;
+        Path root = TLUserWorkspace.userRoot(userId);
+        if (!Files.isDirectory(root)) return null;
+        String text = rawPath.trim();
+        try {
+            Path realRoot = root.toRealPath();
+            List<Path> candidates = new ArrayList<>();
+            Path p = Paths.get(text);
+            if (p.isAbsolute()) {
+                candidates.add(p.normalize());
+            } else {
+                candidates.add(p.toAbsolutePath().normalize());   // CWD 相对（人工传入 workspace\x 形式）
+                candidates.add(root.resolve(text).normalize());   // workspace 相对（页面传入）
+            }
+            for (Path candidate : candidates) {
+                if (!Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) continue;
+                if (Files.isSymbolicLink(candidate)) continue;    // 不删链接目标
+                Path real = candidate.toRealPath();
+                if (real.startsWith(realRoot) && !real.equals(realRoot)) return real;
+            }
+        } catch (Exception ignored) {
+            // 非法路径 / toRealPath 失败 / 无盘符工作目录：一律不可删
+        }
+        return null;
+    }
+
+    /** 自底向上递归删除；symlink 按普通条目删除（不跟随）。全部成功才返回 true。 */
+    private static boolean deleteTree(Path dir) {
+        final boolean[] ok = {true};
+        try {
+            Files.walkFileTree(dir, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    try { Files.delete(file); } catch (IOException e) { ok[0] = false; }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    ok[0] = false;
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult postVisitDirectory(Path d, IOException exc) {
+                    if (exc != null) {
+                        ok[0] = false;
+                        return FileVisitResult.CONTINUE;
+                    }
+                    try { Files.delete(d); } catch (IOException e) { ok[0] = false; }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            return false;
+        }
+        return ok[0];
     }
 
     /** 相对 workspace 根的路径（统一 /，根返回 ""）。 */

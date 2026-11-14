@@ -68,13 +68,32 @@ public class TLWorkspaceServiceSelfTest {
                             && TLWorkspaceService.mkdir("alice", "", "../evil") == null);
             TLWorkspaceService.Listing newListing = TLWorkspaceService.list("alice", "newdir");
             check("13 进入新建文件夹（空）", newListing != null && newListing.entries.isEmpty());
-            try { Files.deleteIfExists(user.resolve("newdir")); } catch (Exception ignored) { }
+
+            check("14 删除空文件夹", TLWorkspaceService.deleteEntry("alice", "newdir")
+                    && !Files.exists(user.resolve("newdir")));
+            Path nested = user.resolve("nested/deep/file.txt");
+            Files.createDirectories(nested.getParent());
+            Files.write(nested, "n".getBytes(StandardCharsets.UTF_8));
+            check("15 递归删除非空文件夹", TLWorkspaceService.deleteEntry("alice", "nested")
+                    && !Files.exists(user.resolve("nested")));
+            check("16 workspace 根不可删",
+                    !TLWorkspaceService.deleteEntry("alice", "")
+                            && !TLWorkspaceService.deleteEntry("alice", ".")
+                            && Files.isDirectory(user));
+            Path outsideDir = root.resolve("outsideDir");
+            Files.createDirectories(outsideDir);
+            Files.write(outsideDir.resolve("x.txt"), "x".getBytes(StandardCharsets.UTF_8));
+            check("17 ../ 越界文件夹删除被拒",
+                    !TLWorkspaceService.deleteEntry("alice", "../outsideDir")
+                            && Files.exists(outsideDir.resolve("x.txt")));
         } finally {
             System.clearProperty(TLUserWorkspace.P_WORKSPACE_ROOT);
             for (Path p : new Path[]{a, b, c, d, secret}) {
                 try { Files.deleteIfExists(p); } catch (Exception ignored) { }
             }
             try { Files.deleteIfExists(user.resolve("newdir")); } catch (Exception ignored) { }
+            try { Files.deleteIfExists(root.resolve("outsideDir").resolve("x.txt")); } catch (Exception ignored) { }
+            try { Files.deleteIfExists(root.resolve("outsideDir")); } catch (Exception ignored) { }
             try { Files.deleteIfExists(sub); } catch (Exception ignored) { }
             try { Files.deleteIfExists(user); } catch (Exception ignored) { }
             try { Files.deleteIfExists(root); } catch (Exception ignored) { }

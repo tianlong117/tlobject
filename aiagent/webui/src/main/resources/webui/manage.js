@@ -1,4 +1,4 @@
-/* AI Agent 管理页面：工作空间目录浏览 / 上传 / 新建文件夹 / 下载 / 单选或批量删除 */
+/* AI Agent 管理页面：工作空间目录浏览 / 上传 / 新建文件夹 / 下载 / 删除（文件夹递归） */
 const $ = s => document.querySelector(s);
 const state = {
   dir: '',           // 当前目录（相对 workspace 根，'' = 根）
@@ -6,7 +6,7 @@ const state = {
   entries: [],       // 当前目录直接子项：{type:'dir'|'file', path, name, size?, mtime}
   truncated: false,
   filter: '',
-  selected: new Set()   // 只存文件 path；文件夹不可删
+  selected: new Set()   // 只存文件 path（批量删除仅文件；文件夹走行内删除按钮）
 };
 
 /** 与 app.js 同款：POST JSON；401 回登录态。 */
@@ -144,6 +144,13 @@ function render() {
       open.textContent = '打开';
       open.onclick = () => load(path);
       tdAct.appendChild(open);
+      const delDir = document.createElement('button');
+      delDir.type = 'button';
+      delDir.className = 'm-danger';
+      delDir.textContent = '删除';
+      delDir.title = '删除文件夹 ' + path + '（连同其中全部内容）';
+      delDir.onclick = () => deleteFolder(path);
+      tdAct.appendChild(delDir);
     } else {
       const a = document.createElement('a');
       a.className = 'm-act';
@@ -321,6 +328,20 @@ async function deleteFile(path) {
     const r = await apiJson('/api/workspace/delete', { path });
     if (!r.success) throw new Error(r.error || '删除失败');
     notice('已删除：' + path, false);
+    await load(state.dir);
+  } catch (e) {
+    notice('删除失败：' + e.message, true);
+  }
+}
+
+/** 删除文件夹：后端 recursive=true 递归删除其中全部内容（workspace 根不可删）。 */
+async function deleteFolder(path) {
+  if (!confirm('确定删除文件夹？\n\n' + path
+      + '\n\n文件夹内的全部内容会一并删除，删除后不可恢复。')) return;
+  try {
+    const r = await apiJson('/api/workspace/delete', { path, recursive: true });
+    if (!r.success) throw new Error(r.error || '删除失败');
+    notice('已删除文件夹：' + path, false);
     await load(state.dir);
   } catch (e) {
     notice('删除失败：' + e.message, true);

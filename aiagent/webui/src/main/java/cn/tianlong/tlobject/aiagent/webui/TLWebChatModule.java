@@ -808,11 +808,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     /**
      * 工作空间管理：删除当前用户 workspace 内普通文件（支持单选 path / 多选 paths）。
-     * 只允许自己 workspace，目录/越权/不存在的条目失败；多选时部分失败不影响其余并返回计数。
+     * {@code recursive=true} 时允许删除文件夹（递归删除其全部内容，workspace 根除外）；
+     * 默认只删文件，目录一律拒绝（保持老的越权边界）。
+     * 只允许自己 workspace，越权/不存在的条目失败；多选时部分失败不影响其余并返回计数。
      */
     private TLMsg doWorkspaceDelete(TLMsg msg) {
         String userId = currentUserId();
         if (userId == null) return notLogin();
+        boolean recursive = msg.parseBoolean("recursive", false);
         List<String> paths = new ArrayList<>();
         Object rawPaths = msg.getParam("paths");
         if (rawPaths instanceof List) {
@@ -842,12 +845,17 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             return outJson(out, null);
         }
         int total = paths.size();
-        int deleted = TLWorkspaceService.deleteAll(userId, paths);
+        int deleted = 0;
+        for (String p : paths) {
+            if (recursive ? TLWorkspaceService.deleteEntry(userId, p)
+                    : TLWorkspaceService.delete(userId, p)) deleted++;
+        }
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("success", deleted == total);
         out.put("deleted", deleted);
         out.put("total", total);
-        if (deleted < total) out.put("error", "部分文件不存在或无权删除");
+        if (deleted < total)
+            out.put("error", recursive ? "部分文件/文件夹不存在或无权删除" : "部分文件不存在或无权删除");
         return outJson(out, null);
     }
 
