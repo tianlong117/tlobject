@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.provider.openai;
 
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.aiagent.TLToolCall;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.modules.LogLevel;
@@ -49,6 +50,25 @@ public class PromotionGuardSelfTest implements TLAiAgentParamString {
         TLMsg r3 = p.parseResponse(json("", "the answer is 42", null, "stop"), new TLMsg());
         check("parseResponse 正常收尾：保留原兜底（答案在推理里 → 提升）",
                 "the answer is 42".equals(r3.getStringParam(AI_P_RESPONSE, "")));
+
+        // ================= 出站 reasoning_content 回传（DeepSeek thinking 模式） =================
+        TLMsg reqMsg = new TLMsg().setParam(AI_P_REASONING_MODE, "off");
+        List<TLConversationHistory> withReasoning = new ArrayList<>();
+        withReasoning.add(new TLConversationHistory(TLConversationHistory.Role.user, "hi"));
+        TLConversationHistory asst = new TLConversationHistory(
+                TLConversationHistory.Role.assistant, "answer");
+        asst.setReasoningContent("think-token");
+        withReasoning.add(asst);
+        String reqBody = p.buildRequestBody(reqMsg, withReasoning, null, false);
+        check("出站 assistant 带回 reasoning_content",
+                reqBody.contains("\"reasoning_content\":\"think-token\""));
+
+        List<TLConversationHistory> noReasoning = new ArrayList<>();
+        noReasoning.add(new TLConversationHistory(TLConversationHistory.Role.user, "hi"));
+        noReasoning.add(new TLConversationHistory(TLConversationHistory.Role.assistant, "answer"));
+        String reqBody2 = p.buildRequestBody(reqMsg, noReasoning, null, false);
+        check("无推理的 assistant 不带 reasoning_content",
+                !reqBody2.contains("reasoning_content"));
 
         // ================= 流式 StreamCallback（done 事件） =================
         TestProvider s1 = new TestProvider();

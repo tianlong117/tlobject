@@ -12,7 +12,7 @@ import java.util.HashMap;
  *
  * 运行方式: 直接运行 main()
  * - 默认: 仅启动控制台交互（chatConsole）
- * - -web: 同时启动 Web 交互窗口（http://localhost:8080/webui/chat.html），
+ * - -web: 同时启动 Web 交互窗口（http://localhost:58080/webui/chat.html），
  *         使用 moduleFactory_chat_web_config.xml（include chat 配置 + webui/jettyServer）
  * - -u userId: 指定控制台登录用户
  *

@@ -1338,7 +1338,7 @@ aistart-web.bat
 `aistart-web.bat` 在同一进程里再起一个 Jetty（默认 8080），浏览器打开：
 
 ```
-http://localhost:8080/webui/chat.html
+http://localhost:58080/webui/chat.html
 ```
 
 默认账号 `admin` / `tianlong`（密码都是 `123456`），配置在 `moduleFactory_chat_web_config.xml`
@@ -1703,7 +1703,7 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 ### Web 交互窗口（aiagent/webui）
 
 `AIStart -web`（或 `aistart-web.bat`）同进程同时启动控制台与 Web 窗口：
-浏览器打开 `http://localhost:8080/webui/chat.html`（端口在 `moduleFactory_chat_web_config.xml` 的 jettyServer 参数修改）。
+浏览器打开 `http://localhost:58080/webui/chat.html`（端口在 `moduleFactory_chat_web_config.xml` 的 jettyServer 参数修改）。
 
 - 登录：`webui` 模块的 `passwords` 参数（demo 默认 admin/tianlong，密码 123456）；不配置密码则任意非空 userId 可登录
 - 聊天：流式（fetch-SSE）/非流式，推理过程可折叠，结束行显示 token 统计

@@ -61,10 +61,10 @@ public class ChatTurnPendingPickSelfTest implements TLAiAgentParamString {
         TurnSeed seed = new TurnSeed(new TLMsg(), "s", "s", "r", "u", "agent", "hi",
                 TurnPlan.NORMAL, new ArrayList<>(), 0, null, null,
                 new ArrayList<>(), "test-model", 0.0, 0,
-                "off", false, false, false, 10, 0,
+                "off", false, false, false, 10, 0, true, 2,
                 StreamSink.NullStreamSink.INSTANCE, () -> false, null);
         TurnDeps deps = new TurnDeps(null, null, null, null, null,
-                (history, memory) -> history, null, null, null, null, null);
+                (history, memory, roundStartIdx) -> history, null, null, null, null, null);
         return new ChatTurn("turn:test:pick", seed, deps);
     }
 

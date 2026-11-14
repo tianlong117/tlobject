@@ -363,12 +363,6 @@ function appendMsg(role, content, box) {
   scrollChat(box);
   return d;
 }
-/** 从工具输出 JSON 中提取 screenshot_base64（browser 截图），无则 null */
-function extractScreenshot(output) {
-  if (!output) return null;
-  const m = output.match(/"screenshot_base64"\s*:\s*"([A-Za-z0-9+/=]+)"/);
-  return m ? m[1] : null;
-}
 /** 双击原图：全屏 lightbox 查看，点击遮罩关闭（懒创建单例） */
 function showLightbox(src) {
   let lb = document.getElementById('lightbox');
@@ -382,7 +376,9 @@ function showLightbox(src) {
   lb.querySelector('img').src = src;
   lb.classList.remove('hidden');
 }
-/** 渲染工具结果卡片：browser 截图显示为图片，原始输出折叠（超长 base64 不刷屏）。
+/** 渲染工具结果卡片：原始输出折叠（超长 base64 不刷屏）。
+ *  页面截图不在聊天界面渲染（用户要求；agent 转发前已剥离 screenshot_base64，
+ *  这里也不再从历史遗留 base64 提图）。
  *  box 可选：后台会话的流式工具卡片要落回它自己的盒子，缺省 = 当前视图 */
 const TOOL_PROGRESS_TEXT = {
   starting: '运行中…', done: '完成', rejected: '已拒绝', pending: '等待审批',
@@ -615,19 +611,9 @@ function renderToolResult(toolName, output, box) {
   title.className = 'tool-title';
   title.textContent = '🔧 ' + (toolName || '工具') + ' 完成';
   d.appendChild(title);
-  const shot = extractScreenshot(output);
-  if (shot) {
-    const img = document.createElement('img');
-    img.className = 'browser-shot';
-    img.src = 'data:image/png;base64,' + shot;
-    img.loading = 'lazy';
-    img.title = '双击查看原图';
-    img.addEventListener('dblclick', () => showLightbox(img.src));
-    d.appendChild(img);
-  }
   const det = document.createElement('details');
   det.className = 'tool-detail';
-  det.innerHTML = '<summary>' + (shot ? '原始输出 (' + Math.round(output.length / 1024) + 'KB)' : '输出') + '</summary>' + esc(output);
+  det.innerHTML = '<summary>输出</summary>' + esc(output);
   d.appendChild(det);
   (box || curBox()).appendChild(d);
   scrollChat(box);
@@ -1952,7 +1938,7 @@ async function continueSession(sid, silent) {
       (r.data.history || []).forEach(h => {
         const hasAtts = !!(h && h.attachments && h.attachments.length);
         if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
-        if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（含截图）
+        if (h.role === 'tool') { renderToolResult('tool', h.content); return; }  // 工具结果消息（截图不渲染）
         const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
         if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
       });

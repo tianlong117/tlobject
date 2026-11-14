@@ -38,6 +38,8 @@ final class TurnSeed {
     final boolean intentCacheEnabled;
     final int maxToolCallIterations;
     final int thinkingBudget;
+    final boolean todoGateEnabled;
+    final int todoGateMaxRetries;
 
     // 运行时出口
     final StreamSink sink;
@@ -53,7 +55,7 @@ final class TurnSeed {
              String model, double temperature, int maxTokens,
              String reasoningMode, boolean reasoningVisible,
              boolean noHistory, boolean intentCacheEnabled, int maxToolCallIterations,
-             int thinkingBudget,
+             int thinkingBudget, boolean todoGateEnabled, int todoGateMaxRetries,
              StreamSink sink, CancelSignal cancel, ApprovalResume approvalResume) {
         this.msg = msg;
         this.sessionId = sessionId;
@@ -78,6 +80,8 @@ final class TurnSeed {
         this.intentCacheEnabled = intentCacheEnabled;
         this.maxToolCallIterations = maxToolCallIterations;
         this.thinkingBudget = thinkingBudget;
+        this.todoGateEnabled = todoGateEnabled;
+        this.todoGateMaxRetries = todoGateMaxRetries;
         this.sink = sink;
         this.cancel = cancel;
         this.approvalResume = approvalResume;

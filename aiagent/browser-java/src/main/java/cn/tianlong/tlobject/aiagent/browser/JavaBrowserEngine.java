@@ -9,6 +9,7 @@ import com.microsoft.playwright.CDPSession;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Playwright;
 import com.microsoft.playwright.TimeoutError;
+import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
 
 import java.io.BufferedReader;
@@ -58,7 +59,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * （技能是私有子模块，框架 destroy 不会被调）。
  *
  * <p>JSON 契约与 Python 版 browser_agent.py 逐字一致（字段名/顺序/截断文案），
- * 供 TLBrowserJavaSkill 直接原样序列化返回（webui 从 screenshot_base64 正则提图）。
+ * 供 TLBrowserJavaSkill 直接原样序列化返回。截图只给模型（image_for_model），
+ * agent 转发给聊天界面前会剥掉 screenshot_base64（用户要求界面不显示页面截图）。
  *
  * <p>形态判定：cdpEndpoint 非空 → cdp；否则 userDataDir 非空 → persistent；否则 ephemeral。
  */
@@ -131,6 +133,9 @@ public class JavaBrowserEngine {
 
     /** 最近一次调用时间戳（空闲回收依据）：execute 在调用线程入口盖章，worker 在任务结束时再盖一次 */
     private volatile long lastUsed = System.currentTimeMillis();
+    /** 连续相同 selector+起始 URL 的 click 计数（worker 线程私有；非 click 动作清零） */
+    private String lastClickKey;
+    private int lastClickRepeat;
     private volatile boolean idleKillerStarted = false;
     /** 幂等关闭标记（shutdown hook + 壳 destroy 双重触发） */
     private volatile boolean shutdown = false;
@@ -208,6 +213,7 @@ public class JavaBrowserEngine {
                 closeBrowser();
             }
             ensureBrowser();
+            if (!"click".equals(action)) { lastClickKey = null; lastClickRepeat = 0; }
             switch (action) {
                 case "navigate":   return navigate(str(in.get("url")));
                 case "click":      return click(str(in.get("selector")));
@@ -527,17 +533,36 @@ public class JavaBrowserEngine {
     // ======================== 6 个 action（字段名/顺序与 Python 版逐字对齐） ========================
 
     private Map<String, Object> navigate(String url) {
+        String beforeUrl = page.url();
+        String beforeText = getText();
         page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        String afterUrl = page.url();
+        String afterText = getText();
         Map<String, Object> m = ok();
-        m.put("url", page.url());
+        if (!beforeUrl.equals(afterUrl)) m.put("previousUrl", beforeUrl);
+        m.put("url", afterUrl);
         m.put("title", page.title());
-        m.put("text", getText());
+        m.put("text", afterText);
+        m.put("pageChanged", !beforeUrl.equals(afterUrl) || !safeEquals(beforeText, afterText));
         m.put("screenshot_base64", shot(false));
         m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
     }
 
+    /**
+     * 点击并报告"页面是否真的变了"。
+     *
+     * <p>旧实现无论是否跳转都回 ok:true + 相同 url/text，模型连续 8 次点同一个 Bing 结果
+     * 仍以为在推进（2026-11-14 webchat_tianlong_1794627998443 事故）。这里补三件事：
+     * ① 点击后接管新标签页（target=_blank 常见）；② 回 pageChanged/warning；
+     * ③ 同一 selector+URL 连续 3 次无变化直接报错，逼模型换 extract links + navigate。
+     */
     private Map<String, Object> click(String selector) {
+        String beforeUrl = page.url();
+        String beforeTitle = page.title();
+        String beforeText = getText();
+        BrowserContext pageCtx = ctx != null ? ctx : (page != null ? page.context() : null);
+        int beforePages = pageCtx == null ? 1 : pageCtx.pages().size();
         try {
             page.click(selector, new Page.ClickOptions().setTimeout(ACTION_TIMEOUT_MS));
         } catch (TimeoutError e) {
@@ -545,13 +570,62 @@ public class JavaBrowserEngine {
             page.click("text=" + selector, new Page.ClickOptions().setTimeout(ACTION_TIMEOUT_MS));
         }
         page.waitForTimeout(CLICK_SETTLE_MS);   // 等 UI 反应
+        boolean popup = adoptNewPage(beforePages);
+        String afterUrl = page.url();
+        String afterTitle = page.title();
+        String afterText = getText();
+        boolean changed = popup || !beforeUrl.equals(afterUrl)
+                || !beforeTitle.equals(afterTitle) || !safeEquals(beforeText, afterText);
+
+        String key = selector + "|" + beforeUrl;
+        if (key.equals(lastClickKey)) lastClickRepeat++;
+        else { lastClickKey = key; lastClickRepeat = 1; }
+        if (!changed && lastClickRepeat >= 3) {
+            // 连续无变化的点击不再回 ok：继续"成功"只会让模型在同一个死循环里烧迭代
+            return err("repeated click without page change: selector=" + selector
+                    + "（连续 " + lastClickRepeat + " 次）。页面未跳转，请改用 extract what=links "
+                    + "取真实 href 后直接 navigate，不要继续点同一目标。");
+        }
+
         Map<String, Object> m = ok();
-        m.put("url", page.url());
-        m.put("title", page.title());
-        m.put("text", getText());
+        if (!beforeUrl.equals(afterUrl)) m.put("previousUrl", beforeUrl);
+        if (popup) m.put("tabOpened", true);
+        m.put("url", afterUrl);
+        m.put("title", afterTitle);
+        m.put("text", afterText);
+        m.put("pageChanged", changed);
+        if (!changed) m.put("warning",
+                "点击后页面未变化（可能点到非链接、目标在新标签但未打开、或加载被拦截）。"
+                + "建议 extract what=links 后直接 navigate，不要重复点同一目标。");
         m.put("screenshot_base64", shot(false));
         m.put("image_for_model", true);   // 技能表态：图给模型看（agent 侧据此注入）
         return m;
+    }
+
+    /** 点击后若上下文多出新标签页：等它 DOM 就绪并切换为当前页；返回是否接管 */
+    private boolean adoptNewPage(int beforePages) {
+        BrowserContext pageCtx = ctx != null ? ctx : (page != null ? page.context() : null);
+        if (pageCtx == null) return false;
+        List<Page> pages = pageCtx.pages();
+        if (pages.size() <= beforePages) return false;
+        Page current = page;
+        Page target = null;
+        for (Page p : pages) {
+            if (p != current && !p.isClosed()) target = p;
+        }
+        if (target == null) return false;
+        try {
+            target.waitForLoadState(LoadState.DOMCONTENTLOADED,
+                    new Page.WaitForLoadStateOptions().setTimeout(ACTION_TIMEOUT_MS));
+        } catch (Exception ignored) {
+            // 新标签打开慢不是错误：已切过去，后续 extract/navigate 会继续推进
+        }
+        page = target;
+        return true;
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     private Map<String, Object> typeText(String selector, String text) {

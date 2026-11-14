@@ -28,6 +28,8 @@
         <maxReviewRounds value="1"/>
         <timeout value="2" />
         <defaultLlmProvider value="aiagent_master:openAiProvider"/>
+        <!-- 关思考：DeepSeek thinking 模式要求 assistant 的 reasoning_content 必须回传（旧 Provider 不回传会在工具回合后 400）；任务类 agent 预算留给正文 -->
+        <reasoningMode value="disabled"/>
     </params>
 
     <agents>

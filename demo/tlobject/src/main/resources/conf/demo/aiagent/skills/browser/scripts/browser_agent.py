@@ -48,6 +48,9 @@ _ctx = None                  # persistent context / cdp 的默认 context
 _page = None
 # serve 模式：所有动作经此锁串行（sync API 非线程安全）
 _action_lock = threading.Lock()
+# 连续相同 selector+起始 URL 的 click 计数（serve 模式跨请求存活；非 click 动作清零）
+_last_click_key = None
+_last_click_repeat = 0
 
 def _configure(args):
     """按 CLI 参数决定形态：cdp > persistent > ephemeral。"""
@@ -308,24 +311,95 @@ def _screenshot_base64(full_page=False):
     return base64.b64encode(_page.screenshot(full_page=False)).decode()
 
 # ---- actions ----
+def _reset_click_loop():
+    global _last_click_key, _last_click_repeat
+    _last_click_key, _last_click_repeat = None, 0
+
+def _page_context():
+    ctx = _ctx
+    if ctx is None and _page is not None:
+        try:
+            ctx = _page.context
+        except Exception:
+            ctx = None
+    return ctx
+
 def navigate(url, **kwargs):
     _ensure_browser()
+    _reset_click_loop()
+    before_url = _page.url
+    before_text = _get_text()
     _page.goto(url, wait_until="domcontentloaded")
-    return {"ok": True, "url": _page.url, "title": _page.title(),
-            "text": _get_text(), "screenshot_base64": _screenshot_base64(),
-            "image_for_model": True}
+    after_url = _page.url
+    after_text = _get_text()
+    r = {"ok": True}
+    if after_url != before_url:
+        r["previousUrl"] = before_url
+    r.update({"url": after_url, "title": _page.title(), "text": after_text,
+              "pageChanged": after_url != before_url or before_text != after_text,
+              "screenshot_base64": _screenshot_base64(), "image_for_model": True})
+    return r
 
 def click(selector, **kwargs):
+    """点击并报告页面是否真的变化（与 Java 版契约一致）。
+
+    旧行为无论是否跳转都回 ok:true + 相同 url/text，模型会连续点同一个死链；
+    这里补 popup 接管、pageChanged/warning 和连续 3 次无变化的硬失败。
+    """
+    global _page, _last_click_key, _last_click_repeat
     _ensure_browser()
+    before_url = _page.url
+    before_title = _page.title()
+    before_text = _get_text()
+    ctx = _page_context()
+    pages_before = len(ctx.pages) if ctx is not None else 1
     # Try CSS selector first, then text match
     try:
         _page.click(selector, timeout=5000)
     except PwTimeout:
         _page.click(f"text={selector}", timeout=5000)
     _page.wait_for_timeout(500)  # wait for any UI reaction
-    return {"ok": True, "url": _page.url, "title": _page.title(),
-            "text": _get_text(), "screenshot_base64": _screenshot_base64(),
-            "image_for_model": True}
+    popup = False
+    if ctx is not None and len(ctx.pages) > pages_before:
+        target = None
+        for p in ctx.pages:
+            if p is not _page and not p.is_closed():
+                target = p
+        if target is not None:
+            try:
+                target.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
+            _page = target
+            popup = True
+    after_url = _page.url
+    after_title = _page.title()
+    after_text = _get_text()
+    changed = (popup or after_url != before_url
+               or after_title != before_title or after_text != before_text)
+    key = selector + "|" + before_url
+    if key == _last_click_key:
+        _last_click_repeat += 1
+    else:
+        _last_click_key, _last_click_repeat = key, 1
+    if not changed and _last_click_repeat >= 3:
+        return {"ok": False, "error":
+                "repeated click without page change: selector=%s（连续 %d 次）。页面未跳转，"
+                "请改用 extract what=links 取真实 href 后直接 navigate，不要继续点同一目标。"
+                % (selector, _last_click_repeat)}
+    r = {"ok": True}
+    if after_url != before_url:
+        r["previousUrl"] = before_url
+    if popup:
+        r["tabOpened"] = True
+    r.update({"url": after_url, "title": after_title, "text": after_text,
+              "pageChanged": changed})
+    if not changed:
+        r["warning"] = ("点击后页面未变化（可能点到非链接、目标在新标签但未打开、或加载被拦截）。"
+                        "建议 extract what=links 后直接 navigate，不要重复点同一目标。")
+    r["screenshot_base64"] = _screenshot_base64()
+    r["image_for_model"] = True
+    return r
 
 def type_text(selector, text, **kwargs):
     _ensure_browser()
@@ -388,6 +462,8 @@ def _run_serve(port):
         if action not in ACTIONS:
             return 400, {"ok": False, "error": "unknown action: " + action}
         kwargs = {k: v for k, v in body.items() if k != "action" and v not in (None, "")}
+        if action != "click":
+            _reset_click_loop()
         try:
             with _action_lock:
                 result = ACTIONS[action](**kwargs)

@@ -5,6 +5,8 @@
     <params>
         <!-- 借主控的 provider（fileAgent 同款，省去重复配 key） -->
         <defaultLlmProvider value="aiagent_master:openAiProvider"/>
+        <!-- 关思考：DeepSeek thinking 模式要求 assistant 的 reasoning_content 必须回传（旧 Provider 不回传会在工具回合后 400）；任务类 agent 预算留给正文 -->
+        <reasoningMode value="disabled"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
         <defaultMemoryPackageName value="cn.tianlong.tlobject.aiagent.memory"/>
         <!-- 写代码用：正文装工具参数里，4096 会撞截断；8192 已验证 -->

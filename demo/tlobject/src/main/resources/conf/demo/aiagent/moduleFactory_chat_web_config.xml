@@ -27,7 +27,7 @@
               不使用 extraServlets 再造 dispatch 实例，避免线程 Map 竞争覆盖）
              / 与 /webui/* 静态页由 TLWebChatServlet 服务 -->
         <module name="jettyServer"
-                port="8080"
+                port="58080"
                 connector="http"
                 servletPath="/api/"
                 extraServlets="/=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet;/webui/*=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet"/>

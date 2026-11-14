@@ -24,6 +24,11 @@
              框架按此预算自动丢弃最旧消息、单条仍超则截断后再发送（仅影响当轮发送，不删历史/不影响恢复）。
              模型上下文较小（如 128K）请按实际调小；0 = 关闭自动裁剪。 -->
         <contextTokenLimit value="1048576"/>
+        <!-- todoGateEnabled/todoGateMaxRetries: 收尾门禁。本轮 todo 清单仍有 pending/in_progress 时，
+             终答分支不接收尾，注入"清单未完成"提醒继续执行（最多强制续跑 N 次，0=关闭）。
+             默认 true/2。2026-11-14 事故：agent 长工具循环丢目标后，带着 4 个待办宣布"办妥了"。 -->
+        <todoGateEnabled value="true"/>
+        <todoGateMaxRetries value="2"/>
         <!-- defaultMemoryTopK: 记忆召回注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
         <!-- defaultMemoryStore: 默认长期记忆模块名 -->
@@ -407,7 +412,12 @@
 
 - 新生成的文件默认写入当前用户工作目录：{{userWorkspace}}
 - 只有用户在本轮消息中明确给出其他目录时，才写到该目录；不得从历史记忆、过往会话或示例中推断输出路径。
-- 委托子 agent 时，在任务描述里写明工作目录 {{userWorkspace}}；需要读写其他目录时写出完整路径，由工具审批。"/>
+- 委托子 agent 时，在任务描述里写明工作目录 {{userWorkspace}}；需要读写其他目录时写出完整路径，由工具审批。
+
+## 工具选择纪律
+
+- 文件读写/搜索用 fileAgent 或 file_operation，代码执行/脚本运行用 codeAgent/codingAgent，网页访问用 browser；不要用 desktop 代替这些专用工具。
+- desktop 只用于用户明确要求操作图形界面（点按钮、输入到其它应用、看屏幕）的任务。代码/文件工具报错时，如实报告错误、换用其它代码工具或调整参数重试，禁止用 desktop 点击/截图兜底。"/>
     </modulesParams>
 
 </moduleConfig>

@@ -86,6 +86,14 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 m.addProperty("content", h.getContent());
             }
 
+            // DeepSeek thinking 模式：assistant 的 reasoning_content 必须原样回传，否则下一次
+            // 请求 400（"The reasoning_content in the thinking mode must be passed back"）。
+            // 只有模型确实产出过推理的 assistant 消息才带该字段；普通模型/无推理消息不受影响。
+            if (h.getRole() == TLConversationHistory.Role.assistant
+                    && h.getReasoningContent() != null && !h.getReasoningContent().isEmpty()) {
+                m.addProperty("reasoning_content", h.getReasoningContent());
+            }
+
             // tool_calls（assistant消息中）
             if (h.getToolCalls() != null && !h.getToolCalls().isEmpty()) {
                 JsonArray tcArray = new JsonArray();

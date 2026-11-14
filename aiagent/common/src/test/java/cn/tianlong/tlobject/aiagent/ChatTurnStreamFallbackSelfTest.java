@@ -31,6 +31,9 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         // 3) 非流式 length → 截断提示必须进 history（与流式同口径）
         runTruncationCase();
 
+        // 4) off 模式也要把原生 reasoning 挂到 assistant 消息上（DeepSeek 下一请求需回传）
+        runReasoningCase();
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }
@@ -46,10 +49,10 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         TurnSeed seed = new TurnSeed(req, "s1", "s1", "r1", "u1", "agent", "hi",
                 TurnPlan.NORMAL, new ArrayList<>(), 0, null, null,
                 new ArrayList<>(), "test-model", 0.0, 0,
-                "off", false, false, false, 10, 0,
+                "off", false, false, false, 10, 0, true, 2,
                 sink, () -> false, null);
         TurnDeps deps = new TurnDeps(null, null, provider, null, null,
-                (history, memory) -> new ArrayList<>(history),
+                (history, memory, roundStartIdx) -> new ArrayList<>(history),
                 committer, observer, null, null, null);
 
         ChatTurn turn = new ChatTurn("turn:test:r1", seed, deps);
@@ -84,10 +87,10 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         TurnSeed seed = new TurnSeed(req, "s2", "s2", "r2", "u2", "agent", "hi",
                 TurnPlan.NORMAL, new ArrayList<>(), 0, null, null,
                 new ArrayList<>(), "test-model", 0.0, 0,
-                "off", false, false, false, 10, 0,
+                "off", false, false, false, 10, 0, true, 2,
                 StreamSink.NullStreamSink.INSTANCE, () -> false, null);
         TurnDeps deps = new TurnDeps(null, null, provider, null, null,
-                (history, memory) -> new ArrayList<>(history),
+                (history, memory, roundStartIdx) -> new ArrayList<>(history),
                 committer, observer, null, null, null);
 
         new ChatTurn("turn:test:r2", seed, deps).run();
@@ -103,13 +106,19 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
     static class FakeProvider extends TLBaseModule {
         private final String response;
         private final String finishReason;
+        private final String reasoning;
 
-        FakeProvider(String response) { this(response, null); }
+        FakeProvider(String response) { this(response, null, null); }
 
         FakeProvider(String response, String finishReason) {
+            this(response, finishReason, null);
+        }
+
+        FakeProvider(String response, String finishReason, String reasoning) {
             super("fakeProvider");
             this.response = response;
             this.finishReason = finishReason;
+            this.reasoning = reasoning;
         }
 
         @Override protected TLBaseModule init() { return this; }
@@ -118,8 +127,33 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
             TLMsg r = createMsg().setParam(RESULT, true);
             if (response != null) r.setParam(AI_P_RESPONSE, response);
             if (finishReason != null) r.setParam(AI_P_FINISH_REASON, finishReason);
+            if (reasoning != null) r.setParam(AI_P_REASONING, reasoning);
             return r;
         }
+    }
+
+    private static void runReasoningCase() {
+        FakeProvider provider = new FakeProvider("answer", null, "think-token");
+        FakeCommitter committer = new FakeCommitter();
+        FakeObserver observer = new FakeObserver();
+
+        TLMsg req = new TLMsg().setParam(AI_P_USERMESSAGE, "hi");
+        TurnSeed seed = new TurnSeed(req, "s3", "s3", "r3", "u3", "agent", "hi",
+                TurnPlan.NORMAL, new ArrayList<>(), 0, null, null,
+                new ArrayList<>(), "test-model", 0.0, 0,
+                "off", false, false, false, 10, 0, true, 2,
+                StreamSink.NullStreamSink.INSTANCE, () -> false, null);
+        TurnDeps deps = new TurnDeps(null, null, provider, null, null,
+                (history, memory, roundStartIdx) -> new ArrayList<>(history),
+                committer, observer, null, null, null);
+
+        new ChatTurn("turn:test:r3", seed, deps).run();
+
+        boolean completed = committer.lastOutcome instanceof TurnOutcome.Completed;
+        check("off 模式：原生 reasoning 挂到 assistant 消息上（API 回传）", completed
+                && committer.lastRecord != null && !committer.lastRecord.history.isEmpty()
+                && "think-token".equals(committer.lastRecord.history
+                        .get(committer.lastRecord.history.size() - 1).getReasoningContent()));
     }
 
     static class FakeSink implements StreamSink {

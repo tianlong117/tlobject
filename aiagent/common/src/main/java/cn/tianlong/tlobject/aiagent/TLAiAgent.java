@@ -103,6 +103,11 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     /** 组装视图大小：发送给 LLM 的 context 原始消息条数（摘要 coverSeq 衔接后取尾部） */
     protected int contextViewSize = 40;
 
+    /** 收尾门禁：本轮 todo 清单仍有 pending/in_progress 时提醒模型继续（默认开） */
+    protected boolean todoGateEnabled = true;
+    /** 同一轮最多强制续跑次数（0=关闭），防止模型反复空转 */
+    protected int todoGateMaxRetries = 2;
+
     /** 发送视图 token 预算（0=不限制）。消息按条数裁剪不按体量，超大单条/恢复巨量历史会超模型
      *  上下文 → 400 "maximum context length"；buildSendList 据此做发送视图级裁剪（不落 context）。
      *  默认 1048576（DeepSeek 1M），小上下文模型按 agent <params> contextTokenLimit 调小。 */
@@ -601,6 +606,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             if (params.get("contextTokenLimit") != null) {
                 try { contextTokenLimit = Long.parseLong(params.get("contextTokenLimit")); }
                 catch (NumberFormatException ignored) {}
+            }
+            if (params.get("todoGateEnabled") != null)
+                todoGateEnabled = !"false".equals(params.get("todoGateEnabled"));
+            if (params.get("todoGateMaxRetries") != null) {
+                try { todoGateMaxRetries = Integer.parseInt(params.get("todoGateMaxRetries").trim()); }
+                catch (NumberFormatException ignored) {}
+                if (todoGateMaxRetries < 0) todoGateMaxRetries = 0;
             }
             if (params.get("enableCheckpoint") != null)
                 enableCheckpoint = "true".equals(params.get("enableCheckpoint"));
@@ -1637,6 +1649,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     ctx.model, ctx.temperature, ctx.maxTokens,
                     ctx.reasoningMode, ctx.reasoningVisible,
                     ctx.noHistory, intentCacheEnabled, turnMax, thinkingBudget,
+                    todoGateEnabled, todoGateMaxRetries,
                     sink, () -> runCtx.cancelled.get(), null);
             TurnRoles roles = new TurnRoles(ctx);
             TurnDeps turnDeps = new TurnDeps(getFactory(), this, llmProvider,
@@ -1693,8 +1706,8 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         // ===== TurnViewBuilder =====
         @Override
         public List<TLConversationHistory> build(List<TLConversationHistory> history,
-                                                 String memoryContext) {
-            return buildSendList(history, memoryContext);
+                                                 String memoryContext, int roundStartIdx) {
+            return buildSendList(history, memoryContext, roundStartIdx);
         }
 
         // ===== TurnObserver =====
@@ -2743,24 +2756,48 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         putMsg(contextModuleName, replaceMsg);
     }
 
+    protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
+                                                        String memoryContext) {
+        return buildSendList(full, memoryContext, -1);
+    }
+
     /**
      * 构建发送给 LLM 的视图列表：
      * system 区（默认 system + 记忆 system）恒保留；其余取尾部 contextViewSize 条原样。
      * 历史未超视图 → 直接全量（兼容现状）。
      * 孤儿 tool 修正：视图开头是 tool 消息时向前补其 assistant(tool_calls)，保证 OpenAI 消息顺序约束。
+     *
+     * <p>roundStartIdx != -1 时，本轮用户提问恒定保留（窗口外则提到头部，窗口内则上移去重）——
+     * 长工具循环（搜索/浏览器/代码）会把 40 条窗口全部冲掉，模型丢掉任务目标后会跑偏，
+     * 甚至在清单未完成时自报"办妥了"（2026-11-14 webchat_tianlong_1794627998443 事故）。
+     * 同时把本轮最新的 todo 结果提炼成一条 system 提醒注入（不占 tool 配对约束），
+     * 避免清单随窗口一起消失。
      */
     protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
-                                                        String memoryContext) {
+                                                        String memoryContext,
+                                                        int roundStartIdx) {
+        TLConversationHistory roundQuestion = roundQuestionAt(full, roundStartIdx);
+        String todoReminder = buildTodoReminder(full, roundStartIdx);
         if (full.size() <= contextViewSize) {
-            List<TLConversationHistory> all = copyList(full);
+            // 逐条 copy 并记住本轮提问的拷贝：memory/todo system 插入后位置会变，用 identity 找回
+            List<TLConversationHistory> all = new ArrayList<>(full.size() + 2);
+            TLConversationHistory questionCopy = null;
+            for (int i = 0; i < full.size(); i++) {
+                TLConversationHistory c = full.get(i).copy();
+                if (i == roundStartIdx) questionCopy = c;
+                all.add(c);
+            }
             if (memoryContext != null && !memoryContext.isEmpty()) {
                 insertMemorySystem(all, memoryContext);
+            }
+            if (todoReminder != null) {
+                insertSystemAfterLeadingSystems(all, todoReminder);
             }
             attachments.applyManifest(all);
             attachments.applyImageRetention(all);
             sanitizeToolPairs(all);
             attachments.stripImagePayloads(all);
-            trimToContextBudget(all);
+            trimToContextBudget(all, questionCopy == null ? -1 : indexOfIdentity(all, questionCopy));
             return all;
         }
         List<TLConversationHistory> systems = new ArrayList<>();
@@ -2777,6 +2814,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         if (memoryContext != null && !memoryContext.isEmpty()) {
             systems.add(new TLConversationHistory(TLConversationHistory.Role.system, memoryContext));
+        }
+        if (todoReminder != null) {
+            systems.add(new TLConversationHistory(TLConversationHistory.Role.system, todoReminder));
         }
         int startIdx = Math.max(0, rest.size() - contextViewSize);
         // 孤儿 tool 修正（单次补簇）：尾部截取把窗口边界切在 tool 簇中间时，窗口头是 tool、
@@ -2807,13 +2847,58 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
         List<TLConversationHistory> result = new ArrayList<>(systems);
-        result.addAll(rest.subList(Math.max(0, startIdx), rest.size()));
+        TLConversationHistory questionCopy = null;
+        if (roundQuestion != null) {
+            questionCopy = roundQuestion.copy();
+            result.add(questionCopy);
+        }
+        int roundRestIdx = roundStartIdx < 0 ? -1 : restOrigIdx.indexOf(roundStartIdx);
+        for (int i = Math.max(0, startIdx); i < rest.size(); i++) {
+            if (i == roundRestIdx) continue;   // 已提升到头部，避免重复
+            result.add(rest.get(i));
+        }
         attachments.applyManifest(result);
         attachments.applyImageRetention(result);
         sanitizeToolPairs(result);
         attachments.stripImagePayloads(result);
-        trimToContextBudget(result);
+        trimToContextBudget(result, questionCopy == null ? -1 : indexOfIdentity(result, questionCopy));
         return result;
+    }
+
+    /** 本轮用户提问（roundStartIdx 指向的 user 消息）；未知/越界/非 user 返回 null */
+    private static TLConversationHistory roundQuestionAt(List<TLConversationHistory> full,
+                                                         int roundStartIdx) {
+        if (full == null || roundStartIdx < 0 || roundStartIdx >= full.size()) return null;
+        TLConversationHistory h = full.get(roundStartIdx);
+        return h != null && h.getRole() == TLConversationHistory.Role.user ? h : null;
+    }
+
+    /** 把一条 system 提醒插到头部连续 system 块之后（main system / memory 之后，首个非 system 之前） */
+    private static void insertSystemAfterLeadingSystems(List<TLConversationHistory> list, String content) {
+        int idx = 0;
+        while (idx < list.size() && list.get(idx).getRole() == TLConversationHistory.Role.system) idx++;
+        list.add(idx, new TLConversationHistory(TLConversationHistory.Role.system, content));
+    }
+
+    /** 按对象身份找下标（copy 后 content/seq 都可能重复，identity 唯一可靠） */
+    private static int indexOfIdentity(List<TLConversationHistory> list,
+                                       TLConversationHistory target) {
+        for (int i = 0; i < list.size(); i++)
+            if (list.get(i) == target) return i;
+        return -1;
+    }
+
+    /**
+     * 从本轮最新 todo 工具结果提炼"未完成项" system 提醒。
+     * 只认本轮（roundStartIdx 之后）的 todo 结果——上一轮遗留的清单可能与当前话题无关，
+     * 不注入；找不到或全部完成返回 null。
+     */
+    private static String buildTodoReminder(List<TLConversationHistory> full, int roundStartIdx) {
+        if (full == null || roundStartIdx < 0 || roundStartIdx >= full.size()) return null;
+        String items = TLTodoReminder.latestUnfinishedItems(full, roundStartIdx);
+        if (items == null) return null;
+        return "【当前任务清单：仍有未完成项】\n" + items
+                + "每完成一步请用 todo 工具更新清单；全部完成前不要收尾。";
     }
 
     /**
@@ -2873,14 +2958,29 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
      * token 为无 tokenizer 粗估（CJK≈1.25/字、ASCII≈0.35/字符 + 结构开销），预算已留 10% 裕量。
      */
     private void trimToContextBudget(List<TLConversationHistory> list) {
+        trimToContextBudget(list, -1);
+    }
+
+    /**
+     * @param protectedIdx 本轮提问在 list 里的下标（-1=未知，退回"最后一条 user"旧语义）。
+     *                     该条永不整条删除；它是首条非 system 时跳过它删下一条。
+     */
+    private void trimToContextBudget(List<TLConversationHistory> list, int protectedIdx) {
         if (contextTokenLimit <= 0) return;
         long budget = (long) (contextTokenLimit * 0.9) - defaultMaxTokens;
         if (budget < 2000) budget = 2000;
+        int protectedUser = protectedIdx;
+        if (protectedUser < 0 || protectedUser >= list.size()
+                || list.get(protectedUser).getRole() != TLConversationHistory.Role.user) {
+            protectedUser = lastUserIndex(list);
+        }
         while (estimateTokens(list) > budget) {
             int idx = firstNonSystemIndex(list);
-            // idx == lastUser 说明本轮提问之前已无更旧的非 system 消息：保留提问交给下方截断
-            if (idx < 0 || idx == lastUserIndex(list) || countNonSystem(list) <= 1) break;
+            // 首条非 system 恰是本轮提问：它前面已无更旧消息——不要再删更"新"的工具结果，
+            // 交给下方 0.8 比例截断（删掉工具结果会丢任务上下文，截断只丢字数）。
+            if (idx < 0 || idx == protectedUser || countNonSystem(list) <= 1) break;
             list.remove(idx);
+            if (protectedUser > idx) protectedUser--;
         }
         sanitizeToolPairs(list);
         // 单条消息自身超预算：循环按 0.8 比例截断最长的非 system 消息（下限 200 字符防死循环）

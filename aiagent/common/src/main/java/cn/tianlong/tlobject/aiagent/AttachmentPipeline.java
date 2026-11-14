@@ -242,12 +242,14 @@ final class AttachmentPipeline implements TLAiAgentParamString {
         return null;
     }
 
-    /** 提取 + 剥离的组合：返回 tool 消息文本 + 要挂到 user 消息的图片 */
+    /** 提取 + 剥离的组合：返回 tool 消息文本 + 要挂到 user 消息的图片。
+     *  无论是否成功提取，文本里的图片数据一律剥离——历史/UI 都不该出现 base64
+     *  （模型看图走 attachments 通道；未声明 image_for_model 的技能本来就不该给模型看图）。 */
     ToolImageBundle extractAndStrip(String output, String userId,
                                     List<TLConversationHistory> history) {
         if (output == null) return new ToolImageBundle(null, List.of());
         List<TLAttachmentRef> imgs = extractDeclaredImages(output, userId, history);
-        String text = imgs != null ? stripImageKeys(output) : output;
+        String text = stripImageKeys(output);
         return new ToolImageBundle(text, imgs != null ? imgs : List.of());
     }
 
@@ -255,7 +257,10 @@ final class AttachmentPipeline implements TLAiAgentParamString {
     String stripImageKeys(String output) {
         if (output == null) return null;
         try {
-            com.google.gson.JsonObject o = owner.gson.fromJson(output, com.google.gson.JsonObject.class);
+            // owner.gson 在 init() 才赋值；UI 脱敏是不变量，不能因初始化顺序漏掉 base64
+            com.google.gson.Gson gson = owner.gson != null
+                    ? owner.gson : new com.google.gson.Gson();
+            com.google.gson.JsonObject o = gson.fromJson(output, com.google.gson.JsonObject.class);
             if (o == null) return output;
             boolean changed = false;
             for (String key : imageDataKeys) {
@@ -265,7 +270,7 @@ final class AttachmentPipeline implements TLAiAgentParamString {
                     changed = true;
                 }
             }
-            return changed ? owner.gson.toJson(o) : output;
+            return changed ? gson.toJson(o) : output;
         } catch (Exception e) {
             return output;
         }

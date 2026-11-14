@@ -1391,7 +1391,7 @@ you(console_user) > how much is a hamburger
 `aistart-web.bat` also starts Jetty (port 8080 by default) in the same process. Open:
 
 ```
-http://localhost:8080/webui/chat.html
+http://localhost:58080/webui/chat.html
 ```
 
 Default accounts `admin` / `tianlong` (password `123456` for both), configured via the `passwords`
@@ -1753,7 +1753,7 @@ High-risk tool operations require human approval before they are executed.
 ### Web Interaction Window (aiagent/webui)
 
 `AIStart -web` (or `aistart-web.bat`) starts both the console and the Web window in the same process:
-Open `http://localhost:8080/webui/chat.html` in a browser (change the port in the jettyServer parameter of `moduleFactory_chat_web_config.xml`).
+Open `http://localhost:58080/webui/chat.html` in a browser (change the port in the jettyServer parameter of `moduleFactory_chat_web_config.xml`).
 
 - Login: the `passwords` parameter of the `webui` module (demo default admin/tianlong, password 123456); if no password is configured, any non-empty userId can log in
 - Chat: streaming (fetch-SSE) / non-streaming, the reasoning process can be collapsed, and the final line shows token statistics

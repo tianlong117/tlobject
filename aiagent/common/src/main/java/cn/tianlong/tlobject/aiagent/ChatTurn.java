@@ -39,6 +39,8 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     private boolean finalAnswerStreamed;
     private boolean streamFinished;
     private int finalAssistantIdx = -1;
+    /** 本轮因"清单未完成"被强制续跑的次数（上限 seed.todoGateMaxRetries） */
+    private int todoGateRetries;
 
     /** 生产构造器：带 factory（putLog 走日志模块）。 */
     ChatTurn(String name, TLObjectFactory factory, TurnSeed seed, TurnDeps deps) {
@@ -94,7 +96,7 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
 
             deps.committer.checkpoint(record());
             List<TLConversationHistory> sendList =
-                    deps.viewBuilder.build(history, memoryContext);
+                    deps.viewBuilder.build(history, memoryContext, msgStartIdx);
             TLMsg llmMsg = buildLlmMsg(sendList);
             deps.observer.traceStage(seed.sessionId, seed.rootSessionId, seed.roundId, seed.userId,
                     "llmRequest", "iter=" + iteration + " model=" + seed.model, 0,
@@ -134,7 +136,9 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                                     ? (List<TLToolCall>) llmResponse.getListParam(AI_P_TOOLCALLS, null) : null,
                             llmResponse.getStringParam(AI_P_REASONING, "")));
 
-            extractReasoning(llmResponse);
+            // 推理文本要挂到 assistant 消息上回传（DeepSeek thinking 模式要求），
+            // 与"是否展示给用户"无关——off 模式也要保留，只是不打印/不注入独立 reasoning 条目。
+            String assistantReasoning = extractReasoning(llmResponse);
             boolean hasToolCalls = llmResponse.parseBoolean("hasToolCalls", false);
             @SuppressWarnings("unchecked")
             List<TLToolCall> toolCalls =
@@ -157,11 +161,31 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 String finalResponse = deps.observer.withTruncationNotice(rawResponse, turnFinish);
                 if (finalResponse.isEmpty())
                     finalResponse = deps.observer.emptyHistoryPlaceholder(turnFinish);
+                // 清单门禁：本轮写过 todo 且仍有 pending/in_progress → 不接收尾，提醒继续。
+                // 只在正文未流式发出时拦截（迭代轮默认非流式；首轮流式终答没有清单可谈）。
+                String todoReminder = unfinishedTodoReminder();
+                if (todoReminder != null && !finalAnswerStreamed
+                        && todoGateRetries < seed.todoGateMaxRetries) {
+                    todoGateRetries++;
+                    history.add(new TLConversationHistory(TLConversationHistory.Role.system, todoReminder));
+                    putLog("[turn:" + seed.roundId + "] todo gate 触发：清单未完成，继续执行 ("
+                            + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
+                    continue;
+                }
+                if (todoReminder != null && !finalAnswerStreamed) {
+                    // 重试用尽：不伪装完成，终答明确标注仍有未完成项
+                    finalResponse = finalResponse + "\n\n（注意：任务清单仍有未完成项，详见任务清单。）";
+                    putLog("[turn:" + seed.roundId + "] todo gate 重试用尽，收尾但标注未完成", LogLevel.WARN);
+                }
                 // 流式/非流式统一存带截断提示的 finalResponse：否则非流式的下一轮 LLM
                 // 不知道自己上一答被截断，与流式上下文语义分叉（返回给调用方的已是 finalResponse）。
                 String stored = finalResponse;
-                history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
-                        stored.isEmpty() ? deps.observer.emptyHistoryPlaceholder(turnFinish) : stored));
+                TLConversationHistory finalMsg = new TLConversationHistory(
+                        TLConversationHistory.Role.assistant,
+                        stored.isEmpty() ? deps.observer.emptyHistoryPlaceholder(turnFinish) : stored);
+                if (assistantReasoning != null && !assistantReasoning.isEmpty())
+                    finalMsg.setReasoningContent(assistantReasoning);
+                history.add(finalMsg);
                 finalAssistantIdx = history.size() - 1;
                 return finish(new TurnOutcome.Completed(finalResponse, iteration, tokens(),
                         reasoningOut(), finalAssistantIdx));
@@ -173,6 +197,8 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                     TLConversationHistory.Role.assistant, new ArrayList<>(toolCalls));
             if (llmResponse.containsParam(AI_P_RESPONSE))
                 aMsg.setContent(llmResponse.getStringParam(AI_P_RESPONSE, null));
+            if (assistantReasoning != null && !assistantReasoning.isEmpty())
+                aMsg.setReasoningContent(assistantReasoning);
             history.add(aMsg);
             int aMsgIdx = history.size() - 1;
 
@@ -368,6 +394,18 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 seed.sink == null ? null : seed.sink::onToolEvent);
     }
 
+    /**
+     * 本轮（msgStartIdx 之后）最新 todo 工具结果里的未完成项；没有/全部完成返回 null。
+     * 只认本轮，避免上一轮遗留清单干扰当前话题。
+     */
+    private String unfinishedTodoReminder() {
+        if (!seed.todoGateEnabled || seed.todoGateMaxRetries <= 0) return null;
+        String items = TLTodoReminder.latestUnfinishedItems(history, msgStartIdx);
+        if (items == null) return null;
+        return "【任务清单未完成】\n" + items
+                + "请继续执行，不要现在收尾。若确实无法完成，请把对应项标为 failed 并在最终答复里说明原因。";
+    }
+
     private long[] lastUsage = new long[3];
     private long[] lastCache = new long[3];
 
@@ -384,13 +422,24 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         lastCache = new long[]{cc, ch, cm};
     }
 
-    private void extractReasoning(TLMsg resp) {
-        if ("off".equals(seed.reasoningMode)) return;
+    /**
+     * 捕获 LLM 推理文本。
+     *
+     * @return 需要回传给 API 的 reasoning_content（挂到 assistant 消息上）；
+     *         prompt 模式返回 null（推理在正文里，不是原生 reasoning_content）。
+     *
+     * <p>⚠ off 模式也必须捕获并回传：off 只是"不主动开关 thinking"，DeepSeek 推理模型
+     * 仍会思考并返回 reasoning_content；下一次请求不回传它 → HTTP 400
+     * "The reasoning_content in the thinking mode must be passed back"（2026-11-14 事故）。
+     * off 模式不注入独立 reasoning 条目（发送窗口/展示保持原样），只在 assistant 消息上带回。
+     */
+    private String extractReasoning(TLMsg resp) {
         String reasoningText = null;
         if (resp.containsParam(AI_P_REASONING)) {
             reasoningText = resp.getStringParam(AI_P_REASONING, "");
         }
-        if ("prompt".equals(seed.reasoningMode) && reasoningText == null) {
+        boolean promptMode = "prompt".equals(seed.reasoningMode);
+        if (promptMode && reasoningText == null) {
             String respText = resp.getStringParam(AI_P_RESPONSE, "");
             if (respText != null && respText.startsWith("💭")) {
                 int endIdx = respText.indexOf('\n');
@@ -400,13 +449,15 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 }
             }
         }
-        if (reasoningText != null && !reasoningText.isEmpty()) {
+        if (reasoningText != null && !reasoningText.isEmpty()
+                && !"off".equals(seed.reasoningMode)) {
             history.add(TLConversationHistory.createReasoning(reasoningText));
             allReasoning.append(reasoningText).append("\n");
             putLog("Reasoning captured: "
                             + reasoningText.substring(0, Math.min(80, reasoningText.length())),
                     LogLevel.DEBUG);
         }
+        return promptMode ? null : reasoningText;
     }
 
     /**

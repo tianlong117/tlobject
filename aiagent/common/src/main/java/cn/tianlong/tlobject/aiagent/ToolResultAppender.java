@@ -20,7 +20,10 @@ final class ToolResultAppender implements TLAiAgentParamString {
 
     /**
      * 整批写入：results 与 tasks 按 toolCallId 配对（index 仅兜底），图片攒到批次末统一注入。
-     * toolEventSink 喂的是原始 output（webui 渲染路径要从里面取 base64），不是 strip 后的文本。
+     *
+     * <p>toolEventSink 喂的是<b>剥掉图片数据</b>的 UI 安全文本：聊天界面不再渲染浏览器截图
+     * （用户明确要求"截图不要发到聊天界面"；模型仍通过附件管线拿到图）。旧实现把原始 base64
+     * 直接推给 webui，前端从 screenshot_base64 提图渲染——既刷屏又占 DOM。
      */
     void appendAll(List<TLConversationHistory> history,
                    List<TLToolExecutor.ToolTask> tasks,
@@ -45,7 +48,10 @@ final class ToolResultAppender implements TLAiAgentParamString {
             if (task == null && tasks != null && i < tasks.size()) task = tasks.get(i);
             String toolName = task != null ? task.functionName : r.toolCallId;
             appendOne(history, toolName, r, sessionId, userId, pendingImages);
-            if (toolEventSink != null) toolEventSink.accept(toolName, r.output);
+            // 无论附件管线是否成功提取，UI 侧一律剥掉图片数据：宁可界面看不到图，
+            // 也不能把 base64 塞进聊天 DOM（用户要求 + 长工具循环的上下文/DOM 负担）
+            if (toolEventSink != null)
+                toolEventSink.accept(toolName, attachments.stripImageKeys(r.output));
         }
         attachments.flushToolImages(history, pendingImages);
     }
