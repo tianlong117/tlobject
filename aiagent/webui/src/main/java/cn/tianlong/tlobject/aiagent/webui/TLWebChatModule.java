@@ -718,7 +718,12 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (path.isEmpty()) return null;
         try {
             java.io.File f = TLDownloadService.resolve(userId, path);
-            if (f == null) return null;   // 越权/不存在：不输出
+            if (f == null) {
+                // 越权/不存在：412/404 明确失败；不能静默 200 空响应——浏览器会存成 0 字节文件
+                javax.servlet.http.HttpServletResponse resp = getResponse();
+                if (resp != null) resp.setStatus(404);
+                return null;
+            }
             try (java.io.InputStream in = new java.io.FileInputStream(f)) {
                 // putStream：非图片扩展名（html/pdf/docx/zip…）自动 application/octet-stream + attachment；
                 // 图片为 inline，前端链接带 download 属性仍会强制下载

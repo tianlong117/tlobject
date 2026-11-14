@@ -403,12 +403,20 @@ function linkifyDownloads(el) {
 /** 本轮生成文件（sid → 路径数组）：工具结果里抽出来，收尾时在答复下方渲染下载框。 */
 const TURN_FILES = {};
 
+/** 只收用户 workspace 内的路径：/api/download 的边界也是 workspace；
+ *  工具输出里常出现“检查了某个根目录路径，不存在”的完整路径，不能当生成文件。 */
+function isWorkspacePath(p) {
+  return /(^|[\\/])workspace[\\/][^\\/]+[\\/]/i.test(String(p || ''));
+}
+
 function extractFilePaths(text) {
   if (!text) return [];
   DL_PATH_RE.lastIndex = 0;
   const out = [];
   let m;
-  while ((m = DL_PATH_RE.exec(text))) out.push(m[1]);
+  while ((m = DL_PATH_RE.exec(text))) {
+    if (isWorkspacePath(m[1])) out.push(m[1]);
+  }
   return out;
 }
 
@@ -435,8 +443,9 @@ function pickDeliverableFiles(paths, answerText) {
   while ((m = nameRe.exec(answerText || ''))) mentioned.add(m[1]);
   const isNoise = p => /\.(py|js|bat|cmd|sh|bak|broken)$/i.test(p)
       || /^_tmp/i.test(baseOf(p)) || /^_build/i.test(baseOf(p));
-  let out = uniq.filter(p => !isNoise(p) && (!mentioned.size || mentioned.has(baseOf(p))));
-  if (!out.length) out = uniq.filter(p => !isNoise(p));
+  let out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p)
+      && (!mentioned.size || mentioned.has(baseOf(p))));
+  if (!out.length) out = uniq.filter(p => isWorkspacePath(p) && !isNoise(p));
   return out;
 }
 
