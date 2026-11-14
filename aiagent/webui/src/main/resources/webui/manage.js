@@ -167,6 +167,47 @@ function updateSelectionUI() {
   }
 }
 
+const UPLOAD_MAX_MB = 50;   // 与后端 uploadSizeMaxMB 保持一致
+
+/** 上传文件到 workspace/{userId}/uploads（复用 /api/upload，可多选、支持多文件字段 file_i）。 */
+async function uploadFiles(files) {
+  if (!files || !files.length) return;
+  const over = files.filter(f => f.size > UPLOAD_MAX_MB * 1024 * 1024);
+  const okFiles = files.filter(f => f.size <= UPLOAD_MAX_MB * 1024 * 1024);
+  if (over.length) notice('以下文件超过 ' + UPLOAD_MAX_MB + 'MB，已跳过：'
+      + over.map(f => f.name).join('、'), true);
+  if (!okFiles.length) return;
+
+  const btn = $('#mUploadBtn');
+  const oldText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '上传中…';
+
+  const fd = new FormData();
+  // 不同字段名 file_0/file_1...：uploadFile 的 filenames 按字段名收集，同 key 会覆盖
+  okFiles.forEach((f, i) => fd.append('file_' + i, f));
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 120000);
+  try {
+    const resp = await fetch('/api/upload', { method: 'POST', body: fd, signal: ctrl.signal });
+    let data = null;
+    try { data = await resp.json(); } catch (e) { /* 非 JSON */ }
+    if (resp.status === 401) { showLogin(); throw new Error('未登录'); }
+    if (!resp.ok || !data || data.success !== true) {
+      throw new Error((data && data.error) || ('HTTP ' + resp.status));
+    }
+    const saved = Array.isArray(data.filenames) ? data.filenames : [];
+    notice('上传成功 ' + (saved.length || okFiles.length) + ' 个文件（保存到 uploads/）', false);
+    await load();
+  } catch (e) {
+    notice('上传失败：' + (e.name === 'AbortError' ? '上传超时（120秒）' : e.message), true);
+  } finally {
+    clearTimeout(timer);
+    btn.disabled = false;
+    btn.textContent = oldText;
+  }
+}
+
 async function deleteSelected() {
   const paths = [...state.selected];
   if (!paths.length) return;
@@ -232,5 +273,11 @@ document.addEventListener('DOMContentLoaded', () => {
     render();
   };
   $('#mDeleteSelected').onclick = deleteSelected;
+  $('#mUploadBtn').onclick = () => $('#mUploadInput').click();
+  $('#mUploadInput').onchange = e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';       // 允许连续上传同名文件
+    uploadFiles(files);
+  };
   boot();
 });
