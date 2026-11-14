@@ -2895,21 +2895,26 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             }
         }
         List<TLConversationHistory> result = new ArrayList<>(systems);
-        TLConversationHistory questionCopy = null;
-        if (roundQuestion != null) {
-            questionCopy = roundQuestion.copy();
-            result.add(questionCopy);
-        }
         int roundRestIdx = roundStartIdx < 0 ? -1 : restOrigIdx.indexOf(roundStartIdx);
+        // ⚠ 提问在窗口内时不要搬到头部：那会变成 [system][本轮提问][上一轮 messages...]，
+        // 模型按最后一条 assistant/tool 继续旧任务（2026-11-14 第 12 轮真机：
+        // 用户问肝癌/酒，请求末尾是上一轮"肺癌走 B"的 assistant，答成了旧任务）。
+        // 只有提问被窗口裁掉（长工具循环，窗口内全是本轮工具结果）才补到窗口前。
+        boolean questionInWindow = roundQuestion != null && roundRestIdx >= startIdx;
+        TLConversationHistory questionRef = null;
+        if (roundQuestion != null && !questionInWindow) {
+            questionRef = roundQuestion.copy();
+            result.add(questionRef);
+        }
         for (int i = Math.max(0, startIdx); i < rest.size(); i++) {
-            if (i == roundRestIdx) continue;   // 已提升到头部，避免重复
             result.add(rest.get(i));
+            if (i == roundRestIdx) questionRef = rest.get(i);   // 窗口内：保持原时间顺序
         }
         attachments.applyManifest(result);
         attachments.applyImageRetention(result);
         sanitizeToolPairs(result);
         attachments.stripImagePayloads(result);
-        trimToContextBudget(result, questionCopy == null ? -1 : indexOfIdentity(result, questionCopy));
+        trimToContextBudget(result, questionRef == null ? -1 : indexOfIdentity(result, questionRef));
         return result;
     }
 
