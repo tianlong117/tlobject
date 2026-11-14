@@ -165,8 +165,11 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                     finalResponse = deps.observer.emptyHistoryPlaceholder(turnFinish);
                 // 清单门禁：本轮写过 todo 且仍有 pending/in_progress → 不接收尾，提醒继续。
                 // 只在正文未流式发出时拦截（迭代轮默认非流式；首轮流式终答没有清单可谈）。
+                // 澄清问句例外：模型需要用户拍板（如"用哪版"）时是合法收尾，硬续跑只会
+                // 反复问同一句并追加"清单未完成"（2026-11-14 肺癌转 Word 轮）。
                 String todoReminder = unfinishedTodoReminder();
-                if (todoReminder != null && !finalAnswerStreamed
+                boolean clarification = looksLikeClarification(finalResponse);
+                if (todoReminder != null && !finalAnswerStreamed && !clarification
                         && todoGateRetries < seed.todoGateMaxRetries) {
                     todoGateRetries++;
                     // 只进本轮发送视图：落 history 会跨轮累积，旧"清单未完成"会把后续提问带偏
@@ -177,7 +180,7 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                             + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
                     continue;
                 }
-                if (todoReminder != null && !finalAnswerStreamed) {
+                if (todoReminder != null && !finalAnswerStreamed && !clarification) {
                     // 重试用尽：不伪装完成，终答明确标注仍有未完成项
                     finalResponse = finalResponse + "\n\n（注意：任务清单仍有未完成项，详见任务清单。）";
                     putLog("[turn:" + seed.roundId + "] todo gate 重试用尽，收尾但标注未完成", LogLevel.WARN);
@@ -415,6 +418,22 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
      * 本轮（msgStartIdx 之后）最新 todo 工具结果里的未完成项；没有/全部完成返回 null。
      * 只认本轮，避免上一轮遗留清单干扰当前话题。
      */
+    /**
+     * 终答是否在向用户请求确认（而不是任务完成）。用于清单门禁豁免：
+     * 模型需要用户拍板时是合法收尾，硬续跑只会重复问句并追加"清单未完成"。
+     * 只认强信号，避免把"要不要删你说"这类完成后的顺带建议误判。
+     */
+    static boolean looksLikeClarification(String text) {
+        if (text == null) return false;
+        String t = text.trim();
+        if (t.isEmpty()) return false;
+        if (t.endsWith("？") || t.endsWith("?")) return true;
+        String[] cues = {"请你回一句", "请你确认", "请确认", "等你确认", "需要你确认",
+                "用哪版", "哪一版", "请回", "你说一句", "告诉我用哪"};
+        for (String c : cues) if (t.contains(c)) return true;
+        return false;
+    }
+
     private String unfinishedTodoReminder() {
         if (!seed.todoGateEnabled || seed.todoGateMaxRetries <= 0) return null;
         String items = TLTodoReminder.latestUnfinishedItems(history, msgStartIdx);

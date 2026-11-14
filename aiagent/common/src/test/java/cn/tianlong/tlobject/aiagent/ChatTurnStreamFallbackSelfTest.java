@@ -34,6 +34,14 @@ public class ChatTurnStreamFallbackSelfTest implements TLAiAgentParamString {
         // 4) off 模式也要把原生 reasoning 挂到 assistant 消息上（DeepSeek 下一请求需回传）
         runReasoningCase();
 
+        // 5) 澄清问句识别：门禁豁免不能把"版本确认"当未完成，也不能误判完成后的顺带建议
+        check("澄清识别：版本确认问句",
+                ChatTurn.looksLikeClarification("天龙，结构探出来了。请你回一句：用哪版。"));
+        check("澄清识别：问号结尾",
+                ChatTurn.looksLikeClarification("需要我用哪一版？"));
+        check("澄清识别：完成后顺带建议不误判",
+                !ChatTurn.looksLikeClarification("已生成。目录里多了两个临时文件，要不要删你说。"));
+
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
     }
