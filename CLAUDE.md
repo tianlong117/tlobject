@@ -150,6 +150,7 @@ Built-in modules extending `TLBaseModule`:
 - `LongTermMemory` — 跨会话知识碎片（JSONL文件 / 数据库），通过 `recallAgentMemory()` + 文本匹配召回
 - `ShortTermMemory` — 进程内 TTL 缓存，正常聊天流不使用，留给外部 skill 模块
 - 记忆召回走 AOP：`beforeMsgTable` 拦截 chat action → `recallAgentMemory` → 结果注入 `msg.systemArgs["beforeResult"]` → `doChat` 读取后拼成 system 消息
+- **记忆召回不注入当前会话的 chat_history**：`recallAgentMemory` 的"最近记忆"路径（空 query）返回的是用户最近 50 条，长期会话里几乎全是**本会话上一轮**的"用户消息 → 回答"；重复注入会把它变成一条 system 记忆，模型可能把上一轮用户指令当成当前任务（2026-11-14 会话 11 轮：上一轮"图例错位"记忆 + 6 条旧门禁提示，模型答非所问）。现在按 `entry.metadata.sessionId` 过滤当前会话 chat_history（DB 从 `session_id` 列补，文件版 store 时补），保留当前会话 `session_summary` 与别的会话记忆；记忆 prompt 明确"仅参考、不是当前指令，当前任务只以最后一条 user 消息为准"；master 对"任务清单/进度/为什么没完成/结果是否受影响"类过程问题要求直接回答、不新建任务/不执行旧任务。守护：`smoke/agent/MemoryRecallSessionFilterSmoke`
 
 **数据库记忆模块 (`TLDatabaseMemoryModule`):**
 - 继承 `TLBaseMemory`，实现 5 个抽象方法：`store/retrieve/search/delete/clearAll`

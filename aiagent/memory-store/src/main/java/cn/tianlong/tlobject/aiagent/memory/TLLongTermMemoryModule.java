@@ -139,6 +139,7 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
     @SuppressWarnings("unchecked")
     protected TLMsg store(Object fromWho, TLMsg msg) {
         String userId = msg.getStringParam("userId", msg.getStringParam(AI_P_SESSIONID, "global"));
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, "global");
         TLMemoryEntry entry = (TLMemoryEntry) msg.getParam("entry", TLMemoryEntry.class);
         if (entry == null) {
             String key = msg.getStringParam(AI_P_MEMORYKEY, "");
@@ -178,6 +179,12 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
             }
         }
 
+        // 召回时按会话排除当前会话的 chat_history；文件版 key 无 session 段，靠 metadata 补
+        Map<String, Object> entryMeta = entry.getMetadata();
+        if (entryMeta == null) entryMeta = new HashMap<>();
+        entryMeta.putIfAbsent("sessionId", sessionId);
+        entry.setMetadata(entryMeta);
+
         // embedding：文本向量化并存入 entry metadata
         Object embedText = entry.getValue();
         if (enableEmbedding && embeddingProviderInstance != null && embedText != null) {
@@ -213,7 +220,6 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         // 摘要模式：碎片照常落库（不改动现有长期记忆）+ 进攒批缓冲；满批 LLM 提炼
         if (summaryEnabled && entry.getValue() != null) {
             try {
-                String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
                 String agentName = msg.getStringParam("agentName", null);
                 long maxSeq = msg.getIntParam("maxSeq", 0);
                 collectSummaryFragment(sessionId, userId, agentName, entry.getValue().toString(), maxSeq);

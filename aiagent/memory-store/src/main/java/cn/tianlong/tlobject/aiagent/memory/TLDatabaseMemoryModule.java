@@ -481,6 +481,17 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         if (metaStr != null && !metaStr.isEmpty()) {
             try { entry.setMetadata(gson.fromJson(metaStr, Map.class)); } catch (Exception ignored) {}
         }
+        // 召回时要按会话排除当前会话的 chat_history（见 TLAiAgent.recallAgentMemory）；
+        // session_id 是表列，不一定在 metadata 里，这里补齐
+        Object sid = row.get("session_id");
+        if (sid != null && !String.valueOf(sid).isEmpty()) {
+            Map<String, Object> meta = entry.getMetadata();
+            if (meta == null) {
+                meta = new java.util.LinkedHashMap<>();
+                entry.setMetadata(meta);
+            }
+            meta.putIfAbsent("sessionId", String.valueOf(sid));
+        }
         return entry;
     }
 

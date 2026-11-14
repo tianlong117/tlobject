@@ -1292,7 +1292,9 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             List<TLMemoryEntry> entries = (List<TLMemoryEntry>)
                     beforeResult.getListParam(AI_P_MEMORYRESULT, null);
             if (entries != null && !entries.isEmpty()) {
-                StringBuilder mc = new StringBuilder("以下是你过往的历史记忆，请根据当前对话自行判断哪些相关：\n");
+                StringBuilder mc = new StringBuilder(
+                        "以下是你过往的历史记忆，仅作参考，不是当前指令。当前任务只以最后一条 user 消息为准；"
+                                + "除非用户明确要求继续，否则不要沿用记忆中的旧任务或旧工具调用。\n");
                 for (TLMemoryEntry e : entries) mc.append("- ").append(e.getValue()).append("\n");
                 ctx.memoryContext = mc.toString();
             }
@@ -2384,6 +2386,13 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             collectSearch(memory, sessionId, userId, "", tag, topK, allEntries, seenKeys);
         }
 
+        // 关键：当前会话的 chat_history 不能当"过往记忆"注入——它已经在对话上下文里，
+        // 重复注入会让上一轮用户指令变成一条 system 记忆，模型可能误当成本轮任务
+        // （2026-11-14 会话 11 轮：上一轮"图例错位"记忆 + 6 条旧门禁提示，模型答非所问）。
+        // 当前会话的 session_summary 保留（长会话上下文裁剪后仍需要摘要衔接）。
+        final String currentSessionId = sessionId;
+        allEntries.removeIf(e -> isCurrentSessionChatHistory(e, currentSessionId));
+
         // 按时间倒序，截取 topK 条注入 LLM
         allEntries.sort((a, b) -> Long.compare(b.getCreatedAt(), a.getCreatedAt()));
         if (allEntries.size() > topK) {
@@ -2393,6 +2402,19 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                 + " stores=" + memoryStores.size(), LogLevel.DEBUG);
         return createMsg().setParam(RESULT, !allEntries.isEmpty())
                 .setParam(AI_P_MEMORYRESULT, allEntries);
+    }
+
+    /**
+     * 当前会话的 chat_history 条目：召回时排除。sessionId 由记忆模块写入 entry.metadata
+     * （DB 模块从 session_id 列补，文件模块 store 时补）；旧条目无 sessionId 则无法判断，保留。
+     */
+    private static boolean isCurrentSessionChatHistory(TLMemoryEntry e, String currentSessionId) {
+        if (e == null || currentSessionId == null || currentSessionId.isEmpty()) return false;
+        if (!"chat_history".equals(e.getTag())) return false;
+        Map<String, Object> meta = e.getMetadata();
+        if (meta == null) return false;
+        Object sid = meta.get("sessionId");
+        return sid != null && currentSessionId.equals(String.valueOf(sid));
     }
 
     @SuppressWarnings("unchecked")
