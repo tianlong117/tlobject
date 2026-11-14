@@ -1707,7 +1707,14 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         @Override
         public List<TLConversationHistory> build(List<TLConversationHistory> history,
                                                  String memoryContext, int roundStartIdx) {
-            return buildSendList(history, memoryContext, roundStartIdx);
+            return buildSendList(history, memoryContext, roundStartIdx, null);
+        }
+
+        @Override
+        public List<TLConversationHistory> build(List<TLConversationHistory> history,
+                                                 String memoryContext, int roundStartIdx,
+                                                 List<TLConversationHistory> transientSystem) {
+            return buildSendList(history, memoryContext, roundStartIdx, transientSystem);
         }
 
         // ===== TurnObserver =====
@@ -2776,17 +2783,31 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
     protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
                                                         String memoryContext,
                                                         int roundStartIdx) {
+        return buildSendList(full, memoryContext, roundStartIdx, null);
+    }
+
+    /**
+     * @param transientSystem 只进本次发送视图的 system 消息（本轮 todo 收尾门禁），
+     *                        不落 history/会话存储；null/空 = 无。
+     */
+    protected List<TLConversationHistory> buildSendList(List<TLConversationHistory> full,
+                                                        String memoryContext,
+                                                        int roundStartIdx,
+                                                        List<TLConversationHistory> transientSystem) {
         TLConversationHistory roundQuestion = roundQuestionAt(full, roundStartIdx);
         String todoReminder = buildTodoReminder(full, roundStartIdx);
         if (full.size() <= contextViewSize) {
             // 逐条 copy 并记住本轮提问的拷贝：memory/todo system 插入后位置会变，用 identity 找回
-            List<TLConversationHistory> all = new ArrayList<>(full.size() + 2);
+            List<TLConversationHistory> all = new ArrayList<>(full.size() + 4);
             TLConversationHistory questionCopy = null;
             for (int i = 0; i < full.size(); i++) {
-                TLConversationHistory c = full.get(i).copy();
+                TLConversationHistory h = full.get(i);
+                if (isLegacyGateSystem(h)) continue;   // 旧轮门禁提示已落盘：不再带给模型
+                TLConversationHistory c = h.copy();
                 if (i == roundStartIdx) questionCopy = c;
                 all.add(c);
             }
+            insertTransientSystems(all, transientSystem);
             if (memoryContext != null && !memoryContext.isEmpty()) {
                 insertMemorySystem(all, memoryContext);
             }
@@ -2806,7 +2827,7 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         for (int i = 0; i < full.size(); i++) {
             TLConversationHistory h = full.get(i);
             if (h.getRole() == TLConversationHistory.Role.system) {
-                systems.add(h.copy());
+                if (!isLegacyGateSystem(h)) systems.add(h.copy());   // 旧轮门禁提示不带给模型
             } else {
                 rest.add(h.copy());
                 restOrigIdx.add(i);
@@ -2817,6 +2838,10 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
         }
         if (todoReminder != null) {
             systems.add(new TLConversationHistory(TLConversationHistory.Role.system, todoReminder));
+        }
+        if (transientSystem != null) {
+            for (TLConversationHistory h : transientSystem)
+                if (h != null) systems.add(h.copy());
         }
         int startIdx = Math.max(0, rest.size() - contextViewSize);
         // 孤儿 tool 修正（单次补簇）：尾部截取把窗口边界切在 tool 簇中间时，窗口头是 tool、
@@ -2875,9 +2900,38 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
 
     /** 把一条 system 提醒插到头部连续 system 块之后（main system / memory 之后，首个非 system 之前） */
     private static void insertSystemAfterLeadingSystems(List<TLConversationHistory> list, String content) {
+        int idx = leadingSystemEnd(list);
+        list.add(idx, new TLConversationHistory(TLConversationHistory.Role.system, content));
+    }
+
+    /** 把本轮瞬态 system 提醒插到头部连续 system 块之后（只进发送视图，不落 history） */
+    private static void insertTransientSystems(List<TLConversationHistory> list,
+                                               List<TLConversationHistory> transientSystem) {
+        if (transientSystem == null || transientSystem.isEmpty()) return;
+        int idx = leadingSystemEnd(list);
+        int k = 0;
+        for (TLConversationHistory h : transientSystem) {
+            if (h == null) continue;
+            list.add(idx + k++, h.copy());
+        }
+    }
+
+    private static int leadingSystemEnd(List<TLConversationHistory> list) {
         int idx = 0;
         while (idx < list.size() && list.get(idx).getRole() == TLConversationHistory.Role.system) idx++;
-        list.add(idx, new TLConversationHistory(TLConversationHistory.Role.system, content));
+        return idx;
+    }
+
+    /**
+     * 旧版本把 todo 收尾门禁提醒作为普通 system 消息落进了 history；跨轮累积后，
+     * 后续提问会同时看到多条旧"清单未完成"，被带回到旧任务（2026-11-14 会话 11 轮）。
+     * 发送视图过滤掉这些遗留消息；新代码只把门禁提醒放 transientSystem，不再落盘。
+     */
+    private static boolean isLegacyGateSystem(TLConversationHistory h) {
+        if (h == null || h.getRole() != TLConversationHistory.Role.system) return false;
+        String c = h.getContent();
+        return c != null && (c.startsWith("【任务清单未完成】")
+                || c.startsWith("【当前任务清单：仍有未完成项】"));
     }
 
     /** 按对象身份找下标（copy 后 content/seq 都可能重复，identity 唯一可靠） */

@@ -41,6 +41,8 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     private int finalAssistantIdx = -1;
     /** 本轮因"清单未完成"被强制续跑的次数（上限 seed.todoGateMaxRetries） */
     private int todoGateRetries;
+    /** 本轮瞬态 system 提醒（todo 收尾门禁）；只进发送视图，不落 history/会话存储 */
+    private final List<TLConversationHistory> transientSystems = new ArrayList<>();
 
     /** 生产构造器：带 factory（putLog 走日志模块）。 */
     ChatTurn(String name, TLObjectFactory factory, TurnSeed seed, TurnDeps deps) {
@@ -96,7 +98,7 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
 
             deps.committer.checkpoint(record());
             List<TLConversationHistory> sendList =
-                    deps.viewBuilder.build(history, memoryContext, msgStartIdx);
+                    deps.viewBuilder.build(history, memoryContext, msgStartIdx, transientSystems);
             TLMsg llmMsg = buildLlmMsg(sendList);
             deps.observer.traceStage(seed.sessionId, seed.rootSessionId, seed.roundId, seed.userId,
                     "llmRequest", "iter=" + iteration + " model=" + seed.model, 0,
@@ -167,7 +169,10 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 if (todoReminder != null && !finalAnswerStreamed
                         && todoGateRetries < seed.todoGateMaxRetries) {
                     todoGateRetries++;
-                    history.add(new TLConversationHistory(TLConversationHistory.Role.system, todoReminder));
+                    // 只进本轮发送视图：落 history 会跨轮累积，旧"清单未完成"会把后续提问带偏
+                    transientSystems.clear();
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system, todoReminder));
                     putLog("[turn:" + seed.roundId + "] todo gate 触发：清单未完成，继续执行 ("
                             + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
                     continue;
@@ -390,8 +395,20 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
 
     private void appendToolResults(List<TLToolExecutor.ToolTask> tasks,
                                    List<TLToolExecutor.ToolResult> results) {
+        // 模型更新过清单后，上一轮的"清单未完成"瞬态提醒立即失效，避免它继续误导本轮
+        if (hasTodoTask(tasks)) transientSystems.clear();
         deps.appender.appendAll(history, tasks, results, seed.sessionId, seed.userId,
                 seed.sink == null ? null : seed.sink::onToolEvent);
+    }
+
+    private static boolean hasTodoTask(List<TLToolExecutor.ToolTask> tasks) {
+        if (tasks == null) return false;
+        for (TLToolExecutor.ToolTask t : tasks) {
+            if (t != null && t.functionName != null
+                    && t.functionName.toLowerCase(java.util.Locale.ROOT).contains("todo"))
+                return true;
+        }
+        return false;
     }
 
     /**

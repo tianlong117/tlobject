@@ -10,4 +10,15 @@ interface TurnViewBuilder {
      */
     List<TLConversationHistory> build(List<TLConversationHistory> history, String memoryContext,
                                       int roundStartIdx);
+
+    /**
+     * 带本轮瞬态 system 消息的构建（todo 收尾门禁用）：这些消息只进本次发送视图，
+     * 不落 history/会话存储——否则会跨轮累积，后续轮次被旧"清单未完成"带偏。
+     * 默认忽略瞬态消息，兼容只实现 3 参的测试替身。
+     */
+    default List<TLConversationHistory> build(List<TLConversationHistory> history, String memoryContext,
+                                              int roundStartIdx,
+                                              List<TLConversationHistory> transientSystem) {
+        return build(history, memoryContext, roundStartIdx);
+    }
 }
