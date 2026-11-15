@@ -2006,7 +2006,89 @@ function sessionDisplayName(s) {
   return s.sessionId;
 }
 
-/** 渲染左侧会话栏（顺序即服务端次序：最近活动优先）。
+/** 置顶会话：浏览器本地偏好（按 userId 分开存），置顶的排最前、组内保持服务端活动顺序。 */
+function pinnedStorageKey() {
+  return 'tlweb.pinned.' + (state.userId || 'default');
+}
+function loadPinnedSessions() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(pinnedStorageKey()) || '[]');
+    return new Set(Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []);
+  } catch (e) { return new Set(); }
+}
+function savePinnedSessions(set) {
+  try { localStorage.setItem(pinnedStorageKey(), JSON.stringify([...set])); } catch (e) { /* 隐私模式/禁用存储 */ }
+}
+function toggleSessionPin(sid) {
+  const set = loadPinnedSessions();
+  const pin = !set.has(sid);
+  if (pin) set.add(sid); else set.delete(sid);
+  savePinnedSessions(set);
+  renderSessionList();
+  toast(pin ? '已置顶' : '已取消置顶', 'ok');
+}
+function removeSessionPin(sid) {
+  const set = loadPinnedSessions();
+  if (set.delete(sid)) savePinnedSessions(set);
+}
+
+/** 会话「更多」菜单（单例；点外部/ESC/滚动/窗口缩放关闭）。 */
+let sessionMenu = null;
+
+function closeSessionMenu() {
+  if (!sessionMenu) return;
+  sessionMenu.remove();
+  sessionMenu = null;
+  document.removeEventListener('click', onSessionMenuDocClick, true);
+  document.removeEventListener('keydown', onSessionMenuKey, true);
+  window.removeEventListener('resize', closeSessionMenu);
+  const sb = $('#sessionsBox');
+  if (sb) sb.removeEventListener('scroll', closeSessionMenu);
+}
+function onSessionMenuKey(e) { if (e.key === 'Escape') closeSessionMenu(); }
+function onSessionMenuDocClick(e) {
+  if (sessionMenu && !sessionMenu.contains(e.target)) closeSessionMenu();
+}
+
+/** 打开某会话的「更多」菜单：接管 / 置顶 / 清除上下文 / 删除 */
+function openSessionMenu(btn, sid) {
+  closeSessionMenu();
+  const pinned = loadPinnedSessions().has(sid);
+  const menu = document.createElement('div');
+  menu.className = 'sess-menu';
+  const item = (label, fn, cls) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    if (cls) b.className = cls;
+    b.onclick = () => { closeSessionMenu(); fn(sid); };
+    menu.appendChild(b);
+  };
+  item(pinned ? '取消置顶' : '置顶', toggleSessionPin);
+  item('接管', continueSession);
+  item('清除上下文', clearSession);
+  item('删除', deleteSessionBtn, 'del');
+  document.body.appendChild(menu);
+  sessionMenu = menu;
+  // 贴着「更多」按钮展开；下方空间不够就往上翻
+  const r = btn.getBoundingClientRect();
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  let left = Math.min(r.left, window.innerWidth - mw - 8);
+  let top = r.bottom + 4;
+  if (top + mh > window.innerHeight - 8) top = r.top - mh - 4;
+  menu.style.left = Math.max(8, left) + 'px';
+  menu.style.top = Math.max(8, top) + 'px';
+  // 延后注册：避免打开菜单的这次点击立刻把它关掉
+  setTimeout(() => {
+    document.addEventListener('click', onSessionMenuDocClick, true);
+    document.addEventListener('keydown', onSessionMenuKey, true);
+    window.addEventListener('resize', closeSessionMenu);
+    const sb = $('#sessionsBox');
+    if (sb) sb.addEventListener('scroll', closeSessionMenu);
+  }, 0);
+}
+
+/** 渲染左侧会话栏（顺序即服务端次序：最近活动优先；置顶会话排最前）。
  *  同步函数、只读缓存——switchSessionView/setBusy 等高频路径可安全调用。 */
 function renderSessionList() {
   const box = $('#sessionsBox');
@@ -2021,11 +2103,15 @@ function renderSessionList() {
   }
   box.innerHTML = '';
   if (!lastSessionsData.length) { box.innerHTML = '<div class="empty">（暂无历史会话）</div>'; return; }
-  lastSessionsData.forEach(s => {
+  const pinned = loadPinnedSessions();
+  const pinnedRows = [], otherRows = [];
+  lastSessionsData.forEach(s => (pinned.has(s.sessionId) ? pinnedRows : otherRows).push(s));
+  pinnedRows.concat(otherRows).forEach(s => {
     const sid = s.sessionId;
     const icon = sessionStatusIcon(sid, !!s.running);
     const row = document.createElement('div');
-    row.className = 'sess-row' + (sid === state.sessionId ? ' cur' : '');
+    row.className = 'sess-row' + (sid === state.sessionId ? ' cur' : '')
+        + (pinned.has(sid) ? ' pinned' : '');
     row.dataset.sid = sid;
     // 第一行：状态图标 + 会话名（标题 → 首句 → 会话ID；窄栏省略号截断，tooltip 看全称）
     const l1 = document.createElement('div');
@@ -2042,6 +2128,13 @@ function renderSessionList() {
     // tooltip 三段全量：完整标题 / 完整首句 / 完整会话ID（缺哪项略哪项）
     name.title = [s.title, s.userMessage, sid].filter(x => x).join('\n');
     l1.appendChild(ic);
+    if (pinned.has(sid)) {
+      const pin = document.createElement('span');
+      pin.className = 'sess-pin';
+      pin.textContent = '📌';
+      pin.title = '已置顶（更多 → 取消置顶）';
+      l1.appendChild(pin);
+    }
     l1.appendChild(name);
     row.appendChild(l1);
     // 第二行：Agent · 最后活动 · 轮次 · 状态
@@ -2055,7 +2148,7 @@ function renderSessionList() {
     meta.textContent = bits.join(' · ');
     meta.title = meta.textContent;
     row.appendChild(meta);
-    // 第三行：行内操作（与旧表格同 handler，加"改名"，行为不变）
+    // 第三行：常用操作只留「切换 / 改名」，其余收进「更多」菜单
     const ops = document.createElement('div');
     ops.className = 'sess-ops';
     const mkBtn = (label, cls, fn, tip) => {
@@ -2066,11 +2159,14 @@ function renderSessionList() {
       b.onclick = () => fn(sid);
       ops.appendChild(b);
     };
-    mkBtn('接管', null, continueSession, '接管该会话：载入历史并取得发言权；若正被其他设备使用，对方会被踢下线');
     mkBtn('切换', null, switchSession, '进入该会话查看历史（和平进入，不踢其他设备；首次进入自动载入历史）');
     mkBtn('改名', null, renameSessionFlow, '重命名这个会话');
-    mkBtn('清除上下文', null, clearSession, '清空该会话的对话上下文（模型从此不再记得前面的对话；历史记录仍保留）');
-    mkBtn('删除', 'del', deleteSessionBtn, '删除该会话（历史记录一并删除，不可恢复）');
+    const more = document.createElement('button');
+    more.className = 'more';
+    more.textContent = '更多 ▾';
+    more.title = '更多操作（接管 / 置顶 / 清除上下文 / 删除）';
+    more.onclick = (e) => { e.stopPropagation(); openSessionMenu(more, sid); };
+    ops.appendChild(more);
     row.appendChild(ops);
     box.appendChild(row);
   });
@@ -2261,7 +2357,7 @@ async function deleteSessionBtn(sid) {
       // 当前会话被删：开新会话（switchSessionView 顺带把被删会话的 box 从 #msgList 摘掉）
       newSession();
     }
-    if (r.success) loadSessions();
+    if (r.success) { removeSessionPin(sid); loadSessions(); }
   } catch (e) { toast(e.message, 'err'); }
 }
 async function resumeCheckpoint() {

@@ -73,6 +73,24 @@ main { display: flex; flex: 1; min-height: 0; }
 .sess-ops button:hover { background: #2d3345; }
 .sess-ops button.del { color: #f87171; }
 .sess-ops button.del:hover { background: #3f1d1d; }
+.sess-ops button.more { color: #93c5fd; }
+/* 置顶会话：淡蓝底 + 行首 📌（排序时置顶组恒在最前） */
+.sess-row.pinned { background: #1c2333; border-color: #31405c; }
+.sess-pin { flex: none; font-size: 10px; line-height: 1; color: #93c5fd; }
+/* 会话「更多」菜单（fixed 定位，避免被侧栏滚动容器裁剪） */
+.sess-menu {
+  position: fixed; z-index: 80; min-width: 132px; padding: 4px;
+  background: #1b1e27; border: 1px solid #2a2f3d; border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+}
+.sess-menu button {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 10px; font-size: 12px; border: none; border-radius: 4px;
+  background: none; color: #d8dde6; cursor: pointer;
+}
+.sess-menu button:hover { background: #2d3345; }
+.sess-menu button.del { color: #f87171; }
+.sess-menu button.del:hover { background: #3f1d1d; }
 
 /* ===== 聊天窗口 ===== */
 /* 会话列：独立面板（底色 #171a21 略淡于页面 #12141a，不悬空）+ 右侧空栏（与左侧会话栏同宽）
