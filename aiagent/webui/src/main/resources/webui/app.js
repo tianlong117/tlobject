@@ -355,11 +355,11 @@ function appendSysMsg(text) {
   scrollChat();
 }
 /** box 可选：指定目标会话的盒子（后台会话的流式收尾用），缺省 = 当前视图 */
-function appendMsg(role, content, box) {
+function appendMsg(role, content, box, withLinks = true) {
   const d = document.createElement('div');
   d.className = 'msg ' + role;
   d.textContent = content == null ? '' : content;
-  if (role === 'ai') linkifyDownloads(d);
+  if (role === 'ai' && withLinks) linkifyDownloads(d);
   (box || curBox()).appendChild(d);
   scrollChat(box);
   return d;
@@ -369,7 +369,7 @@ function appendMsg(role, content, box) {
  *  只匹配 D:\.../D:/... 或 workspace\.../workspace/... 且以常见文档扩展名结尾；
  *  服务端 /api/download 由 TLDownloadService 校验，只允许本用户 workspace。 */
 const DL_PATH_RE = /(?<![A-Za-z0-9_./:\\-])((?:[A-Za-z]:[\\/]|workspace[\\/])[^\s"'<>，。；：、（）()]+?\.(?:html?|png|jpe?g|gif|webp|svg|pdf|docx?|xlsx?|pptx?|md|txt|csv|json|zip|rar|7z))(?=[\s"'`，。；：、（）()]|$)/gi;
-function linkifyDownloads(el) {
+function linkifyDownloads(el, skipPaths) {
   if (!el || el.dataset.dlLinked) return;
   el.dataset.dlLinked = '1';
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -383,6 +383,8 @@ function linkifyDownloads(el) {
     DL_PATH_RE.lastIndex = 0;
     let m, last = 0, frag = null;
     while ((m = DL_PATH_RE.exec(text))) {
+      // 已在下载框里的文件不再链行内链接（同一文件两处“下载”是重复入口）
+      if (skipPaths instanceof Set && skipPaths.has(normPathKey(m[1]))) continue;
       if (!frag) frag = document.createDocumentFragment();
       if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
       const a = document.createElement('a');
@@ -456,7 +458,11 @@ function collectTurnFiles(sid, text, toolName) {
   const declared = declaredImagePath(text);
   if (declared) { markInputFile(sid, declared); return; }
   const list = TURN_FILES[sid] || (TURN_FILES[sid] = []);
-  extractFilePaths(text).forEach(p => { if (!list.includes(p)) list.push(p); });
+  const keys = new Set(list.map(normPathKey));
+  extractFilePaths(text).forEach(p => {
+    const k = normPathKey(p);
+    if (!keys.has(k)) { keys.add(k); list.push(p); }
+  });
 }
 
 /** 从候选路径里挑最终要展示的下载文件：
@@ -467,7 +473,7 @@ function pickDeliverableFiles(paths, answerText, inputSet) {
   if (!paths || !paths.length) return [];
   const seen = new Set(), uniq = [];
   paths.forEach(p => {
-    const k = String(p).toLowerCase();
+    const k = normPathKey(p);   // 斜杠方向/大小写不同也视为同一个文件（重登回放会同时出现两种写法）
     if (!seen.has(k)) { seen.add(k); uniq.push(p); }
   });
   const baseOf = p => String(p).split(/[\\/]/).pop();
@@ -835,8 +841,15 @@ function finishAssistantMsg(holder, evt) {
     }
     if (hasToolAfter) parent.appendChild(holder.el);
   }
-  linkifyDownloads(holder.el);
   const answerText = holder.el.textContent;
+  const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText,
+      TURN_INPUT_FILES[holder.sid]);
+  if (holder.sid) {
+    TURN_FILES[holder.sid] = [];
+    TURN_INPUT_FILES[holder.sid] = new Set();
+  }
+  // 进下载框的文件不再链行内“下载”，避免同一文件两个下载入口
+  linkifyDownloads(holder.el, new Set(files.map(normPathKey)));
   if (evt.reasoning) appendReasoning(holder.el, evt.reasoning);
   const meta = document.createElement('div');
   meta.className = 'meta';
@@ -846,12 +859,6 @@ function finishAssistantMsg(holder, evt) {
   info += (info ? ')' : '');
   meta.textContent = info;
   holder.el.appendChild(meta);
-  const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText,
-      TURN_INPUT_FILES[holder.sid]);
-  if (holder.sid) {
-    TURN_FILES[holder.sid] = [];
-    TURN_INPUT_FILES[holder.sid] = new Set();
-  }
   if (files.length) renderDownloadBox(holder.el, files);
   scrollChat(holder.box);
 }
@@ -933,8 +940,8 @@ async function plainChat(msg) {
       // FIX: 原计划用 holder.el.firstChild.textContent —— 无推理时 firstChild 是光标（随后被 remove 导致回复丢失）、有推理时是 details 元素（被 textContent 摧毁）。
       // 修正：先移除光标，再在推理块之后追加文本节点
       holder.el.appendChild(document.createTextNode(r.response || ''));
-      linkifyDownloads(holder.el);
       const answerFiles = pickDeliverableFiles(extractFilePaths(r.response || ''), r.response || '');
+      linkifyDownloads(holder.el, new Set(answerFiles.map(normPathKey)));
       if (answerFiles.length) renderDownloadBox(holder.el, answerFiles);
       if (r.tokens && r.tokens.total) {
         const meta = document.createElement('div');
@@ -2119,6 +2126,9 @@ async function continueSession(sid, silent) {
             replayInputs);
         replayFiles = [];
         replayInputs = new Set();   // 输入图片也按轮清空
+        // 与实时一致：行内下载链接只加在每轮终答上；中间过程气泡不链，
+        // 且已进下载框的文件不再链行内链接（避免同一文件两个下载入口）
+        if (lastAiEl) linkifyDownloads(lastAiEl, new Set(files.map(normPathKey)));
         if (files.length && lastAiEl) renderDownloadBox(lastAiEl, files);
       };
       (r.data.history || []).forEach(h => {
@@ -2143,7 +2153,8 @@ async function continueSession(sid, silent) {
           flushReplayFiles();
           lastAiEl = null;
         }
-        const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content);
+        // 回放先不链下载：每轮结束只链终答（和实时一致，避免中间过程气泡与下载框重复）
+        const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content, null, false);
         if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
         else {
           replayFiles.push(...extractFilePaths(h.content));
