@@ -2078,14 +2078,13 @@ function openSessionMenu(btn, sid) {
   if (top + mh > window.innerHeight - 8) top = r.top - mh - 4;
   menu.style.left = Math.max(8, left) + 'px';
   menu.style.top = Math.max(8, top) + 'px';
-  // 延后注册：避免打开菜单的这次点击立刻把它关掉
-  setTimeout(() => {
-    document.addEventListener('click', onSessionMenuDocClick, true);
-    document.addEventListener('keydown', onSessionMenuKey, true);
-    window.addEventListener('resize', closeSessionMenu);
-    const sb = $('#sessionsBox');
-    if (sb) sb.addEventListener('scroll', closeSessionMenu);
-  }, 0);
+  // 同步注册：打开菜单的点击已被「更多」按钮 stopPropagation，且 capture 阶段已过，
+  // 不会立刻触发这里的 document 监听；延后注册反而会和 ESC 抢时序
+  document.addEventListener('click', onSessionMenuDocClick, true);
+  document.addEventListener('keydown', onSessionMenuKey, true);
+  window.addEventListener('resize', closeSessionMenu);
+  const sb = $('#sessionsBox');
+  if (sb) sb.addEventListener('scroll', closeSessionMenu);
 }
 
 /** 渲染左侧会话栏（顺序即服务端次序：最近活动优先；置顶会话排最前）。
