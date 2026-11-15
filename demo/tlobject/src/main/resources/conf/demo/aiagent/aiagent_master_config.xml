@@ -287,10 +287,12 @@
              启用: statup="true" -->
         <!-- 浏览器。当前为②持久化 headless 模式（headless="true" + userDataDir）：
              agent 用独立的无窗口 Chromium 干活，不打开/不接管本机 Chrome。
-             需要人工登录站点时，临时改回③真实浏览器接管：在下面 skill 上补两行
-             cdpEndpoint="http://127.0.0.1:9222" cdpAutoLaunch="true"（并运行 agentbrowser.bat
-             人工登录，使用 cdpProfileDir 专用 profile）；登录完删掉这两行即回到无窗口模式
-             （两套 profile 不共享登录态）。详见 aiagent/README.md
+             需要人工登录站点时，临时改回③真实浏览器接管：在下面 skill 上补三行
+             cdpEndpoint="http://127.0.0.1:9222" cdpAutoLaunch="true"
+             cdpProfileDir="data/browser_agent_profile"（并运行 agentbrowser.bat 人工登录）；
+             登录完删掉这三行即回到无窗口模式（两套 profile 不共享登录态）。
+             cdpProfileDir 在③下必填（标签页状态文件宿主 + 浏览器专用 profile），②下不需要。
+             详见 aiagent/README.md
              切 Java 版：把 sameClassAs="browserSkill" 改成 "browserJavaSkill"（参数同名共用；回退改回来） -->
         <skill name="browser"
                sameClassAs="browserJavaSkill"
