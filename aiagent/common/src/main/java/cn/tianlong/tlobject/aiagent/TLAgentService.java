@@ -162,6 +162,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             case "session":         return doSwitchSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             case "renameSession":   return doRenameSession(fromWho, msg);
+            case "pinSession":      return doPinSession(fromWho, msg);
 
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
@@ -1163,6 +1164,22 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             return fail(result.getStringParam("error", "会话不存在: " + sessionId));
         }
         return ok("已改名: " + title);
+    }
+
+    /** 置顶/取消置顶会话（webui 侧栏；存 sessionManager：DB 版 ai_sessions.pinned / 文件版 sidecar） */
+    private TLMsg doPinSession(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam(AI_P_SESSIONID, null);
+        if (sessionId == null || sessionId.isEmpty()) return fail("sessionId 参数必填");
+        boolean pinned = msg.getBooleanParam("pinned", true);
+        TLMsg result = putSafe(targetSessionManager(msg), createMsg()
+                .setAction("setSessionPinned")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", msg.getStringParam("userId", null))
+                .setParam("pinned", pinned));
+        if (result == null) return fail("sessionManager 无响应");
+        if (!result.parseBoolean(RESULT, false)) return fail(result.getStringParam("error", "置顶失败"));
+        if (!result.parseBoolean("updated", false)) return fail("会话不存在: " + sessionId);
+        return ok(pinned ? "已置顶" : "已取消置顶");
     }
 
     /** 清除会话上下文 */

@@ -132,6 +132,7 @@
   `user_message` varchar(1024) DEFAULT '',
   `msg_count` int DEFAULT 0,
   `title` varchar(255) DEFAULT '',
+  `pinned` tinyint DEFAULT 0,
   `metadata` TEXT DEFAULT NULL,
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
@@ -166,6 +167,7 @@
   user_message TEXT DEFAULT '',
   msg_count INTEGER DEFAULT 0,
   title TEXT DEFAULT '',
+  pinned INTEGER DEFAULT 0,
   metadata TEXT
 );"/>
 

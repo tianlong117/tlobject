@@ -26,6 +26,8 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
 
     /** title 列迁移是否已完成（幂等探测；失败保持 false，下次写路径重试） */
     private volatile boolean titleColumnReady = false;
+    /** pinned 列迁移是否已完成（同 title，老库自动加列） */
+    private volatile boolean pinnedColumnReady = false;
 
     /**
      * 每会话下一个 round_seq 的缓存。新 roundId 取该会话当前最大值+1；
@@ -381,12 +383,50 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         }
     }
 
+    // ======================== setSessionPinned ========================
+
+    /** 写 ai_sessions.pinned；会话不存在/不属于该 userId 时返回 false。 */
+    @Override
+    protected boolean setSessionPinned(String sessionId, String userId, boolean pinned) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        if (ensureSessTable() == null) return false;
+        try {
+            boolean scopeUser = userId != null && !userId.isEmpty();
+            StringBuilder q = new StringBuilder("select session_id from [table] where session_id=?");
+            LinkedHashMap<String, Object> qp = new LinkedHashMap<>();
+            qp.put("session_id", sessionId);
+            if (scopeUser) { q.append(" and user_id=?"); qp.put("user_id", userId); }
+            TLMsg qr = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, q.toString())
+                    .setParam(DB_P_PARAMS, qp)
+                    .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(qr);
+            if (rows == null || rows.isEmpty()) return false;   // 会话不存在/查询失败
+
+            StringBuilder sql = new StringBuilder("update [table] set pinned=? where session_id=?");
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("pinned", pinned ? 1 : 0);
+            p.put("session_id", sessionId);
+            if (scopeUser) { sql.append(" and user_id=?"); p.put("user_id", userId); }
+            TLMsg r = putMsg(sessTable, createMsg().setAction(DB_UPDATE)
+                    .setParam(DB_P_SQL, sql.toString())
+                    .setParam(DB_P_PARAMS, p));
+            boolean ok = r != null && r.parseBoolean(RESULT, false);
+            if (!ok) pinnedColumnReady = false;   // 列被外部删除/DB 回滚：下次重试迁移
+            return ok;
+        } catch (Exception e) {
+            putLog("setSessionPinned DB failed: " + e, LogLevel.WARN);
+            return false;
+        }
+    }
+
     // ======================== 惰性初始化 + title 列迁移 ========================
 
-    /** 惰性获取 ai_sessions 表引用（失败下次重试），并保证 title 列已迁移 */
+    /** 惰性获取 ai_sessions 表引用（失败下次重试），并保证 title / pinned 列已迁移 */
     private synchronized TLBaseModule ensureSessTable() {
         if (sessTable == null) sessTable = TLDatabase.getTable("aiSessions", this);
         if (sessTable != null && !titleColumnReady) ensureTitleColumn();
+        if (sessTable != null && !pinnedColumnReady) ensurePinnedColumn();
         return sessTable;
     }
 
@@ -427,6 +467,40 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
             titleColumnReady = true;
         } catch (Exception e) {
             putLog("ai_sessions title 列迁移异常（下次重试）: " + e, LogLevel.WARN);
+        }
+    }
+
+    /** 幂等迁移：老库的 ai_sessions 没有 pinned 列（失败保持 false，下次重试）。 */
+    private void ensurePinnedColumn() {
+        try {
+            boolean has = false;
+            TLMsg probe = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "pragma table_info([table])")
+                    .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+            java.util.List<java.util.Map<String, Object>> cols = getResultList(probe);
+            if (cols == null) {
+                TLMsg p2 = putMsg(sessTable, createMsg().setAction(DB_QUERY)
+                        .setParam(DB_P_SQL, "select pinned from [table] limit 1")
+                        .setParam(DB_P_RESULTTYPE, TLDatabase.RESULT_TYPE.MAPLIST));
+                has = getResultList(p2) != null;
+            } else {
+                for (java.util.Map<String, Object> c : cols) {
+                    Object n = c.get("name");
+                    if (n != null && "pinned".equalsIgnoreCase(String.valueOf(n))) { has = true; break; }
+                }
+            }
+            if (!has) {
+                TLMsg r = putMsg(sessTable, createMsg().setAction(DB_UPDATE)
+                        .setParam(DB_P_SQL, "alter table [table] add column pinned integer default 0"));
+                if (r == null || !r.parseBoolean(RESULT, false)) {
+                    putLog("ai_sessions 迁移失败：新增 pinned 列未成功（下次重试）", LogLevel.WARN);
+                    return;
+                }
+                putLog("ai_sessions 迁移：新增 pinned 列", LogLevel.INFO);
+            }
+            pinnedColumnReady = true;
+        } catch (Exception e) {
+            putLog("ai_sessions pinned 列迁移异常（下次重试）: " + e, LogLevel.WARN);
         }
     }
 
@@ -565,6 +639,7 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         meta.put("agentName", row.getOrDefault("agent_name", ""));
         meta.put("userMessage", row.getOrDefault("user_message", ""));
         meta.put("title", strOf(row.get("title")));   // 老库/未迁移时列缺失 → 空串（契约：无标题=空串）
+        meta.put("pinned", objToInt(row.getOrDefault("pinned", 0)) > 0);
         meta.put("savedAt", objToLong(row.getOrDefault("last_active", 0L)));
         meta.put("count", objToInt(row.getOrDefault("msg_count", 0)));
         return meta;

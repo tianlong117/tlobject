@@ -82,6 +82,9 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
      */
     protected abstract boolean setSessionTitle(String sessionId, String userId, String title, boolean onlyIfEmpty);
 
+    /** 置顶/取消置顶（DB 版写 ai_sessions.pinned，文件版写 _session_pins.idx sidecar） */
+    protected abstract boolean setSessionPinned(String sessionId, String userId, boolean pinned);
+
     // ======================== 消息分发 ========================
 
     @Override
@@ -97,6 +100,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             case "setSessionTitle": return doSetSessionTitle(fromWho, msg);
+            case "setSessionPinned": return doSetSessionPinned(fromWho, msg);
             case "discardPendingRound": return doDiscardPendingRound(fromWho, msg);
             default: return null;
         }
@@ -401,6 +405,20 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         boolean onlyIfEmpty = msg.getBooleanParam("onlyIfEmpty", false);
         boolean updated = setSessionTitle(sessionId, userId, title, onlyIfEmpty);
         return createMsg().setParam(RESULT, true).setParam("updated", updated);
+    }
+
+    /**
+     * 设置/取消会话置顶（webui 侧栏）。
+     * 契约与改名一致：RESULT=true + updated（会话不存在时 updated=false）。
+     */
+    private TLMsg doSetSessionPinned(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        if (sessionId == null || sessionId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 必填");
+        String userId = msg.getStringParam("userId", null);
+        boolean pinned = msg.getBooleanParam("pinned", true);
+        boolean updated = setSessionPinned(sessionId, userId, pinned);
+        return createMsg().setParam(RESULT, true).setParam("updated", updated).setParam("pinned", pinned);
     }
 
     // ======================== 公共逻辑：轮次组装 ========================

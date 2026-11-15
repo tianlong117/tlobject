@@ -290,10 +290,14 @@ public class TLSessionManager extends TLBaseSessionManager {
                 roundSeqCounters.remove(file.getAbsolutePath());
             }
         } catch (Exception ignored) {}
-        // 顺带删标题：防 sidecar 留陈旧条目（会话 id 复用时会误显示旧标题）
+        // 顺带删标题/置顶：防 sidecar 留陈旧条目（会话 id 复用时会误显示旧标题/置顶）
         try {
             java.util.Map<String, String> titles = loadTitles(userId);
             if (titles.remove(sessionId) != null) saveTitles(userId, titles);
+        } catch (Exception ignored) {}
+        try {
+            java.util.Set<String> pins = loadPins(userId);
+            if (pins.remove(sessionId)) savePins(userId, pins);
         } catch (Exception ignored) {}
     }
 
@@ -309,6 +313,7 @@ public class TLSessionManager extends TLBaseSessionManager {
 
             java.util.Arrays.sort(files, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
             java.util.Map<String, String> titles = loadTitles(userId);   // 一次性读标题 sidecar
+            java.util.Set<String> pins = loadPins(userId);               // 一次性读置顶 sidecar
 
             for (java.io.File f : files) {
                 TLMsg meta = readLastLineMeta(f);
@@ -320,6 +325,7 @@ public class TLSessionManager extends TLBaseSessionManager {
                 info.put("agentName", meta.getStringParam("agentName", ""));
                 info.put("userMessage", meta.getStringParam("userMessage", ""));
                 info.put("title", titles.getOrDefault(sid, ""));
+                info.put("pinned", pins.contains(sid));
                 info.put("savedAt", f.lastModified());
                 info.put("count", meta.getIntParam("count", 0));
                 sessions.add(info);
@@ -392,6 +398,64 @@ public class TLSessionManager extends TLBaseSessionManager {
         if (onlyIfEmpty && cur != null && !cur.isEmpty()) return false;
         titles.put(sessionId, title != null ? title : "");
         return saveTitles(userId, titles);
+    }
+
+    // ======================== 会话置顶（sidecar 索引） ========================
+
+    /** 置顶 sidecar：{user}/session_store/_session_pins.idx（JSON 字符串数组；.idx 不会被会话扫描当成会话文件）。 */
+    private java.io.File pinsFile(String userId) {
+        return new java.io.File(getSessionStorePath(userId), "_session_pins.idx");
+    }
+
+    private java.util.Set<String> loadPins(String userId) {
+        java.util.Set<String> pins = new java.util.LinkedHashSet<>();
+        try {
+            java.io.File f = pinsFile(userId);
+            if (!f.exists()) return pins;
+            String json = new String(java.nio.file.Files.readAllBytes(f.toPath()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            java.util.List<String> list = gson.fromJson(json,
+                    new com.google.gson.reflect.TypeToken<java.util.List<String>>() {}.getType());
+            if (list != null)
+                for (String s : list)
+                    if (s != null && !s.trim().isEmpty()) pins.add(s);
+        } catch (Exception e) {
+            putLog("loadPins failed: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+        }
+        return pins;
+    }
+
+    private synchronized boolean savePins(String userId, java.util.Set<String> pins) {
+        java.io.File f = pinsFile(userId);
+        java.io.File dir = f.getParentFile();
+        try {
+            if (dir != null && !dir.exists()) dir.mkdirs();
+            java.io.File tmp = new java.io.File(dir, f.getName() + ".tmp");
+            java.nio.file.Files.write(tmp.toPath(),
+                    gson.toJson(pins).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            try {
+                java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception atomicFail) {
+                java.nio.file.Files.move(tmp.toPath(), f.toPath(),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+            return true;
+        } catch (Exception e) {
+            putLog("savePins failed: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return false;
+        }
+    }
+
+    @Override
+    protected synchronized boolean setSessionPinned(String sessionId, String userId, boolean pinned) {
+        if (sessionId == null || sessionId.isEmpty()) return false;
+        if (findSessionFile(getSessionStorePath(userId), sessionId) == null) return false;
+        java.util.Set<String> pins = loadPins(userId);
+        boolean changed = pinned ? pins.add(sessionId) : pins.remove(sessionId);
+        if (!changed) return true;
+        return savePins(userId, pins);
     }
 
     // ======================== 文件特有工具方法 ========================

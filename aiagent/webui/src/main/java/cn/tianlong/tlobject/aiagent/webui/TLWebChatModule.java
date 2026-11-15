@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILESIZE;
@@ -63,8 +62,6 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     private String serviceModule = "agentService";
     private String userModule = "demoUserModule";
-    /** 会话置顶（服务端存储，跨设备共享；测试可注入临时目录） */
-    private TLSessionPinStore pinStore = new TLSessionPinStore(java.nio.file.Paths.get("data"));
     /** 是否订阅工具实时进度（false = 不注册总线订阅） */
     private boolean subscribeToolProgress = true;
     /** 是否订阅工作流节点进度（false = 不注册总线订阅） */
@@ -366,25 +363,6 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             if (data != null) out.put("data", toJsonable(data));
             return out;
         }
-        // 会话置顶（webui 自身逻辑，服务端存储 → 换设备登录也保持）：
-        // sessions 响应在下方统一补 pinned 标记；删除会话时同步清理置顶。
-        if ("pinSession".equals(action)) {
-            if (userId == null) return failMap("未登录");
-            String sessionId = params != null && params.get("sessionId") != null
-                    ? String.valueOf(params.get("sessionId")).trim() : "";
-            if (sessionId.isEmpty()) return failMap("sessionId 必填");
-            boolean pinned = params == null || params.get("pinned") == null
-                    || Boolean.parseBoolean(String.valueOf(params.get("pinned")));
-            if (!pinStore.setPinned(userId, sessionId, pinned))
-                return failMap("置顶状态保存失败");
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("success", true);
-            Map<String, Object> d = new LinkedHashMap<>();
-            d.put("sessionId", sessionId);
-            d.put("pinned", pinned);
-            out.put("data", d);
-            return out;
-        }
         TLMsg msg = createMsg().setAction(action);
         if (params != null) {
             for (Map.Entry<String, Object> e : params.entrySet()) msg.setParam(e.getKey(), e.getValue());
@@ -422,29 +400,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         // 透传最终回答（如 traceReplay 重放结果），供前端直接展示
         if (result.containsParam(AI_P_RESPONSE)) out.put("response", result.getStringParam(AI_P_RESPONSE, ""));
-        // 会话置顶：列表响应补 pinned 标记（服务端权威，前端据此排序）；删除会话时清理置顶
-        if ("sessions".equals(action)) annotatePinnedFlags(userId, out);
-        if ("deleteSession".equals(action) && Boolean.TRUE.equals(out.get("success"))) {
-            Object sid = params.get("sessionId");
-            if (sid != null) pinStore.setPinned(userId, String.valueOf(sid), false);
-        }
         return out;
-    }
-
-    /** 给 sessions 响应的每个会话补 pinned 标记（只加 true，不覆盖其它字段）。 */
-    @SuppressWarnings("unchecked")
-    private void annotatePinnedFlags(String userId, Map<String, Object> out) {
-        if (userId == null) return;
-        Object data = out.get("data");
-        if (!(data instanceof List)) return;
-        Set<String> pins = pinStore.load(userId);
-        if (pins.isEmpty()) return;
-        for (Object o : (List<?>) data) {
-            if (!(o instanceof Map)) continue;
-            Map<String, Object> m = (Map<String, Object>) o;
-            Object sid = m.get("sessionId");
-            if (sid != null && pins.contains(String.valueOf(sid))) m.put("pinned", true);
-        }
     }
 
     // ======================== 聊天 ========================

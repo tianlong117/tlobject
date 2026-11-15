@@ -137,6 +137,9 @@ public class TLBaseSessionManagerDiscardSelfTest implements TLAiAgentParamString
                                                     String title, boolean onlyIfEmpty) {
             return false;
         }
+        @Override protected boolean setSessionPinned(String sessionId, String userId, boolean pinned) {
+            return false;
+        }
     }
 
     private static void check(String name, boolean ok) {
