@@ -285,12 +285,11 @@
                    pip install playwright pyautogui mss -i https://pypi.tuna.tsinghua.edu.cn/simple
                    python -m playwright install chromium
              启用: statup="true" -->
-        <!-- 浏览器。当前为②持久化 headless 模式（headless="true" + userDataDir）：
-             agent 用独立的无窗口 Chromium 干活，不打开/不接管本机 Chrome。
-             需要人工登录站点时，临时改回③真实浏览器接管：在下面 skill 上补三行
-             cdpEndpoint="http://127.0.0.1:9222" cdpAutoLaunch="true"
-             cdpProfileDir="data/browser_agent_profile"（并运行 agentbrowser.bat 人工登录）；
-             登录完删掉这三行即回到无窗口模式（两套 profile 不共享登录态）。
+        <!-- 浏览器。当前为③真实浏览器接管模式（临时用于人工登录测试）：
+             agent 通过 CDP 接管本机 Chrome/Edge（专用 profile data/browser_agent_profile，
+             浏览器没开时 cdpAutoLaunch 自动拉起）。先在浏览器窗口里人工登录，agent 用同一浏览器干活。
+             测试完回到②无窗口模式：删掉下面 cdpEndpoint/cdpAutoLaunch/cdpProfileDir 三行即可
+             （②用独立的无窗口 Chromium；两套 profile 不共享登录态）。
              cdpProfileDir 在③下必填（标签页状态文件宿主 + 浏览器专用 profile），②下不需要。
              详见 aiagent/README.md
              切 Java 版：把 sameClassAs="browserSkill" 改成 "browserJavaSkill"（参数同名共用；回退改回来） -->
@@ -304,6 +303,9 @@
                allowedScriptDir="skills/browser/scripts"
                headless="true"
                userDataDir="data/browser_profile"
+               cdpEndpoint="http://127.0.0.1:9222"
+               cdpAutoLaunch="true"
+               cdpProfileDir="data/browser_agent_profile"
                skillDescription="Browser automation via Playwright (persistent browser session). Navigate to URLs, click elements, fill forms, extract page text/links/tables, and capture screenshots. Use this for ANY task involving websites: opening a URL, web search, scraping, filling forms. The browser session persists across calls — after navigate, subsequent click/type/extract act on the SAME page. Use action=navigate to open a page first, then continue with click/type/extract."/>
         <!-- 桌面自动化：Java 版（纯 JDK Robot，零外部依赖；动作比 Python 版多 double_click/drag/key/
              wait/get_mouse_position/paste）。回退 Python 版 = 把 sameClassAs 改回 "scriptExecutionSkill"
