@@ -2006,30 +2006,58 @@ function sessionDisplayName(s) {
   return s.sessionId;
 }
 
-/** 置顶会话：浏览器本地偏好（按 userId 分开存），置顶的排最前、组内保持服务端活动顺序。 */
-function pinnedStorageKey() {
-  return 'tlweb.pinned.' + (state.userId || 'default');
+/** 置顶会话：服务端按 userId 存储（跨设备共享），lastSessionsData 上的 pinned 标记为权威。 */
+function pinnedSessionSet() {
+  const set = new Set();
+  (lastSessionsData || []).forEach(s => { if (s && s.pinned) set.add(s.sessionId); });
+  return set;
 }
-function loadPinnedSessions() {
+
+/** 旧版浏览器本地置顶（localStorage）→ 服务端一次性并集迁移；失败的下次登录再试。 */
+let localPinsMigrated = false;
+async function migrateLocalPins(sessions) {
+  if (localPinsMigrated) return;
+  localPinsMigrated = true;
+  const key = 'tlweb.pinned.' + (state.userId || 'default');
+  let legacy = [];
+  try { legacy = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { legacy = []; }
+  if (!Array.isArray(legacy) || !legacy.length) return;
+  const known = new Set((sessions || []).map(s => s && s.sessionId).filter(Boolean));
+  const server = new Set((sessions || []).filter(s => s && s.pinned).map(s => s.sessionId));
+  const missing = legacy.filter(sid => typeof sid === 'string' && known.has(sid) && !server.has(sid));
+  let changed = false, failed = false;
+  for (const sid of missing) {
+    try {
+      const r = await apiCommand('pinSession', { sessionId: sid, pinned: true });
+      if (r.success) {
+        const s = (sessions || []).find(x => x && x.sessionId === sid);
+        if (s) s.pinned = true;
+        changed = true;
+      } else failed = true;
+    } catch (e) { failed = true; }   // 单个失败不影响其它；本地键保留到下次
+  }
+  if (!failed) {
+    try { localStorage.removeItem(key); } catch (e) { /* 忽略 */ }
+  }
+  if (changed) renderSessionList();
+}
+
+async function toggleSessionPin(sid) {
+  const pin = !pinnedSessionSet().has(sid);
   try {
-    const arr = JSON.parse(localStorage.getItem(pinnedStorageKey()) || '[]');
-    return new Set(Array.isArray(arr) ? arr.filter(x => typeof x === 'string') : []);
-  } catch (e) { return new Set(); }
+    const r = await apiCommand('pinSession', { sessionId: sid, pinned: pin });
+    if (!r.success) throw new Error(r.error || r.message || '置顶失败');
+    (lastSessionsData || []).forEach(s => { if (s && s.sessionId === sid) s.pinned = pin; });
+    renderSessionList();
+    toast(pin ? '已置顶' : '已取消置顶', 'ok');
+  } catch (e) {
+    toast('置顶失败：' + e.message, 'err');
+  }
 }
-function savePinnedSessions(set) {
-  try { localStorage.setItem(pinnedStorageKey(), JSON.stringify([...set])); } catch (e) { /* 隐私模式/禁用存储 */ }
-}
-function toggleSessionPin(sid) {
-  const set = loadPinnedSessions();
-  const pin = !set.has(sid);
-  if (pin) set.add(sid); else set.delete(sid);
-  savePinnedSessions(set);
-  renderSessionList();
-  toast(pin ? '已置顶' : '已取消置顶', 'ok');
-}
-function removeSessionPin(sid) {
-  const set = loadPinnedSessions();
-  if (set.delete(sid)) savePinnedSessions(set);
+
+/** 删除成功后同步本地缓存标记（服务端 deleteSession 已清理置顶文件）。 */
+function dropLocalPin(sid) {
+  (lastSessionsData || []).forEach(s => { if (s && s.sessionId === sid) s.pinned = false; });
 }
 
 /** 会话「更多」菜单（单例；点外部/ESC/滚动/窗口缩放关闭）。 */
@@ -2053,7 +2081,7 @@ function onSessionMenuDocClick(e) {
 /** 打开某会话的「更多」菜单：接管 / 置顶 / 清除上下文 / 删除 */
 function openSessionMenu(btn, sid) {
   closeSessionMenu();
-  const pinned = loadPinnedSessions().has(sid);
+  const pinned = pinnedSessionSet().has(sid);
   const menu = document.createElement('div');
   menu.className = 'sess-menu';
   const item = (label, fn, cls) => {
@@ -2102,7 +2130,7 @@ function renderSessionList() {
   }
   box.innerHTML = '';
   if (!lastSessionsData.length) { box.innerHTML = '<div class="empty">（暂无历史会话）</div>'; return; }
-  const pinned = loadPinnedSessions();
+  const pinned = pinnedSessionSet();
   const pinnedRows = [], otherRows = [];
   lastSessionsData.forEach(s => (pinned.has(s.sessionId) ? pinnedRows : otherRows).push(s));
   pinnedRows.concat(otherRows).forEach(s => {
@@ -2181,6 +2209,7 @@ async function loadSessions() {
     lastSessionsError = null;
     lastSessionsData = (r.data || []).filter(s => s && s.sessionId);
     renderSessionList();
+    migrateLocalPins(lastSessionsData);   // 旧本地置顶后台迁移到服务端（不阻塞首屏）
     return lastSessionsData;
   } catch (e) {
     lastSessionsError = e.message;   // 记住失败：后续 renderSessionList 重渲染时保住失败提示
@@ -2356,7 +2385,7 @@ async function deleteSessionBtn(sid) {
       // 当前会话被删：开新会话（switchSessionView 顺带把被删会话的 box 从 #msgList 摘掉）
       newSession();
     }
-    if (r.success) { removeSessionPin(sid); loadSessions(); }
+    if (r.success) { dropLocalPin(sid); loadSessions(); }
   } catch (e) { toast(e.message, 'err'); }
 }
 async function resumeCheckpoint() {
