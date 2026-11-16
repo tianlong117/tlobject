@@ -170,6 +170,119 @@ function renderMarkdown(container, md) {
     i++;
   }
 }
+/* ===== 聊天终答 Markdown =====
+ * 与报告用的 renderMarkdown 分开：聊天需要更多语法，且统一"先 esc 再格式化"，
+ * 不解析任何裸 HTML；链接只放行 http/https，避免 javascript:/data: 注入。
+ * 流式期间不调用（纯文本展示），收尾时一次性渲染，未闭合语法不会中途变形。 */
+function mdInline(text) {
+  // 入参先转义；再按反引号切片，代码片段内不再做加粗/链接
+  const src = esc(String(text == null ? '' : text));
+  let out = '';
+  src.split(/(`[^`]*`)/g).forEach(part => {
+    if (part.length >= 2 && part.startsWith('`') && part.endsWith('`')) {
+      out += '<code>' + part.slice(1, -1) + '</code>';
+      return;
+    }
+    let s = part;
+    s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+    out += s;
+  });
+  return out;
+}
+function splitMdRow(row) {
+  return row.trim().replace(/^\||\|$/g, '').split('|')
+      .map(s => s.trim().replace(/\\\|/g, '|'));
+}
+function renderChatMarkdown(md) {
+  const lines = String(md == null ? '' : md).replace(/\r\n?/g, '\n').split('\n');
+  let html = '';
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i].trim();
+    if (!line) { i++; continue; }
+    // 围栏代码块（未闭合时把剩余部分当代码块；内容只 esc，不做行内格式）
+    let m = line.match(/^```([A-Za-z0-9_-]*)\s*$/);
+    if (m) {
+      const lang = m[1] || '';
+      i++;
+      const buf = [];
+      while (i < lines.length && !/^```\s*$/.test(lines[i].trim())) { buf.push(lines[i]); i++; }
+      if (i < lines.length) i++;
+      html += '<pre><code' + (lang ? ' class="language-' + lang + '"' : '') + '>'
+          + esc(buf.join('\n')) + '</code></pre>';
+      continue;
+    }
+    // 表格：当前行以 | 开头且下一行是 |---| 分隔行
+    if (line.startsWith('|') && i + 1 < lines.length
+        && /^\|[\s\-:|]+\|$/.test(lines[i + 1].trim())) {
+      const header = splitMdRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].trim().startsWith('|')) {
+        rows.push(splitMdRow(lines[i].trim()));
+        i++;
+      }
+      html += '<div class="md-table-wrap"><table><thead><tr>'
+          + header.map(c => '<th>' + mdInline(c) + '</th>').join('')
+          + '</tr></thead><tbody>'
+          + rows.map(r => '<tr>' + r.map(c => '<td>' + mdInline(c) + '</td>').join('') + '</tr>').join('')
+          + '</tbody></table></div>';
+      continue;
+    }
+    m = line.match(/^(#{1,6})\s+(.*)$/);
+    if (m) {
+      const lv = m[1].length;
+      html += '<h' + lv + '>' + mdInline(m[2]) + '</h' + lv + '>';
+      i++; continue;
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) { html += '<hr>'; i++; continue; }
+    if (line.startsWith('>')) {
+      const buf = [];
+      while (i < lines.length && lines[i].trim().startsWith('>')) {
+        buf.push(lines[i].trim().replace(/^>\s?/, ''));
+        i++;
+      }
+      html += '<blockquote>' + buf.map(mdInline).join('<br>') + '</blockquote>';
+      continue;
+    }
+    if (/^[-*+]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*+]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*+]\s+/, ''));
+        i++;
+      }
+      html += '<ul>' + items.map(x => '<li>' + mdInline(x) + '</li>').join('') + '</ul>';
+      continue;
+    }
+    if (/^\d+[.)]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+[.)]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^\d+[.)]\s+/, ''));
+        i++;
+      }
+      html += '<ol>' + items.map(x => '<li>' + mdInline(x) + '</li>').join('') + '</ol>';
+      continue;
+    }
+    // 段落：吃到空行或下一个块起始行为止（行内换行保留为 <br>）
+    const buf = [];
+    while (i < lines.length) {
+      const cur = lines[i].trim();
+      if (!cur) break;
+      if (/^```[A-Za-z0-9_-]*\s*$/.test(cur) || /^#{1,6}\s+/.test(cur)
+          || /^[-*+]\s+/.test(cur) || /^\d+[.)]\s+/.test(cur)
+          || cur.startsWith('>') || /^(-{3,}|\*{3,}|_{3,})$/.test(cur)) break;
+      if (cur.startsWith('|') && i + 1 < lines.length
+          && /^\|[\s\-:|]+\|$/.test(lines[i + 1].trim())) break;
+      buf.push(cur);
+      i++;
+    }
+    html += '<p>' + buf.map(mdInline).join('<br>') + '</p>';
+  }
+  return html;
+}
 /** 把报告正文渲染到 box 末尾（有就显示；接口没带就算了） */
 function appendReport(box, d) {
   if (!d || !d.reportMarkdown) return;
@@ -354,11 +467,20 @@ function appendSysMsg(text) {
   curBox().appendChild(d);
   scrollChat();
 }
-/** box 可选：指定目标会话的盒子（后台会话的流式收尾用），缺省 = 当前视图 */
-function appendMsg(role, content, box, withLinks = true) {
+/** box 可选：指定目标会话的盒子（后台会话的流式收尾用），缺省 = 当前视图。
+ *  markdown=true 时助手正文按聊天 Markdown 渲染（历史回放/非流式终答用）。 */
+function appendMsg(role, content, box, withLinks = true, markdown = false) {
   const d = document.createElement('div');
   d.className = 'msg ' + role;
-  d.textContent = content == null ? '' : content;
+  if (markdown && role === 'ai') {
+    d.classList.add('md-rendered');
+    const body = document.createElement('div');
+    body.className = 'md-body';
+    body.innerHTML = renderChatMarkdown(content);
+    d.appendChild(body);
+  } else {
+    d.textContent = content == null ? '' : content;
+  }
   if (role === 'ai' && withLinks) linkifyDownloads(d);
   (box || curBox()).appendChild(d);
   scrollChat(box);
@@ -377,7 +499,8 @@ function linkifyDownloads(el, skipPaths) {
   while (walker.nextNode()) nodes.push(walker.currentNode);
   nodes.forEach(node => {
     const parent = node.parentNode;
-    if (!parent || parent.closest('a, details, summary')) return;   // 不处理已有链接/折叠的原始输出
+    // 不处理已有链接/折叠的原始输出/代码块（代码里的路径不该变成下载入口）
+    if (!parent || parent.closest('a, details, summary, pre, code')) return;
     const text = node.nodeValue || '';
     if (text.length < 8) return;
     DL_PATH_RE.lastIndex = 0;
@@ -803,14 +926,77 @@ function appendAttachmentThumbs(el, attachments) {
   });
   if (box.childNodes.length) el.appendChild(box);
 }
+/** 终答气泡始终排在最新过程元素（工具卡/旁白）之后 */
+function keepAnswerLast(holder) {
+  if (holder && holder.el && holder.el.parentNode) holder.el.parentNode.appendChild(holder.el);
+}
+/** 收尾统一渲染 Markdown：流式期间保持纯文本，避免未闭合列表/代码块中途变形 */
+function renderAnswerNow(holder) {
+  if (!holder) return;
+  if (holder.md) holder.md.innerHTML = renderChatMarkdown(holder.raw || '');
+  holder.el.classList.add('md-rendered');
+  keepAnswerLast(holder);
+  scrollChat(holder.box);
+}
+function applyAnswerChunk(holder, text) {
+  holder.raw = (holder.raw || '') + text;
+  if (holder.md) holder.md.textContent = holder.raw;
+  scrollChat(holder.box);
+}
+function applyAnswerReplace(holder, text) {
+  holder.raw = text == null ? '' : text;
+  if (holder.md) holder.md.textContent = holder.raw;
+  scrollChat(holder.box);
+}
+/** 过程旁白：持久留在聊天流里的"正在…"行（纯文本，不生成下载链接） */
+function appendNarration(text, box) {
+  if (!text) return null;
+  const d = document.createElement('div');
+  d.className = 'msg narration';
+  d.textContent = text;
+  (box || curBox()).appendChild(d);
+  scrollChat(box);
+  return d;
+}
+/** 首轮流式正文已经写进当前气泡：把它封印为过程旁白，终答另起一个气泡 */
+function sealAssistantAsNarration(holder, text) {
+  const t = (text && text.trim()) ? text : (holder.raw || '');
+  if (!t || !t.trim()) return;   // 两者都空：保留空气泡继续接终答
+  holder.el.className = 'msg narration';
+  holder.el.textContent = t;
+  holder.raw = '';
+  const d = document.createElement('div');
+  d.className = 'msg ai';
+  const body = document.createElement('div');
+  body.className = 'md-body';
+  const cursor = document.createElement('span');
+  cursor.className = 'cursor';
+  d.appendChild(body);
+  d.appendChild(cursor);
+  holder.el = d;
+  holder.md = body;
+  holder.cursor = cursor;
+  (holder.box || curBox()).appendChild(d);
+  scrollChat(holder.box);
+}
+function applyNarration(holder, evt) {
+  const text = evt.narration || '';
+  if (!text) return;
+  if (evt.narrationStreamed) sealAssistantAsNarration(holder, text);
+  else { appendNarration(text, holder.box); keepAnswerLast(holder); }
+}
 function startAssistantMsg() {
   const d = document.createElement('div');
   d.className = 'msg ai';
+  const body = document.createElement('div');
+  body.className = 'md-body';
   const cursor = document.createElement('span');
   cursor.className = 'cursor';
+  d.appendChild(body);
   d.appendChild(cursor);
   // holder.box：本次流所属会话的盒子——后台会话流式期间切走了，收尾也知道该写回哪个 box
-  const holder = { el: d, cursor, box: state.currentBox };
+  // holder.raw：终答原文（流式期间纯文本展示，收尾一次性渲染 Markdown）
+  const holder = { el: d, md: body, cursor, raw: '', box: state.currentBox };
   // 工作流面板插在助手气泡之前：进程在上、结果在下，回答结尾始终在滚动底部
   const v = state.sessions[state.sessionId];
   if (v) v.currentHolder = holder;
@@ -829,19 +1015,25 @@ function appendReasoning(el, reasoning) {
   el.insertBefore(det, el.firstChild);
 }
 function finishAssistantMsg(holder, evt) {
-  holder.cursor.remove();
-  // 工具循环里工具卡片追加在助手气泡后面，而终答仍写在早先的助手气泡里；
-  // 自动滚到底部只看得到工具卡片，用户会以为"执行一下就停了"。
-  // 终答气泡移到所有 tool-result 卡片之后，保证最后看到的是回答。
+  // 收尾统一渲染 Markdown（流式期间保持纯文本），再移除光标
+  if (holder.renderTimer) { clearTimeout(holder.renderTimer); holder.renderTimer = null; }
+  renderAnswerNow(holder);
+  if (holder.cursor && holder.cursor.parentNode) holder.cursor.remove();
+  // 工具循环里工具卡片/旁白追加在助手气泡后面，而终答仍写在早先的助手气泡里；
+  // 自动滚到底部只看得到过程元素，用户会以为"执行一下就停了"。
+  // 终答气泡移到所有过程元素之后，保证最后看到的是回答。
   const parent = holder.el.parentNode;
   if (parent) {
-    let hasToolAfter = false;
+    let hasProcessAfter = false;
     for (let n = holder.el.nextSibling; n; n = n.nextSibling) {
-      if (n.classList && n.classList.contains('tool-result')) { hasToolAfter = true; break; }
+      if (n.classList && (n.classList.contains('tool-result') || n.classList.contains('narration'))) {
+        hasProcessAfter = true; break;
+      }
     }
-    if (hasToolAfter) parent.appendChild(holder.el);
+    if (hasProcessAfter) parent.appendChild(holder.el);
   }
-  const answerText = holder.el.textContent;
+  // 用终答原文匹配生成文件：过程旁白/工具文本不再混进“最终答复点名了哪些文件”
+  const answerText = holder.raw != null ? holder.raw : holder.el.textContent;
   const files = pickDeliverableFiles(TURN_FILES[holder.sid] || [], answerText,
       TURN_INPUT_FILES[holder.sid]);
   if (holder.sid) {
@@ -937,10 +1129,9 @@ async function plainChat(msg) {
     if (r.success) {
       thinking.remove();
       if (r.reasoning) appendReasoning(holder.el, r.reasoning);
-      // FIX: 原计划用 holder.el.firstChild.textContent —— 无推理时 firstChild 是光标（随后被 remove 导致回复丢失）、有推理时是 details 元素（被 textContent 摧毁）。
-      // 修正：先移除光标，再在推理块之后追加文本节点
-      holder.el.appendChild(document.createTextNode(r.response || ''));
-      const answerFiles = pickDeliverableFiles(extractFilePaths(r.response || ''), r.response || '');
+      holder.raw = r.response || '';
+      renderAnswerNow(holder);   // 非流式终答同样按 Markdown 渲染
+      const answerFiles = pickDeliverableFiles(extractFilePaths(holder.raw), holder.raw);
       linkifyDownloads(holder.el, new Set(answerFiles.map(normPathKey)));
       if (answerFiles.length) renderDownloadBox(holder.el, answerFiles);
       if (r.tokens && r.tokens.total) {
@@ -1047,25 +1238,28 @@ async function streamChat(msg, opts) {
           let evt;
           try { evt = JSON.parse(line.slice(6)); } catch (e) { continue; }
           if (evt.hb) continue;
-          // 输出护栏改写：用净化后的全文替换当前气泡（不是追加）
+          // 输出护栏改写：用净化后的全文替换当前终答气泡（不是追加）
           if (evt.replace) {
             clearIdle();
-            if (holder.cursor.parentNode) holder.cursor.remove();
-            holder.el.textContent = evt.replace;
-            scrollChat(holder.box);
+            applyAnswerReplace(holder, evt.replace);
             armIdle();
           } else if (evt.chunk) {
             // 与 replace 互斥：replace 是整段覆盖，chunk 是追加（同帧时 replace 优先）
             clearIdle();
-            if (holder.cursor.parentNode) holder.cursor.remove();
-            holder.el.textContent = (holder.el.textContent || '') + evt.chunk;
-            scrollChat(holder.box);
+            applyAnswerChunk(holder, evt.chunk);
             armIdle();
           }
           if (evt.toolEvent) {
             clearIdle();
             collectTurnFiles(sid, evt.toolOutput, evt.toolName);   // 收尾时在答复下方生成下载框
             renderToolResult(evt.toolName, evt.toolOutput, holder.box);
+            keepAnswerLast(holder);   // 终答气泡始终在最新工具卡片之后
+            armIdle();
+          }
+          if (evt.narration) {
+            // 工具轮过程旁白：持久留在聊天流；首轮流式的正文会被"封印"成旁白，终答另起气泡
+            clearIdle();
+            applyNarration(holder, evt);
             armIdle();
           }
           if (evt.reasoning) reasoningBuf = evt.reasoning;
@@ -1086,8 +1280,12 @@ async function streamChat(msg, opts) {
     finishAssistantMsg(holder, { ms: Date.now() - t0 });
   } catch (e) {
     if (e.name === 'AbortError') {
-      holder.cursor.remove();
-      holder.el.appendChild(document.createTextNode('（已停止）'));
+      if (holder.cursor && holder.cursor.parentNode) holder.cursor.remove();
+      renderAnswerNow(holder);   // 已收到的部分也按 Markdown 收口
+      const stopped = document.createElement('div');
+      stopped.className = 'stopped';
+      stopped.textContent = '（已停止）';
+      holder.el.appendChild(stopped);
       scrollChat(holder.box);
     } else {
       holder.el.remove();
@@ -2257,7 +2455,14 @@ async function continueSession(sid, silent) {
       };
       (r.data.history || []).forEach(h => {
         const hasAtts = !!(h && h.attachments && h.attachments.length);
-        if (!h || h.role === 'system' || (!h.content && !hasAtts)) return;
+        if (!h || h.role === 'system') return;
+        // 工具轮中间说明 → 过程旁白（不参与终答/下载框路径归集）
+        if (h.role === 'assistant' && h.toolRound) {
+          const t = h.narration || h.content;
+          if (t) appendNarration(t, state.currentBox);
+          return;
+        }
+        if (!h.content && !hasAtts) return;
         if (h.role === 'tool') {   // 工具结果消息（截图不渲染）；文件路径参与下载框
           if (h.name === 'view_image') {   // 看图是输入：路径不进下载框
             const p = declaredImagePath(h.content);
@@ -2277,8 +2482,10 @@ async function continueSession(sid, silent) {
           flushReplayFiles();
           lastAiEl = null;
         }
-        // 回放先不链下载：每轮结束只链终答（和实时一致，避免中间过程气泡与下载框重复）
-        const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content, null, false);
+        // 回放先不链下载：每轮结束只链终答（和实时一致，避免中间过程气泡与下载框重复）；
+        // 助手终答按 Markdown 渲染，用户消息保持纯文本
+        const el = appendMsg(h.role === 'user' ? 'user' : 'ai', h.content, null, false,
+            h.role !== 'user');
         if (h.role === 'user') appendAttachmentThumbs(el, h.attachments);   // 历史回放：附件缩略图
         else {
           replayFiles.push(...extractFilePaths(h.content));

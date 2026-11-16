@@ -883,8 +883,12 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                 }
             }
 
-            // agent 自身也作为一个 function（单任务委托）
-            if (!added.contains(fe.name)) {
+            // agent 自身也作为一个 function（单任务委托）。MCP Agent 例外：它没有 LLM，
+            // 只实现 callTool/listTools，不处理 chat/task；把它暴露出去会让模型误以为
+            // 能传 task 让它执行（实测 filesystemMcp 返回 [无响应]，空耗迭代）。
+            boolean isMcpAgent =
+                    fe.module instanceof cn.tianlong.tlobject.aiagent.mcp.TLMcpAgent;
+            if (!isMcpAgent && !added.contains(fe.name)) {
                 added.add(fe.name);
                 TLFunctionDefinition def;
                 if (fe.paramSchema != null) {

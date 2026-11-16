@@ -210,6 +210,10 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
             history.add(aMsg);
             int aMsgIdx = history.size() - 1;
 
+            // 过程旁白要在工具执行前发出：首轮流式的正文已流进 UI 气泡，旁白事件让前端
+            // 把它"封印"为过程气泡，终答另起气泡，不再混在一条里。
+            emitNarration(llmResponse, toolCalls);
+
             TLMsg resolveMsg = createMsg().setAction(AGENT_RESOLVETOOLCALLS)
                     .setParam(AI_P_TOOLCALLS, toolCalls);
             resolveMsg.setSource(seed.agentName);
@@ -566,6 +570,20 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         if ("off".equals(seed.reasoningMode) || !seed.reasoningVisible
                 || allReasoning.length() == 0) return null;
         return allReasoning.toString().trim();
+    }
+
+    /**
+     * 工具轮过程解说：模型写了正文就用模型的，没写按工具名 + 白名单参数合成。
+     * 不写额外 metadata——toolCalls 已随 assistant 消息持久化，回放按同规则重算。
+     */
+    private void emitNarration(TLMsg llmResponse, List<TLToolCall> toolCalls) {
+        if (seed.sink == null || seed.sink.isNull()) return;
+        String content = llmResponse != null ? llmResponse.getStringParam(AI_P_RESPONSE, "") : "";
+        String narration = content == null ? "" : content.trim();
+        if (narration.isEmpty()) narration = TLProcessNarration.forToolCalls(toolCalls);
+        if (narration.isEmpty()) return;
+        narration = TLProcessNarration.clip(narration, TLProcessNarration.MAX_NARRATION_CHARS);
+        seed.sink.onNarration(narration, isStreaming(), iteration);
     }
 
     private boolean isCancelled() {

@@ -1,8 +1,12 @@
 package cn.tianlong.tlobject.aiagent.webui;
 
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
+import cn.tianlong.tlobject.aiagent.TLToolCall;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -34,6 +38,30 @@ public class TLWebChatModuleHistorySelfTest {
         TLConversationHistory plainTool = new TLConversationHistory("tc2", null, "out");
         Map<?, ?> pjson = (Map<?, ?>) toJsonable.invoke(module, plainTool);
         check("4 无名工具消息不写 name", !pjson.containsKey("name"));
+
+        // 5-8) 工具轮中间说明：toolRound + narration（老会话无 metadata 时按 toolCalls 合成）
+        List<TLToolCall> calls = new ArrayList<>();
+        Map<String, Object> targs = new LinkedHashMap<>();
+        targs.put("query", "肺癌 中国");
+        calls.add(new TLToolCall("tc9", "search", targs));
+        TLConversationHistory toolRound = new TLConversationHistory(
+                TLConversationHistory.Role.assistant, calls);
+        Map<?, ?> trjson = (Map<?, ?>) toJsonable.invoke(module, toolRound);
+        check("5 工具轮 assistant 带 toolRound", Boolean.TRUE.equals(trjson.get("toolRound")));
+        check("6 工具轮空 content 合成 narration",
+                String.valueOf(trjson.get("narration")).contains("正在搜索")
+                        && String.valueOf(trjson.get("narration")).contains("肺癌"));
+
+        TLConversationHistory withContent = new TLConversationHistory(
+                TLConversationHistory.Role.assistant, calls);
+        withContent.setContent("模型写的解说");
+        Map<?, ?> wjson = (Map<?, ?>) toJsonable.invoke(module, withContent);
+        check("7 narration 优先取 content", "模型写的解说".equals(wjson.get("narration")));
+
+        TLConversationHistory plain = new TLConversationHistory(
+                TLConversationHistory.Role.assistant, "普通回答");
+        Map<?, ?> plainJson = (Map<?, ?>) toJsonable.invoke(module, plain);
+        check("8 普通 assistant 无 toolRound", !plainJson.containsKey("toolRound"));
 
         System.out.println("[TLWebChatModuleHistorySelfTest] pass=" + pass + " fail=" + fail);
         if (fail > 0) System.exit(1);

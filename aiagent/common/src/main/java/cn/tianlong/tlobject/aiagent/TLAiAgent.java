@@ -465,6 +465,18 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
                     .setParam(AI_P_SESSIONID, sessionId));
         }
 
+        @Override
+        public void onNarration(String text, boolean alreadyStreamed, int round) {
+            if (text == null || text.isEmpty()) return;
+            forward(createMsg().setParam(AI_P_NARRATION, text)
+                    .setParam(AI_P_NARRATION_STREAMED, alreadyStreamed)
+                    .setParam(AI_P_NARRATION_ROUND, round)
+                    .setParam(AI_P_SESSIONID, sessionId));
+            // 旁白已从 UI 气泡中"封印"出去：清空累积，避免将来工具轮也流式时
+            // 终答前缀比较把旁白算进去、误发 AI_P_STREAMREPLACE。
+            if (alreadyStreamed) streamedBuffer.setLength(0);
+        }
+
         public void onFinalText(String answer, boolean alreadyStreamed) {
             if (answer == null || answer.isEmpty()) return;
             if (!alreadyStreamed) {

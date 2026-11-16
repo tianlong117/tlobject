@@ -56,6 +56,19 @@ public class WordEngineSelfTest {
         java.util.List<WordMarkdown.Block> olv = WordMarkdown.parse("3. 第三项\n4. 第四项");
         check("markdown: 有序列表保留原序号",
                 olv.size() == 2 && olv.get(0).ordinal == 3 && olv.get(1).ordinal == 4);
+        // lineMode=lines：诗歌逐行成段（默认 markdown 会把连续行用空格接成一段）
+        java.util.List<WordMarkdown.Block> lm =
+                WordMarkdown.parse("第一行\n第二行\n\n第三行", true);
+        check("lineMode=lines: 每个非空行独立成段", lm.size() == 3
+                && lm.get(0).type == WordMarkdown.Block.Type.PARAGRAPH
+                && "第一行".equals(lm.get(0).spans.get(0).text)
+                && "第二行".equals(lm.get(1).spans.get(0).text)
+                && "第三行".equals(lm.get(2).spans.get(0).text));
+        check("默认 markdown: 连续行仍合并为一段",
+                WordMarkdown.parse("第一行\n第二行").size() == 1);
+        check("lineMode=lines: 标题语法仍生效",
+                WordMarkdown.parse("# 标题\n- 项", true).get(0).type
+                        == WordMarkdown.Block.Type.HEADING);
 
         // ================= WordTextExtractor =================
         org.apache.poi.xwpf.usermodel.XWPFDocument d1 = newDoc();
@@ -790,6 +803,27 @@ public class WordEngineSelfTest {
                             && d.getParagraphs().get(1).getIndentationFirstLine() == 420
                             && d.getParagraphs().get(2).getIndentationFirstLine() == 420
                             && d.getParagraphs().get(3).getIndentationFirstLine() == -1);
+        }
+
+        // lineMode=lines 接线：诗歌逐行成段（doCreate 真的把参数传给 WordMarkdown.parse）
+        check("lineMode 接线(引擎): create ok",
+                engLayE2.execute("create", map("path", "诗歌.docx",
+                        "content", "标题\n第一行\n第二行\n第三行",
+                        "lineMode", "lines", "layout", "plain")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("诗歌.docx"))) {
+            check("lineMode 接线(引擎): 每行独立成段",
+                    d.getParagraphs().size() == 4
+                            && "第一行".equals(d.getParagraphs().get(1).getText())
+                            && "第二行".equals(d.getParagraphs().get(2).getText())
+                            && "第三行".equals(d.getParagraphs().get(3).getText()));
+        }
+        check("lineMode 默认: create ok",
+                engLayE2.execute("create", map("path", "诗歌默认.docx",
+                        "content", "第一行\n第二行", "layout", "plain")).ok);
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument d = openDocx(work.resolve("诗歌默认.docx"))) {
+            check("lineMode 默认: 连续行仍合并为一段",
+                    d.getParagraphs().size() == 1
+                            && "第一行 第二行".equals(d.getParagraphs().get(0).getText()));
         }
 
         // 不存在的文件

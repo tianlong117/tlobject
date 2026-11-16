@@ -11,7 +11,7 @@ import java.util.List;
  *   列表   - / * 开头（无序）、1. 开头（有序）
  *   表格   | a | b | 连续行
  *   分页   --- （独占一行）
- *   段落   其余非空行，空行分段
+ *   段落   其余非空行，空行分段；linesAsParagraphs=true 时每个非空行独立成段（诗歌场景）
  *   行内   **粗体**
  *
  * 创建日期：2026/10/07 作者:tianlong
@@ -36,6 +36,14 @@ public final class WordMarkdown {
     private WordMarkdown() {}
 
     public static List<Block> parse(String md) {
+        return parse(md, false);
+    }
+
+    /**
+     * @param linesAsParagraphs true = 每个非空行独立成段（诗歌/逐行内容）；
+     *                          false = Markdown 语义（同段连续行用空格接，空行分段）
+     */
+    public static List<Block> parse(String md, boolean linesAsParagraphs) {
         List<Block> out = new ArrayList<>();
         if (md == null) return out;
         String[] lines = md.replace("\r\n", "\n").replace('\r', '\n').split("\n", -1);
@@ -94,6 +102,14 @@ public final class WordMarkdown {
                 b.spans = inline(trimmed.substring(dot + 1).trim());
                 out.add(b);
                 i++; continue;
+            }
+            // 逐行模式（诗歌等）：每个非空行独立成段
+            if (linesAsParagraphs) {
+                Block b = newBlock(Block.Type.PARAGRAPH);
+                b.spans = inline(trimmed);
+                out.add(b);
+                i++;
+                continue;
             }
             // 段落：吃到空行为止（同段多行用空格接）
             StringBuilder sb = new StringBuilder(trimmed);

@@ -188,7 +188,8 @@ public class JavaWordEngine {
         Files.createDirectories(p.getParent());
         String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = new XWPFDocument()) {
-            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content), cfg.chineseLayout);
+            WordMarkdownWriter.writeBlocks(doc,
+                    WordMarkdown.parse(content, linesMode(in)), cfg.chineseLayout);
             save(doc, p);
         }
         return receipt("create", p, null);
@@ -198,10 +199,25 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = open(p)) {
-            WordMarkdownWriter.writeBlocks(doc, WordMarkdown.parse(content), cfg.chineseLayout);
+            WordMarkdownWriter.writeBlocks(doc,
+                    WordMarkdown.parse(content, linesMode(in)), cfg.chineseLayout);
             save(doc, p);
         }
         return receipt("append", p, null);
+    }
+
+    /**
+     * create/append 的换行语义：markdown（默认，同段连续行用空格接）|
+     * lines（每个非空行独立成段，诗歌/逐行内容用）。非法值 fail-fast 回喂模型自纠。
+     */
+    private boolean linesMode(Map<String, Object> in) {
+        Object v = in.get("lineMode");
+        if (v == null) return false;
+        String s = String.valueOf(v).trim().toLowerCase(java.util.Locale.ROOT);
+        if (s.isEmpty() || "markdown".equals(s)) return false;
+        if ("lines".equals(s)) return true;
+        throw new IllegalArgumentException(
+                "unknown lineMode: \"" + v + "\" (expected markdown | lines)");
     }
 
     private Result doReplace(Map<String, Object> in) throws IOException {

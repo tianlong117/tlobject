@@ -317,6 +317,12 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_STREAMREPLACE = "streamReplace";
     String AI_P_STREAMDONE = "streamDone";
     String AI_P_STREAMERROR = "streamError";
+    /** 过程旁白：工具轮执行前给 UI 的一句话说明（纯文本，持久显示在聊天流） */
+    String AI_P_NARRATION = "narration";
+    /** true = 旁白文本已通过 chunk 流进当前气泡，UI 只封印为过程气泡、不重复追加 */
+    String AI_P_NARRATION_STREAMED = "narrationStreamed";
+    /** 旁白所属 LLM 迭代轮次（1-based，调试/去重用） */
+    String AI_P_NARRATION_ROUND = "narrationRound";
     /** chat 被 /stop 中断的标志 */
     String AI_P_CANCELLED = "cancelled";
 

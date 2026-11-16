@@ -4,6 +4,7 @@ import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
 import cn.tianlong.tlobject.aiagent.TLAgentMonitor;
 import cn.tianlong.tlobject.aiagent.TLAttachmentRef;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
+import cn.tianlong.tlobject.aiagent.TLProcessNarration;
 import cn.tianlong.tlobject.aiagent.TLUserWorkspace;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
@@ -1301,6 +1302,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             evt.put("toolName", msg.getStringParam("toolName", ""));
             evt.put("toolOutput", msg.getStringParam("toolOutput", ""));
         }
+        // 过程旁白（工具轮执行前）：前端渲染为持久的"正在…"过程气泡；
+        // narrationStreamed=true 表示正文已通过 chunk 流进当前气泡，前端只封印不重复追加
+        if (msg.containsParam(AI_P_NARRATION)) {
+            evt.put("narration", msg.getStringParam(AI_P_NARRATION, ""));
+            evt.put("narrationStreamed", msg.parseBoolean(AI_P_NARRATION_STREAMED, false));
+            evt.put("narrationRound", msg.getIntParam(AI_P_NARRATION_ROUND, 0));
+        }
         if (done || hasErr) {
             evt.put("done", true);
             if (hasErr) evt.put("error", msg.getStringParam(AI_P_STREAMERROR, ""));
@@ -1942,6 +1950,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             if (ch.getName() != null && !ch.getName().isEmpty()) m.put("name", ch.getName());
             if (ch.hasAttachments()) m.put("attachments", toJsonable(ch.getAttachments()));
             if (ch.hasImages()) m.put("images", toJsonable(ch.getImages()));
+            if (ch.isAssistantWithToolCalls()) {
+                // 工具轮中间说明：前端渲染为过程旁白，不参与终答/下载框路径归集。
+                // 老会话无额外标注，content 空时按 toolCalls 现场合成，无需数据迁移。
+                m.put("toolRound", true);
+                String narration = TLProcessNarration.historyNarration(ch);
+                if (!narration.isEmpty()) m.put("narration", narration);
+            }
             return m;
         }
         // ⚠ 必须在通用 Map/List 兜底之前：否则会被 String.valueOf 拍成 cn.tianlong...@1a2b

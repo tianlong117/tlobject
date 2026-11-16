@@ -77,14 +77,16 @@ public class TLCodeExecutionSkill extends TLBaseSkill {
             parameterSchema = new LinkedHashMap<>();
             Map<String, Object> langProp = new LinkedHashMap<>();
             langProp.put("type", "string");
-            langProp.put("description", "Programming language: python or javascript");
+            langProp.put("description", "Programming language: python or javascript. "
+                    + "Do NOT put the script body here.");
             langProp.put("enum", new String[]{"python", "javascript"});
             langProp.put("required", true);
             parameterSchema.put("language", langProp);
 
             Map<String, Object> codeProp = new LinkedHashMap<>();
             codeProp.put("type", "string");
-            codeProp.put("description", "The code to execute");
+            codeProp.put("description", "The full script body to execute (required). "
+                    + "Put the script in `code`, not in `language`.");
             codeProp.put("required", true);
             parameterSchema.put("code", codeProp);
         }

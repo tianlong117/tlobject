@@ -101,7 +101,8 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "level-1 headings are centered and body paragraphs get a 2-character "
                     + "first-line indent - do NOT add leading spaces or indent characters yourself. "
                     + "Pass layout=\"plain\" for English documents, poetry, or content where no "
-                    + "formatting is wanted. ";
+                    + "formatting is wanted. For poetry or any line-per-paragraph content, pass "
+                    + "lineMode=\"lines\" (default markdown joins consecutive lines into one paragraph). ";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
@@ -128,6 +129,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("data", prop("object", "Key→value map for fill_template placeholders"));
             parameterSchema.put("output", prop("string", "fill_template output path (default: overwrite input)"));
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
+            parameterSchema.put("lineMode", prop("string", "create/append: markdown (default; consecutive lines join one paragraph) | lines (each non-empty line becomes its own paragraph; use for poetry/line-per-paragraph content)"));
             parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
             parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
             parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
@@ -172,7 +174,7 @@ public class TLWordJavaSkill extends TLBaseSkill {
             input = new LinkedHashMap<>();
             for (String k : new String[]{"action", "path", "content", "find", "replace", "index",
                     "mode", "text", "style", "position", "table", "row", "col", "values", "data",
-                    "output", "overwrite", "from", "to", "backup", "layout"}) {
+                    "output", "overwrite", "lineMode", "from", "to", "backup", "layout"}) {
                 if (msg.containsParam(k)) input.put(k, msg.getParam(k));
             }
         }
