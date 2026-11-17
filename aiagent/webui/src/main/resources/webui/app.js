@@ -14,7 +14,8 @@ const state = {
   autoRun: false,        // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
   profile: null,         // 当前用户资料（昵称/头像/角色）；登录或 /api/session 返回
   csrfToken: null,       // 会话级 CSRF token（登录 / /api/session 返回；状态变更请求随 X-CSRF-Token 发送）
-  pendingAbandonSessionId: null   // 断点弹框「放弃该操作」目标会话（仅 pending_approval 断点非空，见 promptCheckpoint）
+  pendingAbandonSessionId: null,  // 断点弹框「放弃/丢弃」目标会话（pending_approval 或普通 checkpoint，见 promptCheckpoint）
+  pendingAbandonIsApproval: false // 目标断点是否待批：true=abandonApproval（撤销审批），false=discardCheckpoint（仅丢弃断点）
 };
 
 // ======================== 每会话视图（状态分片） ========================
@@ -1777,23 +1778,27 @@ function bindEvents() {
     resumeCheckpoint();
   };
   $('#cpIgnoreBtn').onclick = () => $('#checkpointModal').classList.add('hidden');
-  // 放弃该操作（仅 pending_approval 断点可见）：撤销待批审批 + 丢弃断点，之后可正常对话。
+  // 放弃/丢弃断点：pending_approval → 撤销待批审批 + 丢弃断点；普通 checkpoint → 仅丢弃断点。
   // 断点丢弃失败（checkpointDiscarded=false）如实提示——待批卡片可能仍在，重登会再提示
   $('#cpAbandonBtn').onclick = async () => {
     const sid = state.pendingAbandonSessionId;
     const btn = $('#cpAbandonBtn');
     if (!sid || btn.disabled) return;
     btn.disabled = true;   // 在途守卫：双击并发两次会给出一对矛盾提示（"已放弃"与"断点未清理"互串）
+    const isApproval = state.pendingAbandonIsApproval;
     try {
-      const r = await apiCommand('abandonApproval', { sessionId: sid });
-      if (!r.success) { toast(r.error || r.message || '放弃失败', 'err'); return; }
+      const r = await apiCommand(isApproval ? 'abandonApproval' : 'discardCheckpoint', { sessionId: sid });
+      if (!r.success) { toast(r.error || r.message || (isApproval ? '放弃失败' : '丢弃失败'), 'err'); return; }
       $('#checkpointModal').classList.add('hidden');
+      state.pendingAbandonSessionId = null;
+      state.pendingAbandonIsApproval = false;
       if (r.checkpointDiscarded === false) {
-        toast('已放弃该操作，但断点未清理：' + (r.checkpointError || '待批卡片可能仍在'), 'err');
+        toast((isApproval ? '已放弃该操作' : '已丢弃断点') + '，但断点未清理：'
+          + (r.checkpointError || '待批卡片可能仍在'), 'err');
       } else {
-        toast(r.message || '已放弃该操作，可继续对话', 'ok');
+        toast(r.message || (isApproval ? '已放弃该操作，可继续对话' : '已丢弃断点，可继续对话'), 'ok');
       }
-    } catch (e) { toast('放弃失败: ' + e.message, 'err'); }
+    } catch (e) { toast((isApproval ? '放弃失败: ' : '丢弃失败: ') + e.message, 'err'); }
     finally { btn.disabled = false; }
   };
   $('#tabBar').addEventListener('click', e => {
@@ -2751,6 +2756,7 @@ async function autoResumeSession(sid) {
     if (state.pendingAbandonSessionId === target) {
       $('#checkpointModal').classList.add('hidden');
       state.pendingAbandonSessionId = null;
+      state.pendingAbandonIsApproval = false;
     }
     toast('正在继续执行…', 'info');
     await streamChat(d.userMessage || '', { sessionId: target, resume: true });
@@ -2762,17 +2768,26 @@ async function promptCheckpoint() {
   try {
     const r = await apiCommand('resume', { userId: state.userId });
     if (!r.success || !r.data || !r.data.sessionId) {
-      // 无断点/响应异常：按钮与目标会话一并复位（防残留上一次的「放弃该操作」误触旧会话）
+      // 无断点/响应异常：按钮与目标会话一并复位（防残留上一次的「放弃/丢弃」误触旧会话）
       $('#cpAbandonBtn').classList.add('hidden');
       state.pendingAbandonSessionId = null;
+      state.pendingAbandonIsApproval = false;
       return;
     }
     const d = r.data;
-    // pending_approval 断点：显示「放弃该操作」（批准/拒绝走重放的审批弹框）；
-    // 非 pending 时按钮隐藏并把会话 id 清空，防误触到上一次的断点会话
+    // pending_approval 断点：显示「放弃该操作」（撤销待批审批 + 丢弃断点）；
+    // 普通 checkpoint（意外中断）：显示「丢弃断点」（永久清除，下次登录不再提示）。
     const isPending = (d.state === 'pending_approval');
-    $('#cpAbandonBtn').classList.toggle('hidden', !isPending);
-    state.pendingAbandonSessionId = isPending ? (d.sessionId || null) : null;
+    const canDiscard = isPending || d.state === 'checkpoint';
+    $('#cpAbandonBtn').classList.toggle('hidden', !canDiscard);
+    if (canDiscard) {
+      $('#cpAbandonBtn').textContent = isPending ? '🗑 放弃该操作' : '🗑 丢弃断点';
+      $('#cpAbandonBtn').title = isPending
+        ? '撤销待批审批并丢弃断点'
+        : '永久丢弃该断点，下次登录不再提示';
+    }
+    state.pendingAbandonSessionId = canDiscard ? (d.sessionId || null) : null;
+    state.pendingAbandonIsApproval = isPending;
     const timeStr = d.savedAt ? fmtTs(d.savedAt) : '未知';
     // 只预览消息开头：断点若落在"后台任务回执"这类长消息上，全文会把弹框撑满整屏（2026-10-06 卡死事故）
     const um = String(d.userMessage || '');
@@ -2782,7 +2797,8 @@ async function promptCheckpoint() {
       '会话ID:   ' + d.sessionId + '\n' +
       '用户消息: ' + umPreview + '\n' +
       '中断时间: ' + timeStr + ' (第 ' + (d.iteration || '?') + ' 轮)\n\n' +
-      '恢复将以断点时的用户消息继续执行（流式输出）；忽略则开始新对话。';
+      '恢复将以断点时的用户消息继续执行（流式输出）；忽略则开始新对话' +
+      (canDiscard && !isPending ? '；可点「丢弃断点」永久清除。' : '。');
     $('#checkpointModal').classList.remove('hidden');
   } catch (e) { /* 静默：检测失败不打扰登录流程 */ }
 }

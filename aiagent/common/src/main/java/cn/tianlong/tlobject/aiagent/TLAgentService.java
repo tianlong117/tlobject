@@ -67,6 +67,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("permissions", "审批授权管理（list|-a|revoke|grant|clear）");
         ACTION_REGISTRY.put("auto", "自动运行开关（on|off，本会话工具免审批）");
         ACTION_REGISTRY.put("abandonApproval", "放弃待批操作（撤销审批 + 丢弃断点）");
+        ACTION_REGISTRY.put("discardCheckpoint", "丢弃意外中断断点（保留会话历史）");
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
@@ -167,6 +168,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             // ── 审批 ──
             case "approve":         return doApprove(fromWho, msg);
             case "abandonApproval": return doAbandonApproval(fromWho, msg);
+            case "discardCheckpoint": return doDiscardCheckpoint(fromWho, msg);
             case "permissions":     return doPermissions(fromWho, msg);
             case "auto":            return doAuto(fromWho, msg);
 
@@ -1319,14 +1321,16 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             TLMsg r = putToApproval(ab);
             if (r != null && r.parseBoolean(RESULT, false)) abandoned++;
         }
-        // 丢弃断点（把该会话的 pending_approval 轮改为 completed）
+        // 丢弃断点（把该会话的 pending_approval 轮改为 completed；按 state 限定，
+        // 待批若已被别处解决则不误丢其后更新的普通 checkpoint）
         // 断点丢弃失败（会话已继续/落盘失败）不得被当成功——前端需要知道卡片还在
         boolean checkpointDiscarded = true;
         String checkpointError = "";
         if (!sessionId.isEmpty()) {
-            TLMsg d = createMsg().setAction("discardPendingRound")
+            TLMsg d = createMsg().setAction("discardOpenRound")
                     .setParam("sessionId", sessionId)
-                    .setParam("userId", resolveUid(msg));
+                    .setParam("userId", resolveUid(msg))
+                    .setParam("state", "pending_approval");
             d.setSystemParam(IGNOREMODULEISNULL, true);
             TLMsg dr = putSafe(targetSessionManager(msg), d);
             if (dr == null) {
@@ -1342,6 +1346,28 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         okMsg.setParam("checkpointDiscarded", checkpointDiscarded);
         if (!checkpointDiscarded) okMsg.setParam("checkpointError", checkpointError);
         return okMsg;
+    }
+
+    /** 丢弃普通 checkpoint 断点（非待批）：把开态断点轮改为 completed，保留会话历史 */
+    private TLMsg doDiscardCheckpoint(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        if (sessionId.isEmpty()) return fail("缺少参数: sessionId");
+        String ownErr = checkSessionOwnership(msg, sessionId);
+        if (ownErr != null) return fail(ownErr);
+        TLMsg d = createMsg().setAction("discardOpenRound")
+                .setParam("sessionId", sessionId)
+                .setParam("userId", resolveUid(msg))
+                .setParam("state", "checkpoint");
+        d.setSystemParam(IGNOREMODULEISNULL, true);
+        TLMsg dr = putSafe(targetSessionManager(msg), d);
+        boolean discarded = dr != null && dr.parseBoolean(RESULT, false);
+        TLMsg out = discarded
+                ? ok("已丢弃断点，可继续对话")
+                : fail("丢弃断点失败: " + (dr == null ? "sessionManager 无响应" : dr.getStringParam("error", "")));
+        out.setParam("checkpointDiscarded", discarded);
+        if (!discarded) out.setParam("checkpointError",
+                dr == null ? "sessionManager 无响应" : dr.getStringParam("error", ""));
+        return out;
     }
 
     /** 会话 ID：args 优先，systemArgs 兜底（同 doCreateBackgroundTask 的通道约定） */

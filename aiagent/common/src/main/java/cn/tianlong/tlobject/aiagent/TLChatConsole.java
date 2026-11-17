@@ -50,6 +50,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
     private String pendingCheckpointSessionId = null;
     private String pendingCheckpointUserMessage = null;
+    /** 断点状态（checkpoint / pending_approval / 空）：/discard 据此选择撤销审批还是直接丢弃 */
+    private String pendingCheckpointState = "";
     /** 待发附件绝对路径（/img 累积，随下一条消息发出后自动清空） */
     private final List<String> pendingAttachments = new ArrayList<>();
     private boolean streamMode = false;
@@ -543,6 +545,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 if (data != null) {
                     pendingCheckpointSessionId = (String) data.get("sessionId");
                     pendingCheckpointUserMessage = (String) data.get("userMessage");
+                    // 状态决定 /discard 的动作：待批必须走 abandonApproval（先撤销审批），
+                    // 否则直接 discardCheckpoint 会关掉轮次却把审批留在 PENDING
+                    String cpState = (String) data.get("state");
+                    pendingCheckpointState = cpState == null ? "" : cpState;
                     String checkpointAgent = (String) data.get("agentName");
                     long savedAt = data.get("savedAt") instanceof Long ? (Long) data.get("savedAt") : 0L;
                     int iteration = data.get("iteration") instanceof Integer ? (Integer) data.get("iteration") : 0;
@@ -557,7 +563,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     System.out.println("  会话ID:   " + pendingCheckpointSessionId);
                     System.out.println("  用户消息: " + pendingCheckpointUserMessage);
                     System.out.println("  中断时间: " + timeStr + " (第 " + iteration + " 轮)");
-                    System.out.println("  输入 /resume 继续执行，或直接输入新消息开始新对话");
+                    System.out.println("  输入 /resume 继续执行，/discard 丢弃断点，或直接输入新消息开始新对话");
                     System.out.println("═══════════════════════════════════");
                     System.out.println();
                 }
@@ -1218,11 +1224,46 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     // 只有提交成功后才消费断点信息
                     pendingCheckpointSessionId = null;
                     pendingCheckpointUserMessage = null;
+                    pendingCheckpointState = "";
                     return null;
                 }
                 // 无断点 → 通过 agentService 查询 SessionManager
                 msg.setAction("resume").setParam("userId", userId);
                 break;
+
+            case "discard":
+                // /discard → 永久丢弃当前待恢复的断点（普通意外中断或待批），下次启动/登录不再提示
+                if (pendingCheckpointSessionId == null) {
+                    System.out.println("当前没有待恢复的断点");
+                    return null;
+                }
+                {
+                    String sid = pendingCheckpointSessionId;
+                    // 待批断点必须先撤销审批（abandonApproval，不记拒绝记忆）再关轮次；
+                    // 直接 discardCheckpoint 会关掉轮次却把审批留在 PENDING，会话永久卡住
+                    String action = "pending_approval".equals(pendingCheckpointState)
+                            ? "abandonApproval" : "discardCheckpoint";
+                    // 文件版会话按 userId 分目录，必须带上控制台 userId 才能定位到目标会话
+                    TLMsg dr = putSafe(serviceModule, createMsg().setAction(action)
+                            .setParam("sessionId", sid).setParam("userId", userId));
+                    boolean ok = dr != null && dr.parseBoolean("success", false);
+                    if (ok && dr.containsParam("checkpointDiscarded")
+                            && !dr.parseBoolean("checkpointDiscarded", true)) {
+                        // 审批已撤销但断点未清理（待批已在别处解决/会话已继续/落盘失败）：
+                        // 保留本地断点信息，不谎报成功
+                        System.out.println("✗ 断点未清理: "
+                                + dr.getStringParam("checkpointError", "请重试"));
+                    } else if (ok) {
+                        pendingCheckpointSessionId = null;
+                        pendingCheckpointUserMessage = null;
+                        pendingCheckpointState = "";
+                        System.out.println("✓ 已丢弃断点，可正常开始新对话");
+                    } else {
+                        System.out.println("✗ 丢弃断点失败: "
+                                + (dr == null ? "无响应" : dr.getStringParam("error", "未知")));
+                    }
+                    return null;
+                }
 
             case "sessions":
                 msg.setAction("sessions").setParam("userId", userId);
@@ -1810,6 +1851,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         if (!deferSid.isEmpty()) {
                             pendingCheckpointSessionId = deferSid;
                             pendingCheckpointUserMessage = "";   // 留空：服务侧用断点轮原话兜底（TLAgentService.doChat 空 userMessage 回填）
+                            pendingCheckpointState = SESSION_STATE_PENDING_APPROVAL;   // /discard 需走 abandonApproval 撤销审批
                             System.out.println("⏳ 该审批处于断点态：输入 /resume 继续执行本轮（会话 " + deferSid + "）");
                         }
                     }
@@ -2933,6 +2975,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         commandCache.put("/?", "显示帮助信息");
         commandCache.put("/mcp", "MCP 服务器市场 (search/info/install/list/remove)");
         commandCache.put("/sessiondel", "删除会话记录（不可恢复）");
+        commandCache.put("/discard", "丢弃当前断点（普通断点直接丢弃；待批断点会撤销审批）");
         commandCache.put("/img", "登记附件随下一条消息发出（/img list 查看；/file 同义）");
 
         try {
@@ -2978,6 +3021,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("  /sessiondel <id>   删除会话记录（DB/文件，不可恢复；别名 /sd）");
         System.out.println("  /clear             清除当前会话上下文");
         System.out.println("  /resume            恢复未完成的 mid-loop 断点会话");
+        System.out.println("  /discard           丢弃当前断点（普通断点直接丢弃；待批断点会撤销审批）");
         System.out.println();
         System.out.println("安装命令:");
         System.out.println("  /install -s <skillDir> [家族名]              安装脚本型Skill（目录）");

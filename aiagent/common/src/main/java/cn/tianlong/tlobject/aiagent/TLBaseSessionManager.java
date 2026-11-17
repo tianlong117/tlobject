@@ -17,8 +17,8 @@ import java.util.*;
  *       正常收尾写 completed 后按同 roundId last-wins 覆盖。</li>
  *   <li>{@code pending_approval}：审批<b>开态</b>。审批拦截时写入，故意不写 completed
  *       （否则断点会被覆盖成 completed，findIncomplete 再也找不到）；直到 resume 收尾或
- *       discardPendingRound 丢弃才关闭。黏住语义：其后任何新轮次写入都不得把它藏起来
- *       （assembleSession/findIncompleteMeta 有独立的"开态待批轮"查找分支）。</li>
+ *       discardOpenRound（旧名 discardPendingRound 保留别名）丢弃才关闭。黏住语义：其后
+ *       任何新轮次写入都不得把它藏起来（assembleSession/findIncompleteMeta 有独立的"开态待批轮"查找分支）。</li>
  *   <li>{@code completed}：轮次已关闭（正常完成 / 用户中断 / 断点被丢弃）。findIncomplete 不再返回。</li>
  * </ul>
  *
@@ -101,6 +101,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             case "setSessionTitle": return doSetSessionTitle(fromWho, msg);
             case "setSessionPinned": return doSetSessionPinned(fromWho, msg);
+            case "discardOpenRound":
             case "discardPendingRound": return doDiscardPendingRound(fromWho, msg);
             default: return null;
         }
@@ -187,28 +188,38 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
                 .setParam(AI_P_APPROVAL_ID, meta.getOrDefault(AI_P_APPROVAL_ID, ""));
     }
 
-    /** 丢弃待批断点：把该会话最后一个 pending_approval 轮改为 completed（放弃该操作后会话可正常继续） */
+    /**
+     * 丢弃开态断点（pending_approval 或意外中断 checkpoint），把该轮改为 completed。
+     * 可选 {@code state} 参数按状态限定目标（{@code checkpoint} / {@code pending_approval}）：
+     * 丢弃方必须与它看到的断点类型一致，否则 API/控制台陈旧入口会误关另一类断点
+     * （关掉待批轮却不撤销审批 → 审批悬挂、会话卡死；待批已解决后误丢更新的普通断点）。
+     * 不带 {@code state} 时保持旧行为：待批优先（黏住语义，待批轮会压制其后写入的普通断点），
+     * 否则取最新 checkpoint（旧名 discardPendingRound 的别名语义）。
+     */
     private TLMsg doDiscardPendingRound(Object fromWho, TLMsg msg) {
         if (!enableCheckpoint) return createMsg().setParam(RESULT, true);
         String sessionId = msg.getStringParam("sessionId", "");
         String userId = msg.getStringParam("userId", null);
+        String wantState = msg.getStringParam("state", "");
         if (sessionId.isEmpty()) return createMsg().setParam(RESULT, false).setParam("error", "missing sessionId");
         java.util.List<java.util.Map<String, Object>> rounds = loadRoundData(sessionId, userId);
         // 与 findIncomplete / assembleSession 同口径：先按 roundId last-wins，再取 roundSeq 最大的
-        // 开态待批轮。直接遍历原始行会挑到"已被 chatFinished 覆盖、但旧 pending 行还在文件里"的
-        // 陈旧行（文件版 storeRound 是追加写），也可能在多开态待批轮时挑错轮次。
-        java.util.Map<String, Object> target = findOpenPendingRound(rounds);
+        // 开态轮。直接遍历原始行会挑到"已被 chatFinished 覆盖、但旧 pending 行还在文件里"的
+        // 陈旧行（文件版 storeRound 是追加写），也可能在多开态轮时挑错轮次。
+        java.util.Map<String, Object> target = findOpenRoundByState(rounds, wantState);
         if (target == null) {
-            return createMsg().setParam(RESULT, false).setParam("error", "no pending_approval round");
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", SESSION_STATE_PENDING_APPROVAL.equals(wantState)
+                            ? "no pending_approval round" : "no open checkpoint round");
         }
         target.put("state", SESSION_STATE_COMPLETED);
         // 残留的 pendingToolCall/approvalId 会被恢复路径（assembleSession/doLoadRound）重新暴露——被取消的工具调用不得复活
         target.remove("pendingToolCall");
         target.remove(AI_P_APPROVAL_ID);
-        // 新鲜度校验：目标轮必须仍是该会话的待批轮——窗口内会话已继续的话，
+        // 新鲜度校验：目标轮必须仍是该会话的开态轮——窗口内会话已继续的话，
         // 用陈旧快照重存会以 last-wins 覆盖新一轮（历史里终答丢失的故障类）
         java.util.Map<String, Object> freshTarget =
-                findOpenPendingRound(loadRoundData(sessionId, userId));
+                findOpenRoundByState(loadRoundData(sessionId, userId), wantState);
         if (freshTarget == null
                 || !String.valueOf(freshTarget.get("roundId")).equals(String.valueOf(target.get("roundId")))) {
             return createMsg().setParam(RESULT, false).setParam("error", "断点状态已变化（会话已继续），未执行丢弃");
@@ -216,7 +227,7 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         storeRound(target);
         // 写后验证：storeRound 静默吞异常，不得在未落盘时谎报成功（假成功一族）。
         // 只校验“目标轮”本身已变成 completed —— 不能用 findIncompleteMeta：
-        // 同会话若还有另一个开态待批轮，它会返回那一轮，导致本次已成功却误报失败；
+        // 同会话若还有另一个开态轮，它会返回那一轮，导致本次已成功却误报失败；
         // 用户按提示重试时会把第二个待批轮也丢弃。
         String targetRoundId = String.valueOf(target.get("roundId"));
         java.util.Map<String, Object> afterTarget =
@@ -224,9 +235,42 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         if (afterTarget == null
                 || !SESSION_STATE_COMPLETED.equals(String.valueOf(afterTarget.get("state")))) {
             return createMsg().setParam(RESULT, false)
-                    .setParam("error", "丢弃未落盘（目标待批轮未更新，storeRound 失败），请重试");
+                    .setParam("error", "丢弃未落盘（目标断点轮未更新，storeRound 失败），请重试");
         }
         return createMsg().setParam(RESULT, true);
+    }
+
+    /** 最新开态 checkpoint 轮：按 roundId last-wins 后 state=checkpoint 且 roundSeq 最大 */
+    private java.util.Map<String, Object> findLatestOpenCheckpointRound(
+            java.util.List<java.util.Map<String, Object>> rounds) {
+        java.util.Map<String, Object> best = null;
+        long bestSeq = Long.MIN_VALUE;
+        for (java.util.Map<String, Object> r : latestRoundsByRoundId(rounds).values()) {
+            if (!SESSION_STATE_CHECKPOINT.equals(String.valueOf(r.get("state")))) continue;
+            long seq = asLong(r.get("roundSeq"));
+            if (best == null || seq > bestSeq) { best = r; bestSeq = seq; }
+        }
+        return best;
+    }
+
+    /** 开态断点轮：待批优先（黏住语义），否则最新 checkpoint */
+    private java.util.Map<String, Object> findOpenRound(java.util.List<java.util.Map<String, Object>> rounds) {
+        java.util.Map<String, Object> t = findOpenPendingRound(rounds);
+        return t != null ? t : findLatestOpenCheckpointRound(rounds);
+    }
+
+    /** 按 state 限定开态断点：checkpoint / pending_approval；空 = 旧行为（待批优先，再 checkpoint） */
+    private java.util.Map<String, Object> findOpenRoundByState(
+            java.util.List<java.util.Map<String, Object>> rounds, String wantState) {
+        if (SESSION_STATE_CHECKPOINT.equals(wantState)) return findLatestOpenCheckpointRound(rounds);
+        if (SESSION_STATE_PENDING_APPROVAL.equals(wantState)) return findOpenPendingRound(rounds);
+        return findOpenRound(rounds);
+    }
+
+    private static long asLong(Object v) {
+        if (v instanceof Number) return ((Number) v).longValue();
+        if (v != null) { try { return Long.parseLong(String.valueOf(v)); } catch (NumberFormatException ignored) {} }
+        return 0L;
     }
 
     /**
