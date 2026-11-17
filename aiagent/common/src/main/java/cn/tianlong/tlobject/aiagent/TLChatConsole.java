@@ -66,6 +66,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     /** 是否处于已登录的对话控制台（/quit 只置 false，进程与 Web/Agent/定时任务继续运行）。
      *  volatile：msgBus 发布线程在 ack 时读它（未登录不得 ack，否则审批方以为有人显示而一直等） */
     private volatile boolean chatActive = true;
+    /** /shutdown 已开始：EOF/其他退出路径只静默收尾，不得再打印“Web 继续运行”或抢在 shutdown 前退出 */
+    private volatile boolean shuttingDown = false;
     /** 推理展示：是否折叠推理内容（默认折叠，展开后可查看完整思考链） */
     private boolean reasoningCollapsed = true;
     /** 推理模式：off | prompt | native | auto（null=使用 agent 默认值） */
@@ -83,7 +85,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private static final int MAX_HISTORY = 200;
 
     // ======================== 事件循环状态（仅主线程访问） ========================
-    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO, TOOL_PROGRESS, WORKFLOW_PROGRESS, INT }
+    private enum EventType { INPUT, RESULT, CHUNK, STREAM_END, STOP, APPROVAL, TODO, TOOL_PROGRESS, WORKFLOW_PROGRESS, INT, EOF }
 
     private static final class ConsoleEvent {
         final EventType type;
@@ -603,8 +605,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         redrawLine(line, cursorPos);
                     }
                     if (ch < 0) {
-                        // stdin 关闭：无 Web 时停应用；有 Web 时只退控制台，Web 服务继续运行
-                        if (running) onStdinClosed();
+                        // stdin 关闭：交给主循环按队列顺序处理（已排队的 /shutdown 必须先生效，
+                        // 不能在读线程里直接退出控制台，否则 /shutdown 会被 EOF 抢跑并误报 Web 继续运行）
+                        if (running) offer(new ConsoleEvent(EventType.EOF, null, null));
                         break;
                     }
                     if (ch == 3 || ch == 4) {
@@ -762,6 +765,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 case INPUT:      handleInput(e.text); break;
                 case STOP:       handleStopSignal(); break;
                 case INT:        handleInterruptRequest(); break;
+                case EOF:        onStdinClosed(); break;
                 case RESULT:     onChatResult(e.msg); break;
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
                 case STREAM_END: onStreamEnd(e.text,
@@ -848,8 +852,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String line = scanner.nextLine();
                     offer(new ConsoleEvent(EventType.INPUT, line, null));
                 }
-                // stdin 关闭：无 Web 时停应用；有 Web 时仅退出控制台（同 raw 模式 EOF 语义）
-                if (running) onStdinClosed();
+                // stdin 关闭：交给主循环按队列顺序处理（同 raw 模式 EOF 语义）
+                if (running) offer(new ConsoleEvent(EventType.EOF, null, null));
             } catch (Exception ignore) {}
         }, "chat-console-reader-fb");
         readerThread.setDaemon(true);
@@ -865,6 +869,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             if (!chatActive && e.type != EventType.INPUT) continue;
             switch (e.type) {
                 case INPUT:      handleInput(e.text); break;
+                case EOF:        onStdinClosed(); break;
                 case RESULT:     onChatResult(e.msg); break;
                 case CHUNK:      System.out.print(e.text); System.out.flush(); break;
                 case STREAM_END: onStreamEnd(e.text,
@@ -1136,6 +1141,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     /** /shutdown：停止整个应用（Jetty + 全部模块/任务），进程以 0 退出 */
     private void shutdownConsoleApp() {
+        if (shuttingDown) return;
+        shuttingDown = true;
         System.out.println("正在停止应用...");
         System.out.flush();
         if (moduleFactory != null) moduleFactory.shutdown(0);
@@ -1143,15 +1150,17 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /**
-     * stdin 关闭（管道/重定向结束、窗口关闭）：无 Web 时停整个应用；
-     * 有 Web 时只退出控制台，Web 服务继续运行（避免 headless 启动时 stdin=/dev/null 误杀 Web）。
+     * stdin 关闭（管道/重定向结束、窗口关闭）：在主循环中按事件队列顺序处理。
+     * 已排队的 /shutdown 会先被处理并 exit，不会出现“正在停止应用”后又说 Web 继续运行。
+     * 无 Web 时停整个应用；有 Web 时只退出控制台，Web 服务继续运行（避免 headless 启动误杀 Web）。
      */
     private void onStdinClosed() {
+        if (shuttingDown) return;
         if (moduleFactory != null && moduleFactory.containsModule("jettyServer")) {
             System.out.println("\n（stdin 已关闭，控制台退出；Web 服务继续运行）");
             running = false;
         } else {
-            offer(new ConsoleEvent(EventType.INPUT, "/shutdown", null));
+            shutdownConsoleApp();
         }
     }
 
