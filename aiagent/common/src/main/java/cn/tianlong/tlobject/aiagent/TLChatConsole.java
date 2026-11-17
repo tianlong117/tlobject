@@ -61,7 +61,11 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     private boolean subscribeWorkflowProgress = true;
     // 不要直接打印 prompt——统一走 promptText()（含 [自动] 标记）
     private String prompt = "你 > ";
+    /** 进程/控制台事件循环生命周期：/shutdown、控制台模式 EOF、外部 stopChat 才置 false */
     private volatile boolean running = false;
+    /** 是否处于已登录的对话控制台（/quit 只置 false，进程与 Web/Agent/定时任务继续运行）。
+     *  volatile：msgBus 发布线程在 ack 时读它（未登录不得 ack，否则审批方以为有人显示而一直等） */
+    private volatile boolean chatActive = true;
     /** 推理展示：是否折叠推理内容（默认折叠，展开后可查看完整思考链） */
     private boolean reasoningCollapsed = true;
     /** 推理模式：off | prompt | native | auto（null=使用 agent 默认值） */
@@ -190,7 +194,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String cmdUser = msg.getStringParam("userId", null);
                     if (cmdUser != null && !cmdUser.isEmpty()) userId = cmdUser;
                 }
-                if (!userModule.isEmpty() && !validateConsoleUser()) return null;
+                // 校验失败不退出应用：进入"未登录"外壳提示符，可 /login 重登或 /shutdown 停应用
+                chatActive = userModule.isEmpty() || validateConsoleUser(userId);
                 startConsole();
                 break;
             case "stopChat":
@@ -211,7 +216,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 String evtUser = msg.getStringParam("userId", "");
                 if (!userId.equals(evtUser)) return null;
                 offer(new ConsoleEvent(EventType.APPROVAL, msg.getStringParam("text", ""), null));
-                return running ? createMsg().setParam(RESULT, true) : null;
+                // 未登录时主循环会丢弃该事件 → 不能 ack（否则审批方误以为有人显示，一直等）
+                return running && chatActive ? createMsg().setParam(RESULT, true) : null;
             }
             case "taskResult": {
                 // 事件按 userId 过滤：事件总线是进程级的，web/其他用户的任务结果不得打到本控制台
@@ -228,7 +234,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                                 + "] " + msg.getStringParam("text", ""))
                         .setParam("success", true)
                         .setParam("notifyOnly", true)));
-                return running ? createMsg().setParam(RESULT, true) : null;
+                return running && chatActive ? createMsg().setParam(RESULT, true) : null;
             }
             case "todoEvent": {
                 // 任务清单事件（TLTodoSkill 每次 write 发布，经 msgBus 订阅）：
@@ -242,7 +248,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 // （用户停在提示符上也能看到，无需回车）；ack 只在控制台真的在跑时才给，
                 // 否则发布方以为有人渲染了（同 approvalEvent）
                 offer(new ConsoleEvent(EventType.TODO, block, null));
-                return running ? createMsg().setParam(RESULT, true) : null;
+                return running && chatActive ? createMsg().setParam(RESULT, true) : null;
             }
             case TOOL_PROGRESS_TOPIC:
                 return onToolProgressEvent(msg);
@@ -253,13 +259,13 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     }
 
     /**
-     * -u 用户校验：不存在/禁用则报错并跳过控制台（无 Web 服务时以非 0 退出码关停应用）；
+     * 用户校验（启动 -u 与 /login 共用）：不存在/禁用返回 false 并打印重登提示，**不停应用**；
      * 用户模块缺失/数据库异常只 WARN 不阻断（避免数据库故障时控制台完全不可用）。
      */
-    private boolean validateConsoleUser() {
+    private boolean validateConsoleUser(String uid) {
         TLMsg r;
         try {
-            r = putSafe(userModule, createMsg().setAction("getUserStatus").setParam("userId", userId));
+            r = putSafe(userModule, createMsg().setAction("getUserStatus").setParam("userId", uid));
         } catch (Exception e) {
             putLog("控制台用户校验失败（继续启动）: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
             return true;
@@ -278,28 +284,21 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     cn.tianlong.tlobject.modules.LogLevel.WARN);
             return true;
         }
-        if (!r.parseBoolean("found", false))
-            return failConsoleStart("错误：用户不存在 - " + userId
-                    + "（请用 -u 指定 ai_users 表里已存在的用户）");
-        if (r.getIntParam("status", 0) != 1)
-            return failConsoleStart("错误：用户已被禁用 - " + userId);
-        return true;
-    }
-
-    /**
-     * 控制台启动校验失败：仅跳过控制台；同进程有 Web 服务时应用继续运行（AIStart -web
-     * 总是同时启动控制台，shutdown 会连 Web 一起杀掉）。
-     */
-    private boolean failConsoleStart(String msg) {
-        System.out.println(msg);
-        putLog(msg, cn.tianlong.tlobject.modules.LogLevel.ERROR);
-        if (moduleFactory != null && moduleFactory.containsModule("jettyServer")) {
-            putLog("检测到 Web 服务：仅跳过控制台，应用继续运行",
-                    cn.tianlong.tlobject.modules.LogLevel.WARN);
+        if (!r.parseBoolean("found", false)) {
+            String err = "错误：用户不存在 - " + uid;
+            System.out.println(err);
+            putLog(err, cn.tianlong.tlobject.modules.LogLevel.ERROR);
+            System.out.println("输入 /login <用户ID> 重新登录，/shutdown 停止应用");
             return false;
         }
-        if (moduleFactory != null) moduleFactory.shutdown(1);
-        return false;
+        if (r.getIntParam("status", 0) != 1) {
+            String err = "错误：用户已被禁用 - " + uid;
+            System.out.println(err);
+            putLog(err, cn.tianlong.tlobject.modules.LogLevel.ERROR);
+            System.out.println("输入 /login <用户ID> 重新登录，/shutdown 停止应用");
+            return false;
+        }
+        return true;
     }
 
     // ======================== 工具实时进度 ========================
@@ -333,7 +332,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 && (sessionId.equals(evtSid) || sessionId.equals(evtRoot));
         if (!match) return null;
         offer(new ConsoleEvent(EventType.TOOL_PROGRESS, formatToolProgress(msg), null));
-        return running ? createMsg().setParam(RESULT, true) : null;
+        return running && chatActive ? createMsg().setParam(RESULT, true) : null;
     }
 
     String formatToolProgress(TLMsg msg) {
@@ -393,7 +392,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 && (sessionId.equals(evtSid) || sessionId.equals(evtRoot));
         if (!match) return null;
         offer(new ConsoleEvent(EventType.WORKFLOW_PROGRESS, formatWorkflowProgress(msg), null));
-        return running ? createMsg().setParam(RESULT, true) : null;
+        return running && chatActive ? createMsg().setParam(RESULT, true) : null;
     }
 
     String formatWorkflowProgress(TLMsg msg) {
@@ -526,7 +525,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     // ======================== 事件循环 ========================
 
     private void startConsole() {
-        if (sessionId == null) sessionId = "chat_" + userId + "_" + System.currentTimeMillis();
+        if (chatActive && sessionId == null)
+            sessionId = "chat_" + userId + "_" + System.currentTimeMillis();
         System.out.println("╔══════════════════════════════════╗");
         System.out.println("║   AI Agent 交互式 Chat          ║");
         System.out.println("║   输入消息开始对话，ESC 中断     ║");
@@ -535,45 +535,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         // 从 agentService 获取命令列表（供 Tab 补全/帮助）
         populateCommandCache();
 
-        // 检测断点会话
-        try {
-            TLMsg incompleteResult = putSafe(serviceModule, createMsg().setAction("resume")
-                    .setParam("userId", userId));
-            if (incompleteResult != null && incompleteResult.parseBoolean("success", false)) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> data = (Map<String, Object>) incompleteResult.getParam("data");
-                if (data != null) {
-                    pendingCheckpointSessionId = (String) data.get("sessionId");
-                    pendingCheckpointUserMessage = (String) data.get("userMessage");
-                    // 状态决定 /discard 的动作：待批必须走 abandonApproval（先撤销审批），
-                    // 否则直接 discardCheckpoint 会关掉轮次却把审批留在 PENDING
-                    String cpState = (String) data.get("state");
-                    pendingCheckpointState = cpState == null ? "" : cpState;
-                    String checkpointAgent = (String) data.get("agentName");
-                    long savedAt = data.get("savedAt") instanceof Long ? (Long) data.get("savedAt") : 0L;
-                    int iteration = data.get("iteration") instanceof Integer ? (Integer) data.get("iteration") : 0;
-                    String timeStr = savedAt > 0
-                            ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
-                                .format(new java.util.Date(savedAt))
-                            : "未知";
-                    System.out.println();
-                    System.out.println("⚠═══════════════════════════════════");
-                    System.out.println("  检测到上次未正常结束的会话:");
-                    System.out.println("  Agent:    " + (checkpointAgent != null ? checkpointAgent : "未知"));
-                    System.out.println("  会话ID:   " + pendingCheckpointSessionId);
-                    System.out.println("  用户消息: " + pendingCheckpointUserMessage);
-                    System.out.println("  中断时间: " + timeStr + " (第 " + iteration + " 轮)");
-                    System.out.println("  输入 /resume 继续执行，/discard 丢弃断点，或直接输入新消息开始新对话");
-                    System.out.println("═══════════════════════════════════");
-                    System.out.println();
-                }
-            }
-        } catch (Exception e) {
-            System.out.println("（检查断点失败: " + e.getMessage() + "）");
+        if (chatActive) {
+            detectCheckpoint();
+            prompt = "你(" + userId + ") > ";
+            System.out.println("\nAI Agent 就绪，开始对话吧！（ESC 中断，/quit 退出控制台，/shutdown 停止应用）\n");
+        } else {
+            prompt = "(未登录) > ";
+            System.out.println("\n未登录：输入 /login <用户ID> 重新登录，/shutdown 停止应用。\n");
         }
-
-        prompt = "你(" + userId + ") > ";
-        System.out.println("\nAI Agent 就绪，开始对话吧！（ESC 中断，/exit 退出）\n");
 
         running = true;
 
@@ -634,13 +603,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                         redrawLine(line, cursorPos);
                     }
                     if (ch < 0) {
-                        if (running) offer(new ConsoleEvent(EventType.INPUT, "/exit", null));
+                        // stdin 关闭：无 Web 时停应用；有 Web 时只退控制台，Web 服务继续运行
+                        if (running) onStdinClosed();
                         break;
                     }
                     if (ch == 3 || ch == 4) {
                         // Ctrl+C / Ctrl+D：中断语义（同 /stop），清空当前输入行；不再退出应用。
                         // 2026-10-13 前此处直接 running=false 静默退出整个应用（raw 模式下 Ctrl+C 以字符 3
-                        // 送达、非 SIGINT，零日志退出——用户误按即"应用莫名 shutdown"）；退出统一走 /exit、/quit
+                        // 送达、非 SIGINT，零日志退出——用户误按即"应用莫名 shutdown"）；退回外壳走 /quit，停应用走 /shutdown
                         line.setLength(0);
                         cursorPos = 0;
                         if (busy) {
@@ -648,7 +618,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                             offer(new ConsoleEvent(EventType.INPUT, "/stop", null));
                         } else {
                             System.out.print("\r\033[K");
-                            System.out.println("（Ctrl+C 中断，不再退出应用；退出请用 /exit）");
+                            System.out.println("（Ctrl+C 中断，不再退出应用；退回外壳用 /quit，停应用用 /shutdown）");
                             printPrompt();
                             System.out.flush();
                         }
@@ -785,6 +755,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             try { e = eventQueue.poll(300, TimeUnit.MILLISECONDS); }
             catch (InterruptedException ie) { break; }
             if (e == null) continue;
+            // 未登录（/quit 之后）：只处理输入，丢弃对话输出/审批/清单/进度，避免旧会话内容串进外壳
+            if (!chatActive && e.type != EventType.INPUT) continue;
 
             switch (e.type) {
                 case INPUT:      handleInput(e.text); break;
@@ -820,6 +792,51 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("再见！");
     }
 
+    /**
+     * 检测未完成的 mid-loop 断点并打印提示（启动登录 / /login 成功后调用）。
+     * 先清空本地断点态：同一用户重登时重新以服务端为准，避免展示已失效的旧断点。
+     */
+    private void detectCheckpoint() {
+        pendingCheckpointSessionId = null;
+        pendingCheckpointUserMessage = null;
+        pendingCheckpointState = "";
+        try {
+            TLMsg incompleteResult = putSafe(serviceModule, createMsg().setAction("resume")
+                    .setParam("userId", userId));
+            if (incompleteResult != null && incompleteResult.parseBoolean("success", false)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> data = (Map<String, Object>) incompleteResult.getParam("data");
+                if (data != null) {
+                    pendingCheckpointSessionId = (String) data.get("sessionId");
+                    pendingCheckpointUserMessage = (String) data.get("userMessage");
+                    // 状态决定 /discard 的动作：待批必须走 abandonApproval（先撤销审批），
+                    // 否则直接 discardCheckpoint 会关掉轮次却把审批留在 PENDING
+                    String cpState = (String) data.get("state");
+                    pendingCheckpointState = cpState == null ? "" : cpState;
+                    String checkpointAgent = (String) data.get("agentName");
+                    long savedAt = data.get("savedAt") instanceof Long ? (Long) data.get("savedAt") : 0L;
+                    int iteration = data.get("iteration") instanceof Integer ? (Integer) data.get("iteration") : 0;
+                    String timeStr = savedAt > 0
+                            ? new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
+                                .format(new java.util.Date(savedAt))
+                            : "未知";
+                    System.out.println();
+                    System.out.println("⚠═══════════════════════════════════");
+                    System.out.println("  检测到上次未正常结束的会话:");
+                    System.out.println("  Agent:    " + (checkpointAgent != null ? checkpointAgent : "未知"));
+                    System.out.println("  会话ID:   " + pendingCheckpointSessionId);
+                    System.out.println("  用户消息: " + pendingCheckpointUserMessage);
+                    System.out.println("  中断时间: " + timeStr + " (第 " + iteration + " 轮)");
+                    System.out.println("  输入 /resume 继续执行，/discard 丢弃断点，或直接输入新消息开始新对话");
+                    System.out.println("═══════════════════════════════════");
+                    System.out.println();
+                }
+            }
+        } catch (Exception e) {
+            System.out.println("（检查断点失败: " + e.getMessage() + "）");
+        }
+    }
+
     /** JLine raw mode 不可用时的降级方案 */
     private void startConsoleFallback() {
         registerToolProgressBus();
@@ -831,6 +848,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String line = scanner.nextLine();
                     offer(new ConsoleEvent(EventType.INPUT, line, null));
                 }
+                // stdin 关闭：无 Web 时停应用；有 Web 时仅退出控制台（同 raw 模式 EOF 语义）
+                if (running) onStdinClosed();
             } catch (Exception ignore) {}
         }, "chat-console-reader-fb");
         readerThread.setDaemon(true);
@@ -842,6 +861,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             try { e = eventQueue.poll(300, TimeUnit.MILLISECONDS); }
             catch (InterruptedException ie) { break; }
             if (e == null) continue;
+            // 未登录（/quit 之后）：只处理输入，丢弃对话输出类事件
+            if (!chatActive && e.type != EventType.INPUT) continue;
             switch (e.type) {
                 case INPUT:      handleInput(e.text); break;
                 case RESULT:     onChatResult(e.msg); break;
@@ -1004,8 +1025,19 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         }
         String input = raw == null ? "" : raw.trim();
 
+        // /quit 之后：只接受 /login、/shutdown、/help
+        if (!chatActive) {
+            handleLoggedOutInput(input);
+            return;
+        }
+
         // busy 状态下只响应 /stop 和 /approve
         if (busy) {
+            // 运行中允许强制停止整个应用（"保持简单"：不做二次确认）
+            if (input.equalsIgnoreCase("/shutdown")) {
+                shutdownConsoleApp();
+                return;
+            }
             if (input.equalsIgnoreCase("/stop")) {
                 stopThinking();
                 if (paused && currentTask != null) {
@@ -1037,9 +1069,12 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             switch (cmdLower) {
                 case "/exit":
                 case "/quit":
-                    if (moduleFactory != null && moduleFactory.containsModule("jettyServer"))
-                        System.out.println("（Web 服务继续运行，关闭窗口可停止）");
-                    running = false;
+                    // 只离开对话控制台：进程、Web、Agent、定时/后台任务全部继续运行
+                    logoutConsole();
+                    return;
+                case "/shutdown":
+                    // 停止整个应用（Web + 所有模块/任务）
+                    shutdownConsoleApp();
                     return;
                 case "/stream":
                     streamMode = !streamMode;
@@ -1087,6 +1122,98 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         busy = true;
         currentStart = System.currentTimeMillis();
         submitChat(input);
+    }
+
+    /** /quit、/exit：只离开对话控制台，进程与 Web/Agent/定时任务继续运行 */
+    private void logoutConsole() {
+        chatActive = false;
+        prompt = "(未登录) > ";
+        System.out.println("已退出对话控制台；应用继续运行（Agent / 定时任务 / Web）。");
+        System.out.println("输入 /login <用户ID> 重新进入；/shutdown 停止整个应用。");
+        printPrompt();
+        System.out.flush();
+    }
+
+    /** /shutdown：停止整个应用（Jetty + 全部模块/任务），进程以 0 退出 */
+    private void shutdownConsoleApp() {
+        System.out.println("正在停止应用...");
+        System.out.flush();
+        if (moduleFactory != null) moduleFactory.shutdown(0);
+        else running = false;
+    }
+
+    /**
+     * stdin 关闭（管道/重定向结束、窗口关闭）：无 Web 时停整个应用；
+     * 有 Web 时只退出控制台，Web 服务继续运行（避免 headless 启动时 stdin=/dev/null 误杀 Web）。
+     */
+    private void onStdinClosed() {
+        if (moduleFactory != null && moduleFactory.containsModule("jettyServer")) {
+            System.out.println("\n（stdin 已关闭，控制台退出；Web 服务继续运行）");
+            running = false;
+        } else {
+            offer(new ConsoleEvent(EventType.INPUT, "/shutdown", null));
+        }
+    }
+
+    /** 未登录外壳输入：只接受 /login、/shutdown、/help */
+    private void handleLoggedOutInput(String input) {
+        if (input == null || input.isEmpty()) { printPrompt(); System.out.flush(); return; }
+        String cmd = input.toLowerCase().split("\\s+")[0];
+        switch (cmd) {
+            case "/login": {
+                String uid = input.length() > "/login".length()
+                        ? input.substring("/login".length()).trim() : "";
+                if (uid.isEmpty()) {
+                    System.out.println("用法: /login <用户ID>");
+                    break;
+                }
+                loginConsoleUser(uid);
+                break;
+            }
+            case "/shutdown":
+                shutdownConsoleApp();
+                return;
+            case "/help":
+                printShellHelp();
+                break;
+            case "/quit":
+            case "/exit":
+                System.out.println("已在控制台外：输入 /login <用户ID> 或 /shutdown");
+                break;
+            default:
+                System.out.println("未登录：输入 /login <用户ID> 重新登录，/shutdown 停止应用");
+                break;
+        }
+        printPrompt();
+        System.out.flush();
+    }
+
+    /** 校验并登录用户；同一用户保留 sessionId，不同用户开新会话并清空断点/附件/自动标记 */
+    private void loginConsoleUser(String uid) {
+        if (!userModule.isEmpty() && !validateConsoleUser(uid)) return;
+        boolean changed = !uid.equals(userId);
+        userId = uid;
+        if (changed) {
+            sessionId = "chat_" + userId + "_" + System.currentTimeMillis();
+            pendingCheckpointSessionId = null;
+            pendingCheckpointUserMessage = null;
+            pendingCheckpointState = "";
+            autoRunOn = false;
+            pendingAttachments.clear();
+        }
+        chatActive = true;
+        prompt = "你(" + userId + ") > ";
+        System.out.println("✓ 已登录: " + userId);
+        detectCheckpoint();
+    }
+
+    /** 未登录状态（/quit 之后）的可用命令 */
+    private void printShellHelp() {
+        System.out.println("未登录状态命令:");
+        System.out.println("  /login <用户ID>  重新进入对话控制台");
+        System.out.println("  /shutdown        停止整个应用（Web/Agent/定时任务）");
+        System.out.println("  /help            显示本帮助");
+        System.out.println("  /quit, /exit     已在控制台外，无操作");
     }
 
     /**
@@ -2318,14 +2445,14 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         offer(new ConsoleEvent(EventType.STOP, null, null));
     }
 
-    /** Ctrl+C（信号路径，主线程执行）：清当前输入行 + 运行中则中断对话（同 /stop）；应用不退出（退出走 /exit） */
+    /** Ctrl+C（信号路径，主线程执行）：清当前输入行 + 运行中则中断对话（同 /stop）；应用不退出（退回外壳走 /quit） */
     private void handleInterruptRequest() {
         clearLineRequested = true;      // 读线程下一次读到输入时先清空编辑中的行
         if (busy) {
             handleInput("/stop");       // 走既有 /stop 分支（含暂停态清理与状态复位）
         } else {
             System.out.print("\r\033[K");
-            System.out.println("（Ctrl+C 中断，不再退出应用；退出请用 /exit）");
+            System.out.println("（Ctrl+C 中断，不再退出应用；退回外壳用 /quit，停应用用 /shutdown）");
             printPrompt();
             System.out.flush();
         }
@@ -2727,8 +2854,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         autoRunOn = false;
     }
 
-    /** 实际提示符文本：自动运行开启时加 [自动] 标记（纯文本，代理对 emoji 在宽度计算里不可靠） */
-    private String promptText() { return autoRunOn ? "[自动] " + prompt : prompt; }
+    /** 实际提示符文本：自动运行开启时加 [自动] 标记（未登录外壳不显示该标记） */
+    private String promptText() { return chatActive && autoRunOn ? "[自动] " + prompt : prompt; }
 
     private void printPrompt() { System.out.print(promptText()); }
 
@@ -2967,8 +3094,10 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
     @SuppressWarnings("unchecked")
     private void populateCommandCache() {
         // 本地命令（不在 agentService 的 ACTION_REGISTRY 中，控制台自己处理）
-        commandCache.put("/exit", "退出控制台");
-        commandCache.put("/quit", "退出控制台");
+        commandCache.put("/exit", "退出控制台（应用继续运行）");
+        commandCache.put("/quit", "退出控制台（应用继续运行）");
+        commandCache.put("/login", "重新登录控制台");
+        commandCache.put("/shutdown", "停止整个应用");
         commandCache.put("/stream", "切换流式/非流式模式");
         commandCache.put("/thinking", "设置推理模式 (off|prompt|native|auto)");
         commandCache.put("/help", "显示帮助信息");
@@ -3004,7 +3133,9 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         System.out.println("╚══════════════════════════════════════════════════╝");
         System.out.println();
         System.out.println("对话命令:");
-        System.out.println("  /exit, /quit   退出控制台");
+        System.out.println("  /exit, /quit   退出对话控制台（应用继续运行：Agent / 定时任务 / Web）");
+        System.out.println("  /login <用户ID> 重新登录控制台（同一用户保留当前会话，换用户开新会话）");
+        System.out.println("  /shutdown      停止整个应用（Web / Agent / 定时任务），运行中也可强制停止");
         System.out.println("  /stop          中断当前正在运行的对话");
         System.out.println("  ESC            按一下暂停，再按恢复；快速连按两下（500ms 内）中断（同 /stop）");
         System.out.println("  Ctrl+C         清空当前输入行；运行中则中断对话（同 /stop）——不再退出应用");

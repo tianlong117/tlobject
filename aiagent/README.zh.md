@@ -1310,8 +1310,11 @@ aistart-web.bat
 
 | 参数 | 作用 |
 |------|------|
-| `-u <userId>` | 用指定用户身份登录（默认 `console_user`）。身份影响数据隔离目录 `data/{userId}/` 与授权角色——用户与角色映射配置在 `moduleFactory_chat_config.xml` 的 `users` 属性 |
+| `-u <userId>` | 用指定用户身份登录（默认 `console_user`）。身份影响数据隔离目录 `data/{userId}/` 与授权角色——用户与角色存数据库 `ai_users`（`dbUserModule`）；用户不存在/禁用时不退出应用，进入「未登录」提示符，用 `/login` 重登或 `/shutdown` 停应用 |
 | `-web` | 同时启动 Web 窗口（等同于 `aistart-web.bat`） |
+
+`/quit`（`/exit`）只离开对话控制台，进程与 Web / Agent / 定时任务继续运行；`/shutdown` 停止整个应用
+（两种启动方式一致）；stdin 关闭（EOF）：控制台模式等同 `/shutdown`，Web 模式只退出控制台、Web 继续运行。
 
 **控制台命令**（输入 `/` 开头的命令，支持 Tab 补全）：
 
@@ -1329,7 +1332,9 @@ aistart-web.bat
 | `/approve` | 审批队列交互（HITL） |
 | `/param` | 查看 Agent 的实际生效参数 |
 | `/stream`、`/thinking`、`/clear` | 流式开关 / 推理模式切换 / 清屏 |
-| `/exit` | 退出 |
+| `/quit`、`/exit` | 只退出对话控制台（Web / Agent / 定时任务继续运行），回到「未登录」提示符 |
+| `/login <用户ID>` | 重新登录控制台（同一用户保留当前会话；换用户开新会话并清空断点/附件） |
+| `/shutdown` | 停止整个应用（Web / Agent / 定时任务），对话运行中也可强制停止 |
 
 （运行中输入 `/help` 或 `/?` 可随时查看全部命令）
 
@@ -1341,8 +1346,8 @@ aistart-web.bat
 http://localhost:58080/webui/chat.html
 ```
 
-默认账号 `admin` / `tianlong`（密码都是 `123456`），配置在 `moduleFactory_chat_web_config.xml`
-的 `passwords` 与 `port` 属性。
+默认账号 `admin` / `tianlong`（密码都是 `123456`），存数据库表 `ai_users`（`dbUserModule`）；
+Web 端口在 `moduleFactory_chat_web_config.xml` 的 `port` 属性。
 
 | 界面能力 | 说明 |
 |---------|------|
@@ -1716,7 +1721,7 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 `AIStart -web`（或 `aistart-web.bat`）同进程同时启动控制台与 Web 窗口：
 浏览器打开 `http://localhost:58080/webui/chat.html`（端口在 `moduleFactory_chat_web_config.xml` 的 jettyServer 参数修改）。
 
-- 登录：`webui` 模块的 `passwords` 参数（demo 默认 admin/tianlong，密码 123456）；不配置密码则任意非空 userId 可登录
+- 登录：数据库用户表 `ai_users`（`dbUserModule`）；demo 默认 admin/tianlong（密码 123456），`console_user` 无密码不能网页登录
 - 聊天：流式（fetch-SSE）/非流式，推理过程可折叠，结束行显示 token 统计
 - 命令面板（图形化，全部经 agentService 现有 action）：
   - 会话：列表/继续/切换/清除/断点恢复

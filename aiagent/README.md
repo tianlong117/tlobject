@@ -1363,8 +1363,12 @@ you(console_user) > how much is a hamburger
 
 | Argument | Meaning |
 |------|------|
-| `-u <userId>` | Log in as a specific user (default `console_user`). The identity drives data isolation (`data/{userId}/`) and authorization roles — the user→role mapping lives in the `users` attribute of `moduleFactory_chat_config.xml` |
+| `-u <userId>` | Log in as a specific user (default `console_user`). The identity drives data isolation (`data/{userId}/`) and authorization roles — users/roles live in the database table `ai_users` (`dbUserModule`); if the user is missing/disabled the app does not exit, it enters the unlogged-in prompt (`/login` to retry, `/shutdown` to stop) |
 | `-web` | Also start the web UI (same as `aistart-web.bat`) |
+
+`/quit` (`/exit`) leaves only the chat console; the process, Web UI, agents, scheduled/background tasks keep running.
+`/shutdown` stops the whole app (both launch modes). stdin EOF: console-only behaves like `/shutdown`; in web mode it only
+leaves the console and the Web server keeps running.
 
 **Console commands** (prefix `/`, Tab completion supported):
 
@@ -1382,7 +1386,9 @@ you(console_user) > how much is a hamburger
 | `/approve` | Interact with the approval queue (HITL) |
 | `/param` | Show an agent's effective parameters |
 | `/stream`, `/thinking`, `/clear` | Streaming toggle / reasoning mode / clear screen |
-| `/exit` | Quit |
+| `/quit`, `/exit` | Leave the chat console only (Web / agents / scheduled tasks keep running); returns to the unlogged-in prompt |
+| `/login <userId>` | Log in again (same user keeps the current session; a different user gets a new session and cleared checkpoint/attachments) |
+| `/shutdown` | Stop the whole app (Web / agents / scheduled tasks); works even while a turn is running |
 
 (Type `/help` or `/?` at any time for the full list.)
 
@@ -1394,8 +1400,8 @@ you(console_user) > how much is a hamburger
 http://localhost:58080/webui/chat.html
 ```
 
-Default accounts `admin` / `tianlong` (password `123456` for both), configured via the `passwords`
-and `port` attributes in `moduleFactory_chat_web_config.xml`.
+Default accounts `admin` / `tianlong` (password `123456` for both), stored in the database table
+`ai_users` (`dbUserModule`); the Web port is the `port` attribute in `moduleFactory_chat_web_config.xml`.
 
 | Capability | Description |
 |---------|------|
@@ -1758,7 +1764,7 @@ High-risk tool operations require human approval before they are executed.
 - Web: login/register/profile/avatar; Manage page -> Users (admin role)
 - PBKDF2 passwords, multi-role + group, status/last login, admin protections, audit logs
 - CSRF: same-origin `Origin`/`Referer` + session `X-CSRF-Token` (scripts must fetch it from `/api/login` or `/api/session`); session cookie `HttpOnly; SameSite=Lax`
-- Console `-u`: passwordless but validates existence/enabled (exit code 1 on failure); in `-web` mode an invalid console user only skips the console
+- Console `-u`: passwordless but validates existence/enabled; an invalid user enters the unlogged-in prompt (no exit) — `/login <userId>` retries, `/shutdown` stops the app
 - Self-test: `TLUserModuleSelfTest` (80 checks)
 
 ### Web Interaction Window (aiagent/webui)
@@ -1766,7 +1772,7 @@ High-risk tool operations require human approval before they are executed.
 `AIStart -web` (or `aistart-web.bat`) starts both the console and the Web window in the same process:
 Open `http://localhost:58080/webui/chat.html` in a browser (change the port in the jettyServer parameter of `moduleFactory_chat_web_config.xml`).
 
-- Login: the `passwords` parameter of the `webui` module (demo default admin/tianlong, password 123456); if no password is configured, any non-empty userId can log in
+- Login: database-backed users (`ai_users` via `dbUserModule`); demo accounts admin/tianlong (password 123456), `console_user` has no password and cannot log in via the Web UI
 - Chat: streaming (fetch-SSE) / non-streaming, the reasoning process can be collapsed, and the final line shows token statistics
 - Command panel (graphical; everything goes through the existing agentService actions):
   - Session: list/continue/switch/clear/checkpoint resume

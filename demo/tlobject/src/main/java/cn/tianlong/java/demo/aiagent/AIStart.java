@@ -14,8 +14,11 @@ import java.util.HashMap;
  * - 默认: 仅启动控制台交互（chatConsole）
  * - -web: 同时启动 Web 交互窗口（http://localhost:58080/webui/chat.html），
  *         使用 moduleFactory_chat_web_config.xml（include chat 配置 + webui/jettyServer）。
- *         Web 模式下控制台退出不会停止 Web，关闭窗口/终止进程停止。
- * - -u userId: 指定控制台登录用户
+ *         /quit（/exit）只离开对话控制台，Web / Agent / 定时任务继续运行；
+ *         /shutdown 停止整个应用；控制台模式 stdin EOF 等同 /shutdown，
+ *         Web 模式 stdin EOF 只退出控制台（Web 继续运行，避免 headless 启动误杀 Web）。
+ * - -u userId: 指定控制台登录用户；用户不存在/禁用时不退出应用，进入"未登录"提示符，
+ *         可用 /login <userId> 重新登录或 /shutdown 停止应用
  *
  * @author tianlong
  * @date 2026/7/12
@@ -51,8 +54,10 @@ public class AIStart extends TLAppStartUp implements TLAiAgentParamString {
         AIStart instance = new AIStart("aiStart");
         instance.consoleUser = user;
         TLObjectFactory factory = instance.startup(argsMap);
-        // Web 模式：进程生命周期由 Jetty 的非守护线程维持（控制台可能因 -u 校验失败而跳过，
-        // 或用户 /exit 退出控制台）；这里不能 shutdown，否则会连带停掉 Web 服务。
+        // Web 模式：进程生命周期由 Jetty 的非守护线程维持（/quit 只离开控制台，/shutdown 走
+        // moduleFactory.shutdown 停整个应用；stdin EOF 只退控制台，Web 继续）；这里不能 shutdown，
+        // 否则会连带停掉 Web 服务。
+        // 非 Web 模式：startConsole 只有在未经 /shutdown 返回时（如外部 stopChat）才走到这里，兜底关停。
         if (!web) factory.shutdown();
     }
 

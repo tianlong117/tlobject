@@ -109,7 +109,7 @@ Built-in modules extending `TLBaseModule`:
 
 **Demo:**
 - `AiAgentDemoModule` — 8 场景自动化测试（全部通过）
-- `ChatDemo` / `AIStart`（aistart.bat，config `conf/demo/aiagent/`）— 交互式对话，支持 `/stream` `/thinking` `/clear` `/exit` `/test` `/eval` `/mcp` `/approve` `/sessions` `/continue` `/resume`
+- `ChatDemo` / `AIStart`（aistart.bat，config `conf/demo/aiagent/`）— 交互式对话，支持 `/stream` `/thinking` `/clear` `/quit`（只退控制台）`/login`（重登）`/shutdown`（停应用）`/test` `/eval` `/mcp` `/approve` `/sessions` `/continue` `/resume`
 
 **控制中心（core `TLControlCenter` + aiagent `TLAgentControlCenter`）：**
 - `TLControlCenter`（core）是通用机制：启动编排（配置文件 `<startMsg>`）、模块注册门面、配置重载白名单、审计。`TLAgentControlCenter`（aiagent/common，继承前者）承载 AI 专属策略（用户分级/命令授权、服务暂停、agent 编排等），三套 aiagent 应用配置使用该子类；其他应用可直接用 core 版本。
@@ -183,7 +183,11 @@ Built-in modules extending `TLBaseModule`:
   `getUserInfo` 采用 userid/role/group 契约，供 `TLAppAuthModule` 使用；未知/禁用回落 `defaultRole`（guest）。
   表为空时按 `bootstrapUsers` 种子初始化（demo 含 admin/tianlong/console_user/dongq/xiaoming，等价旧配置迁移）；
   表非空后忽略配置。删除用户只删 `ai_users` 记录，不清理其 workspace/data/会话（数据保留，需人工清理）。
-  控制台 `-u` 保持免密但校验用户存在与启用（无 Web 时失败退出码 1；有 Web 仅跳过控制台，应用继续运行）。
+  控制台 `-u` 保持免密但校验用户存在与启用；**校验失败不退出应用**（两种模式一致）：打印错误后进入
+  「未登录」外壳提示符，可 `/login <用户ID>` 重新登录（同一用户保留当前 sessionId，换用户开新会话并清断点/附件）
+  或 `/shutdown` 停止整个应用。`/quit`、`/exit` 只离开对话控制台（Web/Agent/定时与后台任务照常运行，回到未登录提示符）；
+  `/shutdown` 走 `moduleFactory.shutdown(0)` 停止全部（运行中也可强制停止）；stdin EOF：控制台模式等同 `/shutdown`，
+  Web 模式只退出控制台、Web 继续运行（避免 headless 启动 stdin=/dev/null 误杀 Web）。
   **配置注意**：实例必须直接写 `classfile`，
   不能写 `sameClassAs="dbUserModule"`（与类注册表同名会被 include 合并覆盖，解析回自身导致类名为空）；实例配 `necessary="yes"`。
   WebUI 已启用 CSRF 防护：**会话一旦发放 token（登录后 `/api/login` 或 `/api/session` 返回），所有状态变更
