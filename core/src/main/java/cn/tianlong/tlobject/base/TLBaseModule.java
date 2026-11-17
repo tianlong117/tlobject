@@ -125,7 +125,8 @@ public abstract class TLBaseModule extends TLBaseObject {
         if(params !=null && !params.isEmpty())
         {
             for(String key : params.keySet())
-                logBuffer0.append(key).append("=").append(params.get(key)).append(";");
+                logBuffer0.append(key).append("=")
+                        .append(isSecretParam(key) ? "***" : params.get(key)).append(";");
         }
         putLog(logBuffer0.toString(), LogLevel.DEBUG, "start");
         TLBaseModule initModule = init();
@@ -140,6 +141,14 @@ public abstract class TLBaseModule extends TLBaseObject {
                                  .append(startUseTime).append("ms factoryTime:").append(factoryTime).append("ms");
         putLog(logBuffer.toString(), LogLevel.DEBUG, "start");
         return this ;
+    }
+
+    /** 启动参数日志脱敏：密码/密钥/令牌等只输出 ***。 */
+    private static boolean isSecretParam(String key) {
+        String k = key == null ? "" : key.toLowerCase();
+        return k.contains("password") || k.contains("passwd") || k.contains("apikey")
+                || k.contains("accesskey") || k.contains("secret") || k.contains("token")
+                || k.contains("credential") || k.contains("bootstrapusers");
     }
 
     protected void configure() {

@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 import cn.tianlong.tlobject.servletutils.TLServletDispatch;
 import cn.tianlong.tlobject.utils.TLDataUtils;
+import org.eclipse.jetty.http.HttpCookie;
 import org.eclipse.jetty.http.HttpVersion;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.ee8.servlet.DefaultServlet;        // ✅ 改为 ee8
@@ -45,6 +46,10 @@ public class TLJettyServerEE8 extends TLBaseModule {
     private TLServletDispatch servletdispatch;
     /** 额外 servlet 注册：path=类名;path=类名（类需有 (String, TLObjectFactory) 构造或默认构造） */
     protected String extraServlets;
+    /** 会话 Cookie 的 SameSite 属性（Lax/Strict/None），默认 Lax */
+    protected String sessionSameSite = "Lax";
+    /** 会话 Cookie 是否带 HttpOnly，默认 true */
+    protected boolean sessionHttpOnly = true;
 
     public TLJettyServerEE8() {
         super();
@@ -89,6 +94,10 @@ public class TLJettyServerEE8 extends TLBaseModule {
                 sslCerFilePwd = params.get(SSL_SCERFILE_PWD);
             if (params.get("extraServlets") != null)
                 extraServlets = params.get("extraServlets");
+            if (params.get("sessionSameSite") != null && !params.get("sessionSameSite").trim().isEmpty())
+                sessionSameSite = params.get("sessionSameSite").trim();
+            if (params.get("sessionHttpOnly") != null)
+                sessionHttpOnly = Boolean.parseBoolean(params.get("sessionHttpOnly"));
         }
     }
 
@@ -275,6 +284,23 @@ public class TLJettyServerEE8 extends TLBaseModule {
             WebAppContext webapp = new WebAppContext();
             webapp.setDescriptor("/WEB-INF/web.xml");
             context = webapp;
+        }
+        // 会话 Cookie 加固：显式 HttpOnly + SameSite（防 XSS 读取与跨站携带）
+        if (context.getSessionHandler() != null) {
+            context.getSessionHandler().setHttpOnly(sessionHttpOnly);
+            HttpCookie.SameSite sameSite;
+            try {
+                sameSite = HttpCookie.SameSite.valueOf(sessionSameSite.toUpperCase(java.util.Locale.ROOT));
+            } catch (IllegalArgumentException e) {
+                sameSite = HttpCookie.SameSite.LAX;
+            }
+            // 浏览器会拒绝无 Secure 的 SameSite=None（Cookie 直接丢弃）——纯 HTTP 部署必须回退 Lax
+            if (sameSite == HttpCookie.SameSite.NONE
+                    && (connector == null || !connector.contains("https"))) {
+                putLog("sessionSameSite=None 需要 HTTPS，已回退为 Lax", LogLevel.WARN);
+                sameSite = HttpCookie.SameSite.LAX;
+            }
+            context.getSessionHandler().setSameSite(sameSite);
         }
         return context;
     }

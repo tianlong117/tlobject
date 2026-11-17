@@ -28,7 +28,6 @@
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
         <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
         <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="demoUserModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="evals"/>
         <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>

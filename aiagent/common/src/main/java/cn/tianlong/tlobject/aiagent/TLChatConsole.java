@@ -43,6 +43,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
 
     private String serviceModule = "agentService";
     private String userId = "console_user";
+    /** 用户模块名；配置后启动时校验 -u 用户存在且启用（空=不校验） */
+    private String userModule = "";
     /** 会被 /continue、切换会话写；msgBus 回调线程读（进度过滤）——必须可见 */
     private volatile String sessionId;
     /** 待恢复的 mid-loop 检查点（启动时检测到未完成会话，由 /resume 触发恢复） */
@@ -162,6 +164,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
         if (params != null) {
             if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
             if (params.get("userId") != null) userId = params.get("userId");
+            userModule = getParamNonEmpty("userModule", "");
             if (params.get("dataBasePath") != null) {
                 putLog("dataBasePath 参数已废弃：上传件统一落在 workspace/{userId}/uploads",
                         cn.tianlong.tlobject.modules.LogLevel.WARN);
@@ -185,6 +188,7 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                     String cmdUser = msg.getStringParam("userId", null);
                     if (cmdUser != null && !cmdUser.isEmpty()) userId = cmdUser;
                 }
+                if (!userModule.isEmpty() && !validateConsoleUser()) return null;
                 startConsole();
                 break;
             case "stopChat":
@@ -244,6 +248,56 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
                 return onWorkflowProgressEvent(msg);
         }
         return null;
+    }
+
+    /**
+     * -u 用户校验：不存在/禁用则报错并跳过控制台（无 Web 服务时以非 0 退出码关停应用）；
+     * 用户模块缺失/数据库异常只 WARN 不阻断（避免数据库故障时控制台完全不可用）。
+     */
+    private boolean validateConsoleUser() {
+        TLMsg r;
+        try {
+            r = putSafe(userModule, createMsg().setAction("getUserStatus").setParam("userId", userId));
+        } catch (Exception e) {
+            putLog("控制台用户校验失败（继续启动）: " + e, cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return true;
+        }
+        if (r == null) {
+            putLog("用户模块无响应，跳过控制台用户校验", cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return true;
+        }
+        if (r.containsParam(IGNOREMODULEISNULL) && !r.parseBoolean(IGNOREMODULEISNULL, true)) {
+            putLog("用户模块不存在: " + userModule + "，跳过控制台用户校验",
+                    cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return true;
+        }
+        if ("storage_error".equals(r.getStringParam("errorCode", "")) || !r.containsParam("found")) {
+            putLog("用户模块查询失败，跳过控制台用户校验",
+                    cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return true;
+        }
+        if (!r.parseBoolean("found", false))
+            return failConsoleStart("错误：用户不存在 - " + userId
+                    + "（请用 -u 指定 ai_users 表里已存在的用户）");
+        if (r.getIntParam("status", 0) != 1)
+            return failConsoleStart("错误：用户已被禁用 - " + userId);
+        return true;
+    }
+
+    /**
+     * 控制台启动校验失败：仅跳过控制台；同进程有 Web 服务时应用继续运行（AIStart -web
+     * 总是同时启动控制台，shutdown 会连 Web 一起杀掉）。
+     */
+    private boolean failConsoleStart(String msg) {
+        System.out.println(msg);
+        putLog(msg, cn.tianlong.tlobject.modules.LogLevel.ERROR);
+        if (moduleFactory != null && moduleFactory.containsModule("jettyServer")) {
+            putLog("检测到 Web 服务：仅跳过控制台，应用继续运行",
+                    cn.tianlong.tlobject.modules.LogLevel.WARN);
+            return false;
+        }
+        if (moduleFactory != null) moduleFactory.shutdown(1);
+        return false;
     }
 
     // ======================== 工具实时进度 ========================
@@ -977,6 +1031,8 @@ public class TLChatConsole extends TLBaseModule implements TLAiAgentParamString 
             switch (cmdLower) {
                 case "/exit":
                 case "/quit":
+                    if (moduleFactory != null && moduleFactory.containsModule("jettyServer"))
+                        System.out.println("（Web 服务继续运行，关闭窗口可停止）");
                     running = false;
                     return;
                 case "/stream":

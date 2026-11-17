@@ -394,3 +394,62 @@ hr { border: none; border-top: 1px solid #2a2f3d; margin: 10px 0; }
 .dl-name { flex: 1; color: #d8dde6; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dl-row a { color: #58a6ff; font-size: 13px; text-decoration: underline; white-space: nowrap; }
 .dl-row a:hover { color: #79b8ff; }
+
+/* ===== 登录注册切换 / 用户头像 / 资料弹框 ===== */
+.login-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+.login-tabs button {
+  flex: 1; padding: 7px 0; background: #12141a; color: #9aa3b2;
+  border: 1px solid #2a2f3d; border-radius: 6px; cursor: pointer;
+}
+.login-tabs button.active { color: #93c5fd; border-color: #3b82f6; background: #1e3a5f; }
+.login-tabs button:hover { color: #d8dde6; border-color: #4b5563; background: #12141a; }
+.login-tabs button.active:hover { color: #93c5fd; border-color: #3b82f6; background: #1e3a5f; }
+/* 顶栏用户 chip：用 header .user-tag 压过 header .tag（同特异度靠源序，且本规则在后）；
+   昵称超长省略，避免长昵称把顶栏按钮挤走 */
+header .user-tag {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  background: #1e3a5f; color: #93c5fd; border: 1px solid #2a4a75;
+  padding: 2px 10px; border-radius: 12px; font-size: 13px;
+}
+header .user-tag #userName { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
+.user-initial {
+  width: 20px; height: 20px; border-radius: 50%; background: #2563eb; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center; font-size: 11px;
+}
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,.55);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+#registerFields { display: flex; flex-direction: column; gap: 8px; }
+/* 资料弹框的布局全部限定在 #profileModal 内：.modal-box/.modal-x 等全局类
+   还被审批/任务/消息箱/断点等弹框使用，重定义会改坏旧弹框 */
+#profileModal .modal-box {
+  width: min(460px, 92vw); max-height: 86vh; overflow: auto;
+  background: #1b1e27; border: 1px solid #2a2f3d; border-radius: 10px;
+  display: block; padding: 0;
+}
+#profileModal .modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid #2a2f3d; font-weight: 600;
+}
+#profileModal .modal-x { position: static; background: none; border: none; color: #9aa3b2; cursor: pointer; font-size: 16px; }
+#profileModal .modal-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+#profileModal .modal-body input {
+  background: #12141a; border: 1px solid #2a2f3d; color: #d8dde6;
+  padding: 8px 10px; border-radius: 6px; outline: none;
+}
+#profileModal .modal-body input:focus { border-color: #3b82f6; }
+#profileModal .pf-label { color: #8b93a5; font-size: 12px; margin-top: 4px; }
+#profileModal .pf-avatar-row { display: flex; align-items: center; gap: 12px; }
+#profileModal .pf-avatar { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: #12141a; }
+#profileModal .pf-hr { border: none; border-top: 1px solid #2a2f3d; width: 100%; margin: 6px 0; }
+/* 两个按钮类只服务于资料弹框：限定在 #profileModal 内，避免与其它弹框的通用类互相影响 */
+#profileModal .modal-primary {
+  background: #2563eb; color: #fff; border: none; border-radius: 6px;
+  padding: 8px 14px; cursor: pointer;
+}
+#profileModal .modal-secondary {
+  background: #1b1e27; border: 1px solid #2a2f3d; color: #9aa3b2;
+  border-radius: 6px; padding: 8px 14px; cursor: pointer;
+}

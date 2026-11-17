@@ -20,7 +20,7 @@
     </modules>
     <modulesParams>
         <module name="controlCenter" configfile="controlCenter_web_config.xml"/>
-        <module name="webui" userModule="demoUserModule" passwords="admin:123456;guest:123456"
+        <module name="webui" userModule="dbUserModule"
                 uploadSizeMaxMB="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"/>
         <!-- servletPath="/api/" → initServletDispatch 挂唯一 TLServletDispatch 到 /api/*
              （与 appConfig 的 tlobjectPath="/api" 配套，全部框架请求走它，仿 ltbgtadmin 模式；

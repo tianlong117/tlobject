@@ -19,6 +19,37 @@
         <url  value="/logout">
             <msg action="logout" destination="webui" clientType="jsonClient"/>
         </url>
+        <url  value="/register">
+            <msg action="register" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/profile">
+            <msg action="profile" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/profileUpdate">
+            <msg action="profileUpdate" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/changePassword">
+            <msg action="changePassword" destination="webui" clientType="jsonClient"/>
+        </url>
+        <!-- 头像二进制输出：模块自行写响应，不配 clientType -->
+        <url  value="/avatar">
+            <msg action="avatar" destination="webui"/>
+        </url>
+        <url  value="/users">
+            <msg action="users" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/usersCreate">
+            <msg action="usersCreate" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/usersUpdate">
+            <msg action="usersUpdate" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/usersDelete">
+            <msg action="usersDelete" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/usersResetPassword">
+            <msg action="usersResetPassword" destination="webui" clientType="jsonClient"/>
+        </url>
         <url  value="/command">
             <msg action="command" destination="webui" clientType="jsonClient"/>
         </url>

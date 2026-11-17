@@ -1750,6 +1750,17 @@ High-risk tool operations require human approval before they are executed.
 | `/resume` | Resume an unfinished mid-loop checkpoint session |
 
 
+### Database User Module (aiagent/user-java)
+
+- `TLUserModule` (factory name `dbUserModule`, `singleton="true"`, direct `classfile` + `necessary="yes"`)
+- Table `ai_users` declared in `database_config.xml` (SQLite active / MySQL standby)
+- Seeds when the table is empty: `admin/123456`, `tianlong/123456`, `console_user` (no password), `dongq`/`xiaoming` (console-only)
+- Web: login/register/profile/avatar; Manage page -> Users (admin role)
+- PBKDF2 passwords, multi-role + group, status/last login, admin protections, audit logs
+- CSRF: same-origin `Origin`/`Referer` + session `X-CSRF-Token` (scripts must fetch it from `/api/login` or `/api/session`); session cookie `HttpOnly; SameSite=Lax`
+- Console `-u`: passwordless but validates existence/enabled (exit code 1 on failure); in `-web` mode an invalid console user only skips the console
+- Self-test: `TLUserModuleSelfTest` (80 checks)
+
 ### Web Interaction Window (aiagent/webui)
 
 `AIStart -web` (or `aistart-web.bat`) starts both the console and the Web window in the same process:

@@ -14,6 +14,7 @@
 
     <modules>
         <module>common</module>
+        <module>user-java</module>
         <module>provider-openai</module>
         <module>provider-claude</module>
         <module>skill-builtin</module>

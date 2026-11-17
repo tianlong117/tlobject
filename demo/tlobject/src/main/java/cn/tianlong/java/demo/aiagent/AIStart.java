@@ -13,7 +13,8 @@ import java.util.HashMap;
  * 运行方式: 直接运行 main()
  * - 默认: 仅启动控制台交互（chatConsole）
  * - -web: 同时启动 Web 交互窗口（http://localhost:58080/webui/chat.html），
- *         使用 moduleFactory_chat_web_config.xml（include chat 配置 + webui/jettyServer）
+ *         使用 moduleFactory_chat_web_config.xml（include chat 配置 + webui/jettyServer）。
+ *         Web 模式下控制台退出不会停止 Web，关闭窗口/终止进程停止。
  * - -u userId: 指定控制台登录用户
  *
  * @author tianlong
@@ -50,7 +51,9 @@ public class AIStart extends TLAppStartUp implements TLAiAgentParamString {
         AIStart instance = new AIStart("aiStart");
         instance.consoleUser = user;
         TLObjectFactory factory = instance.startup(argsMap);
-        factory.shutdown();
+        // Web 模式：进程生命周期由 Jetty 的非守护线程维持（控制台可能因 -u 校验失败而跳过，
+        // 或用户 /exit 退出控制台）；这里不能 shutdown，否则会连带停掉 Web 服务。
+        if (!web) factory.shutdown();
     }
 
     @Override

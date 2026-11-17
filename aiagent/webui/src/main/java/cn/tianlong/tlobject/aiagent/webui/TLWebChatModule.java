@@ -46,7 +46,7 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
  * <p>配置参数 (XML params):</p>
  * <ul>
  *   <li>serviceModule — agentService 模块名，默认 "agentService"</li>
- *   <li>userModule    — 用户信息模块（getUserInfo 契约），默认 "demoUserModule"</li>
+ *   <li>userModule    — 用户模块名；配置后登录/注册/资料/管理走该模块，空则回退 passwords</li>
  *   <li>passwords     — 登录密码表 "uid:pwd;uid:pwd"（配置后登录必须匹配；不配则任意非空 userId 可登录）</li>
  *   <li>uploadSizeMaxMB — 上传大小上限（MB），默认 50；请求参数覆盖 uploadFile 模块的 fileSizeMax</li>
  * </ul>
@@ -62,7 +62,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private static final String PENDING_APPROVAL_BLOCK_MSG = "该会话有待批操作（批准 / 拒绝 / 放弃后才能继续）。请在审批弹框中处理，或在断点提示中选择「放弃该操作」";
 
     private String serviceModule = "agentService";
-    private String userModule = "demoUserModule";
+    /** 用户模块名；空 = 未配置，登录回退旧 passwords 表（无默认模块，未配置不报错） */
+    private String userModule = "";
     /** 是否订阅工具实时进度（false = 不注册总线订阅） */
     private boolean subscribeToolProgress = true;
     /** 是否订阅工作流节点进度（false = 不注册总线订阅） */
@@ -97,6 +98,25 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private int uploadSizeMaxMB = 50;
     /** uid:pwd 表（配置了才做密码校验） */
     private final Map<String, String> passwords = new HashMap<>();
+    /**
+     * 需要登录且账号启用的 web action（禁用即时生效）。
+     * registerSseChannel 不在此列：它只是 SSE 通道创建后的内部回调（入参由 openSseChannel 生成），
+     * 真正的用户入口 events/chatStream 已被门禁，无需重复校验。
+     */
+    private static final java.util.Set<String> REQUIRES_ACTIVE_USER = java.util.Set.of(
+            "command", "chat", "stopChat", "upload", "image", "download",
+            "workspaceList", "workspaceDelete", "workspaceMkdir", "workspaceUpload",
+            "chatStream", "events",
+            "profile", "profileUpdate", "changePassword", "avatar",
+            "users", "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword");
+    /** 需要 CSRF 防护的状态变更 web action（读接口/SSE 不在内）。 */
+    private static final java.util.Set<String> CSRF_PROTECTED_ACTIONS = java.util.Set.of(
+            "login", "logout", "register",
+            "command", "chat", "stopChat", "chatStream",
+            "upload", "workspaceDelete", "workspaceMkdir", "workspaceUpload",
+            "profileUpdate", "changePassword",
+            "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword",
+            "setCurrentSession", "inboxAdd", "inboxRead", "inboxDelete");
     /** userId:sessionId → 流式 writer */
     private final Map<String, TLWebChannel> streamWriters = new ConcurrentHashMap<>();
     /** userId → 事件通道列表（多标签页并存，全部收到推送） */
@@ -168,6 +188,20 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     @Override
     protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+        String action = msg.getAction();
+        if (CSRF_PROTECTED_ACTIONS.contains(action) && !isValidStateRequest())
+            return outJson(failMap("非法请求来源（CSRF 校验失败）"), 403);
+        if (REQUIRES_ACTIVE_USER.contains(action)) {
+            String uid = currentUserId();
+            if (uid == null) return notLogin();
+            if (!isUserActive(uid)) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("success", false);
+                e.put("error", "账号已被禁用或不存在，请重新登录");
+                e.put("errorCode", "account_disabled");
+                return outJson(e, 401);
+            }
+        }
         switch (msg.getAction()) {
             case "startWeb":
                 subscribeApprovalEvents();
@@ -213,6 +247,22 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doLogin(msg);
             case "logout":
                 return doLogout(msg);
+            case "register":
+                return doRegister(msg);
+            case "profile":
+                return doProfile();
+            case "profileUpdate":
+                return doProfileUpdate(msg);
+            case "changePassword":
+                return doChangePassword(msg);
+            case "avatar":
+                return doAvatar(msg);
+            case "users":
+            case "usersCreate":
+            case "usersUpdate":
+            case "usersDelete":
+            case "usersResetPassword":
+                return doUserAdmin(msg);
             case "command":
                 return doCommand(msg);
             case "chat":
@@ -261,8 +311,15 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
 
     // ======================== 登录 ========================
 
-    /** 登录校验。passwords 配置了则必须匹配；否则任意非空 userId 可登录（角色由 userModule 决定） */
     public Map<String, Object> login(String userId, String password) {
+        return login(userId, password, null);
+    }
+
+    /**
+     * 登录校验：配置了 userModule 时委托用户模块（PBKDF2 + 状态 + 最后登录）；
+     * 模块缺失/未配置时回退旧 passwords 表。
+     */
+    public Map<String, Object> login(String userId, String password, String clientIP) {
         Map<String, Object> out = new LinkedHashMap<>();
         if (userId == null || userId.trim().isEmpty()) {
             out.put("success", false);
@@ -270,6 +327,41 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             return out;
         }
         userId = userId.trim();
+        if (userModule != null && !userModule.isEmpty()) {
+            Map<String, Object> p = new LinkedHashMap<>();
+            p.put("userId", userId);
+            p.put("password", password == null ? "" : password);
+            if (clientIP != null) p.put("clientIP", clientIP);
+            TLMsg r = callUserModule("login", p);
+            if (r != null) {
+                boolean ok = r.parseBoolean("success", false);
+                out.put("success", ok);
+                if (!ok) {
+                    out.put("error", r.getStringParam("error", "登录失败"));
+                    // webui 边界收敛错误码：只透出 disabled/storage_error，账号存在性类错误统一 login_failed
+                    String code = r.getStringParam("errorCode", "");
+                    if ("disabled".equals(code) || "storage_error".equals(code)) out.put("errorCode", code);
+                    else out.put("errorCode", "login_failed");
+                    return out;
+                }
+                out.put("userId", r.getStringParam("userId", userId));
+                out.put("nickname", r.getStringParam("nickname", userId));
+                out.put("roles", r.getListParam("roles", new ArrayList<>()));
+                out.put("group", r.getStringParam("group", ""));
+                out.put("bio", r.getStringParam("bio", ""));
+                out.put("email", r.getStringParam("email", ""));
+                out.put("avatar", r.getStringParam("avatar", ""));
+                out.put("isAdmin", r.parseBoolean("isAdmin", false));
+                return out;
+            }
+            if (passwords.isEmpty()) {
+                out.put("success", false);
+                out.put("error", "用户模块不可用，无法登录");
+                return out;
+            }
+            if (!userModule.isEmpty())
+                putLog("用户模块不可用，回退旧密码表登录", LogLevel.WARN);
+        }
         if (!passwords.isEmpty()) {
             String pwd = passwords.get(userId);
             if (pwd == null) {
@@ -521,6 +613,142 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return s != null ? (String) s.getAttribute("userId") : null;
     }
 
+    /**
+     * 状态变更请求校验（按序）：
+     * - 会话已发放 token → 任何请求（含无 Origin/Referer 的 GET/curl）都必须带匹配的
+     *   X-CSRF-Token；尚未发放 token（如首次登录/注册）时 token 校验放行；
+     * - 有 Origin/Referer → 必须同源（"null" 一律拒绝）；
+     * - 无来源头（脚本/非浏览器）→ token 已通过即可。
+     */
+    private boolean isValidStateRequest() {
+        HttpServletRequest req = getRequest();
+        if (req == null) return true;
+        // 会话已发放 token 时，状态变更请求必须带匹配的 X-CSRF-Token（含无 Origin 的 GET/curl）
+        if (!csrfTokenMatches(req)) return false;
+        String origin = req.getHeader("Origin");
+        String referer = req.getHeader("Referer");
+        String source = null;
+        if (origin != null) {
+            if ("null".equalsIgnoreCase(origin)) return false;   // 沙箱 iframe / file://
+            if (!origin.isEmpty()) source = origin;
+        }
+        if (source == null && referer != null) {
+            if ("null".equalsIgnoreCase(referer)) return false;
+            if (!referer.isEmpty()) source = referer;
+        }
+        if (source == null) return true;   // 无来源头：token 已通过即可（脚本/非浏览器）
+        return isSameOrigin(req, source);
+    }
+
+    private boolean isSameOrigin(HttpServletRequest req, String source) {
+        try {
+            java.net.URI u = java.net.URI.create(source);
+            String host = u.getHost();
+            if (host == null || !host.equalsIgnoreCase(req.getServerName())) return false;
+            int port = u.getPort();
+            if (port == -1) port = "https".equalsIgnoreCase(u.getScheme()) ? 443 : 80;
+            if (port != req.getServerPort()) return false;
+            String scheme = u.getScheme();
+            return scheme == null || scheme.equalsIgnoreCase(req.getScheme());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean csrfTokenMatches(HttpServletRequest req) {
+        HttpSession s = req.getSession(false);
+        if (s == null) return true;                       // 尚未建立会话（登录/注册首请求）
+        Object expected = s.getAttribute("csrfToken");
+        if (expected == null || expected.toString().isEmpty()) return true; // 旧会话尚未发放
+        String actual = req.getHeader("X-CSRF-Token");
+        if (actual == null) return false;
+        return java.security.MessageDigest.isEqual(
+                expected.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                actual.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /** 会话级 CSRF token：登录/已登录会话首次访问时生成。 */
+    private String ensureCsrfToken(HttpSession session) {
+        Object existing = session.getAttribute("csrfToken");
+        if (existing != null && !existing.toString().isEmpty()) return existing.toString();
+        byte[] bytes = new byte[32];
+        new java.security.SecureRandom().nextBytes(bytes);
+        String token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        session.setAttribute("csrfToken", token);
+        return token;
+    }
+
+    private String clientIP() {
+        HttpServletRequest req = getRequest();
+        return req == null ? "" : req.getRemoteAddr();
+    }
+
+    /** 调用用户模块；模块不存在/异常返回 null（IGNOREMODULEISNULL 防止框架 shutdown）。 */
+    private TLMsg callUserModule(String action, Map<String, Object> params) {
+        if (userModule == null || userModule.isEmpty()) return null;
+        TLMsg m = createMsg().setAction(action).setSystemParam(IGNOREMODULEISNULL, true);
+        if (params != null) {
+            for (Map.Entry<String, Object> e : params.entrySet()) m.setParam(e.getKey(), e.getValue());
+        }
+        try {
+            TLMsg r = putMsg(userModule, m);
+            if (r != null && r.containsParam(IGNOREMODULEISNULL)
+                    && !r.parseBoolean(IGNOREMODULEISNULL, true)) {
+                putLog("用户模块不存在: " + userModule, LogLevel.WARN);
+                return null;
+            }
+            return r;
+        } catch (Exception e) {
+            putLog("用户模块调用失败: " + e, LogLevel.WARN);
+            return null;
+        }
+    }
+
+    private boolean isAdmin(String userId) {
+        TLMsg r = callUserModule("isAdmin", Map.of("userId", userId));
+        return r != null && r.parseBoolean("admin", false);
+    }
+
+    /** 账号是否启用；用户模块未配置/缺失时保持旧行为（true）；查询故障按在线处理（避免全局登出）。 */
+    private boolean isUserActive(String userId) {
+        TLMsg d = callUserModule("getUserStatus", Map.of("userId", userId));
+        if (d == null) return true;
+        if (!d.containsParam("found")) {
+            putLog("用户状态查询失败，按在线处理: " + d.getStringParam("errorCode", ""), LogLevel.WARN);
+            return true;
+        }
+        if (!d.parseBoolean("found", false)) return false;
+        return d.getIntParam("status", 0) == 1;
+    }
+
+    /** 用户模块返回的存储故障映射为 503（服务暂不可用），其余失败保持既定状态码。 */
+    private Integer clientStatus(TLMsg r, int defaultStatus) {
+        return r != null && "storage_error".equals(r.getStringParam("errorCode", ""))
+                ? Integer.valueOf(503) : Integer.valueOf(defaultStatus);
+    }
+
+    private Map<String, Object> authResult(TLMsg r, boolean includeUser) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        boolean ok = r != null && r.parseBoolean("success", false);
+        out.put("success", ok);
+        if (!ok) {
+            out.put("error", r == null ? "用户模块未启用" : r.getStringParam("error", "操作失败"));
+            if (r != null && r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
+            return out;
+        }
+        if (includeUser) {
+            out.put("userId", r.getStringParam("userId", ""));
+            out.put("nickname", r.getStringParam("nickname", ""));
+            out.put("roles", r.getListParam("roles", new ArrayList<>()));
+            out.put("group", r.getStringParam("group", ""));
+            out.put("bio", r.getStringParam("bio", ""));
+            out.put("email", r.getStringParam("email", ""));
+            out.put("avatar", r.getStringParam("avatar", ""));
+            out.put("isAdmin", r.parseBoolean("isAdmin", false));
+        }
+        return out;
+    }
+
     /** 统一 JSON 输出：outData → jsonClient → jsonDataOutInterface；httpStatus 可选（如 401） */
     private TLMsg outJson(Map<String, Object> data, Integer httpStatus) {
         setThreadData("client", "jsonClient");   // 未配 clientType 的 url（如 /upload）也走 JSON 输出
@@ -541,20 +769,46 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private TLMsg doSession() {
         String userId = currentUserId();
         Map<String, Object> out = new LinkedHashMap<>();
+        if (userId != null && !isUserActive(userId)) {
+            // 禁用/删除的会话清理：关闭事件通道、清在线标记与清单缓存（刻意不释放 sessionLogin、
+            // 不处理待批审批——账号已失效，重登会被登录层拒绝）
+            closeEventsChannel(userId);
+            currentSessionByUser.remove(userId);
+            clearTodoCacheOf(userId);
+            try {
+                HttpSession s = getRequest().getSession(false);
+                if (s != null) s.invalidate();
+            } catch (Exception ignored) { }
+            userId = null;
+        }
         out.put("loggedIn", userId != null);
-        if (userId != null) out.put("userId", userId);
+        if (userId != null) {
+            out.put("userId", userId);
+            out.put("csrfToken", ensureCsrfToken(getRequest().getSession(true)));
+            TLMsg d = callUserModule("getUserDetail", Map.of("userId", userId));
+            if (d != null && d.parseBoolean("found", false)) {
+                out.put("user", toJsonable(d.getMapParam("user", null)));
+                out.put("isAdmin", isAdmin(userId));
+            }
+        }
         return outJson(out, null);
     }
 
     private TLMsg doLogin(TLMsg msg) {
         String userId = msg.getParam("userId") != null ? String.valueOf(msg.getParam("userId")) : null;
         String password = msg.getParam("password") != null ? String.valueOf(msg.getParam("password")) : null;
-        Map<String, Object> r = login(userId, password);
+        Map<String, Object> r = login(userId, password, clientIP());
         if (Boolean.TRUE.equals(r.get("success"))) {
-            getRequest().getSession(true).setAttribute("userId", r.get("userId"));
+            try { getRequest().changeSessionId(); } catch (Exception ignored) { }
+            HttpSession session = getRequest().getSession(true);
+            session.removeAttribute("csrfToken");
+            String csrfToken = ensureCsrfToken(session);
+            session.setAttribute("userId", r.get("userId"));
+            r.put("csrfToken", csrfToken);
             return outJson(r, null);
         }
-        return outJson(r, 401);
+        // 存储故障是服务端问题（503），其余登录失败统一 401
+        return outJson(r, "storage_error".equals(String.valueOf(r.get("errorCode"))) ? 503 : 401);
     }
 
     private TLMsg doLogout(TLMsg msg) {
@@ -583,6 +837,173 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("success", true);
         out.put("message", "已退出");
+        return outJson(out, null);
+    }
+
+    // ======================== 用户（注册/资料/管理） ========================
+
+    private TLMsg doRegister(TLMsg msg) {
+        Map<String, Object> p = new LinkedHashMap<>();
+        for (String k : new String[]{"userId", "password", "nickname", "bio", "email"}) {
+            if (msg.containsParam(k)) p.put(k, msg.getParam(k));
+        }
+        TLMsg r = callUserModule("register", p);
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = authResult(r, true);
+        return outJson(out, Boolean.TRUE.equals(out.get("success")) ? null : clientStatus(r, 400));
+    }
+
+    private TLMsg doProfile() {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        TLMsg d = callUserModule("getUserDetail", Map.of("userId", uid));
+        Map<String, Object> out = new LinkedHashMap<>();
+        if (d == null) return outJson(failMap("用户模块未启用"), null);
+        if ("storage_error".equals(d.getStringParam("errorCode", "")))
+            return outJson(failMap("用户数据暂时不可用，请稍后重试"), 503);
+        boolean found = d.parseBoolean("found", false);
+        out.put("success", found);
+        if (found) {
+            out.put("user", toJsonable(d.getMapParam("user", null)));
+            out.put("isAdmin", isAdmin(uid));
+        } else {
+            out.put("error", "用户不存在");
+        }
+        return outJson(out, null);
+    }
+
+    private TLMsg doProfileUpdate(TLMsg msg) {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("userId", uid);
+        for (String k : new String[]{"nickname", "bio", "email"}) {
+            if (msg.containsParam(k)) p.put(k, msg.getParam(k));
+        }
+        if (msg.containsParam("avatar")) p.put("avatar", msg.getStringParam("avatar", ""));
+        TLMsg r = callUserModule("updateProfile", p);
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = authResult(r, false);
+        if (Boolean.TRUE.equals(out.get("success"))) out.put("user", toJsonable(r.getParam("user")));
+        return outJson(out, Boolean.TRUE.equals(out.get("success")) ? null : clientStatus(r, 400));
+    }
+
+    private TLMsg doChangePassword(TLMsg msg) {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("userId", uid);
+        p.put("oldPassword", msg.getStringParam("oldPassword", ""));
+        p.put("newPassword", msg.getStringParam("newPassword", ""));
+        TLMsg r = callUserModule("changePassword", p);
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = authResult(r, false);
+        return outJson(out, Boolean.TRUE.equals(out.get("success")) ? null : clientStatus(r, 400));
+    }
+
+    private TLMsg doAvatar(TLMsg msg) {
+        String self = currentUserId();
+        if (self == null) return notLogin();
+        String target = msg.getStringParam("userId", "");
+        if (target.isEmpty()) {
+            HttpServletRequest req = getRequest();
+            if (req != null) {
+                String q = req.getParameter("userId");
+                if (q != null) target = q;
+            }
+        }
+        if (target.isEmpty()) target = self;
+        if (!target.equals(self) && !isAdmin(self))
+            return outJson(failMap("无权查看该用户头像"), 403);
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("userId", target);
+        p.put("operatorId", self);
+        TLMsg r = callUserModule("getAvatar", p);
+        if (r != null && "storage_error".equals(r.getStringParam("errorCode", "")))
+            return outJson(failMap("用户数据暂时不可用，请稍后重试"), 503);
+        String dataUrl = r == null ? "" : r.getStringParam("avatar", "");
+        if (dataUrl.isEmpty()) {
+            javax.servlet.http.HttpServletResponse resp = getResponse();
+            if (resp != null) resp.setStatus(404);
+            return null;
+        }
+        int comma = dataUrl.indexOf(',');
+        int semicolon = dataUrl.indexOf(';');
+        String mime = comma > 5 && semicolon > 5
+                ? dataUrl.substring(5, semicolon) : "image/png";
+        // MIME 白名单：只回图片类型，防止服务端把任意声明类型（如 text/html）当头像输出
+        if (!("image/png".equals(mime) || "image/jpeg".equals(mime) || "image/webp".equals(mime))) {
+            javax.servlet.http.HttpServletResponse resp = getResponse();
+            if (resp != null) resp.setStatus(404);
+            return null;
+        }
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(dataUrl.substring(comma + 1));
+            javax.servlet.http.HttpServletResponse resp = getResponse();
+            if (resp == null) return null;
+            resp.setContentType(mime);
+            resp.setContentLength(bytes.length);
+            resp.setHeader("Cache-Control", "no-store");
+            resp.setHeader("X-Content-Type-Options", "nosniff");
+            resp.getOutputStream().write(bytes);
+            resp.getOutputStream().flush();
+        } catch (Exception e) {
+            putLog("avatar serve failed: " + e, LogLevel.WARN);
+            javax.servlet.http.HttpServletResponse resp = getResponse();
+            if (resp != null) resp.setStatus(404);
+        }
+        return null;
+    }
+
+    private TLMsg doUserAdmin(TLMsg msg) {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        if (!isAdmin(uid)) return outJson(failMap("需要管理员权限"), 403);
+        String action = msg.getAction();
+        String targetAction;
+        String[] fields;
+        switch (action) {
+            case "users":
+                targetAction = "listUsers";
+                fields = new String[]{"keyword", "status", "page", "pageSize"};
+                break;
+            case "usersCreate":
+                targetAction = "createUser";
+                fields = new String[]{"userId", "password", "nickname", "roles", "group", "bio", "email", "status"};
+                break;
+            case "usersUpdate":
+                targetAction = "updateUser";
+                fields = new String[]{"userId", "nickname", "roles", "group", "bio", "email", "status"};
+                break;
+            case "usersDelete":
+                targetAction = "deleteUser";
+                fields = new String[]{"userId"};
+                break;
+            case "usersResetPassword":
+                targetAction = "resetPassword";
+                fields = new String[]{"userId", "newPassword"};
+                break;
+            default:
+                return outJson(failMap("不支持的用户管理操作: " + action), 400);
+        }
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("operatorId", uid);
+        for (String k : fields) {
+            if (msg.containsParam(k)) p.put(k, msg.getParam(k));
+        }
+        TLMsg r = callUserModule(targetAction, p);
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = new LinkedHashMap<>();
+        boolean ok = r.parseBoolean("success", false);
+        out.put("success", ok);
+        if (!ok) {
+            out.put("error", r.getStringParam("error", "操作失败"));
+            if (r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
+            return outJson(out, clientStatus(r, 400));
+        }
+        if (r.containsParam("total")) out.put("total", r.getIntParam("total", 0));
+        if (r.containsParam("users")) out.put("users", toJsonable(r.getParam("users")));
+        if (r.containsParam("user")) out.put("user", toJsonable(r.getParam("user")));
         return outJson(out, null);
     }
 

@@ -12,6 +12,8 @@ const state = {
   currentBox: null,      // 当前会话的 DOM 盒子（挂到 #msgList 上的唯一内容盒子）
   drawer: null,          // 任务详情抽屉当前展示的任务 {tid, sid}；null=未打开
   autoRun: false,        // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
+  profile: null,         // 当前用户资料（昵称/头像/角色）；登录或 /api/session 返回
+  csrfToken: null,       // 会话级 CSRF token（登录 / /api/session 返回；状态变更请求随 X-CSRF-Token 发送）
   pendingAbandonSessionId: null   // 断点弹框「放弃该操作」目标会话（仅 pending_approval 断点非空，见 promptCheckpoint）
 };
 
@@ -324,13 +326,25 @@ function newSession() {
 // ======================== API ========================
 async function apiJson(path, body) {
   const opt = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+  if (state.csrfToken) opt.headers['X-CSRF-Token'] = state.csrfToken;
   if (body !== undefined) opt.body = JSON.stringify(body);
   const resp = await fetch(path, opt);
   let data = null;
   try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
   if (resp.status === 401) {
+    const msg = data && data.error ? data.error : '未登录';
+    if (data && data.errorCode === 'account_disabled') {
+      localStorage.removeItem('tlweb_userid');
+      localStorage.removeItem('tlweb_session');
+      localStorage.removeItem('tlweb_loginid');
+    }
     showLogin();
-    throw new Error(data && data.error ? data.error : '未登录');
+    const err = $('#loginErr');
+    if (err) {
+      err.textContent = msg;
+      err.classList.remove('hidden');
+    }
+    throw new Error(msg);
   }
   if (!resp.ok || data === null) {
     throw new Error(data && data.error ? data.error : ('HTTP ' + resp.status));
@@ -344,12 +358,16 @@ function showLogin() {
   if (state.events) { state.events.close(); state.events = null; }
   state.drawer = null;                                 // 登出收起任务详情抽屉（否则残留并挡住登录页）
   $('#taskDrawer').classList.add('hidden');
+  closeProfile();                                      // 函数声明 hoisting：定义在「个人资料」段
+  setAuthMode('login');                                // 回到登录页签（上次停在注册页不能带过来）
 }
 async function initSession() {
   try {
     const r = await fetch('/api/session').then(x => x.json());
     if (r.loggedIn) {
       state.userId = r.userId;
+      state.profile = r.user || null;
+      state.csrfToken = r.csrfToken || null;
       const prevUser = localStorage.getItem('tlweb_userid');
       const prevSid = localStorage.getItem('tlweb_session');
       // 刷新页面：同用户才恢复上次会话（公共设备切换用户时不把上一用户的会话ID带进来）
@@ -366,34 +384,50 @@ async function initSession() {
     showLogin();
   }
 }
+let authMode = 'login';
+
+function setAuthMode(mode) {
+  authMode = mode;
+  $('#tabLogin').classList.toggle('active', mode === 'login');
+  $('#tabRegister').classList.toggle('active', mode === 'register');
+  $('#registerFields').classList.toggle('hidden', mode !== 'register');
+  $('#loginBtn').textContent = mode === 'register' ? '注 册' : '登 录';
+  $('#loginErr').classList.add('hidden');
+}
+
 async function doLogin() {
   const userId = $('#loginUser').value.trim();
   const password = $('#loginPwd').value;
   if (!userId) { $('#loginErr').textContent = '请输入用户ID'; $('#loginErr').classList.remove('hidden'); return; }
   try {
+    if (authMode === 'register') {
+      const pwd2 = $('#loginPwd2').value;
+      if (password !== pwd2) throw new Error('两次输入的密码不一致');
+      const reg = await apiJson('/api/register', {
+        userId, password, nickname: $('#regNickname').value.trim()
+      });
+      if (!reg.success) throw new Error(reg.error || '注册失败');
+    }
+    // 注册成功即切回登录页签再自动登录：自动登录失败时用户停在「登录」而非重复注册
+    setAuthMode('login');
     const r = await apiJson('/api/login', { userId, password });
     state.userId = r.userId;
+    state.profile = r;
+    state.csrfToken = r.csrfToken || null;
     // 换用户登录：重置会话与上传状态，避免沿用上一用户的 sessionId / 文件名
-    // 同用户登录：保留上次会话（localStorage 里的 tlweb_session），继续之前的会话
     const prevUser = localStorage.getItem('tlweb_userid');
     const prevSid = localStorage.getItem('tlweb_session');
-    // 归属不一致（含 prevUser 为空但 localStorage 残留 session 的情况）一律重置，
-    // 与 initSession 的 `prevUser === r.userId` 语义对齐
     if (prevUser !== userId) {
       state.sessionId = null;
       localStorage.removeItem('tlweb_session');
-      renderUploadBar();     // sessionId 已清 → 附件条隐藏（各会话 uploads 随下方视图表重置）
-      renderTodoBar();       // 同上：清单条也隐藏（视图表随后被整体重置）
-      // 每会话视图随用户重置：清掉视图表（旧 box 由 switchSessionView 从 #msgList 摘除），
-      // 避免上一用户的自定义会话ID/内容残留在本页面内存里
-      state.sessions = Object.create(null);   // 同初始化：无原型，见 state 定义处说明
-      lastSessionsData = null;   // 侧栏列表缓存同理重置（否则短暂显示上一用户的会话）
-      lastSessionsError = null;  // 失败文案一并重置（换用户后显示新用户的加载态/结果）
+      renderUploadBar();
+      renderTodoBar();
+      state.sessions = Object.create(null);
+      lastSessionsData = null;
+      lastSessionsError = null;
     } else {
       state.sessionId = prevSid;
     }
-    // 登录实例标识（会话占用互斥用）：同浏览器刷新/重登保留；没有则生成（首次登录/登出后再登/旧版升级）
-    // 换用户时必须生成新的（旧 loginId 属于上一用户）
     state.loginId = localStorage.getItem('tlweb_loginid');
     if (!state.loginId || prevUser !== userId) {
       state.loginId = 'login_' + userId + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
@@ -411,6 +445,7 @@ async function doLogout() {
   try { await apiJson('/api/logout', { loginId: state.loginId || '' }); } catch (e) { /* 忽略 */ }
   state.userId = null;
   state.loginId = null;
+  state.csrfToken = null;
   localStorage.removeItem('tlweb_loginid');
   // 登出只退认证，保留会话（localStorage 的 tlweb_session/tlweb_userid）——
   // 重新登录同用户继续之前的会话；换用户由 doLogin 的 prevUser 比较重置
@@ -418,7 +453,7 @@ async function doLogout() {
 }
 async function enterChat() {
   if (!state.sessionId) newSession();
-  $('#userTag').textContent = '👤 ' + state.userId;
+  renderUserTag();
   switchSessionView(state.sessionId);   // 挂载初始会话视图（登录/刷新）
   appendSysMsg('已登录：' + state.userId + '（管理命令在右侧面板）');
   showView('chat');
@@ -428,6 +463,25 @@ async function enterChat() {
   await autoResumeLast();   // 先接续最近活跃会话并渲染历史
   promptCheckpoint();       // 再检测断点会话 → 弹窗提示（如命令行启动时的 ⚠ 提示）
   setTimeout(reportCurrentSession, 500);   // 会话恢复是异步的，等 autoResumeLast 落定后上报
+}
+
+function renderUserTag() {
+  const name = (state.profile && state.profile.nickname) || state.userId || '';
+  $('#userName').textContent = name;
+  const avatar = state.profile && state.profile.avatar;
+  const img = $('#userAvatar');
+  const ini = $('#userInitial');
+  if (avatar) {
+    img.src = avatar;
+    img.classList.remove('hidden');
+    ini.classList.add('hidden');
+  } else {
+    img.removeAttribute('src');
+    img.classList.add('hidden');
+    const chars = Array.from(name.trim() || '?');
+    ini.textContent = (chars[0] || '?').toUpperCase();
+    ini.classList.remove('hidden');
+  }
 }
 
 /** 登录后自动接续该用户最近活跃的会话（以最后消息时间 last_active 为准）。
@@ -1190,7 +1244,10 @@ async function streamChat(msg, opts) {
   try {
     const resp = await fetch('/api/chatStream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(state.csrfToken ? { 'X-CSRF-Token': state.csrfToken } : {})
+      },
       body: JSON.stringify({
         message: msg,
         sessionId: sid,
@@ -1339,8 +1396,12 @@ async function uploadFiles(files) {
   let resp;
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 120000);   // 上传超时兜底（大文件慢速传输）
-  try { resp = await fetch('/api/upload', { method: 'POST', body: fd, signal: ctrl.signal }); }  // 不设 Content-Type，浏览器自动带 boundary
-  catch (e) {
+  try {
+    resp = await fetch('/api/upload', {
+      method: 'POST', body: fd, signal: ctrl.signal,
+      headers: state.csrfToken ? { 'X-CSRF-Token': state.csrfToken } : undefined   // 不设 Content-Type，浏览器自动带 boundary
+    });
+  } catch (e) {
     toast('上传失败：' + (e.name === 'AbortError' ? '上传超时（120秒）' : e.message), 'err');
     return;
   } finally { clearTimeout(timer); }
@@ -1687,7 +1748,17 @@ function togglePanel(group) {
 // ======================== 事件绑定 ========================
 function bindEvents() {
   $('#loginBtn').onclick = doLogin;
+  $('#tabLogin').onclick = () => setAuthMode('login');
+  $('#tabRegister').onclick = () => setAuthMode('register');
+  $('#userTag').onclick = openProfile;
+  $('#profileClose').onclick = closeProfile;
+  $('#pfSave').onclick = saveProfile;
+  $('#pfChangePwd').onclick = changePassword;
+  $('#pfAvatarFile').onchange = onAvatarFile;
+  $('#loginUser').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   $('#loginPwd').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#loginPwd2').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#regNickname').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   $('#logoutBtn').onclick = doLogout;
   $('#sendBtn').onclick = sendMessage;
   $('#stopBtn').onclick = stopChat;
@@ -1775,6 +1846,10 @@ function bindEvents() {
   $('#bgTasksModal').addEventListener('click', e => { if (e.target === $('#bgTasksModal')) closeBgTasks(); });
   $('#inboxModal').addEventListener('click', e => { if (e.target === $('#inboxModal')) closeInbox(); });
   $('#permModal').addEventListener('click', e => { if (e.target === $('#permModal')) closePermissions(); });
+  // 资料弹框：点遮罩关闭（同时重置未提交的头像/密码输入）
+  $('#profileModal').addEventListener('click', e => {
+    if (e.target === $('#profileModal')) closeProfile();
+  });
   // ESC 保命键：按一次关一个"信息类"弹框（审批框除外——需在场决策，误关会让任务悬置等超时）
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
@@ -1782,6 +1857,7 @@ function bindEvents() {
     if (!$('#tasksModal').classList.contains('hidden')) { closeTasks(); return; }
     if (!$('#inboxModal').classList.contains('hidden')) { closeInbox(); return; }
     if (!$('#permModal').classList.contains('hidden')) { closePermissions(); return; }
+    if (!$('#profileModal').classList.contains('hidden')) { closeProfile(); return; }
     if (!$('#checkpointModal').classList.contains('hidden')) { $('#checkpointModal').classList.add('hidden'); return; }
     if (state.drawer) { state.drawer = null; $('#taskDrawer').classList.add('hidden'); return; }
     if (!$('#panelPane').classList.contains('hidden')) { closePanel(); }
@@ -3460,4 +3536,161 @@ async function clearPermissions() {
 // ======================== 命令辅助 ========================
 async function apiCommand(action, params) {
   return await apiJson('/api/command', { action, params: params || {} });
+}
+
+// ======================== 个人资料 ========================
+let pendingAvatar = null;   // 已选但未保存的头像 dataURL（关闭弹框/打开弹框/保存成功都会清）
+let profileEpoch = 0;   // 关闭/重开/登出时递增，丢弃迟到的资料/头像异步结果
+
+/** 资料弹框提示行：空文本 = 隐藏；isErr 控制错误样式（红）与普通样式 */
+function pfMsg(text, isErr) {
+  const el = $('#pfMsg');
+  if (!text) { el.classList.add('hidden'); return; }
+  el.textContent = text;
+  el.classList.toggle('err', !!isErr);
+  el.classList.remove('hidden');
+}
+
+/** 关闭资料弹框：一并清空未提交状态（用完即弃，下次打开不能沿用上次残留） */
+function closeProfile() {
+  profileEpoch++;
+  $('#profileModal').classList.add('hidden');
+  pendingAvatar = null;
+  $('#pfAvatarFile').value = '';
+  $('#pfOldPwd').value = '';
+  $('#pfNewPwd').value = '';
+  $('#pfNewPwd2').value = '';
+  $('#pfMsg').classList.add('hidden');
+}
+
+async function openProfile() {
+  const epoch = ++profileEpoch;   // 迟到的响应（弹框已关/重开）一律丢弃
+  // 每次打开都从未提交状态开始：上次选了头像没保存、输了密码没提交，不能带进这一次
+  pendingAvatar = null;
+  $('#pfAvatarFile').value = '';
+  $('#pfOldPwd').value = '';
+  $('#pfNewPwd').value = '';
+  $('#pfNewPwd2').value = '';
+  try {
+    const r = await apiJson('/api/profile', {});
+    if (epoch !== profileEpoch) return;
+    if (!r.success) throw new Error(r.error || '加载失败');
+    state.profile = r.user || state.profile;
+    const u = r.user || {};
+    $('#pfNickname').value = u.nickname || '';
+    $('#pfBio').value = u.bio || '';
+    $('#pfEmail').value = u.email || '';
+    if (u.avatar) $('#pfAvatar').src = u.avatar;
+    else $('#pfAvatar').removeAttribute('src');
+    pfMsg('', false);
+    $('#profileModal').classList.remove('hidden');
+    renderUserTag();
+  } catch (e) {
+    if (epoch === profileEpoch) toast('加载资料失败：' + e.message, 'err');
+  }
+}
+
+async function saveProfile() {
+  const epoch = profileEpoch;
+  const uid = state.userId;
+  try {
+    const body = {
+      nickname: $('#pfNickname').value.trim(),
+      bio: $('#pfBio').value.trim(),
+      email: $('#pfEmail').value.trim()
+    };
+    if (pendingAvatar) body.avatar = pendingAvatar;
+    const r = await apiJson('/api/profileUpdate', body);
+    if (epoch !== profileEpoch || state.userId !== uid) return;
+    if (!r.success) throw new Error(r.error || '保存失败');
+    profileEpoch++;
+    pendingAvatar = null;
+    state.profile = r.user || state.profile;
+    renderUserTag();
+    const avatar = (r.user && r.user.avatar) || '';
+    if (avatar) $('#pfAvatar').src = avatar;
+    else $('#pfAvatar').removeAttribute('src');
+    $('#pfAvatarFile').value = '';
+    pfMsg('已保存', false);
+  } catch (e) {
+    if (epoch !== profileEpoch || state.userId !== uid) return;
+    pfMsg(e.message, true);
+  }
+}
+
+async function changePassword() {
+  const epoch = profileEpoch;
+  const oldPwd = $('#pfOldPwd').value;
+  const newPwd = $('#pfNewPwd').value;
+  if (newPwd !== $('#pfNewPwd2').value) {
+    pfMsg('两次输入的新密码不一致', true);
+    return;
+  }
+  try {
+    const r = await apiJson('/api/changePassword', { oldPassword: oldPwd, newPassword: newPwd });
+    if (epoch !== profileEpoch) return;
+    if (!r.success) throw new Error(r.error || '修改失败');
+    $('#pfOldPwd').value = $('#pfNewPwd').value = $('#pfNewPwd2').value = '';
+    pfMsg('密码已修改', false);
+  } catch (e) {
+    if (epoch === profileEpoch) pfMsg(e.message, true);
+  }
+}
+
+/** 头像：canvas 居中裁切 256×256 → JPEG dataURL → 随「保存资料」上传 */
+const AVATAR_MAX_MB = 10;
+
+function onAvatarFile() {
+  const file = $('#pfAvatarFile').files && $('#pfAvatarFile').files[0];
+  if (!file) return;
+  if (!/^image\/(png|jpeg|webp)$/.test(file.type)) {
+    pfMsg('头像仅支持 PNG/JPEG/WebP', true);
+    $('#pfAvatarFile').value = '';
+    return;
+  }
+  if (file.size > AVATAR_MAX_MB * 1024 * 1024) {
+    pfMsg('头像文件不能超过 ' + AVATAR_MAX_MB + 'MB', true);
+    $('#pfAvatarFile').value = '';
+    return;
+  }
+  const epoch = profileEpoch;   // 处理期间关闭/重开/保存都会让本次结果作废
+  const reader = new FileReader();
+  reader.onerror = () => {
+    if (epoch !== profileEpoch) return;   // 先判 epoch 再清空：别误清重开后的新选择
+    pfMsg('读取头像失败，请重试', true);
+    $('#pfAvatarFile').value = '';
+  };
+  reader.onload = () => {
+    if (epoch !== profileEpoch) return;
+    const img = new Image();
+    img.onerror = () => {
+      if (epoch !== profileEpoch) return;
+      pfMsg('图片解析失败，请换一张', true);
+      $('#pfAvatarFile').value = '';
+    };
+    img.onload = () => {
+      if (epoch !== profileEpoch) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 256;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { pfMsg('浏览器不支持头像处理', true); $('#pfAvatarFile').value = ''; return; }
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+      try {
+        pendingAvatar = canvas.toDataURL('image/jpeg', 0.85);
+      } catch (e) {
+        pfMsg('头像处理失败，请换一张', true);
+        $('#pfAvatarFile').value = '';
+        return;
+      }
+      $('#pfAvatar').src = pendingAvatar;
+      pfMsg('', false);
+      $('#pfAvatarFile').value = '';
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(file);
 }

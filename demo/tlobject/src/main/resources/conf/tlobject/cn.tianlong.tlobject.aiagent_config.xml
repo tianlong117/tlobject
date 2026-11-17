@@ -20,6 +20,9 @@
                 singleton="true"/>
         <module name="appAuthModule" classfile="cn.tianlong.tlobject.aiagent.TLAppAuthModule"
                 singleton="true"    />
+        <!-- 数据库用户模块（登录/注册/资料/管理；表见 database_config.xml 的 aiUsers） -->
+        <module name="dbUserModule" classfile="cn.tianlong.tlobject.aiagent.user.TLUserModule"
+                singleton="true"/>
         <module name="httpRequestSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLHttpRequestSkill"
                 singleton="true"/>
         <module name="fileOperationSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLFileOperationSkill"

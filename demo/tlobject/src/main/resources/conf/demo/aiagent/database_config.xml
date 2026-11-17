@@ -137,6 +137,24 @@
   PRIMARY KEY (`session_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
 
+        <table name="aiUsers_mysql" dbtable="ai_users" dbserver="dbserver1" statup="false"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_users (
+  user_id VARCHAR(64) PRIMARY KEY,
+  nickname VARCHAR(64) DEFAULT '',
+  password_hash VARCHAR(255) DEFAULT '',
+  roles VARCHAR(255) DEFAULT 'member',
+  user_group VARCHAR(64) DEFAULT '',
+  bio VARCHAR(255) DEFAULT '',
+  email VARCHAR(128) DEFAULT '',
+  avatar LONGTEXT,
+  status TINYINT DEFAULT 1,
+  created_at BIGINT,
+  updated_at BIGINT,
+  last_login_at BIGINT DEFAULT 0,
+  last_login_ip VARCHAR(64) DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
+
         <table name="aiMemory_mysql" dbtable="ai_memory" dbserver="dbserver1" statup="false"
                ifCreate="create"
                createSql="CREATE TABLE `ai_memory` (
@@ -169,6 +187,25 @@
   title TEXT DEFAULT '',
   pinned INTEGER DEFAULT 0,
   metadata TEXT
+);"/>
+
+        <!-- 用户表：登录名/昵称/PBKDF2 密码/多角色/group/介绍/邮箱/头像/状态/最后登录 -->
+        <table name="aiUsers" dbtable="ai_users" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_users (
+  user_id TEXT PRIMARY KEY,
+  nickname TEXT DEFAULT '',
+  password_hash TEXT DEFAULT '',
+  roles TEXT DEFAULT 'member',
+  user_group TEXT DEFAULT '',
+  bio TEXT DEFAULT '',
+  email TEXT DEFAULT '',
+  avatar TEXT DEFAULT '',
+  status INTEGER DEFAULT 1,
+  created_at INTEGER,
+  updated_at INTEGER,
+  last_login_at INTEGER DEFAULT 0,
+  last_login_ip TEXT DEFAULT ''
 );"/>
 
         <table name="aiMemory" dbtable="ai_memory" dbserver="sqliteServer" statup="true"

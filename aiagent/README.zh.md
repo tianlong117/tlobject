@@ -1700,6 +1700,17 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
 | `/continue [id]` | 继续历史会话（不带 id 恢复最近） |
 | `/resume` | 恢复未完成的 mid-loop 断点会话 |
 
+### 数据库用户模块（aiagent/user-java）
+
+- `TLUserModule`（工厂名 `dbUserModule`，`singleton="true"`，实例直接写 `classfile` + `necessary="yes"`）
+- 表 `ai_users`，由 `database_config.xml` 声明（SQLite 活动 / MySQL 备选）
+- 空表种子：`admin/123456`、`tianlong/123456`、`console_user`（无密码）、`dongq`/`xiaoming`（控制台身份）
+- Web：登录/注册/个人资料/头像；管理页「用户管理」（admin 角色）
+- PBKDF2 密码、多角色 + group、状态/最后登录、管理员保护、审计日志
+- CSRF：同源 `Origin`/`Referer` + 会话 `X-CSRF-Token`（脚本需从 `/api/login` 或 `/api/session` 取 token）；会话 Cookie `HttpOnly; SameSite=Lax`
+- 控制台 `-u`：免密但校验用户存在/启用（失败退出码 1）；`-web` 模式下无效控制台用户仅跳过控制台
+- 自测：`TLUserModuleSelfTest`（80 项）
+
 ### Web 交互窗口（aiagent/webui）
 
 `AIStart -web`（或 `aistart-web.bat`）同进程同时启动控制台与 Web 窗口：

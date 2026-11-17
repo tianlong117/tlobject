@@ -175,6 +175,26 @@ Built-in modules extending `TLBaseModule`:
       <module name="aiContext" defaultSystemMessage="你是一个有用的AI助手..."/>
   </modulesParams>
   ```
+- **数据库用户模块（2026-11-16）**：独立模块 `aiagent/user-java`（`TLUserModule`，工厂名 `dbUserModule`），
+  表 `ai_users`（`database_config.xml`），字段含登录名/昵称/PBKDF2 密码/多角色/group/一句话介绍/邮箱/头像/状态/最后登录时间与 IP。
+  webui `/api/login|register|profile|profileUpdate|changePassword|avatar|users*` 经消息调用；
+  管理页「用户管理」仅 `adminRoles`（默认 admin）可见可用；禁用用户下一次请求 401（显式 `found=false/status=0` 才判禁用，
+  查询故障按在线处理，避免全局登出）。
+  `getUserInfo` 采用 userid/role/group 契约，供 `TLAppAuthModule` 使用；未知/禁用回落 `defaultRole`（guest）。
+  表为空时按 `bootstrapUsers` 种子初始化（demo 含 admin/tianlong/console_user/dongq/xiaoming，等价旧配置迁移）；
+  表非空后忽略配置。删除用户只删 `ai_users` 记录，不清理其 workspace/data/会话（数据保留，需人工清理）。
+  控制台 `-u` 保持免密但校验用户存在与启用（无 Web 时失败退出码 1；有 Web 仅跳过控制台，应用继续运行）。
+  **配置注意**：实例必须直接写 `classfile`，
+  不能写 `sameClassAs="dbUserModule"`（与类注册表同名会被 include 合并覆盖，解析回自身导致类名为空）；实例配 `necessary="yes"`。
+  WebUI 已启用 CSRF 防护：**会话一旦发放 token（登录后 `/api/login` 或 `/api/session` 返回），所有状态变更
+  web action 必须携带匹配的 `X-CSRF-Token`**——包括无 Origin/Referer 的 curl/脚本/顶层 GET 导航
+  （跨站 GET 不带 Origin 且 `SameSite=Lax` 仍带 Cookie，只校验来源头会被绕过）；脚本登录后必须从响应读取 token
+  并在后续请求带上。Origin/Referer 存在时另须同源（"null" 拒绝）；无来源头仅在 token 通过（或尚未发放 token，
+  如首次登录）时放行。登录成功会轮换 token（旧 token 失效）。Jetty 会话 Cookie 显式 `HttpOnly; SameSite=Lax`
+  （`sessionSameSite`/`sessionHttpOnly` 可配；配 `None` 但 connector 不含 https 时 WARN 并回退 `Lax`，
+  浏览器拒绝无 Secure 的 SameSite=None）。DemoUserModule 已删除，aitest 不再声明用户模块。
+  守护：`TLUserModuleSelfTest`（80 项，`aiagent/user-java/src/test`）、`smoke/user_manage_check.py`（44 项）、
+  `smoke/chat_auth_check.py`（16 项）、`smoke/manage_page_check.py`（42 项回归）。
 - **用户 workspace 与路径审批（2026-11-07）**：agent 生成文件默认落 `workspace/{userId}`（系统属性 `tlobject.workspaceRoot` 可覆盖）；
   `file_operation`/`word` 的 `workspaceMode`、`code_execution`/`script_execution` 的 `workspaceMode`、
   MCP 的 `userWorkspaceScoped` 默认关闭，demo 配置已开启。`TLToolExecutor` 的 `pathGuard` 在执行前判定：

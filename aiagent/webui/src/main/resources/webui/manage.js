@@ -8,12 +8,20 @@ const state = {
   filter: '',
   selected: new Set(),  // 只存文件 path（批量删除仅文件；文件夹走行内删除按钮）
   sortBy: 'name',       // name | type | size | mtime
-  sortDir: 1            // 1 升序 / -1 降序；文件夹恒在最前
+  sortDir: 1,           // 1 升序 / -1 降序；文件夹恒在最前
+  view: 'workspace',     // workspace | users
+  users: {
+    list: [], total: 0, page: 1, pageSize: 20,
+    keyword: '', status: '', editing: null
+  },
+  isAdmin: false,
+  csrfToken: null    // 会话级 CSRF token（/api/session 返回；状态变更请求随 X-CSRF-Token 发送）
 };
 
 /** 与 app.js 同款：POST JSON；401 回登录态。 */
 async function apiJson(path, body) {
   const opt = { method: 'POST', headers: { 'Content-Type': 'application/json' } };
+  if (state.csrfToken) opt.headers['X-CSRF-Token'] = state.csrfToken;
   if (body !== undefined) opt.body = JSON.stringify(body);
   const resp = await fetch(path, opt);
   let data = null;
@@ -37,12 +45,61 @@ async function boot() {
   try {
     const s = await fetch('/api/session').then(r => r.json());
     if (!s || !s.loggedIn) { showLogin(); return; }
+    state.csrfToken = s.csrfToken || null;
     $('#manageApp').classList.remove('hidden');
-    $('#mUser').textContent = s.userId || '';
+    const u = s.user || {};
+    $('#mUser').textContent = (u.nickname || s.userId || '');
+    state.isAdmin = !!s.isAdmin;
+    if (!state.isAdmin) $('#mNavUsers').classList.add('hidden');
+    bindUserEvents();
     await load('');
   } catch (e) {
     showLogin();
   }
+}
+
+function switchView(view) {
+  state.view = view;
+  document.querySelectorAll('.m-nav').forEach(b =>
+    b.classList.toggle('active', b.dataset.view === view));
+  $('#workspaceView').classList.toggle('hidden', view !== 'workspace');
+  $('#usersView').classList.toggle('hidden', view !== 'users');
+  if (view === 'users') loadUsers();
+}
+
+function bindUserEvents() {
+  document.querySelectorAll('.m-nav').forEach(b => {
+    b.onclick = () => switchView(b.dataset.view);
+  });
+  $('#mUserRefresh').onclick = () => loadUsers();
+  $('#mUserFilter').oninput = () => {
+    state.users.keyword = $('#mUserFilter').value.trim();
+    state.users.page = 1;
+    loadUsers();
+  };
+  $('#mUserStatus').onchange = () => {
+    state.users.status = $('#mUserStatus').value;
+    state.users.page = 1;
+    loadUsers();
+  };
+  $('#mUserNew').onclick = () => openUserModal(null);
+  $('#mUserModalClose').onclick = () => $('#mUserModal').classList.add('hidden');
+  $('#mUserSave').onclick = saveUser;
+  $('#mUserPrev').onclick = () => {
+    if (state.users.page > 1) { state.users.page--; loadUsers(); }
+  };
+  $('#mUserNext').onclick = () => {
+    const max = Math.max(1, Math.ceil(state.users.total / state.users.pageSize));
+    if (state.users.page < max) { state.users.page++; loadUsers(); }
+  };
+  // 弹框：点遮罩关闭 / ESC 关闭
+  $('#mUserModal').addEventListener('click', e => {
+    if (e.target === $('#mUserModal')) $('#mUserModal').classList.add('hidden');
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !$('#mUserModal').classList.contains('hidden'))
+      $('#mUserModal').classList.add('hidden');
+  });
 }
 
 async function load(dir) {
@@ -357,7 +414,10 @@ async function uploadFiles(files) {
   const timer = setTimeout(() => ctrl.abort(), 120000);
   try {
     const url = '/api/workspace/upload?dir=' + encodeURIComponent(state.dir || '');
-    const resp = await fetch(url, { method: 'POST', body: fd, signal: ctrl.signal });
+    const resp = await fetch(url, {
+      method: 'POST', body: fd, signal: ctrl.signal,
+      headers: state.csrfToken ? { 'X-CSRF-Token': state.csrfToken } : undefined
+    });
     let data = null;
     try { data = await resp.json(); } catch (e) { /* 非 JSON */ }
     if (resp.status === 401) { showLogin(); throw new Error('未登录'); }
@@ -482,3 +542,235 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   boot();
 });
+
+// ======================== 用户管理 ========================
+let usersLoadSeq = 0;     // 列表请求序号：快速输入/翻页时只应用最后一次请求的结果
+let savingUser = false;   // 保存按钮防双击
+let userNoticeTimer = null;
+
+function userNotice(msg, isErr) {
+  const n = $('#mUserNotice');
+  if (!msg) {
+    clearTimeout(userNoticeTimer);
+    userNoticeTimer = null;
+    n.classList.add('hidden');
+    return;
+  }
+  n.textContent = msg;
+  n.classList.toggle('m-err', !!isErr);
+  n.classList.remove('hidden');
+  clearTimeout(userNoticeTimer);
+  userNoticeTimer = setTimeout(() => {
+    n.classList.add('hidden');
+    userNoticeTimer = null;
+  }, 4000);
+}
+
+function fmtUserTime(ms) {
+  const n = Number(ms) || 0;
+  if (!n) return '—';
+  const d = new Date(n);
+  const p = x => String(x).padStart(2, '0');
+  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+async function loadUsers() {
+  if (!state.isAdmin) return;
+  const seq = ++usersLoadSeq;
+  userNotice('');
+  try {
+    const u = state.users;
+    const r = await apiJson('/api/users', {
+      keyword: u.keyword,
+      status: u.status === '' ? -1 : Number(u.status),
+      page: u.page,
+      pageSize: u.pageSize
+    });
+    if (seq !== usersLoadSeq) return;   // 已有更新的请求在飞，丢弃本次结果
+    if (!r.success) throw new Error(r.error || '加载失败');
+    u.list = Array.isArray(r.users) ? r.users : [];
+    u.total = Number(r.total) || 0;
+    const max = Math.max(1, Math.ceil(u.total / u.pageSize));
+    if (u.page > max) {
+      u.page = max;
+      return loadUsers();
+    }
+    renderUsers();
+  } catch (e) {
+    if (seq !== usersLoadSeq) return;
+    userNotice('加载用户失败：' + e.message, true);
+  }
+}
+
+function renderUsers() {
+  const u = state.users;
+  const list = $('#mUserList');
+  list.innerHTML = '';
+  $('#mUserSummary').textContent = '共 ' + u.total + ' 个用户';
+  const max = Math.max(1, Math.ceil(u.total / u.pageSize));
+  $('#mUserPageInfo').textContent = u.page + ' / ' + max;
+  $('#mUserPrev').disabled = u.page <= 1;
+  $('#mUserNext').disabled = u.page >= max;
+
+  if (!u.list.length) {
+    const empty = document.createElement('div');
+    empty.className = 'm-empty';
+    empty.textContent = '没有匹配的用户';
+    list.appendChild(empty);
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'm-table';
+  table.innerHTML = '<thead><tr><th>头像</th><th>登录名</th><th>昵称</th>'
+    + '<th>角色</th><th>状态</th><th>最后登录</th><th>最后登录 IP</th><th>操作</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  u.list.forEach(user => {
+    const tr = document.createElement('tr');
+    const tdAvatar = document.createElement('td');
+    if (user.hasAvatar) {
+      const img = document.createElement('img');
+      img.className = 'm-user-avatar';
+      img.src = '/api/avatar?userId=' + encodeURIComponent(user.userId);
+      img.alt = '';
+      img.onerror = () => { img.replaceWith(avatarFallback(user)); };
+      tdAvatar.appendChild(img);
+    } else {
+      tdAvatar.appendChild(avatarFallback(user));
+    }
+    const tdId = document.createElement('td');
+    tdId.textContent = user.userId;
+    const tdNick = document.createElement('td');
+    tdNick.textContent = user.nickname || user.userId;
+    const tdRoles = document.createElement('td');
+    tdRoles.textContent = (user.roles || []).join(', ');
+    const tdStatus = document.createElement('td');
+    tdStatus.textContent = Number(user.status) === 1 ? '启用' : '禁用';
+    tdStatus.className = Number(user.status) === 1 ? 'm-status-on' : 'm-status-off';
+    const tdLast = document.createElement('td');
+    tdLast.className = 'm-time';
+    tdLast.textContent = fmtUserTime(user.lastLoginAt);
+    const tdIp = document.createElement('td');
+    tdIp.className = 'm-time';
+    tdIp.textContent = user.lastLoginIp || '—';
+    const tdAct = document.createElement('td');
+    tdAct.className = 'm-actions';
+    tdAct.appendChild(actBtn('编辑', () => openUserModal(user)));
+    tdAct.appendChild(actBtn('重置密码', () => resetUserPassword(user)));
+    tdAct.appendChild(actBtn(Number(user.status) === 1 ? '禁用' : '启用', () => toggleUser(user)));
+    const del = actBtn('删除', () => deleteUser(user));
+    del.className = 'm-danger';
+    tdAct.appendChild(del);
+    tr.append(tdAvatar, tdId, tdNick, tdRoles, tdStatus, tdLast, tdIp, tdAct);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  list.appendChild(table);
+}
+
+function avatarFallback(user) {
+  const span = document.createElement('span');
+  span.className = 'm-user-avatar';
+  const chars = Array.from(String(user.nickname || user.userId || '?'));
+  span.textContent = (chars[0] || '?').toUpperCase();
+  return span;
+}
+
+function actBtn(text, onclick) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'm-act-btn';
+  b.textContent = text;
+  b.onclick = onclick;
+  return b;
+}
+
+function openUserModal(user) {
+  state.users.editing = user;
+  $('#mUserModalTitle').textContent = user ? '编辑用户' : '新建用户';
+  $('#muId').value = user ? user.userId : '';
+  $('#muId').disabled = !!user;
+  $('#muNickname').value = user ? (user.nickname || '') : '';
+  $('#muPassword').value = '';
+  $('#muPassword').placeholder = user ? '留空则不修改' : '新建时必填（至少 6 位）';
+  $('#muRoles').value = user ? (user.roles || []).join(',') : 'member';
+  $('#muGroup').value = user ? (user.group || '') : '';
+  $('#muEmail').value = user ? (user.email || '') : '';
+  $('#muBio').value = user ? (user.bio || '') : '';
+  $('#muEnabled').checked = user ? Number(user.status) === 1 : true;
+  $('#mUserErr').classList.add('hidden');
+  $('#mUserModal').classList.remove('hidden');
+  $('#muId').focus();
+}
+
+async function saveUser() {
+  if (savingUser) return;
+  savingUser = true;
+  $('#mUserSave').disabled = true;
+  const editing = state.users.editing;
+  const payload = {
+    userId: editing ? editing.userId : $('#muId').value.trim(),
+    nickname: $('#muNickname').value.trim(),
+    roles: $('#muRoles').value.trim(),
+    group: $('#muGroup').value.trim(),
+    email: $('#muEmail').value.trim(),
+    bio: $('#muBio').value.trim(),
+    status: $('#muEnabled').checked ? 1 : 0
+  };
+  const pwd = $('#muPassword').value;
+  try {
+    let r;
+    if (editing) {
+      r = await apiJson('/api/usersUpdate', payload);
+      if (r.success && pwd) {
+        r = await apiJson('/api/usersResetPassword', {
+          userId: editing.userId, newPassword: pwd
+        });
+      }
+    } else {
+      payload.password = pwd;
+      r = await apiJson('/api/usersCreate', payload);
+    }
+    if (!r.success) throw new Error(r.error || '保存失败');
+    $('#mUserModal').classList.add('hidden');
+    await loadUsers();
+  } catch (e) {
+    $('#mUserErr').textContent = e.message;
+    $('#mUserErr').classList.remove('hidden');
+  } finally {
+    savingUser = false;
+    $('#mUserSave').disabled = false;
+  }
+}
+
+async function toggleUser(user) {
+  try {
+    const r = await apiJson('/api/usersUpdate', {
+      userId: user.userId,
+      status: Number(user.status) === 1 ? 0 : 1
+    });
+    if (!r.success) throw new Error(r.error || '操作失败');
+    await loadUsers();
+  } catch (e) { userNotice(e.message, true); }
+}
+
+async function resetUserPassword(user) {
+  const pwd = prompt('为 ' + user.userId + ' 设置新密码（至少 6 位）：');
+  if (!pwd) return;
+  try {
+    const r = await apiJson('/api/usersResetPassword', {
+      userId: user.userId, newPassword: pwd
+    });
+    if (!r.success) throw new Error(r.error || '重置失败');
+    userNotice('已重置 ' + user.userId + ' 的密码');
+  } catch (e) { userNotice(e.message, true); }
+}
+
+async function deleteUser(user) {
+  if (!confirm('删除用户 ' + user.userId + '？此操作不可恢复。')) return;
+  try {
+    const r = await apiJson('/api/usersDelete', { userId: user.userId });
+    if (!r.success) throw new Error(r.error || '删除失败');
+    await loadUsers();
+  } catch (e) { userNotice(e.message, true); }
+}
