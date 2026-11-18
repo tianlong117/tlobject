@@ -111,6 +111,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String FN_BAD_OUTPUT = "test_bad_output";
     /** testBadFinalOutputSkill 的函数名（直出输出校验场景） */
     private static final String FN_BAD_FINAL_OUTPUT = "test_bad_final_output";
+    /** 共享黑板技能的函数名（临时注册，场景结束注销） */
+    private static final String FN_BOARD = "board";
+    /** 结构化计划技能的函数名（临时注册，场景结束注销） */
+    private static final String FN_PLAN = "plan";
 
     /** 内置场景用的会话 id（agent 的上下文按会话驻留进程，跨运行留存，见 resetTestSessions） */
     private static final String SID_BASIC        = "test_mock_basic";
@@ -133,6 +137,8 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
     private static final String SID_OUTPUTVALIDATION = "test_mock_outputvalidation";
     private static final String SID_FINALOUTPUTVALIDATION = "test_mock_finaloutputvalidation";
     private static final String SID_ABORTCTX     = "test_mock_abortctx";
+    private static final String SID_BOARDTOOL    = "test_mock_boardtool";
+    private static final String SID_PLANTOOL     = "test_mock_plantool";
 
     /** 内置场景用到的全部会话（整组清理，套件才有重入性） */
     private static final List<String> TEST_SESSIONS = Arrays.asList(
@@ -140,7 +146,7 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             SID_STREAM, SID_CANCEL, SID_BATCHTIMEOUT, SID_CHECKPOINT, SID_STREAMERR,
             SID_CHECKPOINTRESUME,
             SID_STREAMDIRECT, SID_TRUNC, SID_PLUMP, SID_TOOLPROGRESS, SID_TRUNCARGS, SID_EMPTY,
-            SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION, SID_ABORTCTX);
+            SID_OUTPUTVALIDATION, SID_FINALOUTPUTVALIDATION, SID_ABORTCTX, SID_BOARDTOOL, SID_PLANTOOL);
 
     // ======================== 构造器 ========================
 
@@ -219,6 +225,18 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
                 break;
             case "testStreamError":
                 returnMsg = testStreamError(fromWho, msg);
+                break;
+            case "testGroupVote":
+                returnMsg = testGroupVote(fromWho, msg);
+                break;
+            case "testSharedBoard":
+                returnMsg = testSharedBoard(fromWho, msg);
+                break;
+            case "testBoardTool":
+                returnMsg = testBoardTool(fromWho, msg);
+                break;
+            case "testPlanTool":
+                returnMsg = testPlanTool(fromWho, msg);
                 break;
             case "testIntentCache":
                 returnMsg = testIntentCache(fromWho, msg);
@@ -530,6 +548,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         TEST_CASES.put("checkpointResumeHistory", new String[]{"34-检查点恢复保留原轮历史", "需要 sessionManager"});
         TEST_CASES.put("abortContext",    new String[]{"35-中断轮上下文与会话同口径", "test_sleep 未注册", "sessionManager"});
         TEST_CASES.put("workspaceIsolation", new String[]{"36-用户 workspace 路径矩阵", null});
+        TEST_CASES.put("groupVote",       new String[]{"37-Agent组投票择优", null});
+        TEST_CASES.put("sharedBoard",     new String[]{"38-共享黑板", null});
+        TEST_CASES.put("boardTool",       new String[]{"39-共享黑板工具链", null});
+        TEST_CASES.put("planTool",        new String[]{"40-计划技能工具链", null});
     }
 
     /**
@@ -614,6 +636,10 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
             case "outputvalidation": return this::testOutputValidation;
             case "finaloutputvalidation": return this::testFinalOutputValidation;
             case "groupprogress":   return this::testGroupProgress;
+            case "groupvote":       return this::testGroupVote;
+            case "sharedboard":     return this::testSharedBoard;
+            case "boardtool":       return this::testBoardTool;
+            case "plantool":        return this::testPlanTool;
             case "approvalsessiongrant": return this::testApprovalSessionGrant;
             case "approvalgrantadmin": return this::testApprovalGrantAdmin;
             case "approvalexpire": return this::testApprovalExpire;
@@ -805,6 +831,253 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         return createMsg().setParam(RESULT, false)
                 .setParam("error", String.format("ok=%s, iterations=%d, resp=%s",
                         ok, iterations, aiResp.substring(0, Math.min(100, aiResp.length()))));
+    }
+
+    // ======================== 场景 39: 共享黑板工具链 ========================
+
+    /**
+     * 端到端验证共享黑板：MockProvider 产出 board 工具调用 → 执行器 → TLBoardSkill
+     * → TLSharedBoard；第二轮再 get 回同一 key，断言工具结果里确实读到了写入值。
+     * 覆盖“注册的技能经真实 LLM 工具调用链可用”，不是只测模块方法。
+     */
+    protected TLMsg testBoardTool(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false)
+                .setParam("error", "mockProvider not found");
+        if (!registerBoardSkillForTest()) return createMsg().setParam(RESULT, false)
+                .setParam("error", "注册 boardSkill 失败");
+        try {
+            mp.clearAllResponses();
+            String key = "tool_chain_" + System.nanoTime();
+            Map<String, Object> putArgs = new HashMap<>();
+            putArgs.put("operation", "put");
+            putArgs.put("key", key);
+            putArgs.put("value", "hello-board");
+            putArgs.put("scope", "session");
+            TLToolCall put = TLMockProvider.createToolCall("call_board_put_1", FN_BOARD, putArgs);
+            mp.enqueueResponse(mp.toolCallResponse(put));
+            mp.enqueueResponse(mp.textResponse("已写入黑板。"));
+            TLMsg r1 = putMsg(M_AIAGENT, boardChatMsg("把 hello-board 写入共享黑板"));
+            if (r1 == null || !r1.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "board put 轮失败: "
+                                + (r1 != null ? r1.getStringParam(AI_P_RESPONSE, "") : "null"));
+            }
+            if (r1.getIntParam("iterations", 0) < 2) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "board put 轮未执行工具循环: iterations="
+                                + r1.getIntParam("iterations", 0));
+            }
+
+            mp.clearAllResponses();
+            Map<String, Object> getArgs = new HashMap<>();
+            getArgs.put("operation", "get");
+            getArgs.put("key", key);
+            getArgs.put("scope", "session");
+            TLToolCall get = TLMockProvider.createToolCall("call_board_get_1", FN_BOARD, getArgs);
+            mp.enqueueResponse(mp.toolCallResponse(get));
+            mp.enqueueResponse(mp.textResponse("黑板内容已读回。"));
+            TLMsg r2 = putMsg(M_AIAGENT, boardChatMsg("读回刚写入的黑板内容"));
+            if (r2 == null || !r2.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "board get 轮失败: "
+                                + (r2 != null ? r2.getStringParam(AI_P_RESPONSE, "") : "null"));
+            }
+
+            boolean seen = false;
+            for (TLMsg req : mp.getCompletionRequests()) {
+                List<?> sent = req.getListParam(AI_P_MESSAGEHISTORY, null);
+                if (sent == null) continue;
+                for (Object o : sent) {
+                    if (!(o instanceof TLConversationHistory)) continue;
+                    TLConversationHistory h = (TLConversationHistory) o;
+                    if (h.getRole() == TLConversationHistory.Role.tool
+                            && h.getContent() != null
+                            && h.getContent().contains("hello-board")) {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (seen) break;
+            }
+            if (!seen) return createMsg().setParam(RESULT, false)
+                    .setParam("error", "board get 的工具结果未包含写入值（链路未打通）");
+
+            log("[TEST]   共享黑板工具链: put→get 经执行器/技能/模块 通过");
+            return createMsg().setParam(RESULT, true);
+        } finally {
+            unregisterBoardSkillForTest();
+            clearBoardScope();
+        }
+    }
+
+    private boolean registerBoardSkillForTest() {
+        HashMap<String, String> cfg = new HashMap<>();
+        cfg.put("sameClassAs", "boardSkill");
+        cfg.put("skillName", FN_BOARD);
+        cfg.put("skillDescription", "Read/write the shared board for cross-agent state.");
+        TLMsg r = putMsg(M_AIAGENT, createMsg().setAction(AGENT_REGISTERSKILL)
+                .setParam(AI_P_SKILLNAME, FN_BOARD)
+                .setParam(AI_P_AGENTCONFIG, cfg));
+        boolean ok = r != null && r.parseBoolean(RESULT, false);
+        log("[TEST_MODULE] Register " + FN_BOARD + ": " + ok);
+        return ok;
+    }
+
+    private void unregisterBoardSkillForTest() {
+        try {
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_UNREGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_BOARD));
+        } catch (Exception ignored) { }
+    }
+
+    private TLMsg boardChatMsg(String text) {
+        return createMsg().setAction(AGENT_CHAT)
+                .setParam(AI_P_USERMESSAGE, text)
+                .setSystemParam(AI_P_SESSIONID, SID_BOARDTOOL)
+                .setSystemParam("rootSessionId", SID_BOARDTOOL)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID);
+    }
+
+    private void clearBoardScope() {
+        try {
+            Object board = getFactory() != null ? getFactory().getModule("sharedBoard") : null;
+            if (!(board instanceof IObject)) return;
+            putMsg((IObject) board, createMsg().setAction("boardClearScope")
+                    .setParam("userId", TEST_USER_ID)
+                    .setParam("sessionId", SID_BOARDTOOL)
+                    .setParam("rootSessionId", SID_BOARDTOOL));
+        } catch (Throwable ignored) { }
+    }
+
+    // ======================== 场景 40: 计划技能工具链 ========================
+
+    /**
+     * 端到端验证 plan 技能：MockProvider 产出 plan create/get 工具调用，
+     * 计划经执行器/TLPlanSkill 存入 TLSharedBoard；第二轮 get 的工具结果里
+     * 能看到任务和依赖（deps=t1），证明计划对象跨轮可读。
+     */
+    protected TLMsg testPlanTool(Object fromWho, TLMsg msg) {
+        TLMockProvider mp = getMockProvider();
+        if (mp == null) return createMsg().setParam(RESULT, false)
+                .setParam("error", "mockProvider not found");
+        if (!registerPlanSkillForTest()) return createMsg().setParam(RESULT, false)
+                .setParam("error", "注册 planSkill 失败");
+        try {
+            mp.clearAllResponses();
+            List<Map<String, Object>> tasks = new ArrayList<>();
+            tasks.add(planTask("t1", "调研", "browserAgent", new String[]{}));
+            tasks.add(planTask("t2", "写方案", "fileAgent", new String[]{"t1"}));
+            Map<String, Object> createArgs = new HashMap<>();
+            createArgs.put("operation", "create");
+            createArgs.put("planName", "main");
+            createArgs.put("scope", "session");
+            createArgs.put("goal", "测试计划：调研后写方案");
+            createArgs.put("tasks", tasks);
+            TLToolCall create = TLMockProvider.createToolCall(
+                    "call_plan_create_1", FN_PLAN, createArgs);
+            mp.enqueueResponse(mp.toolCallResponse(create));
+            mp.enqueueResponse(mp.textResponse("计划已创建。"));
+            TLMsg r1 = putMsg(M_AIAGENT, planChatMsg("创建计划"));
+            if (r1 == null || !r1.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "plan create 轮失败: "
+                                + (r1 != null ? r1.getStringParam(AI_P_RESPONSE, "") : "null"));
+            }
+            if (r1.getIntParam("iterations", 0) < 2) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "plan create 轮未执行工具循环");
+            }
+
+            mp.clearAllResponses();
+            Map<String, Object> getArgs = new HashMap<>();
+            getArgs.put("operation", "get");
+            getArgs.put("planName", "main");
+            getArgs.put("scope", "session");
+            TLToolCall get = TLMockProvider.createToolCall(
+                    "call_plan_get_1", FN_PLAN, getArgs);
+            mp.enqueueResponse(mp.toolCallResponse(get));
+            mp.enqueueResponse(mp.textResponse("计划已读回。"));
+            TLMsg r2 = putMsg(M_AIAGENT, planChatMsg("读回计划"));
+            if (r2 == null || !r2.parseBoolean(RESULT, false)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "plan get 轮失败: "
+                                + (r2 != null ? r2.getStringParam(AI_P_RESPONSE, "") : "null"));
+            }
+
+            boolean seen = false;
+            for (TLMsg req : mp.getCompletionRequests()) {
+                List<?> sent = req.getListParam(AI_P_MESSAGEHISTORY, null);
+                if (sent == null) continue;
+                for (Object o : sent) {
+                    if (!(o instanceof TLConversationHistory)) continue;
+                    TLConversationHistory h = (TLConversationHistory) o;
+                    if (h.getRole() == TLConversationHistory.Role.tool
+                            && h.getContent() != null
+                            && h.getContent().contains("deps=t1")) {
+                        seen = true;
+                        break;
+                    }
+                }
+                if (seen) break;
+            }
+            if (!seen) return createMsg().setParam(RESULT, false)
+                    .setParam("error", "plan get 的工具结果未包含任务依赖（链路未打通）");
+
+            log("[TEST]   计划技能工具链: create→get（含 deps）经执行器/技能/黑板 通过");
+            return createMsg().setParam(RESULT, true);
+        } finally {
+            unregisterPlanSkillForTest();
+            clearPlanScope();
+        }
+    }
+
+    private Map<String, Object> planTask(String id, String title, String owner, String[] deps) {
+        Map<String, Object> t = new HashMap<>();
+        t.put("id", id);
+        t.put("title", title);
+        t.put("owner", owner);
+        t.put("deps", Arrays.asList(deps));
+        return t;
+    }
+
+    private boolean registerPlanSkillForTest() {
+        HashMap<String, String> cfg = new HashMap<>();
+        cfg.put("sameClassAs", "planSkill");
+        cfg.put("skillName", FN_PLAN);
+        cfg.put("skillDescription", "Maintain a structured plan (tasks/deps/status/replans).");
+        TLMsg r = putMsg(M_AIAGENT, createMsg().setAction(AGENT_REGISTERSKILL)
+                .setParam(AI_P_SKILLNAME, FN_PLAN)
+                .setParam(AI_P_AGENTCONFIG, cfg));
+        boolean ok = r != null && r.parseBoolean(RESULT, false);
+        log("[TEST_MODULE] Register " + FN_PLAN + ": " + ok);
+        return ok;
+    }
+
+    private void unregisterPlanSkillForTest() {
+        try {
+            putMsg(M_AIAGENT, createMsg().setAction(AGENT_UNREGISTERSKILL)
+                    .setParam(AI_P_SKILLNAME, FN_PLAN));
+        } catch (Exception ignored) { }
+    }
+
+    private TLMsg planChatMsg(String text) {
+        return createMsg().setAction(AGENT_CHAT)
+                .setParam(AI_P_USERMESSAGE, text)
+                .setSystemParam(AI_P_SESSIONID, SID_PLANTOOL)
+                .setSystemParam("rootSessionId", SID_PLANTOOL)
+                .setSystemParam(AI_P_USERID, TEST_USER_ID);
+    }
+
+    private void clearPlanScope() {
+        try {
+            Object board = getFactory() != null ? getFactory().getModule("sharedBoard") : null;
+            if (!(board instanceof IObject)) return;
+            putMsg((IObject) board, createMsg().setAction("boardClearScope")
+                    .setParam("userId", TEST_USER_ID)
+                    .setParam("sessionId", SID_PLANTOOL)
+                    .setParam("rootSessionId", SID_PLANTOOL));
+        } catch (Throwable ignored) { }
     }
 
     // ======================== 场景 29: 截断工具参数不可执行 ========================
@@ -1387,6 +1660,103 @@ public class TLAgentTestModule extends TLBaseModule implements TLAiAgentParamStr
         if (errors.isEmpty()) return createMsg().setParam(RESULT, true);
         return createMsg().setParam(RESULT, false)
                 .setParam("error", String.join("；", errors));
+    }
+
+    protected TLMsg testGroupVote(Object fromWho, TLMsg msg) {
+        List<String> errors = new ArrayList<>();
+        try {
+            checkVoteMajority(errors);
+            checkVoteJudge(errors);
+            checkVoteAllFailed(errors);
+        } catch (Exception e) {
+            errors.add("异常: " + e);
+        }
+        if (errors.isEmpty()) return createMsg().setParam(RESULT, true);
+        return createMsg().setParam(RESULT, false)
+                .setParam("error", String.join("；", errors));
+    }
+
+    private void checkVoteMajority(List<String> errors) {
+        TLTestAgentGroup group = newTestGroup("testVoteM_" + System.nanoTime(), "vote");
+        registerFake(group, "m1", mapOf("finalText", "A"));
+        registerFake(group, "m2", mapOf("finalText", "B"));
+        registerFake(group, "m3", mapOf("finalText", "A"));
+        TLMsg r = group.testChat(groupChatMsg("test_group_vote_majority", "投票任务"));
+        expect(errors, r != null && r.parseBoolean(RESULT, false), "vote 组返回成功");
+        expect(errors, r != null && "A".equals(r.getStringParam(AI_P_RESPONSE, "")),
+                "多数表决返回 A");
+        expect(errors, r != null && "m1".equals(r.getStringParam("voteWinner", "")),
+                "多数 winner=m1（平票取成员顺序最早）");
+    }
+
+    private void checkVoteJudge(List<String> errors) {
+        TLTestAgentGroup group = newTestGroup("testVoteJ_" + System.nanoTime(), "vote");
+        registerFake(group, "m1", mapOf("finalText", "A"));
+        registerFake(group, "m2", mapOf("finalText", "B"));
+        registerFake(group, "judge", mapOf(
+                "role", "supervisor", "finalText", "{\"best\":\"m2\"}"));
+        TLMsg r = group.testChat(groupChatMsg("test_group_vote_judge", "评审任务"));
+        expect(errors, r != null && r.parseBoolean(RESULT, false), "评审组返回成功");
+        expect(errors, r != null && "B".equals(r.getStringParam(AI_P_RESPONSE, "")),
+                "评审择优返回 m2/B");
+        expect(errors, r != null && "m2".equals(r.getStringParam("voteWinner", "")),
+                "评审 winner=m2");
+    }
+
+    private void checkVoteAllFailed(List<String> errors) {
+        TLTestAgentGroup group = newTestGroup("testVoteF_" + System.nanoTime(), "vote");
+        registerFake(group, "m1", mapOf("fail", "true", "failText", "SECRET_VOTE_OUTPUT"));
+        registerFake(group, "m2", mapOf("fail", "true", "failText", "SECRET_VOTE_OUTPUT"));
+        TLMsg r = group.testChat(groupChatMsg("test_group_vote_failed", "失败任务"));
+        expect(errors, r != null && !r.parseBoolean(RESULT, true),
+                "全部失败返回结构化失败");
+        expect(errors, r != null
+                        && !r.getStringParam(AI_P_RESPONSE, "").contains("SECRET_VOTE_OUTPUT"),
+                "终答不泄漏成员失败文本");
+    }
+
+    protected TLMsg testSharedBoard(Object fromWho, TLMsg msg) {
+        List<String> errors = new ArrayList<>();
+        try {
+            cn.tianlong.tlobject.aiagent.board.TLSharedBoard board =
+                    new cn.tianlong.tlobject.aiagent.board.TLSharedBoard(
+                            "testBoard_" + System.nanoTime()) {
+                        @Override public void putLog(String content, LogLevel logLevel) { }
+                        @Override public void putLog(Exception e, LogLevel logLevel, String tag) { }
+                    };
+            java.lang.reflect.Field persistField =
+                    cn.tianlong.tlobject.aiagent.board.TLSharedBoard.class
+                            .getDeclaredField("persist");
+            persistField.setAccessible(true);
+            persistField.setBoolean(board, false);
+
+            TLMsg put = boardCall(board, "boardPut", "userId", "alice",
+                    "sessionId", "bs1", "rootSessionId", "bs1", "key", "plan", "value", "v1");
+            expect(errors, put != null && put.parseBoolean(RESULT, false), "黑板 put 成功");
+            TLMsg same = boardCall(board, "boardGet", "userId", "alice",
+                    "sessionId", "bs1", "rootSessionId", "bs1", "key", "plan");
+            expect(errors, same != null && same.parseBoolean("found", false)
+                    && "v1".equals(same.getStringParam("value", "")), "同会话可读");
+            TLMsg bob = boardCall(board, "boardGet", "userId", "bob",
+                    "sessionId", "bs1", "rootSessionId", "bs1", "key", "plan");
+            expect(errors, bob != null && !bob.parseBoolean("found", true), "跨用户隔离");
+            TLMsg other = boardCall(board, "boardGet", "userId", "alice",
+                    "sessionId", "bs2", "rootSessionId", "bs2", "key", "plan");
+            expect(errors, other != null && !other.parseBoolean("found", true), "跨会话隔离");
+        } catch (Exception e) {
+            errors.add("异常: " + e);
+        }
+        if (errors.isEmpty()) return createMsg().setParam(RESULT, true);
+        return createMsg().setParam(RESULT, false)
+                .setParam("error", String.join("；", errors));
+    }
+
+    private TLMsg boardCall(cn.tianlong.tlobject.aiagent.board.TLSharedBoard board,
+                            String action, Object... kv) {
+        TLMsg m = new TLMsg().setAction(action);
+        for (int i = 0; i + 1 < kv.length; i += 2)
+            m.setParam((String) kv[i], kv[i + 1]);
+        return board.getMsg(null, m);
     }
 
     private void checkParallelGroup(List<String> errors) {

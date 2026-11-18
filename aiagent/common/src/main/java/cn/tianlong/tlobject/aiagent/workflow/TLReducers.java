@@ -97,6 +97,100 @@ public final class TLReducers {
     };
 
     /**
+     * vote/bestOf 的候选累积器。reduce 每次返回新实例，不修改入参
+     * （候选可能来自被多个下游共享的上游产出对象）。
+     */
+    static final class Candidates {
+        final List<Object> values;
+
+        Candidates(List<Object> values) {
+            this.values = values;
+        }
+    }
+
+    /**
+     * 多数表决：reduce 阶段累积全部候选，finalize 时按 trim 后的文本计数。
+     * 空白候选忽略；平票取最早出现；全空白/全 null 返回 null（字段被移除）。
+     * 返回值保留最早出现的原始对象（不强行转成 String）。
+     */
+    public static final TLStateReducer VOTE = new TLStateReducer() {
+        @Override
+        public Object reduce(Object existing, Object incoming) {
+            if (incoming == null) return existing;
+            List<Object> values = new ArrayList<>();
+            collectCandidates(values, existing);
+            values.add(incoming);
+            return new Candidates(values);
+        }
+
+        @Override
+        public Object finalizeValue(Object accumulated) {
+            List<Object> values = candidateValues(accumulated);
+            LinkedHashMap<String, Integer> counts = new LinkedHashMap<>();
+            LinkedHashMap<String, Object> first = new LinkedHashMap<>();
+            for (Object v : values) {
+                if (v == null) continue;
+                String key = String.valueOf(v).trim();
+                if (key.isEmpty()) continue;
+                counts.merge(key, 1, Integer::sum);
+                first.putIfAbsent(key, v);
+            }
+            String bestKey = null;
+            int bestCount = -1;
+            for (Map.Entry<String, Integer> e : counts.entrySet()) {
+                if (e.getValue() > bestCount) {
+                    bestCount = e.getValue();
+                    bestKey = e.getKey();
+                }
+            }
+            return bestKey == null ? null : first.get(bestKey);
+        }
+    };
+
+    /**
+     * 择优（确定性启发式）：取 trim 后最长的非空白候选；平票取最早出现。
+     * 不调用 LLM——需要语义评审请用 Agent 组的 mode=vote（supervisor 评审）。
+     */
+    public static final TLStateReducer BEST_OF = new TLStateReducer() {
+        @Override
+        public Object reduce(Object existing, Object incoming) {
+            if (incoming == null) return existing;
+            List<Object> values = new ArrayList<>();
+            collectCandidates(values, existing);
+            values.add(incoming);
+            return new Candidates(values);
+        }
+
+        @Override
+        public Object finalizeValue(Object accumulated) {
+            List<Object> values = candidateValues(accumulated);
+            Object best = null;
+            int bestLen = -1;
+            for (Object v : values) {
+                if (v == null) continue;
+                String s = String.valueOf(v).trim();
+                if (s.isEmpty()) continue;
+                if (s.length() > bestLen) {
+                    bestLen = s.length();
+                    best = v;
+                }
+            }
+            return best;
+        }
+    };
+
+    private static void collectCandidates(List<Object> target, Object value) {
+        if (value instanceof Candidates) target.addAll(((Candidates) value).values);
+        else if (value != null) target.add(value);
+    }
+
+    private static List<Object> candidateValues(Object value) {
+        if (value instanceof Candidates) return ((Candidates) value).values;
+        if (value == null) return List.of();
+        return List.of(value);
+    }
+
+    /**
      * 类型自适应（未显式配置字段时使用）：List/Set 追加，其余覆盖。
      * 让不写任何配置的现有工作流在「多上游都产出列表」时自动不丢数据。
      *
@@ -150,6 +244,9 @@ public final class TLReducers {
             case "and":            return AND_BOOL;
             case "mapmerge":       return MAP_MERGE;
             case "setunion":       return SET_UNION;
+            case "vote":           return VOTE;
+            case "bestof":
+            case "best":           return BEST_OF;
             case "adaptive":       return ADAPTIVE;
             default:               return null;
         }
@@ -157,6 +254,6 @@ public final class TLReducers {
 
     /** 已注册策略名（错误提示用） */
     public static String knownNames() {
-        return "lastWriteWins|append|min|max|sum|or|and|mapMerge|setUnion|adaptive";
+        return "lastWriteWins|append|min|max|sum|or|and|mapMerge|setUnion|vote|bestOf|adaptive";
     }
 }

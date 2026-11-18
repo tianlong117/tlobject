@@ -55,8 +55,8 @@ public class TLWorkflowNode {
     /** 重试次数（onFailure=retry时有效） */
     private int maxRetries;
 
-    /** 超时处理策略：fail(默认) | skip */
-    private String onTimeout = "fail";
+    /** 超时处理策略：fail | skip；null = 未显式配置，沿用 onFailure */
+    private String onTimeout;
 
     /** 降级节点id（失败/超时时走备选节点） */
     private String fallbackNodeId;

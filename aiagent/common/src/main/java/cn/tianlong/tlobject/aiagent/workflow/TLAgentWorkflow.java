@@ -39,6 +39,10 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TLAgentWorkflow extends TLBaseModule
         implements TLAiAgentParamString, TLWorkflowEngine.NodeRunner, IAgentCapable {
 
+    /** 工作流控制参数：只作用于引擎，透传给节点 agent 会把调度配置当业务参数 */
+    private static final Set<String> WORKFLOW_CONTROL_PARAMS = Set.of(
+            "timeout", "onTimeout", "onFailure", "maxRetries", "fallbackNodeId");
+
     /** 静态配置的节点（XML 解析） */
     private Map<String, TLWorkflowNode> configuredNodes = new LinkedHashMap<>();
 
@@ -165,6 +169,12 @@ public class TLAgentWorkflow extends TLBaseModule
                 }
                 String field = pair.substring(0, colon).trim();
                 String strategy = pair.substring(colon + 1).trim();
+                if ("aiResponse".equals(field)) {
+                    putLog("Workflow [" + name + "] merge." + pointId + " 字段 'aiResponse'"
+                            + " 是节点正文（由 upstreamResponses 收集，字段级策略不生效）；"
+                            + "正文投票/择优请用 Agent 组 mode=vote", LogLevel.WARN);
+                    continue;
+                }
                 if (TLWorkflowEngine.RESERVED_MERGE_FIELDS.contains(field)) {
                     putLog("Workflow [" + name + "] merge." + pointId + " 字段 '" + field
                             + "' 由框架独占（正文收集逻辑覆盖），配置无效已忽略", LogLevel.WARN);
@@ -674,6 +684,8 @@ public class TLAgentWorkflow extends TLBaseModule
             }
             if (attrs.containsKey("onFailure"))
                 node.setOnFailure(attrs.get("onFailure"));
+            if (attrs.containsKey("onTimeout"))
+                node.setOnTimeout(attrs.get("onTimeout"));
             if (attrs.containsKey("maxRetries")) {
                 try { node.setMaxRetries(Integer.parseInt(attrs.get("maxRetries"))); }
                 catch (NumberFormatException nfe) {
@@ -688,7 +700,7 @@ public class TLAgentWorkflow extends TLBaseModule
             Map<String, String> params = new HashMap<>(attrs);
             params.remove("type"); params.remove("module"); params.remove("action");
             params.remove("sameClassAs"); params.remove("classfile");
-            params.remove("timeout"); params.remove("onFailure");
+            params.remove("timeout"); params.remove("onTimeout"); params.remove("onFailure");
             params.remove("maxRetries"); params.remove("fallbackNodeId");
             if (!params.isEmpty()) node.setParams(params);
 
@@ -742,10 +754,12 @@ public class TLAgentWorkflow extends TLBaseModule
         }
 
         // 节点参数透传（temperature、systemMessage 等），运行时覆盖模块默认值。
-        // merge.* 是图级配置（字段合并策略），不是消息参数——透传会把配置漏给下游 agent
+        // merge.* 是图级配置（字段合并策略），timeout/onTimeout/onFailure/maxRetries/
+        // fallbackNodeId 是工作流控制参数——都不是业务消息参数，透传会把配置漏给下游 agent
         if (node.getParams() != null) {
             for (Map.Entry<String, String> e : node.getParams().entrySet()) {
                 if (e.getKey().startsWith(TLWorkflowNode.MERGE_KEY_PREFIX)) continue;
+                if (WORKFLOW_CONTROL_PARAMS.contains(e.getKey())) continue;
                 msg.setParam(e.getKey(), e.getValue());
             }
         }
@@ -932,6 +946,8 @@ public class TLAgentWorkflow extends TLBaseModule
                     }
                     if (params.containsKey("onFailure"))
                         node.setOnFailure(params.get("onFailure"));
+                    if (params.containsKey("onTimeout"))
+                        node.setOnTimeout(params.get("onTimeout"));
                     if (params.containsKey("maxRetries")) {
                         try { node.setMaxRetries(Integer.parseInt(params.get("maxRetries"))); }
                         catch (NumberFormatException e) {

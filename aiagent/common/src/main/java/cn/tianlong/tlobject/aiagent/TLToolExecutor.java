@@ -48,6 +48,18 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
     /** "pathGuard 已启用但未配置审批模块"的 WARN 只打一次（未配置审批模块 = NEED_APPROVAL 放行，跨用户仍硬拒绝） */
     private boolean pathGuardWarned = false;
 
+    // ======================== 健康度/熔断 ========================
+    /** 是否启用跨轮工具健康度（默认关闭，行为与现状完全一致） */
+    private boolean healthEnabled = false;
+    /** 连续传输级失败达到该次数后 OPEN */
+    private int healthFailureThreshold = 3;
+    /** OPEN 后的冷却时间（毫秒），到期后放行一个半开探针 */
+    private long healthCooldownMs = 60000;
+    /** 可选提示：healthFallback.<moduleOrFunction>=<备用工具名>（只提示，不自动改派） */
+    private final Map<String, String> healthFallbacks = new HashMap<>();
+    /** 工具 key（moduleName，空则 functionName）→ 健康状态 */
+    private final Map<String, ToolHealth> healthStates = new ConcurrentHashMap<>();
+
     /**
      * 框架注入到 execMsg 的保留参数键。LLM arguments 里的同名键必须在注入前剥离：
      * 执行器最后会逐项 setParam(args)，后写覆盖前写——审批看顶层 args、技能/MCP 读被覆盖值，
@@ -185,6 +197,32 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 staleStateTimeoutMs = Long.parseLong(params.get("staleStateTimeoutMs"));
             if (params.get("pathGuard") != null)
                 pathGuard = Boolean.parseBoolean(params.get("pathGuard"));
+            if (params.get("healthEnabled") != null)
+                healthEnabled = Boolean.parseBoolean(params.get("healthEnabled"));
+            if (params.get("healthFailureThreshold") != null) {
+                try {
+                    healthFailureThreshold = Math.max(1,
+                            Integer.parseInt(params.get("healthFailureThreshold")));
+                } catch (NumberFormatException e) {
+                    putLog("invalid healthFailureThreshold: " + params.get("healthFailureThreshold")
+                            + ", keep " + healthFailureThreshold, LogLevel.WARN);
+                }
+            }
+            if (params.get("healthCooldownMs") != null) {
+                try {
+                    healthCooldownMs = Math.max(1, Long.parseLong(params.get("healthCooldownMs")));
+                } catch (NumberFormatException e) {
+                    putLog("invalid healthCooldownMs: " + params.get("healthCooldownMs")
+                            + ", keep " + healthCooldownMs, LogLevel.WARN);
+                }
+            }
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                if (e.getKey() != null && e.getKey().startsWith("healthFallback.")) {
+                    String key = e.getKey().substring("healthFallback.".length());
+                    if (!key.isEmpty() && e.getValue() != null)
+                        healthFallbacks.put(key, e.getValue());
+                }
+            }
         }
     }
 
@@ -216,6 +254,120 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         String reason = "";
         boolean retryable = false;
         String correctedOutput;
+    }
+
+    // ======================== 健康度：状态机 ========================
+
+    /** 一次调用拿到的健康许可：CLOSED=正常，PROBE=冷却后的半开探针，OPEN=熔断中 */
+    private enum HealthAcquire { CLOSED, PROBE, OPEN }
+
+    /**
+     * 单工具的跨轮健康状态。只统计传输级失败（无响应/异常/超时），
+     * 业务 RESULT=false、审批拒绝、校验失败都不算——否则一个正常的坏参数
+     * 会把好工具熔断掉。
+     */
+    private static final class ToolHealth {
+        private int consecutiveFailures;
+        private long openUntil;          // 0 = CLOSED
+        private boolean probeInFlight;   // 冷却到期后只放行一个探针
+
+        synchronized HealthAcquire tryAcquire() {
+            long now = System.currentTimeMillis();
+            if (openUntil == 0) return HealthAcquire.CLOSED;
+            if (now < openUntil) return HealthAcquire.OPEN;
+            if (probeInFlight) return HealthAcquire.OPEN;
+            probeInFlight = true;
+            return HealthAcquire.PROBE;
+        }
+
+        /** @return true = 本次失败触发了 OPEN（用于日志） */
+        synchronized boolean recordFailure(int threshold, long cooldownMs) {
+            boolean wasProbe = probeInFlight;
+            probeInFlight = false;
+            consecutiveFailures++;
+            if (wasProbe || consecutiveFailures >= threshold) {
+                openUntil = System.currentTimeMillis() + cooldownMs;
+                consecutiveFailures = 0;
+                return true;
+            }
+            return false;
+        }
+
+        /** @return true = 本次成功把非 CLOSED 状态复位（用于日志） */
+        synchronized boolean recordSuccess() {
+            boolean wasUnhealthy = openUntil != 0 || consecutiveFailures > 0 || probeInFlight;
+            consecutiveFailures = 0;
+            openUntil = 0;
+            probeInFlight = false;
+            return wasUnhealthy;
+        }
+
+        /** 未真正执行（审批拦截/预校验/模块缺失）：释放探针，不计成功失败 */
+        synchronized void releaseProbe() {
+            probeInFlight = false;
+        }
+
+        synchronized String state(long now) {
+            if (openUntil == 0) return "closed";
+            return now < openUntil ? "open" : "half_open";
+        }
+
+        synchronized int failures() { return consecutiveFailures; }
+        synchronized long openUntil() { return openUntil; }
+        synchronized long remainingMs(long now) {
+            return openUntil > now ? openUntil - now : 0;
+        }
+    }
+
+    private String healthKey(ToolTask task) {
+        if (task == null) return "";
+        if (task.moduleName != null && !task.moduleName.isEmpty()) return task.moduleName;
+        return task.functionName != null ? task.functionName : "";
+    }
+
+    private String healthDisplay(ToolTask task) {
+        if (task == null) return "tool";
+        if (task.functionName != null && !task.functionName.isEmpty()) return task.functionName;
+        return task.moduleName != null && !task.moduleName.isEmpty() ? task.moduleName : "tool";
+    }
+
+    private String healthFallbackHint(String key, ToolTask task) {
+        String fb = healthFallbacks.get(key);
+        if ((fb == null || fb.isEmpty()) && task != null && task.functionName != null)
+            fb = healthFallbacks.get(task.functionName);
+        return fb;
+    }
+
+    private TLMsg getToolHealthMsg() {
+        long now = System.currentTimeMillis();
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (Map.Entry<String, ToolHealth> e : healthStates.entrySet()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("tool", e.getKey());
+            m.put("state", e.getValue().state(now));
+            m.put("failures", e.getValue().failures());
+            m.put("openUntil", e.getValue().openUntil());
+            m.put("remainingMs", e.getValue().remainingMs(now));
+            m.put("fallback", healthFallbacks.get(e.getKey()));
+            list.add(m);
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam("enabled", healthEnabled)
+                .setParam("threshold", healthFailureThreshold)
+                .setParam("cooldownMs", healthCooldownMs)
+                .setParam("health", list);
+    }
+
+    private TLMsg resetToolHealth(TLMsg msg) {
+        String tool = msg.getStringParam("tool", "");
+        if (tool == null || tool.isEmpty()) {
+            int count = healthStates.size();
+            healthStates.clear();
+            return createMsg().setParam(RESULT, true).setParam("reset", count);
+        }
+        ToolHealth removed = healthStates.remove(tool);
+        return createMsg().setParam(RESULT, true).setParam("reset", removed != null ? 1 : 0)
+                .setParam("tool", tool);
     }
 
     /**
@@ -261,6 +413,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 return executeTools(fromWho, msg);
             case TODOOLECANCEL:
                 return cancelSession(fromWho, msg);
+            case "getToolHealth":
+                return getToolHealthMsg();
+            case "resetToolHealth":
+                return resetToolHealth(msg);
             case "_toolExecInternal":
                 return doToolExec(fromWho, msg);
             default:
@@ -656,6 +812,12 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             return null;
         }
 
+        // 健康度状态只在本任务执行内变更；跨任务共享在 healthStates
+        ToolHealth health = null;
+        String healthToolKey = null;
+        boolean healthProbe = false;
+        boolean healthExecutionStarted = false;
+        boolean healthTransportFailure = false;
         boolean started = false;
         long startTs = System.currentTimeMillis();
         try {
@@ -666,6 +828,32 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         new ToolResult(task.toolCallId, task.precomputedOutput),
                         TOOL_STATUS_SKIPPED, 0L, "未执行（预校验）");
                 return null;
+            }
+
+            // 健康度门禁：在审批之前短路，避免为已知坏工具反复弹审批。
+            // 业务结果（RESULT=false/校验失败/审批拒绝）不计失败，见 finally 的记账条件。
+            if (healthEnabled) {
+                healthToolKey = healthKey(task);
+                if (!healthToolKey.isEmpty()) {
+                    health = healthStates.computeIfAbsent(healthToolKey, k -> new ToolHealth());
+                    HealthAcquire acquire = health.tryAcquire();
+                    if (acquire == HealthAcquire.OPEN) {
+                        long remaining = health.remainingMs(System.currentTimeMillis());
+                        String fb = healthFallbackHint(healthToolKey, task);
+                        String text = "工具 " + healthDisplay(task) + " 连续失败，已临时熔断"
+                                + "（约 " + Math.max(1, (remaining + 999) / 1000) + " 秒后重试）。"
+                                + (fb != null && !fb.isEmpty()
+                                    ? "可改用 " + fb + "。" : "请改用其他工具或稍后再试。");
+                        putLog("<<< [Function] " + healthDisplay(task) + " 熔断中，跳过执行 (key="
+                                + healthToolKey + ", remaining=" + remaining + "ms)", LogLevel.WARN);
+                        // state 留空：普通工具结果，不能走 timeout/aborted 控制分支
+                        finishTask(state, task, idx,
+                                new ToolResult(task.toolCallId, text),
+                                TOOL_STATUS_ERROR, 0L, "熔断中");
+                        return null;
+                    }
+                    healthProbe = acquire == HealthAcquire.PROBE;
+                }
             }
 
             // 归一化：外部驱动可能传枚举/Boolean 等非 String，直接 equals 永远不命中
@@ -793,12 +981,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             execMsg.setSystemParam("rootSessionId", msg.getSystemParam("rootSessionId",
                     msg.getSystemParam(AI_P_SESSIONID, "default")));
             execMsg.setSystemParam(AI_P_ROUNDID, msg.getSystemParam(AI_P_ROUNDID, ""));
+            // 调用方 Agent 名：共享黑板等技能用于记录 producer（身份只信 systemArgs）
+            if (state.agentName != null && !state.agentName.isEmpty())
+                execMsg.setSystemParam(AI_P_AGENTNAME, state.agentName);
 
+            healthExecutionStarted = true;
             TLMsg result = putMsg(task.module, execMsg);
             long elapsed = System.currentTimeMillis() - startTs;
 
             if (Thread.currentThread().isInterrupted()) {
                 Thread.currentThread().interrupt();
+                healthTransportFailure = true;
                 String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId,
@@ -808,6 +1001,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             }
             // parseBoolean 兼容 Boolean 与 String（Mock/外部技能可能传 "true"）
             if (result != null && result.parseBoolean(TASKTIMEOUT, false)) {
+                healthTransportFailure = true;
                 String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId,
@@ -818,6 +1012,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
 
             if (result == null) {
                 // 目标模块无响应（崩溃/超时/不可达）不能记成 "done"：LLM 会以为操作成功
+                healthTransportFailure = true;
                 String target = task.moduleName != null && !task.moduleName.isEmpty()
                         ? task.moduleName : task.module.getName();
                 String noResp = "[无响应] " + target + " 未返回结果（模块可能崩溃/不可用）";
@@ -888,6 +1083,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             long elapsed = System.currentTimeMillis() - startTs;
             if (isTimeout) {
                 Thread.currentThread().interrupt();
+                healthTransportFailure = true;
                 putLog("Tool execution timeout: " + task.moduleName, LogLevel.WARN);
                 String st = state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_TIMEOUT;
                 finishTask(state, task, idx,
@@ -895,6 +1091,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                                 "[超时] " + task.moduleName + " 执行超时", "timeout", "执行超时"),
                         st, elapsed, state.aborted ? "已中断" : "执行超时");
             } else {
+                healthTransportFailure = true;
                 putLog("Tool execution error: " + task.moduleName + " -> " + e.toString(), LogLevel.ERROR);
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId,
@@ -902,6 +1099,22 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                         TOOL_STATUS_ERROR, elapsed, e.getMessage());
             }
         } finally {
+            // 健康度记账：只在真正执行过且非用户/批次中断时计数；
+            // 审批拦截、预校验、模块缺失等未执行路径只释放半开探针。
+            if (health != null) {
+                if (healthExecutionStarted && !state.aborted) {
+                    if (healthTransportFailure) {
+                        if (health.recordFailure(healthFailureThreshold, healthCooldownMs)) {
+                            putLog("Tool circuit OPEN: " + healthToolKey
+                                    + " (cooldown " + healthCooldownMs + "ms)", LogLevel.WARN);
+                        }
+                    } else if (health.recordSuccess()) {
+                        putLog("Tool circuit CLOSED: " + healthToolKey, LogLevel.INFO);
+                    }
+                } else if (healthProbe) {
+                    health.releaseProbe();
+                }
+            }
             if (started && !state.results.containsKey(idx)) {
                 notifyProgress(state, task, idx,
                         state.aborted ? TOOL_STATUS_ABORTED : TOOL_STATUS_ERROR,

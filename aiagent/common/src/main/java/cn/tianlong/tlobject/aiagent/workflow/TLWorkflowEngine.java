@@ -131,16 +131,20 @@ public class TLWorkflowEngine implements TLParamString {
                     break;
                 }
 
+                expireNodeTimeouts();
+
                 List<String> ready = collectReady();
                 if (ready.isEmpty()) {
                     if (running.isEmpty()) break;
                     pollRunningTasks(100);
+                    expireNodeTimeouts();
                     continue;
                 }
 
                 int slots = maxParallel - running.size();
                 if (slots <= 0) {
                     pollRunningTasks(50);
+                    expireNodeTimeouts();
                     continue;
                 }
                 if (ready.size() > slots) ready = ready.subList(0, slots);
@@ -321,10 +325,32 @@ public class TLWorkflowEngine implements TLParamString {
                 }
             }
         }
+        finalizeFields(merged, fieldReducers);
         if (!upstreamResponses.isEmpty()) {
             merged.setParam("upstreamResponses", upstreamResponses);
         }
         return merged;
+    }
+
+    /**
+     * 全部上游合并完成后，把配置了 reducer 的字段收敛为最终值。
+     * 默认 finalize 恒等，因此既有策略行为不变；vote/bestOf 依赖此钩子。
+     */
+    private void finalizeFields(TLMsg merged, Map<String, TLStateReducer> fieldReducers) {
+        if (fieldReducers == null || fieldReducers.isEmpty()) return;
+        for (Map.Entry<String, TLStateReducer> e : fieldReducers.entrySet()) {
+            String field = e.getKey();
+            if (RESERVED_MERGE_FIELDS.contains(field)) continue;
+            if (!merged.containsParam(field)) continue;
+            try {
+                Object value = e.getValue().finalizeValue(merged.getParam(field));
+                if (value == null) merged.removeParam(field);
+                else merged.setParam(field, value);
+            } catch (Throwable t) {
+                merged.removeParam(field);
+                warnings.add("字段 '" + field + "' finalize 失败: " + t);
+            }
+        }
     }
 
     /**
@@ -475,21 +501,80 @@ public class TLWorkflowEngine implements TLParamString {
         }
     }
 
+    /**
+     * 节点级超时检查：由调度线程执行，独立于工作流级 deadline。
+     * 节点 timeout 单位为毫秒，0/负数 = 不限时。
+     *
+     * <p>必须先看 {@code isOver()}：任务可能恰好在判定窗口内完成，不能把已完成结果丢掉。
+     * 取消是尽力而为——取消异常收集进 warnings，引擎仍须继续调度。</p>
+     */
+    private void expireNodeTimeouts() {
+        if (running.isEmpty()) return;
+        long now = System.currentTimeMillis();
+        for (Map.Entry<String, NodeTask> e : new ArrayList<>(running.entrySet())) {
+            String nid = e.getKey();
+            TLWorkflowNode node = nodes.get(nid);
+            if (node == null || node.getTimeout() <= 0) continue;
+            Long startTs = runningStartTs.get(nid);
+            if (startTs == null) continue;
+            long elapsed = now - startTs;
+            if (elapsed < node.getTimeout()) continue;
+
+            NodeTask task = e.getValue();
+            if (task.isOver()) continue;   // 已完成：交给 pollRunningTasks 正常收口
+
+            running.remove(nid);
+            runningStartTs.remove(nid);
+            context.putDuration(nid, elapsed);
+            try {
+                task.cancel();
+            } catch (Throwable t) {
+                warnings.add("取消超时节点 '" + nid + "' 失败: " + t);
+            }
+            // 失败事件带 detail=timeout；节点状态统一走 FAILED:timeout / RETRY:n/m
+            handleNodeFailure(nid, node, "timeout");
+        }
+    }
+
     private void handleNodeFailure(String nid, TLWorkflowNode node) {
+        handleNodeFailure(nid, node, null);
+    }
+
+    /**
+     * @param reason null=普通失败；"timeout"=节点级超时（此时优先使用节点的 onTimeout 策略）
+     */
+    private void handleNodeFailure(String nid, TLWorkflowNode node, String reason) {
+        boolean isTimeout = reason != null && !reason.isEmpty();
         String strategy = node.getOnFailure() != null ? node.getOnFailure() : "fail";
+        if (isTimeout) {
+            // onTimeout 只声明 fail|skip；retry 仍由 onFailure=retry 承担
+            String timeoutStrategy = node.getOnTimeout();
+            if (timeoutStrategy != null && !timeoutStrategy.isEmpty()) {
+                if ("fail".equals(timeoutStrategy) || "skip".equals(timeoutStrategy)) {
+                    strategy = timeoutStrategy;
+                } else {
+                    warnings.add("节点 '" + nid + "' onTimeout 不支持策略 '" + timeoutStrategy
+                            + "'（可用 fail|skip），按 fail 处理");
+                    strategy = "fail";
+                }
+            }
+        }
         if ("retry".equals(strategy)) {
             int used = retryCounts.merge(nid, 1, Integer::sum);
             int max = Math.max(0, node.getMaxRetries());
             if (used <= max) {
                 // 不入 failed、不动 inDegree，主循环下一轮自然重排该节点
-                setStatus(nid, "RETRY:" + used + "/" + max, 0L, "");
+                setStatus(nid, "RETRY:" + used + "/" + max, 0L, isTimeout ? "timeout" : "");
                 return;
             }
-            strategy = "retry(exhausted)";
+            strategy = isTimeout ? "retry(exhausted,timeout)" : "retry(exhausted)";
+        } else if (isTimeout) {
+            // fail → FAILED:timeout；skip → FAILED:timeout(skip)
+            strategy = "fail".equals(strategy) ? "timeout" : "timeout(" + strategy + ")";
         }
         failed.add(nid);
-        setStatus(nid, "FAILED:" + strategy, 0L, "");
-        if ("skip".equals(strategy)) {
+        setStatus(nid, "FAILED:" + strategy, 0L, isTimeout ? "timeout" : "");
+        if ("skip".equals(strategy) || "timeout(skip)".equals(strategy)) {
             onNodeDone(nid);
         } else if (node.getFallbackNodeId() != null) {
             cascadeSkip(nid);

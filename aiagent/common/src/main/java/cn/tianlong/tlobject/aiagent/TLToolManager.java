@@ -783,6 +783,17 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             }
             String description = msg.getStringParam(AI_P_AGENTDESCRIPTION, "");
             agentsConfig.get(agentName).put("description", description);
+            // 工具定义重建读的是 FunctionEntry.description（不是 agentsConfig）：
+            // 只改配置会让热更新静默失效，LLM 永远看到旧描述。entry 的字段是 final，
+            // 用旧字段 + 新描述换一个新条目，并继承运行时状态（enabled/timeoutMs）。
+            FunctionEntry old = functions.get(agentName);
+            if (old != null && "agent".equals(old.type)) {
+                FunctionEntry updated = new FunctionEntry(old.name, old.action, old.type, old.module,
+                        description, old.paramSchema, old.nativeName);
+                updated.enabled = old.enabled;
+                updated.timeoutMs = old.timeoutMs;
+                functions.put(agentName, updated);
+            }
             invalidateToolDefs();
             return createMsg().setParam(RESULT, true).setParam(AI_P_AGENTNAME, agentName);
         } finally {

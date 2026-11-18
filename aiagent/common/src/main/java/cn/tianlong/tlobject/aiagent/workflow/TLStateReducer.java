@@ -33,4 +33,18 @@ public interface TLStateReducer {
      * @return 合并后的值；返回 null 表示丢弃 incoming，保持 existing
      */
     Object reduce(Object existing, Object incoming);
+
+    /**
+     * 全部上游合并完成后调用一次，用于把累积结果收敛为最终值。
+     * 典型场景：vote/bestOf 在 reduce 阶段累积候选，到齐后才能做多数/最长选择。
+     *
+     * <p>默认原样返回，既有 reducer 行为完全不变。实现仍须无外部状态；
+     * finalize 只在调度线程调用一次。</p>
+     *
+     * @param accumulated reduce 链的最终结果
+     * @return 写入下游的最终值；返回 null 表示移除该字段
+     */
+    default Object finalizeValue(Object accumulated) {
+        return accumulated;
+    }
 }

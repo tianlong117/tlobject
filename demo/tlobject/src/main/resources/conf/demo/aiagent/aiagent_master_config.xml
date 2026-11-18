@@ -217,6 +217,15 @@
                statup="true"
                description="食品询价组，依次询问汉堡和披萨价格。当用户同时要买汉堡和披萨时使用此Agent。"/>
 
+        <!-- 多评审投票组模板（voteTeam_config.xml）：默认不启用。
+             需要时取消注释即可——同任务并行作答，supervisor 评审择优，失败回落多数表决。
+        <agent name="voteTeam"
+               sameClassAs="agentGroup"
+               configfile="voteTeam_config.xml"
+               statup="true"
+               description="多评审投票组，同一任务由三名成员并行作答后择优。"/>
+        -->
+
         <agent name="poemWorkflow"
                sameClassAs="agentWorkflow"
                statup="true"
@@ -264,6 +273,23 @@
                statup="true"
                skillName="todo"
                skillDescription="维护当前任务的多步清单。operation=write 全量重写清单（items 为 [{text,status}]，status: pending/in_progress/completed/failed；每完成一步就带完整列表重写一次）；operation=read 读回当前清单（任务接续/对齐进度时先读）。多步任务开始时，把计划清单写入。"/>
+
+        <!-- 共享黑板（可选）：跨工具调用/跨子 Agent/跨任务读写中间产物。
+             默认注释；取消注释即接线，skillName=board。身份由执行器 systemArgs 注入，
+             scope=session（默认）或 user（同一用户跨会话/跨任务共享）。
+        <skill name="boardSkill"
+               sameClassAs="boardSkill"
+               statup="true"
+               skillName="board"/>
+        -->
+
+        <!-- 结构化计划（可选）：plan 技能把任务拆解/依赖/状态/重规划记录存进 sharedBoard。
+             与 boardSkill 一起接线；默认注释，不影响现有应用。
+        <skill name="planSkill"
+               sameClassAs="planSkill"
+               statup="true"
+               skillName="plan"/>
+        -->
 
         <!-- 定时任务：对接应用工厂声明的 taskScheduler（TLMsgTask）引擎。
              ownerAgent 显式配 aiagent_master——任务消息 destination 用它；

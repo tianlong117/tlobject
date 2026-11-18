@@ -117,15 +117,18 @@ Memory injection goes through **AOP message hooks**: automatic recall before cha
 ### 5. Multi-Agent Orchestration
 
 - **Sub-agent delegation**: description-based routing dispatches automatically, with no type special-casing whatsoever in the master agent
-- **Agent group**: serial chain / parallel merge / supervisor review-and-summarize
-- **Workflow DAG + expression DSL**: `&&` for parallel, `\|\|` for fallback, `->` for sequence, `if` for value branching — write orchestration as a one-line expression
+- **Agent group**: serial chain / parallel merge / vote-and-select (`mode=vote`: supervisor best-of-N or majority vote) / supervisor review-and-summarize
+- **Workflow DAG + expression DSL**: `&&` for parallel, `\|\|` for fallback, `->` for sequence, `if` for value branching — write orchestration as a one-line expression; per-node `timeout` + `onTimeout=fail|skip` are enforced by the engine
+- **Shared board**: `TLSharedBoard` + `board` skill with `session` / `user` scopes, for cross-agent and cross-task intermediate state (opt-in)
+- **Structured plan**: `plan` skill stores tasks/dependencies/status/replan history on the shared board, so a plan can be advanced and read back across rounds and sessions (opt-in)
 - **Checkpoint resume / direct output**: stop and resume at any point (`/resume`), and sub-agent results can bypass LLM re-processing and be returned directly (directOutput)
 
 
 ### 6. Engineering and Security
 
 - **HITL approval gate**: dangerous tools (file deletion, code execution) are approved by function name, with session-level rejection memory (the same operation no longer prompts repeatedly); the approval dialog is fully decoupled from the UI (pushed over the event bus)
-- **Deterministic self-testing**: 12 test scenarios driven by a Mock Provider, with no network and no Key, and reproducible results — change code without fear of regressions
+- **Tool health / circuit breaker (optional)**: transport-level consecutive failures open a per-tool circuit for a cooldown period; business failures and approval rejections do not trip it; disabled by default
+- **Deterministic self-testing**: 40 test scenarios driven by a Mock Provider, with no network and no Key, and reproducible results — change code without fear of regressions
 - **Evals evaluation system**: JSON cases + three types of Judge (exact / LLM / constraint), supporting batch regression
 - **Session system**: multi-user data isolation, checkpoint resume, token statistics, `/trace` full-chain tracing
 - **Web UI (webui)**: browser chat + screenshot visualization + session management, same-origin with the framework and zero extra dependencies
@@ -1696,7 +1699,7 @@ The gate passes when the pass rate meets the threshold **and** the regression co
 
 **Package**: `cn.tianlong.tlobject.aiagent.test` — `TLAgentTestModule`, `TLMockProvider`, `TLEchoSkill`, `TLSleepSkill`
 
-Deterministic unit tests (driven by the Mock Provider, zero network, reproducible results). Covers **11 scenarios**: the doChat main loop, multi-round conversation, single tool call, parallel tool calls, tool timeout, streaming chat, cancellation, batch timeout, session recovery, streaming error, and intent cache.
+Deterministic unit tests (driven by the Mock Provider, zero network, reproducible results). Covers **40 scenarios**, including the doChat main loop, multi-round conversation, tool calls (single/parallel/timeout), streaming chat, cancellation, session recovery, checkpoints and approvals, group/workflow orchestration (including vote), and the shared board / structured plan tool chains.
 
 **Console Commands** (available once the chat application has the test module configured):
 

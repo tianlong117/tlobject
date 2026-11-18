@@ -32,6 +32,17 @@
         <!-- 任务清单技能（函数名 todo）：write 全量重写 / read 读回；落盘 data/{userId}/tasks/{sessionId}.md -->
         <module name="todoSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLTodoSkill"
                 singleton="true"/>
+        <!-- 跨 Agent/跨任务共享黑板（session/user 作用域；可选）。
+             模块本身只在 boardSkill 被接线/直接调用时才实例化，默认不影响现有应用。 -->
+        <module name="sharedBoard" classfile="cn.tianlong.tlobject.aiagent.board.TLSharedBoard"
+                singleton="true"/>
+        <!-- 共享黑板技能（函数名由 agent 配置的 skillName 决定，例如 board） -->
+        <module name="boardSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLBoardSkill"
+                singleton="true"/>
+        <!-- 结构化计划技能（函数名由 skillName 决定，例如 plan）：计划 JSON 存 sharedBoard。
+             可选，未接线时不影响现有应用。 -->
+        <module name="planSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLPlanSkill"
+                singleton="true"/>
         <module name="codeExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLCodeExecutionSkill"
                 singleton="true"/>
         <module name="scriptExecutionSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLScriptExecutionSkill"

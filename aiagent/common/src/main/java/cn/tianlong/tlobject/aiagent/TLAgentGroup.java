@@ -118,6 +118,11 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
             agentDescription = getParamNonEmpty("description", agentDescription);
             agentMdPath = getParamNonEmpty("agentMd", agentMdPath);
         }
+        if (!"sequential".equals(mode) && !"parallel".equals(mode) && !"vote".equals(mode)) {
+            putLog("Group " + name + " unknown mode '" + mode + "', fallback to sequential",
+                    LogLevel.WARN);
+            mode = "sequential";
+        }
         // 误配负数会让审核循环语义不成立，统一按 0 轮处理
         if (maxReviewRounds < 0) maxReviewRounds = 0;
         // 自动加载本组的 md 文件（组自己读，与 TLAiAgent 对称）
@@ -594,6 +599,9 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         try {
             LinkedHashMap<String, String> results;
             String plainAnswer;
+            if ("vote".equals(mode)) {
+                return vote(task, ctx);
+            }
             if ("parallel".equals(mode)) {
                 LinkedHashMap<String, String> tasks = new LinkedHashMap<>();
                 for (String mName : memberNames) {
@@ -925,6 +933,167 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
                         ? e.getValue().getAsString() : e.getValue().toString());
             }
             return map;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * 投票/择优模式：同一任务并行发给全部成员，再按多数（或 supervisor 评审）选一个答案。
+     *
+     * <p>与 parallel 的区别：parallel 把所有成员结果拼接返回；vote 只返回胜出者的答案。
+     * 与 supervise 的区别：supervisor 的既有契约是"审核不达标→打回重跑"，vote 里它只做
+     * 一次 best-of-N 选择，不触发重跑。所有成员失败时返回结构化失败，不把 [错误] 当前答。</p>
+     */
+    protected TLMsg vote(String task, RunContext ctx) {
+        LinkedHashMap<String, String> tasks = new LinkedHashMap<>();
+        for (String mName : memberNames) {
+            if (mName == null || mName.trim().isEmpty()) continue;
+            tasks.put(mName.trim(), task);
+        }
+        LinkedHashMap<String, String> results = runParallel(tasks, ctx, 1);
+
+        LinkedHashMap<String, String> candidates = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : results.entrySet()) {
+            String v = e.getValue();
+            if (v == null || v.trim().isEmpty()) continue;
+            if (v.startsWith("[错误]")) continue;
+            candidates.put(e.getKey(), v);
+        }
+        if (candidates.isEmpty()) {
+            putLog("Group " + name + " vote: all candidates failed", LogLevel.WARN);
+            if (ctx.progress != null)
+                ctx.progress.overall("FAILED", "all candidates failed", ctx.elapsed());
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "组 " + name + " 的所有成员均未返回有效结果");
+        }
+
+        String winner = supervisorName != null ? judgeBest(task, candidates, ctx) : null;
+        if (winner == null) winner = pickMajority(candidates);
+        if (winner == null || !candidates.containsKey(winner)) {
+            // 理论上 candidates 非空时 pickMajority 必返回成员名；防御异常数据
+            if (ctx.progress != null)
+                ctx.progress.overall("FAILED", "no vote winner", ctx.elapsed());
+            return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_RESPONSE, "组 " + name + " 无法从候选结果中选出答案");
+        }
+
+        putLog("Group " + name + " vote winner: " + winner
+                + " (candidates=" + candidates.keySet() + ")", LogLevel.INFO);
+        if (ctx.progress != null) {
+            boolean partial = !ctx.failedMembers.isEmpty();
+            ctx.progress.overall(partial ? "PARTIAL" : "DONE",
+                    "vote winner=" + winner, ctx.elapsed());
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam(AI_P_RESPONSE, candidates.get(winner))
+                .setParam("voteWinner", winner);
+    }
+
+    /**
+     * 让 supervisor 做一次 best-of-N 选择（不重跑成员）。
+     * 任何失败（模块缺失/调用异常/JSON 非法/选了不存在的成员）返回 null，由调用方回落多数表决。
+     */
+    protected String judgeBest(String task, LinkedHashMap<String, String> candidates, RunContext ctx) {
+        TLBaseModule judge = (TLBaseModule) getModule(supervisorName);
+        if (judge == null) {
+            putLog("Group " + name + " vote judge not found: " + supervisorName
+                    + ", fallback to majority", LogLevel.WARN);
+            if (ctx.progress != null) {
+                ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                        "FAILED:missing", 1, 0, "judge not found");
+            }
+            return null;
+        }
+        StringBuilder prompt = new StringBuilder("任务：").append(task)
+                .append("\n\n候选结果：\n");
+        for (Map.Entry<String, String> e : candidates.entrySet()) {
+            prompt.append("【").append(e.getKey()).append("】\n")
+                    .append(e.getValue()).append("\n\n");
+        }
+        prompt.append("请从候选结果中选择最优的一个。只输出 JSON（不要任何其他文字）：")
+                .append("{\"best\":\"成员名\"}");
+
+        String sid = name + "_" + supervisorName + ":" + ctx.baseSession;
+        if (ctx.progress != null)
+            ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                    "RUNNING", 1, 0, "vote judge");
+        long t0 = System.currentTimeMillis();
+        TLMsg r;
+        try {
+            r = putMsg(judge, createMsg().setAction(AGENT_CHAT)
+                    .setParam(AI_P_USERMESSAGE, prompt.toString())
+                    .setSystemParam(AI_P_SESSIONID, sid)
+                    .setSystemParam("rootSessionId", ctx.rootSessionId)
+                    .setSystemParam(AI_P_ROUNDID, ctx.roundId)
+                    .setSystemParam(AI_P_USERID, ctx.userId));
+        } catch (Throwable t) {
+            r = null;
+            putLog("Group vote judge exception: " + t, LogLevel.WARN);
+        }
+        long duration = System.currentTimeMillis() - t0;
+        if (r == null || !r.parseBoolean(RESULT, false)) {
+            putLog("Group vote judge failed, fallback to majority", LogLevel.WARN);
+            if (ctx.progress != null)
+                ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                        "FAILED:fallback", 1, duration, "judge chat failed");
+            return null;
+        }
+        String best = parseBestDirective(r.getStringParam(AI_P_RESPONSE, ""));
+        if (best == null || !candidates.containsKey(best)) {
+            putLog("Group vote judge returned invalid best: " + best
+                    + ", fallback to majority", LogLevel.WARN);
+            if (ctx.progress != null)
+                ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                        "FAILED:fallback", 1, duration, "invalid best");
+            return null;
+        }
+        if (ctx.progress != null)
+            ctx.progress.member(supervisorName, TLAgentGroupProgressPublisher.TYPE_SUPERVISOR,
+                    "DONE", 1, duration, "best=" + best);
+        return best;
+    }
+
+    /**
+     * 多数表决：按 trim 后的文本计数，平票取成员顺序最早者；空白候选已在 vote 中过滤。
+     */
+    protected String pickMajority(LinkedHashMap<String, String> candidates) {
+        LinkedHashMap<String, Integer> counts = new LinkedHashMap<>();
+        LinkedHashMap<String, String> firstMember = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : candidates.entrySet()) {
+            String value = e.getValue();
+            if (value == null) continue;
+            String key = value.trim();
+            if (key.isEmpty()) continue;
+            counts.merge(key, 1, Integer::sum);
+            firstMember.putIfAbsent(key, e.getKey());
+        }
+        String bestKey = null;
+        int bestCount = -1;
+        for (Map.Entry<String, Integer> e : counts.entrySet()) {
+            if (e.getValue() > bestCount) {
+                bestCount = e.getValue();
+                bestKey = e.getKey();
+            }
+        }
+        return bestKey == null ? null : firstMember.get(bestKey);
+    }
+
+    /**
+     * 宽容解析评审的 best 指令：截取首个 '{' 到末个 '}'（剥掉 ```json 围栏），
+     * 取字符串字段 "best"。任何解析失败返回 null（调用方回落多数表决）。
+     */
+    protected String parseBestDirective(String resp) {
+        if (resp == null || resp.isEmpty()) return null;
+        try {
+            int start = resp.indexOf('{');
+            int end = resp.lastIndexOf('}');
+            if (start < 0 || end <= start) return null;
+            com.google.gson.JsonObject obj =
+                    gson.fromJson(resp.substring(start, end + 1), com.google.gson.JsonObject.class);
+            if (obj == null || !obj.has("best") || !obj.get("best").isJsonPrimitive()) return null;
+            String best = obj.get("best").getAsString();
+            return best == null || best.trim().isEmpty() ? null : best.trim();
         } catch (Exception e) {
             return null;
         }

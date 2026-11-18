@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<moduleConfig>
+    <!-- ===== Agent 组 vote 模式示例（多评审/择优） =====
+         同一任务并行发给全部成员，然后：
+           1) 配置了 role="supervisor" 的评审 → 让评审从候选中选一个（只输出 {"best":"成员名"}）；
+           2) 评审缺失/返回非法/选了不存在的成员 → 自动回落多数表决（平票取成员顺序最早）；
+           3) 全部成员失败 → 组返回结构化失败，不把 [错误] 文本当前答。
+
+         与 parallel 的区别：parallel 拼接所有结果；vote 只返回胜出者的答案。
+         与 supervise 的区别：supervisor 在 vote 里只做一次 best-of-N 选择，不触发打回重跑；
+         maxReviewRounds 在 vote 模式不生效。
+
+         本文件默认不被 aiagent_master_config.xml 引用，作为模板保留。
+         接线示例（加到 master 的 <agents> 段）：
+           <agent name="voteTeam" sameClassAs="agentGroup"
+                  configfile="voteTeam_config.xml"
+                  description="多评审投票组，同一任务由三名成员并行作答后择优"/>
+    -->
+
+    <params>
+        <mode value="vote"/>
+        <timeout value="2"/>
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
+        <!-- 关思考：任务类 agent 预算留给正文（DeepSeek thinking 需回传 reasoning_content） -->
+        <reasoningMode value="disabled"/>
+    </params>
+
+    <agents>
+        <agent name="voteA" sameClassAs="aiagent"
+               description="候选成员 A"
+               systemMessage="你是严谨的事实核查员。回答要简明、给出依据，不要创作。"
+               temperature="0.2"/>
+        <agent name="voteB" sameClassAs="aiagent"
+               description="候选成员 B"
+               systemMessage="你是经验丰富的分析师。回答要全面，先给结论再给理由。"
+               temperature="0.5"/>
+        <agent name="voteC" sameClassAs="aiagent"
+               description="候选成员 C"
+               systemMessage="你是怀疑论者。回答要指出风险、边界和可能的反例。"
+               temperature="0.7"/>
+        <!-- 评审：不参与作答，只从候选中择优；审核标准写在 systemMessage 里 -->
+        <agent name="voteJudge" sameClassAs="aiagent" role="supervisor"
+               description="候选结果评审"
+               systemMessage="你是评审员。比较候选答案的准确性、完整性和可执行性，选出最优的一个。只输出 JSON，不要任何其他文字：{&quot;best&quot;:&quot;成员名&quot;}。"
+               temperature="0.1"/>
+    </agents>
+</moduleConfig>

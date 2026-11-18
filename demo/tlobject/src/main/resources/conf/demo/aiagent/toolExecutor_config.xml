@@ -29,6 +29,21 @@
         <pathGuard value="true"/>
         <!-- 工具输出客观校验：规则见 outputValidator_config.xml；不配置 = 不校验 -->
         <outputValidator value="outputValidator"/>
+
+        <!-- ===== 工具健康度/熔断（可选，默认关闭） =====
+             默认 healthEnabled=false，行为与之前完全一致。开启后按 moduleName（空则 functionName）
+             统计跨轮传输级连续失败（模块无响应/执行异常/单任务超时）；达到阈值后进入冷却，
+             冷却期内该工具直接返回普通错误结果（ToolResult.state 保持 null，不是 timeout/aborted
+             控制态），LLM 可改用其他工具。业务 RESULT=false、审批拒绝/待批、输出校验失败
+             不计失败——避免坏参数把好工具熔断。
+             healthFallback.<module>=<备用工具名> 只在错误文案里给提示，不会自动改派。
+             运行期排障：getToolHealth / resetToolHealth（可选 tool 参数）消息动作。
+
+        <healthEnabled value="true"/>
+        <healthFailureThreshold value="3"/>
+        <healthCooldownMs value="60000"/>
+        <healthFallback.browserSkill value="http_request"/>
+        -->
     </params>
     <beforeMsgTable>
         <action name="toolExecBatch">
