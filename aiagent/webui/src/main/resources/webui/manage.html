@@ -20,6 +20,7 @@
       <div class="m-side-title">管理功能</div>
       <button class="m-nav active" data-view="workspace">📁 工作空间管理</button>
       <button class="m-nav" data-view="users" id="mNavUsers">👤 用户管理</button>
+      <button class="m-nav" data-view="registration" id="mNavRegistration">📝 注册管理</button>
       <div class="m-side-note">更多管理功能后续接入</div>
     </aside>
     <main class="m-main">
@@ -52,6 +53,7 @@
             <option value="">全部状态</option>
             <option value="1">启用</option>
             <option value="0">禁用</option>
+            <option value="2">待审核</option>
           </select>
           <button id="mUserNew" class="m-primary" type="button">新建用户</button>
           <button id="mUserRefresh" class="m-secondary" type="button">刷新</button>
@@ -62,6 +64,31 @@
           <button id="mUserPrev" class="m-secondary" type="button">上一页</button>
           <span id="mUserPageInfo" class="m-muted"></span>
           <button id="mUserNext" class="m-secondary" type="button">下一页</button>
+        </div>
+      </div>
+      <div id="registrationView" class="m-view hidden">
+        <div class="m-title">
+          <h2>注册管理</h2>
+          <span id="mRegSettingsInfo" class="m-muted"></span>
+        </div>
+        <div class="m-toolbar">
+          <label class="m-check-line"><input id="mRegAllow" type="checkbox" checked> 允许自助注册</label>
+          <label class="m-check-line"><input id="mRegNeedApproval" type="checkbox"> 注册后需管理员审核</label>
+          <button id="mRegSave" class="m-primary" type="button">保存设置</button>
+        </div>
+        <div id="mRegNotice" class="m-notice hidden"></div>
+        <div class="m-title">
+          <h2>待审核用户</h2>
+          <span id="mPendingCount" class="m-muted"></span>
+        </div>
+        <div class="m-toolbar">
+          <button id="mPendingRefresh" class="m-secondary" type="button">刷新</button>
+        </div>
+        <div id="mPendingList" class="m-list"></div>
+        <div class="m-pager">
+          <button id="mPendingPrev" class="m-secondary" type="button">上一页</button>
+          <span id="mPendingPageInfo" class="m-muted"></span>
+          <button id="mPendingNext" class="m-secondary" type="button">下一页</button>
         </div>
       </div>
     </main>
@@ -88,7 +115,8 @@
       <input id="muEmail" maxlength="128">
       <label class="m-label">一句话介绍</label>
       <input id="muBio" maxlength="200">
-      <label class="m-check-line"><input id="muEnabled" type="checkbox" checked> 启用</label>
+      <label class="m-label">状态</label>
+      <select id="muStatus"></select>
       <div id="mUserErr" class="err hidden"></div>
       <button id="mUserSave" class="m-primary" type="button">保存</button>
     </div>

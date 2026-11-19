@@ -155,6 +155,16 @@
   last_login_ip VARCHAR(64) DEFAULT ''
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
 
+        <!-- 系统设置 KV 表（注册开关/注册审核开关）：由 dbUserModule 的 BeanTable 读写，启动时自动建表 -->
+        <table name="aiSettings_mysql" dbtable="ai_settings" dbserver="dbserver1" statup="false"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_settings (
+  setting_key VARCHAR(64) PRIMARY KEY,
+  setting_value VARCHAR(255) DEFAULT '',
+  updated_at BIGINT DEFAULT 0,
+  updated_by VARCHAR(64) DEFAULT ''
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;"/>
+
         <table name="aiMemory_mysql" dbtable="ai_memory" dbserver="dbserver1" statup="false"
                ifCreate="create"
                createSql="CREATE TABLE `ai_memory` (
@@ -206,6 +216,16 @@
   updated_at INTEGER,
   last_login_at INTEGER DEFAULT 0,
   last_login_ip TEXT DEFAULT ''
+);"/>
+
+        <!-- 系统设置 KV 表（注册开关/注册审核开关）：由 dbUserModule 的 BeanTable 读写，启动时自动建表 -->
+        <table name="aiSettings" dbtable="ai_settings" dbserver="sqliteServer" statup="true"
+               ifCreate="create"
+               createSql="CREATE TABLE IF NOT EXISTS ai_settings (
+  setting_key TEXT PRIMARY KEY,
+  setting_value TEXT DEFAULT '',
+  updated_at INTEGER DEFAULT 0,
+  updated_by TEXT DEFAULT ''
 );"/>
 
         <table name="aiMemory" dbtable="ai_memory" dbserver="sqliteServer" statup="true"

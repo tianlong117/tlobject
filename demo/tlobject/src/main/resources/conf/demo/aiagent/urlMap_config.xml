@@ -50,6 +50,13 @@
         <url  value="/usersResetPassword">
             <msg action="usersResetPassword" destination="webui" clientType="jsonClient"/>
         </url>
+        <!-- 注册管理（管理员）：读取/保存自助注册与注册审核开关 -->
+        <url  value="/registerSettings">
+            <msg action="registerSettings" destination="webui" clientType="jsonClient"/>
+        </url>
+        <url  value="/registerSettingsUpdate">
+            <msg action="registerSettingsUpdate" destination="webui" clientType="jsonClient"/>
+        </url>
         <url  value="/command">
             <msg action="command" destination="webui" clientType="jsonClient"/>
         </url>

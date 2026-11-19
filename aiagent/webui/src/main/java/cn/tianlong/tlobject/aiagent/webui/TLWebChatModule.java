@@ -108,7 +108,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             "workspaceList", "workspaceDelete", "workspaceMkdir", "workspaceUpload",
             "chatStream", "events",
             "profile", "profileUpdate", "changePassword", "avatar",
-            "users", "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword");
+            "users", "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword",
+            "registerSettings", "registerSettingsUpdate");
     /** 需要 CSRF 防护的状态变更 web action（读接口/SSE 不在内）。 */
     private static final java.util.Set<String> CSRF_PROTECTED_ACTIONS = java.util.Set.of(
             "login", "logout", "register",
@@ -116,6 +117,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             "upload", "workspaceDelete", "workspaceMkdir", "workspaceUpload",
             "profileUpdate", "changePassword",
             "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword",
+            "registerSettingsUpdate",
             "setCurrentSession", "inboxAdd", "inboxRead", "inboxDelete");
     /** userId:sessionId → 流式 writer */
     private final Map<String, TLWebChannel> streamWriters = new ConcurrentHashMap<>();
@@ -263,6 +265,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "usersDelete":
             case "usersResetPassword":
                 return doUserAdmin(msg);
+            case "registerSettings":
+                return doRegisterSettings();
+            case "registerSettingsUpdate":
+                return doRegisterSettingsUpdate(msg);
             case "command":
                 return doCommand(msg);
             case "chat":
@@ -338,9 +344,11 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 out.put("success", ok);
                 if (!ok) {
                     out.put("error", r.getStringParam("error", "登录失败"));
-                    // webui 边界收敛错误码：只透出 disabled/storage_error，账号存在性类错误统一 login_failed
+                    // webui 边界收敛错误码：只透出 disabled/pending_approval/storage_error，
+                    // 账号存在性类错误统一 login_failed
                     String code = r.getStringParam("errorCode", "");
-                    if ("disabled".equals(code) || "storage_error".equals(code)) out.put("errorCode", code);
+                    if ("disabled".equals(code) || "storage_error".equals(code)
+                            || "pending_approval".equals(code)) out.put("errorCode", code);
                     else out.put("errorCode", "login_failed");
                     return out;
                 }
@@ -721,6 +729,22 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return d.getIntParam("status", 0) == 1;
     }
 
+    /**
+     * 登录页注册策略：用户模块缺失/故障时回退旧行为（允许注册、注册即启用）。
+     * 只影响页面展示，最终仍由用户模块 register 强制校验。
+     */
+    private Map<String, Object> registerPolicy() {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("allowRegister", true);
+        out.put("registerNeedApproval", false);
+        TLMsg r = callUserModule("getRegisterPolicy", null);
+        if (r != null && r.parseBoolean("success", false)) {
+            out.put("allowRegister", r.parseBoolean("allowRegister", true));
+            out.put("registerNeedApproval", r.parseBoolean("registerNeedApproval", false));
+        }
+        return out;
+    }
+
     /** 用户模块返回的存储故障映射为 503（服务暂不可用），其余失败保持既定状态码。 */
     private Integer clientStatus(TLMsg r, int defaultStatus) {
         return r != null && "storage_error".equals(r.getStringParam("errorCode", ""))
@@ -746,6 +770,11 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             out.put("avatar", r.getStringParam("avatar", ""));
             out.put("isAdmin", r.parseBoolean("isAdmin", false));
         }
+        // 注册结果：审核开启时新账号是待审核态（status=2），前端据此不自动登录
+        if (r.containsParam("pendingApproval"))
+            out.put("pendingApproval", r.parseBoolean("pendingApproval", false));
+        if (r.containsParam("status"))
+            out.put("status", r.getIntParam("status", 1));
         return out;
     }
 
@@ -782,6 +811,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             userId = null;
         }
         out.put("loggedIn", userId != null);
+        Map<String, Object> policy = registerPolicy();
+        out.put("allowRegister", policy.get("allowRegister"));
+        out.put("registerNeedApproval", policy.get("registerNeedApproval"));
         if (userId != null) {
             out.put("userId", userId);
             out.put("csrfToken", ensureCsrfToken(getRequest().getSession(true)));
@@ -1004,6 +1036,53 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (r.containsParam("total")) out.put("total", r.getIntParam("total", 0));
         if (r.containsParam("users")) out.put("users", toJsonable(r.getParam("users")));
         if (r.containsParam("user")) out.put("user", toJsonable(r.getParam("user")));
+        return outJson(out, null);
+    }
+
+    // ======================== 注册管理（管理员） ========================
+
+    private TLMsg doRegisterSettings() {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        if (!isAdmin(uid)) return outJson(failMap("需要管理员权限"), 403);
+        TLMsg r = callUserModule("getRegisterSettings", Map.of("operatorId", uid));
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = new LinkedHashMap<>();
+        boolean ok = r.parseBoolean("success", false);
+        out.put("success", ok);
+        if (!ok) {
+            out.put("error", r.getStringParam("error", "加载设置失败"));
+            if (r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
+            return outJson(out, clientStatus(r, 400));
+        }
+        for (String k : new String[]{"allowRegister", "registerNeedApproval",
+                "available", "persisted", "updatedAt", "updatedBy"})
+            if (r.containsParam(k)) out.put(k, r.getParam(k));
+        return outJson(out, null);
+    }
+
+    private TLMsg doRegisterSettingsUpdate(TLMsg msg) {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        if (!isAdmin(uid)) return outJson(failMap("需要管理员权限"), 403);
+        Map<String, Object> p = new LinkedHashMap<>();
+        p.put("operatorId", uid);   // 操作者只信会话
+        for (String k : new String[]{"allowRegister", "registerNeedApproval"})
+            if (msg.containsParam(k)) p.put(k, msg.getParam(k));
+        TLMsg r = callUserModule("setRegisterSettings", p);
+        if (r == null) return outJson(failMap("用户模块未启用"), null);
+        Map<String, Object> out = new LinkedHashMap<>();
+        boolean ok = r.parseBoolean("success", false);
+        out.put("success", ok);
+        if (!ok) {
+            out.put("error", r.getStringParam("error", "保存失败"));
+            if (r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
+            return outJson(out, clientStatus(r, 400));
+        }
+        out.put("allowRegister", r.parseBoolean("allowRegister", false));
+        out.put("registerNeedApproval", r.parseBoolean("registerNeedApproval", false));
+        if (r.containsParam("updatedAt")) out.put("updatedAt", r.getParam("updatedAt"));
+        if (r.containsParam("updatedBy")) out.put("updatedBy", r.getStringParam("updatedBy", ""));
         return outJson(out, null);
     }
 

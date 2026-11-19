@@ -14,6 +14,8 @@ const state = {
   autoRun: false,        // 当前会话的自动运行（通配授权）状态，由 refreshAutoState 同步
   profile: null,         // 当前用户资料（昵称/头像/角色）；登录或 /api/session 返回
   csrfToken: null,       // 会话级 CSRF token（登录 / /api/session 返回；状态变更请求随 X-CSRF-Token 发送）
+  allowRegister: true,   // /api/session 返回；false=管理员关闭了自助注册（登录页隐藏注册页签）
+  registerNeedApproval: false,  // 注册后需管理员审核（注册页签展示提示，注册成功不自动登录）
   pendingAbandonSessionId: null,  // 断点弹框「放弃/丢弃」目标会话（pending_approval 或普通 checkpoint，见 promptCheckpoint）
   pendingAbandonIsApproval: false // 目标断点是否待批：true=abandonApproval（撤销审批），false=discardCheckpoint（仅丢弃断点）
 };
@@ -365,6 +367,9 @@ function showLogin() {
 async function initSession() {
   try {
     const r = await fetch('/api/session').then(x => x.json());
+    state.allowRegister = r.allowRegister !== false;
+    state.registerNeedApproval = !!r.registerNeedApproval;
+    applyRegisterPolicy();
     if (r.loggedIn) {
       state.userId = r.userId;
       state.profile = r.user || null;
@@ -387,7 +392,18 @@ async function initSession() {
 }
 let authMode = 'login';
 
+/** 注册策略（/api/session 返回）：关闭注册时隐藏页签；需审核时在注册表单显示提示 */
+function applyRegisterPolicy() {
+  const allow = state.allowRegister !== false;
+  const tab = $('#tabRegister');
+  if (tab) tab.classList.toggle('hidden', !allow);
+  const hint = $('#regApprovalHint');
+  if (hint) hint.classList.toggle('hidden', !state.registerNeedApproval);
+  if (!allow && authMode === 'register') setAuthMode('login');
+}
+
 function setAuthMode(mode) {
+  if (mode === 'register' && state.allowRegister === false) mode = 'login';   // 防御：隐藏页签不可进入
   authMode = mode;
   $('#tabLogin').classList.toggle('active', mode === 'login');
   $('#tabRegister').classList.toggle('active', mode === 'register');
@@ -408,6 +424,14 @@ async function doLogin() {
         userId, password, nickname: $('#regNickname').value.trim()
       });
       if (!reg.success) throw new Error(reg.error || '注册失败');
+      if (reg.pendingApproval) {
+        // 需管理员审核：不自动登录（登录必然 pending_approval），停在登录页提示等待
+        setAuthMode('login');   // 内部会清空 loginErr
+        const err = $('#loginErr');
+        err.textContent = '注册成功，账号正在等待管理员审核';
+        err.classList.remove('hidden');
+        return;
+      }
     }
     // 注册成功即切回登录页签再自动登录：自动登录失败时用户停在「登录」而非重复注册
     setAuthMode('login');

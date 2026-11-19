@@ -5,6 +5,7 @@ import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.db.TLDatabase;
+import cn.tianlong.tlobject.db.dbdata.BeanTable;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import javax.crypto.SecretKeyFactory;
@@ -55,6 +56,9 @@ public class TLUserModule extends TLBaseModule {
     protected String selfRegisterRole = "member";
     protected List<String> adminRoles = new ArrayList<>(List.of("admin"));
     protected boolean allowSelfRegister = true;
+    protected String settingsTableName = "aiSettings";
+    /** DB 无 settings 记录时的兜底；注册时是否进入待审核（status=2） */
+    protected boolean registerNeedApproval = false;
     protected int minPasswordLength = 6;
     protected int maxPasswordLength = 64;
     protected int maxAvatarBytes = 204800;
@@ -63,6 +67,34 @@ public class TLUserModule extends TLBaseModule {
     protected String bootstrapGroups = "";
 
     protected IObject usersTable;
+    /** 注册设置表（ai_settings）的表对象封装；表未声明/不可用时为 null，走模块参数兜底 */
+    protected BeanTable settingsBean;
+
+    private static final String SETTING_ALLOW_REGISTER = "allowSelfRegister";
+    private static final String SETTING_NEED_APPROVAL = "registerNeedApproval";
+
+    /** 注册设置快照：成对读取两个开关，避免读到半新半旧的组合 */
+    protected static class RegisterSettings {
+        final boolean allowRegister;
+        final boolean registerNeedApproval;
+        final long updatedAt;
+        final String updatedBy;
+        final boolean persisted;
+        RegisterSettings(boolean allowRegister, boolean registerNeedApproval,
+                         long updatedAt, String updatedBy, boolean persisted) {
+            this.allowRegister = allowRegister;
+            this.registerNeedApproval = registerNeedApproval;
+            this.updatedAt = updatedAt;
+            this.updatedBy = updatedBy;
+            this.persisted = persisted;
+        }
+    }
+
+    protected volatile RegisterSettings registerSettings =
+            new RegisterSettings(true, false, 0L, "", false);
+    /** 是否已成功从 DB 读过设置；false 时读操作会懒重试（DB 暂不可用场景） */
+    protected volatile boolean settingsLoaded = false;
+    protected final Object settingsLock = new Object();
 
     public TLUserModule() { super(); }
     public TLUserModule(String name) { super(name); }
@@ -82,6 +114,9 @@ public class TLUserModule extends TLBaseModule {
                 case "changePassword": return changePassword(msg);
                 case "getAvatar": return getAvatar(msg);
                 case "isAdmin": return isAdminAction(msg);
+                case "getRegisterPolicy": return getRegisterPolicy();
+                case "getRegisterSettings": return getRegisterSettings(msg);
+                case "setRegisterSettings": return setRegisterSettings(msg);
                 case "listUsers": return listUsers(msg);
                 case "createUser": return createUser(msg);
                 case "updateUser": return updateUser(msg);
@@ -113,6 +148,7 @@ public class TLUserModule extends TLBaseModule {
             verifyPassword(password, DUMMY_HASH);   // 等时，避免用耗时判断账号是否存在
             return err("user_not_found", "用户ID或密码错误");
         }
+        if (u.status == 2) return err("pending_approval", "账号正在等待管理员审核");
         if (u.status != 1) return err("disabled", "账号已被禁用，请联系管理员");
         if (u.passwordHash == null || u.passwordHash.isEmpty())
             return err("empty_password", "用户ID或密码错误");
@@ -131,7 +167,9 @@ public class TLUserModule extends TLBaseModule {
     }
 
     private synchronized TLMsg register(TLMsg msg) {
-        if (!allowSelfRegister) return err("register_disabled", "当前已关闭自助注册");
+        ensureRegisterSettings();
+        RegisterSettings settings = registerSettings;
+        if (!settings.allowRegister) return err("register_disabled", "当前已关闭自助注册");
         String userId = msg.getStringParam("userId", "").trim();
         String password = msg.getStringParam("password", "");
         String nickname = msg.getStringParam("nickname", "").trim();
@@ -152,11 +190,14 @@ public class TLUserModule extends TLBaseModule {
         r.roles = selfRegisterRole;
         r.bio = bio;
         r.email = email;
-        r.status = 1;
+        r.status = settings.registerNeedApproval ? 2 : 1;
         r.createdAt = now;
         r.updatedAt = now;
         if (!insertRecord(r)) return err("storage_error", "注册失败，请稍后重试");
-        return okUser(r);
+        TLMsg out = okUser(r);
+        out.setParam("pendingApproval", r.status == 2);
+        out.setParam("status", r.status);
+        return out;
     }
 
     private TLMsg getUserInfo(TLMsg msg) {
@@ -322,6 +363,7 @@ public class TLUserModule extends TLBaseModule {
         r.group = group;
         r.bio = bio;
         r.email = email;
+        // 手动创建仅支持启用/禁用；status=2 是自助注册产生的待审核态，管理端创建不直接产生
         r.status = status == 0 ? 0 : 1;
         r.createdAt = now;
         r.updatedAt = now;
@@ -348,12 +390,11 @@ public class TLUserModule extends TLBaseModule {
         // 必须用完整记录：updateRecord 是全字段更新，轻量记录会清空未加载的昵称/简介/邮箱等字段
         UserRecord u = findByIdFull(userId);
         if (u == null) return err("user_not_found", "用户不存在");
-        if (operator.equals(userId)) {
-            int newStatus = msg.containsParam("status") ? msg.getIntParam("status", u.status) : u.status;
-            if (newStatus == 0) {
-                audit("updateUser", operator, userId, "denied:self_forbidden");
-                return err("self_forbidden", "不能禁用自己");
-            }
+        int status = msg.containsParam("status") ? msg.getIntParam("status", u.status) : u.status;
+        int normalizedStatus = normalizeUserStatus(status);
+        if (operator.equals(userId) && normalizedStatus != 1) {
+            audit("updateUser", operator, userId, "denied:self_forbidden");
+            return err("self_forbidden", "不能禁用或挂起自己的账号");
         }
         String nickname = msg.containsParam("nickname")
                 ? msg.getStringParam("nickname", "").trim() : u.nickname;
@@ -362,8 +403,6 @@ public class TLUserModule extends TLBaseModule {
         String group = msg.containsParam("group") ? msg.getStringParam("group", "").trim() : u.group;
         String bio = msg.containsParam("bio") ? msg.getStringParam("bio", "").trim() : u.bio;
         String email = msg.containsParam("email") ? msg.getStringParam("email", "").trim() : u.email;
-        int status = msg.containsParam("status") ? msg.getIntParam("status", u.status) : u.status;
-        int normalizedStatus = status == 0 ? 0 : 1;
         if (parseRoles(roles).isEmpty()) return err("invalid_roles", "角色不能为空");
         String e = validateProfile(nickname, bio, email);
         if (e != null) return err("invalid_profile", e);
@@ -437,6 +476,173 @@ public class TLUserModule extends TLBaseModule {
         }
         audit("resetPassword", operator, userId, "ok");
         return createMsg().setParam("success", true);
+    }
+
+    // ======================== 注册设置（ai_settings / BeanTable） ========================
+
+    protected boolean settingsStorageAvailable() {
+        return settingsBean != null && settingsBean.getTable() != null;
+    }
+
+    /** 读设置表：DB 有记录覆盖参数，无记录保留参数；返回是否成功读到。 */
+    protected boolean reloadRegisterSettings() {
+        if (!settingsStorageAvailable()) return false;
+        try {
+            List<Map<String, Object>> rows = settingsBean.getAll(new String[]{
+                    "setting_key", "setting_value", "updated_at", "updated_by"});
+            boolean allow = allowSelfRegister;
+            boolean need = registerNeedApproval;
+            long updatedAt = 0L;
+            String updatedBy = "";
+            boolean persisted = false;
+            if (rows != null) {
+                for (Map<String, Object> row : rows) {
+                    String key = rowStr(row, "setting_key", "");
+                    if (!SETTING_ALLOW_REGISTER.equals(key) && !SETTING_NEED_APPROVAL.equals(key))
+                        continue;
+                    persisted = true;
+                    long ts = toLong(row.get("updated_at"), 0L);
+                    if (ts >= updatedAt) {
+                        updatedAt = ts;
+                        updatedBy = rowStr(row, "updated_by", "");
+                    }
+                    Boolean value = parseStrictBoolean(row.get("setting_value"));
+                    if (value == null) {
+                        putLog("注册设置值非法: " + key + "=" + row.get("setting_value"),
+                                LogLevel.WARN, "settings");
+                        continue;
+                    }
+                    if (SETTING_ALLOW_REGISTER.equals(key)) allow = value;
+                    else need = value;
+                }
+            }
+            applyRegisterSettings(allow, need, updatedAt, updatedBy, persisted);
+            return true;
+        } catch (RuntimeException e) {
+            putLog("注册设置读取失败，使用模块参数兜底: " + e, LogLevel.WARN, "settings");
+            return false;
+        }
+    }
+
+    /** 单键 upsert（BeanTable.replace → replace into）；设置保存是低频管理操作，逐键写即可。 */
+    protected boolean persistSetting(String key, String value, String operator) {
+        if (!settingsStorageAvailable()) return false;
+        LinkedHashMap<String, Object> data = new LinkedHashMap<>();
+        data.put("setting_key", key);
+        data.put("setting_value", value);
+        data.put("updated_at", System.currentTimeMillis());
+        data.put("updated_by", operator == null ? "" : operator);
+        try {
+            return settingsBean.replace(data) > 0;
+        } catch (RuntimeException e) {
+            putLog("注册设置写入失败: " + key + " " + e, LogLevel.WARN, "settings");
+            return false;
+        }
+    }
+
+    protected void applyRegisterSettings(boolean allow, boolean need,
+                                         long updatedAt, String updatedBy, boolean persisted) {
+        synchronized (settingsLock) {
+            registerSettings = new RegisterSettings(allow, need, updatedAt,
+                    updatedBy == null ? "" : updatedBy, persisted);
+            settingsLoaded = true;
+        }
+    }
+
+    private void resetRegisterSettingsFromParams() {
+        synchronized (settingsLock) {
+            registerSettings = new RegisterSettings(allowSelfRegister, registerNeedApproval, 0L, "", false);
+            settingsLoaded = false;
+        }
+    }
+
+    private void ensureRegisterSettings() {
+        if (settingsLoaded || !settingsStorageAvailable()) return;
+        reloadRegisterSettings();
+    }
+
+    /** 公开只读策略：仅两个布尔值，供 webui 登录页/会话接口使用。 */
+    private TLMsg getRegisterPolicy() {
+        ensureRegisterSettings();
+        RegisterSettings s = registerSettings;
+        return createMsg().setParam("success", true)
+                .setParam("allowRegister", s.allowRegister)
+                .setParam("registerNeedApproval", s.registerNeedApproval);
+    }
+
+    /** 管理员读取：策略 + 存储可用性/最后修改元数据。 */
+    private TLMsg getRegisterSettings(TLMsg msg) {
+        String denied = adminDenied(msg.getStringParam("operatorId", ""));
+        if (denied != null) return err("forbidden", denied);
+        ensureRegisterSettings();
+        RegisterSettings s = registerSettings;
+        return createMsg().setParam("success", true)
+                .setParam("allowRegister", s.allowRegister)
+                .setParam("registerNeedApproval", s.registerNeedApproval)
+                .setParam("available", settingsStorageAvailable() && settingsLoaded)
+                .setParam("persisted", s.persisted)
+                .setParam("updatedAt", s.updatedAt)
+                .setParam("updatedBy", s.updatedBy);
+    }
+
+    private synchronized TLMsg setRegisterSettings(TLMsg msg) {
+        String operator = msg.getStringParam("operatorId", "");
+        String denied = adminDenied(operator);
+        if (denied != null) {
+            audit("setRegisterSettings", operator, "ai_settings", "denied:forbidden");
+            return err("forbidden", denied);
+        }
+        boolean hasAllow = msg.containsParam("allowRegister");
+        boolean hasNeed = msg.containsParam("registerNeedApproval");
+        if (!hasAllow && !hasNeed) {
+            audit("setRegisterSettings", operator, "ai_settings", "denied:invalid_input");
+            return err("invalid_input", "缺少注册设置项");
+        }
+        Boolean allow = hasAllow ? parseStrictBoolean(msg.getParam("allowRegister")) : null;
+        Boolean need = hasNeed ? parseStrictBoolean(msg.getParam("registerNeedApproval")) : null;
+        if ((hasAllow && allow == null) || (hasNeed && need == null))
+            return err("invalid_input", "设置项必须为 true/false");
+        if (!settingsStorageAvailable()) {
+            audit("setRegisterSettings", operator, "ai_settings", "error:storage_unavailable");
+            return err("storage_error", "设置存储不可用（aiSettings 表未声明或数据库不可用）");
+        }
+        boolean ok = true;
+        if (allow != null && !persistSetting(SETTING_ALLOW_REGISTER, String.valueOf(allow), operator))
+            ok = false;
+        if (need != null && !persistSetting(SETTING_NEED_APPROVAL, String.valueOf(need), operator))
+            ok = false;
+        if (!ok) {
+            audit("setRegisterSettings", operator, "ai_settings", "error");
+            reloadRegisterSettings();   // 部分成功时尽力与 DB 对齐
+            return err("storage_error", "保存失败，请稍后重试");
+        }
+        RegisterSettings cur = registerSettings;
+        applyRegisterSettings(allow != null ? allow : cur.allowRegister,
+                need != null ? need : cur.registerNeedApproval,
+                System.currentTimeMillis(), operator, true);
+        RegisterSettings s = registerSettings;
+        audit("setRegisterSettings", operator, "ai_settings",
+                "ok:allowRegister=" + s.allowRegister + ",registerNeedApproval=" + s.registerNeedApproval);
+        return createMsg().setParam("success", true)
+                .setParam("allowRegister", s.allowRegister)
+                .setParam("registerNeedApproval", s.registerNeedApproval)
+                .setParam("updatedAt", s.updatedAt)
+                .setParam("updatedBy", s.updatedBy);
+    }
+
+    /** 严格布尔解析：Boolean / 0|1 / true|false；其余返回 null（加载时 WARN 跳过，写入时 invalid_input）。 */
+    static Boolean parseStrictBoolean(Object value) {
+        if (value instanceof Boolean) return (Boolean) value;
+        if (value instanceof Number) {
+            int n = ((Number) value).intValue();
+            return n == 1 ? Boolean.TRUE : (n == 0 ? Boolean.FALSE : null);
+        }
+        if (value != null) {
+            String s = String.valueOf(value).trim();
+            if ("true".equalsIgnoreCase(s)) return Boolean.TRUE;
+            if ("false".equalsIgnoreCase(s)) return Boolean.FALSE;
+        }
+        return null;
     }
 
     /** 管理员写操作审计：只记操作者/目标/动作/结果，不记密码。 */
@@ -532,6 +738,8 @@ public class TLUserModule extends TLBaseModule {
             else putLog("adminRoles 配置为空，保留默认值", LogLevel.WARN, "params");
         }
         allowSelfRegister = bool(p, "allowSelfRegister", allowSelfRegister);
+        settingsTableName = str(p, "settingsTableName", settingsTableName);
+        registerNeedApproval = bool(p, "registerNeedApproval", registerNeedApproval);
         minPasswordLength = num(p, "minPasswordLength", minPasswordLength);
         maxAvatarBytes = num(p, "maxAvatarBytes", maxAvatarBytes);
         pbkdf2Iterations = num(p, "pbkdf2Iterations", pbkdf2Iterations);
@@ -549,6 +757,8 @@ public class TLUserModule extends TLBaseModule {
         }
         bootstrapUsers = str(p, "bootstrapUsers", "");
         bootstrapGroups = str(p, "bootstrapGroups", "");
+        // 参数是 DB 无记录时的兜底；已成功从 DB 加载过则不再回退
+        if (!settingsLoaded) resetRegisterSettingsFromParams();
     }
 
     @Override
@@ -568,12 +778,33 @@ public class TLUserModule extends TLBaseModule {
             putLog("用户模块初始化失败：表模块不可用 " + tableName, LogLevel.ERROR, "init");
             return null;
         }
+        // 设置表软失败：表未声明/不可用不影响用户模块启动，设置走模块参数兜底
+        try {
+            String settingsDbTable = TLDatabase.getTableDbName(settingsTableName, this);
+            if (settingsDbTable == null || settingsDbTable.trim().isEmpty()) {
+                settingsBean = null;
+                putLog("注册设置表未声明 " + settingsTableName + "，设置持久化不可用，使用模块参数兜底",
+                        LogLevel.WARN, "init");
+            } else {
+                settingsBean = TLDatabase.getBeanTable(settingsTableName, "setting_key", this);
+                if (settingsBean == null || settingsBean.getTable() == null) {
+                    settingsBean = null;
+                    putLog("注册设置表不可用 " + settingsTableName + "，使用模块参数兜底",
+                            LogLevel.WARN, "init");
+                }
+            }
+        } catch (Exception e) {
+            settingsBean = null;
+            putLog("注册设置表初始化失败 " + settingsTableName + "，使用模块参数兜底: " + e,
+                    LogLevel.WARN, "init");
+        }
         return this;
     }
 
     @Override
     public void runStartMsg() {
         super.runStartMsg();
+        reloadRegisterSettings();   // 失败只 WARN，保留参数兜底；后续读操作会懒重试
         try {
             bootstrapIfEmpty();
         } catch (StorageException e) {
@@ -840,6 +1071,11 @@ public class TLUserModule extends TLBaseModule {
 
     static String joinRoles(List<String> roles) {
         return String.join(",", roles);
+    }
+
+    /** 用户状态三态归一化：0=禁用 / 1=启用 / 2=待审核；其他非零值保持历史行为归 1。 */
+    static int normalizeUserStatus(int status) {
+        return (status == 0 || status == 2) ? status : 1;
     }
 
     boolean hasAdminRole(UserRecord r) {

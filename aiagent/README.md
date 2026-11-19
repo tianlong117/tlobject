@@ -1764,11 +1764,17 @@ High-risk tool operations require human approval before they are executed.
 - `TLUserModule` (factory name `dbUserModule`, `singleton="true"`, direct `classfile` + `necessary="yes"`)
 - Table `ai_users` declared in `database_config.xml` (SQLite active / MySQL standby)
 - Seeds when the table is empty: `admin/123456`, `tianlong/123456`, `console_user` (no password), `dongq`/`xiaoming` (console-only)
-- Web: login/register/profile/avatar; Manage page -> Users (admin role)
+- Web: login/register/profile/avatar; Manage page -> Users / Registration (admin role)
+- Registration management (admin): enable/disable self-registration and require admin approval.
+  A pending account is `status=2` (approve → 1 / reject → 0; login returns `errorCode=pending_approval`).
+  Both switches persist in `ai_settings` (read/write via `BeanTable.getAll/replace`; a missing table
+  soft-fails and falls back to the `allowSelfRegister` / `registerNeedApproval` module params).
+  `/api/session` exposes `allowRegister`/`registerNeedApproval`; when approval is required the
+  registration UI shows a notice and does not auto-login.
 - PBKDF2 passwords, multi-role + group, status/last login, admin protections, audit logs
 - CSRF: same-origin `Origin`/`Referer` + session `X-CSRF-Token` (scripts must fetch it from `/api/login` or `/api/session`); session cookie `HttpOnly; SameSite=Lax`
 - Console `-u`: passwordless but validates existence/enabled; an invalid user enters the unlogged-in prompt (no exit) — `/login <userId>` retries, `/shutdown` stops the app
-- Self-test: `TLUserModuleSelfTest` (80 checks)
+- Self-test: `TLUserModuleSelfTest` (102 checks)
 
 ### Web Interaction Window (aiagent/webui)
 

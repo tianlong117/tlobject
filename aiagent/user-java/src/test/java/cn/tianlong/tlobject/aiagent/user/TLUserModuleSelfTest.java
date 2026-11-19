@@ -29,6 +29,7 @@ public class TLUserModuleSelfTest {
         testAuthFlows();
         testProfileFlows();
         testAdminFlows();
+        testRegisterSettings();
         testPasswordValidation();
         System.out.println("[TLUserModuleSelfTest] pass=" + pass + " fail=" + fail);
         if (fail > 0) System.exit(1);
@@ -202,6 +203,32 @@ public class TLUserModuleSelfTest {
             return true;
         }
         @Override protected boolean deleteRecord(String userId) { return rows.remove(userId) != null; }
+
+        // ===== 注册设置（ai_settings）桩：内存 map 模拟 DB =====
+        final Map<String, String> settings = new LinkedHashMap<>();
+        boolean settingsAvailable = true;
+        boolean settingsPersistOk = true;
+
+        @Override protected boolean settingsStorageAvailable() { return settingsAvailable; }
+
+        @Override protected boolean reloadRegisterSettings() {
+            if (!settingsAvailable) return false;
+            boolean allow = allowSelfRegister;
+            boolean need = registerNeedApproval;
+            String a = settings.get("allowSelfRegister");
+            if (a != null) allow = Boolean.parseBoolean(a);
+            String n = settings.get("registerNeedApproval");
+            if (n != null) need = Boolean.parseBoolean(n);
+            boolean persisted = !settings.isEmpty();
+            applyRegisterSettings(allow, need, persisted ? 1L : 0L, persisted ? "admin" : "", persisted);
+            return true;
+        }
+
+        @Override protected boolean persistSetting(String key, String value, String operator) {
+            if (!settingsAvailable || !settingsPersistOk) return false;
+            settings.put(key, value);
+            return true;
+        }
     }
 
     static UserRecord copy(UserRecord r) {
@@ -426,6 +453,165 @@ public class TLUserModuleSelfTest {
                 && stDisabled.getIntParam("status", 1) == 0);
         TLMsg stUnknown = call(m, "getUserStatus", "userId", "ghost");
         check("78 状态查询未知", !stUnknown.parseBoolean("found", true));
+    }
+
+    static void testRegisterSettings() {
+        InMemoryUserModule m = seeded();
+        TLMsg policy = call(m, "getRegisterPolicy");
+        check("81 默认策略允许注册且无需审核", policy.parseBoolean("success", false)
+                && policy.parseBoolean("allowRegister", false)
+                && !policy.parseBoolean("registerNeedApproval", true));
+
+        InMemoryUserModule paramOnly = new InMemoryUserModule();
+        Map<String, String> p = new HashMap<>();
+        p.put("allowSelfRegister", "false");
+        p.put("registerNeedApproval", "true");
+        paramOnly.applyParams(p);
+        TLMsg paramPolicy = call(paramOnly, "getRegisterPolicy");
+        check("82 无DB记录时参数兜底", !paramPolicy.parseBoolean("allowRegister", true)
+                && paramPolicy.parseBoolean("registerNeedApproval", false));
+
+        m.settings.put("allowSelfRegister", "false");
+        m.reloadRegisterSettings();
+        TLMsg closedReg = call(m, "register", "userId", "closeduser", "password", "pw123456");
+        check("83 DB 关闭注册覆盖参数", "register_disabled".equals(closedReg.getStringParam("errorCode", ""))
+                && !call(m, "getRegisterPolicy").parseBoolean("allowRegister", true));
+
+        m.settings.put("allowSelfRegister", "true");
+        m.settings.put("registerNeedApproval", "false");
+        m.reloadRegisterSettings();
+        TLMsg direct = call(m, "register", "userId", "directuser", "password", "pw123456");
+        check("84 审核关闭时注册即启用", direct.parseBoolean("success", false)
+                && direct.getIntParam("status", 0) == 1
+                && !direct.parseBoolean("pendingApproval", true)
+                && m.rows.get("directuser").status == 1);
+
+        m.settings.put("registerNeedApproval", "true");
+        m.reloadRegisterSettings();
+        TLMsg pending = call(m, "register", "userId", "pendinguser", "password", "pw123456");
+        check("85 审核开启时注册进入待审核", pending.parseBoolean("success", false)
+                && pending.getIntParam("status", 0) == 2
+                && pending.parseBoolean("pendingApproval", false)
+                && m.rows.get("pendinguser").status == 2);
+
+        TLMsg pendingLogin = call(m, "login", "userId", "pendinguser", "password", "pw123456");
+        check("86 待审核用户登录拒绝", !pendingLogin.parseBoolean("success", true)
+                && "pending_approval".equals(pendingLogin.getStringParam("errorCode", "")));
+        check("87 待审核登录文案", "账号正在等待管理员审核"
+                .equals(pendingLogin.getStringParam("error", "")));
+
+        TLMsg approve = call(m, "updateUser", "operatorId", "admin", "userId", "pendinguser", "status", 1);
+        check("88 审核通过后可登录", approve.parseBoolean("success", false)
+                && call(m, "login", "userId", "pendinguser", "password", "pw123456")
+                        .parseBoolean("success", false));
+
+        TLMsg reject = call(m, "updateUser", "operatorId", "admin", "userId", "directuser", "status", 0);
+        TLMsg rejectedLogin = call(m, "login", "userId", "directuser", "password", "pw123456");
+        check("89 拒绝后为禁用态", reject.parseBoolean("success", false)
+                && m.rows.get("directuser").status == 0
+                && "disabled".equals(rejectedLogin.getStringParam("errorCode", "")));
+
+        call(m, "register", "userId", "keepuser", "password", "pw123456");
+        TLMsg keepPending = call(m, "updateUser", "operatorId", "admin", "userId", "keepuser",
+                "nickname", "待审改名");
+        check("90 编辑未传 status 保留待审核", keepPending.parseBoolean("success", false)
+                && m.rows.get("keepuser").status == 2
+                && "待审改名".equals(m.rows.get("keepuser").nickname));
+
+        m.settings.put("registerNeedApproval", "false");
+        m.reloadRegisterSettings();
+        call(m, "register", "userId", "explicituser", "password", "pw123456");
+        m.settings.put("registerNeedApproval", "true");
+        m.reloadRegisterSettings();
+        call(m, "updateUser", "operatorId", "admin", "userId", "explicituser", "status", 2);
+        check("91 显式 status=2 保留待审核", m.rows.get("explicituser").status == 2);
+
+        TLMsg invalidUser = call(m, "register", "userId", "invaliduser", "password", "pw123456");
+        call(m, "updateUser", "operatorId", "admin", "userId", "invaliduser", "status", 5);
+        check("92 非法状态归一为启用", invalidUser.parseBoolean("success", false)
+                && m.rows.get("invaliduser").status == 1);
+
+        TLMsg pendingList = call(m, "listUsers", "operatorId", "admin", "keyword", "",
+                "status", 2, "page", 1, "pageSize", 20);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> pendingRows = (List<Map<String, Object>>) pendingList.getParam("users");
+        boolean allPending = pendingRows != null && !pendingRows.isEmpty();
+        if (pendingRows != null)
+            for (Map<String, Object> row : pendingRows)
+                allPending = allPending && Long.valueOf(2L).equals(
+                        Long.valueOf(String.valueOf(row.get("status"))));
+        check("93 待审核筛选只返回 status=2", pendingList.parseBoolean("success", false)
+                && pendingList.getIntParam("total", 0) == 2 && allPending);
+
+        call(m, "updateUser", "operatorId", "admin", "userId", "keepuser",
+                "roles", "member,admin");
+        check("94 待审核用户无管理员权限且回落 guest",
+                m.rows.get("keepuser").status == 2
+                        && !call(m, "isAdmin", "userId", "keepuser").parseBoolean("admin", true)
+                        && ((List<?>) call(m, "getUserInfo", "userId", "keepuser").getParam("role"))
+                                .equals(List.of("guest")));
+
+        TLMsg deniedSet = call(m, "setRegisterSettings", "operatorId", "tianlong",
+                "allowRegister", false);
+        check("95 非管理员不能改注册设置", "forbidden".equals(deniedSet.getStringParam("errorCode", ""))
+                && call(m, "getRegisterPolicy").parseBoolean("allowRegister", false));
+
+        TLMsg saved = call(m, "setRegisterSettings", "operatorId", "admin",
+                "allowRegister", false, "registerNeedApproval", false);
+        TLMsg savedPolicy = call(m, "getRegisterPolicy");
+        check("96 管理员保存设置立即生效", saved.parseBoolean("success", false)
+                && !savedPolicy.parseBoolean("allowRegister", true)
+                && !savedPolicy.parseBoolean("registerNeedApproval", true)
+                && "register_disabled".equals(call(m, "register", "userId", "blockeduser",
+                        "password", "pw123456").getStringParam("errorCode", "")));
+
+        TLMsg noItems = call(m, "setRegisterSettings", "operatorId", "admin");
+        TLMsg badBool = call(m, "setRegisterSettings", "operatorId", "admin",
+                "allowRegister", "yes");
+        check("97 设置缺项/非法布尔拒绝", "invalid_input".equals(noItems.getStringParam("errorCode", ""))
+                && "invalid_input".equals(badBool.getStringParam("errorCode", "")));
+
+        TLMsg deniedGet = call(m, "getRegisterSettings", "operatorId", "tianlong");
+        TLMsg adminGet = call(m, "getRegisterSettings", "operatorId", "admin");
+        check("98 设置读取权限与元数据", "forbidden".equals(deniedGet.getStringParam("errorCode", ""))
+                && adminGet.parseBoolean("success", false)
+                && adminGet.parseBoolean("available", false)
+                && adminGet.parseBoolean("persisted", false)
+                && adminGet.getLongParam("updatedAt", 0L) > 0
+                && "admin".equals(adminGet.getStringParam("updatedBy", "")));
+
+        InMemoryUserModule off = seeded();
+        off.settingsAvailable = false;
+        TLMsg offSet = call(off, "setRegisterSettings", "operatorId", "admin",
+                "allowRegister", false);
+        check("99 设置存储不可用时软降级", call(off, "getRegisterPolicy")
+                        .parseBoolean("allowRegister", false)
+                && "storage_error".equals(offSet.getStringParam("errorCode", ""))
+                && call(off, "register", "userId", "offuser", "password", "pw123456")
+                        .parseBoolean("success", false));
+
+        InMemoryUserModule restarted = new InMemoryUserModule();
+        Map<String, String> restartParams = new HashMap<>();
+        restartParams.put("pbkdf2Iterations", "1000");
+        restartParams.put("allowSelfRegister", "true");
+        restartParams.put("registerNeedApproval", "true");
+        restarted.applyParams(restartParams);
+        restarted.settings.putAll(m.settings);   // 模拟重启后从 DB 读回
+        restarted.reloadRegisterSettings();
+        TLMsg restartPolicy = call(restarted, "getRegisterPolicy");
+        check("100 重启后 DB 设置覆盖参数", !restartPolicy.parseBoolean("allowRegister", true)
+                && !restartPolicy.parseBoolean("registerNeedApproval", true));
+
+        TLMsg createdPending = call(m, "createUser", "operatorId", "admin", "userId", "created2",
+                "password", "pw123456", "roles", "member", "status", 2);
+        check("101 管理端创建不产生待审核", createdPending.parseBoolean("success", false)
+                && m.rows.get("created2").status == 1);
+
+        TLMsg selfPending = call(m, "updateUser", "operatorId", "admin", "userId", "admin",
+                "status", 2);
+        check("102 管理员不能把自己转待审核",
+                "self_forbidden".equals(selfPending.getStringParam("errorCode", ""))
+                        && m.rows.get("admin").status == 1);
     }
 
     static void testPasswordValidation() {

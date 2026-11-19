@@ -9,10 +9,16 @@ const state = {
   selected: new Set(),  // 只存文件 path（批量删除仅文件；文件夹走行内删除按钮）
   sortBy: 'name',       // name | type | size | mtime
   sortDir: 1,           // 1 升序 / -1 降序；文件夹恒在最前
-  view: 'workspace',     // workspace | users
+  view: 'workspace',     // workspace | users | registration
   users: {
     list: [], total: 0, page: 1, pageSize: 20,
     keyword: '', status: '', editing: null
+  },
+  registration: {
+    allowRegister: true, registerNeedApproval: false,
+    available: true, persisted: false,
+    updatedAt: 0, updatedBy: '',
+    pending: [], total: 0, page: 1, pageSize: 20
   },
   isAdmin: false,
   csrfToken: null    // 会话级 CSRF token（/api/session 返回；状态变更请求随 X-CSRF-Token 发送）
@@ -50,7 +56,11 @@ async function boot() {
     const u = s.user || {};
     $('#mUser').textContent = (u.nickname || s.userId || '');
     state.isAdmin = !!s.isAdmin;
-    if (!state.isAdmin) $('#mNavUsers').classList.add('hidden');
+    if (!state.isAdmin) {
+      $('#mNavUsers').classList.add('hidden');
+      const regNav = $('#mNavRegistration');
+      if (regNav) regNav.classList.add('hidden');
+    }
     bindUserEvents();
     await load('');
   } catch (e) {
@@ -64,7 +74,10 @@ function switchView(view) {
     b.classList.toggle('active', b.dataset.view === view));
   $('#workspaceView').classList.toggle('hidden', view !== 'workspace');
   $('#usersView').classList.toggle('hidden', view !== 'users');
+  const regView = $('#registrationView');
+  if (regView) regView.classList.toggle('hidden', view !== 'registration');
   if (view === 'users') loadUsers();
+  if (view === 'registration') { loadRegisterSettings(); loadPendingUsers(); }
 }
 
 function bindUserEvents() {
@@ -91,6 +104,21 @@ function bindUserEvents() {
   $('#mUserNext').onclick = () => {
     const max = Math.max(1, Math.ceil(state.users.total / state.users.pageSize));
     if (state.users.page < max) { state.users.page++; loadUsers(); }
+  };
+  // 注册管理（元素判空：旧缓存 HTML 缺新面板时不影响其余功能）
+  const regSave = $('#mRegSave');
+  if (regSave) regSave.onclick = saveRegisterSettings;
+  const pendingRefresh = $('#mPendingRefresh');
+  if (pendingRefresh) pendingRefresh.onclick = () => loadPendingUsers();
+  const pendingPrev = $('#mPendingPrev');
+  if (pendingPrev) pendingPrev.onclick = () => {
+    if (state.registration.page > 1) { state.registration.page--; loadPendingUsers(); }
+  };
+  const pendingNext = $('#mPendingNext');
+  if (pendingNext) pendingNext.onclick = () => {
+    const g = state.registration;
+    const max = Math.max(1, Math.ceil(g.total / g.pageSize));
+    if (g.page < max) { g.page++; loadPendingUsers(); }
   };
   // 弹框：点遮罩关闭 / ESC 关闭
   $('#mUserModal').addEventListener('click', e => {
@@ -626,6 +654,7 @@ function renderUsers() {
     + '<th>角色</th><th>状态</th><th>最后登录</th><th>最后登录 IP</th><th>操作</th></tr></thead>';
   const tbody = document.createElement('tbody');
   u.list.forEach(user => {
+    const st = Number(user.status);
     const tr = document.createElement('tr');
     const tdAvatar = document.createElement('td');
     if (user.hasAvatar) {
@@ -645,8 +674,8 @@ function renderUsers() {
     const tdRoles = document.createElement('td');
     tdRoles.textContent = (user.roles || []).join(', ');
     const tdStatus = document.createElement('td');
-    tdStatus.textContent = Number(user.status) === 1 ? '启用' : '禁用';
-    tdStatus.className = Number(user.status) === 1 ? 'm-status-on' : 'm-status-off';
+    tdStatus.textContent = st === 1 ? '启用' : st === 2 ? '待审核' : '禁用';
+    tdStatus.className = st === 1 ? 'm-status-on' : st === 2 ? 'm-status-pending' : 'm-status-off';
     const tdLast = document.createElement('td');
     tdLast.className = 'm-time';
     tdLast.textContent = fmtUserTime(user.lastLoginAt);
@@ -657,7 +686,7 @@ function renderUsers() {
     tdAct.className = 'm-actions';
     tdAct.appendChild(actBtn('编辑', () => openUserModal(user)));
     tdAct.appendChild(actBtn('重置密码', () => resetUserPassword(user)));
-    tdAct.appendChild(actBtn(Number(user.status) === 1 ? '禁用' : '启用', () => toggleUser(user)));
+    tdAct.appendChild(actBtn(st === 1 ? '禁用' : st === 2 ? '通过' : '启用', () => toggleUser(user)));
     const del = actBtn('删除', () => deleteUser(user));
     del.className = 'm-danger';
     tdAct.appendChild(del);
@@ -697,7 +726,13 @@ function openUserModal(user) {
   $('#muGroup').value = user ? (user.group || '') : '';
   $('#muEmail').value = user ? (user.email || '') : '';
   $('#muBio').value = user ? (user.bio || '') : '';
-  $('#muEnabled').checked = user ? Number(user.status) === 1 : true;
+  const sel = $('#muStatus');
+  sel.innerHTML = '';
+  sel.add(new Option('启用', '1'));
+  sel.add(new Option('禁用', '0'));
+  if (user && Number(user.status) === 2) sel.add(new Option('待审核', '2'));
+  const st = user ? Number(user.status) : 1;
+  sel.value = String(st === 0 || st === 2 ? st : 1);
   $('#mUserErr').classList.add('hidden');
   $('#mUserModal').classList.remove('hidden');
   $('#muId').focus();
@@ -708,6 +743,7 @@ async function saveUser() {
   savingUser = true;
   $('#mUserSave').disabled = true;
   const editing = state.users.editing;
+  const statusVal = $('#muStatus').value;
   const payload = {
     userId: editing ? editing.userId : $('#muId').value.trim(),
     nickname: $('#muNickname').value.trim(),
@@ -715,7 +751,7 @@ async function saveUser() {
     group: $('#muGroup').value.trim(),
     email: $('#muEmail').value.trim(),
     bio: $('#muBio').value.trim(),
-    status: $('#muEnabled').checked ? 1 : 0
+    status: statusVal === '' ? 1 : Number(statusVal)   // 0 是合法值；待审核用户原样提交 2（后端保留）
   };
   const pwd = $('#muPassword').value;
   try {
@@ -773,4 +809,165 @@ async function deleteUser(user) {
     if (!r.success) throw new Error(r.error || '删除失败');
     await loadUsers();
   } catch (e) { userNotice(e.message, true); }
+}
+
+// ======================== 注册管理 ========================
+let settingsLoadSeq = 0;   // 设置请求序号：切视图/重复进入时只应用最后一次结果
+let pendingLoadSeq = 0;    // 待审核列表请求序号
+let savingRegisterSettings = false;
+let regNoticeTimer = null;
+
+function regNotice(msg, isErr) {
+  const n = $('#mRegNotice');
+  if (!n) return;
+  if (!msg) {
+    clearTimeout(regNoticeTimer);
+    regNoticeTimer = null;
+    n.classList.add('hidden');
+    return;
+  }
+  n.textContent = msg;
+  n.classList.toggle('m-err', !!isErr);
+  n.classList.remove('hidden');
+  clearTimeout(regNoticeTimer);
+  regNoticeTimer = setTimeout(() => {
+    n.classList.add('hidden');
+    regNoticeTimer = null;
+  }, 4000);
+}
+
+async function loadRegisterSettings() {
+  if (!state.isAdmin) return;
+  const seq = ++settingsLoadSeq;
+  try {
+    const r = await apiJson('/api/registerSettings', {});
+    if (seq !== settingsLoadSeq) return;
+    if (!r.success) throw new Error(r.error || '加载设置失败');
+    const g = state.registration;
+    g.allowRegister = r.allowRegister !== false;
+    g.registerNeedApproval = !!r.registerNeedApproval;
+    g.available = r.available !== false;
+    g.persisted = !!r.persisted;
+    g.updatedAt = Number(r.updatedAt) || 0;
+    g.updatedBy = r.updatedBy || '';
+    $('#mRegAllow').checked = g.allowRegister;
+    $('#mRegNeedApproval').checked = g.registerNeedApproval;
+    $('#mRegSave').disabled = !g.available;
+    $('#mRegSettingsInfo').textContent = !g.available
+      ? '设置存储不可用（aiSettings 表未声明或数据库不可用），修改不会持久化'
+      : (g.persisted
+          ? '最近保存：' + fmtUserTime(g.updatedAt) + (g.updatedBy ? ' · ' + g.updatedBy : '')
+          : '尚未保存，当前使用配置文件默认值');
+  } catch (e) {
+    regNotice('加载注册设置失败：' + e.message, true);
+  }
+}
+
+async function saveRegisterSettings() {
+  if (savingRegisterSettings) return;
+  if (!state.registration.available) { regNotice('设置存储不可用，无法保存', true); return; }
+  savingRegisterSettings = true;
+  $('#mRegSave').disabled = true;
+  try {
+    const r = await apiJson('/api/registerSettingsUpdate', {
+      allowRegister: $('#mRegAllow').checked,
+      registerNeedApproval: $('#mRegNeedApproval').checked
+    });
+    if (!r.success) throw new Error(r.error || '保存失败');
+    const g = state.registration;
+    g.allowRegister = r.allowRegister !== false;
+    g.registerNeedApproval = !!r.registerNeedApproval;
+    g.persisted = true;
+    g.updatedAt = Number(r.updatedAt) || Date.now();
+    g.updatedBy = r.updatedBy || '';
+    $('#mRegSettingsInfo').textContent =
+      '最近保存：' + fmtUserTime(g.updatedAt) + (g.updatedBy ? ' · ' + g.updatedBy : '');
+    regNotice('设置已保存');
+  } catch (e) {
+    regNotice(e.message, true);
+    await loadRegisterSettings();   // 失败时回读服务端真值，避免界面停在与 DB 不一致的状态
+  } finally {
+    savingRegisterSettings = false;
+    $('#mRegSave').disabled = !state.registration.available;
+  }
+}
+
+async function loadPendingUsers() {
+  if (!state.isAdmin) return;
+  const seq = ++pendingLoadSeq;
+  try {
+    const g = state.registration;
+    const r = await apiJson('/api/users', {
+      keyword: '', status: 2, page: g.page, pageSize: g.pageSize
+    });
+    if (seq !== pendingLoadSeq) return;
+    if (!r.success) throw new Error(r.error || '加载失败');
+    g.pending = Array.isArray(r.users) ? r.users : [];
+    g.total = Number(r.total) || 0;
+    const max = Math.max(1, Math.ceil(g.total / g.pageSize));
+    if (g.page > max) { g.page = max; return loadPendingUsers(); }
+    renderPendingUsers();
+  } catch (e) {
+    regNotice('加载待审核用户失败：' + e.message, true);
+  }
+}
+
+function renderPendingUsers() {
+  const g = state.registration;
+  const list = $('#mPendingList');
+  if (!list) return;
+  list.innerHTML = '';
+  $('#mPendingCount').textContent = '共 ' + g.total + ' 人待审核';
+  const max = Math.max(1, Math.ceil(g.total / g.pageSize));
+  $('#mPendingPageInfo').textContent = g.page + ' / ' + max;
+  $('#mPendingPrev').disabled = g.page <= 1;
+  $('#mPendingNext').disabled = g.page >= max;
+
+  if (!g.pending.length) {
+    const empty = document.createElement('div');
+    empty.className = 'm-empty';
+    empty.textContent = '没有待审核用户';
+    list.appendChild(empty);
+    return;
+  }
+  const table = document.createElement('table');
+  table.className = 'm-table';
+  table.innerHTML = '<thead><tr><th>登录名</th><th>昵称</th><th>邮箱</th>'
+    + '<th>注册时间</th><th>操作</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  g.pending.forEach(user => {
+    const tr = document.createElement('tr');
+    const tdId = document.createElement('td');
+    tdId.textContent = user.userId;
+    const tdNick = document.createElement('td');
+    tdNick.textContent = user.nickname || user.userId;
+    const tdEmail = document.createElement('td');
+    tdEmail.textContent = user.email || '—';
+    const tdTime = document.createElement('td');
+    tdTime.className = 'm-time';
+    tdTime.textContent = fmtUserTime(user.createdAt);
+    const tdAct = document.createElement('td');
+    tdAct.className = 'm-actions';
+    tdAct.appendChild(actBtn('通过', () => reviewPending(user, true)));
+    const rej = actBtn('拒绝', () => reviewPending(user, false));
+    rej.className = 'm-danger';
+    tdAct.appendChild(rej);
+    tr.append(tdId, tdNick, tdEmail, tdTime, tdAct);
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  list.appendChild(table);
+}
+
+async function reviewPending(user, approve) {
+  if (!approve && !confirm('拒绝 ' + user.userId + ' 的注册？拒绝后账号为禁用状态，可在用户管理中重新启用。'))
+    return;
+  try {
+    const r = await apiJson('/api/usersUpdate', {
+      userId: user.userId, status: approve ? 1 : 0
+    });
+    if (!r.success) throw new Error(r.error || '操作失败');
+    regNotice(approve ? '已通过 ' + user.userId + ' 的注册' : '已拒绝 ' + user.userId + ' 的注册');
+    await loadPendingUsers();
+  } catch (e) { regNotice(e.message, true); }
 }
