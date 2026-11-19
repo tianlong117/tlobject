@@ -215,12 +215,16 @@ public class TLUserModuleSelfTest {
             if (!settingsAvailable) return false;
             boolean allow = allowSelfRegister;
             boolean need = registerNeedApproval;
+            boolean captcha = loginCaptcha;
             String a = settings.get("allowSelfRegister");
             if (a != null) allow = Boolean.parseBoolean(a);
             String n = settings.get("registerNeedApproval");
             if (n != null) need = Boolean.parseBoolean(n);
+            String c = settings.get("loginCaptcha");
+            if (c != null) captcha = Boolean.parseBoolean(c);
             boolean persisted = !settings.isEmpty();
-            applyRegisterSettings(allow, need, persisted ? 1L : 0L, persisted ? "admin" : "", persisted);
+            applyRegisterSettings(allow, need, captcha,
+                    persisted ? 1L : 0L, persisted ? "admin" : "", persisted);
             return true;
         }
 
@@ -612,6 +616,31 @@ public class TLUserModuleSelfTest {
         check("102 管理员不能把自己转待审核",
                 "self_forbidden".equals(selfPending.getStringParam("errorCode", ""))
                         && m.rows.get("admin").status == 1);
+
+        // ===== 登录验证码开关（ai_settings 第三键） =====
+        check("103 默认登录验证码开启",
+                call(m, "getRegisterPolicy").parseBoolean("loginCaptcha", false));
+
+        InMemoryUserModule captchaParam = new InMemoryUserModule();
+        Map<String, String> cp = new HashMap<>();
+        cp.put("loginCaptcha", "false");
+        captchaParam.applyParams(cp);
+        check("104 参数兜底关闭登录验证码",
+                !call(captchaParam, "getRegisterPolicy").parseBoolean("loginCaptcha", true));
+
+        m.settings.put("loginCaptcha", "false");
+        m.reloadRegisterSettings();
+        check("105 DB 设置覆盖参数关闭验证码",
+                !call(m, "getRegisterPolicy").parseBoolean("loginCaptcha", true));
+
+        TLMsg setCaptcha = call(m, "setRegisterSettings", "operatorId", "admin",
+                "loginCaptcha", true);
+        TLMsg adminCaptcha = call(m, "getRegisterSettings", "operatorId", "admin");
+        check("106 管理页设置验证码开关即时生效",
+                setCaptcha.parseBoolean("success", false)
+                        && setCaptcha.parseBoolean("loginCaptcha", false)
+                        && call(m, "getRegisterPolicy").parseBoolean("loginCaptcha", false)
+                        && adminCaptcha.parseBoolean("loginCaptcha", false));
     }
 
     static void testPasswordValidation() {

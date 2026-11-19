@@ -51,6 +51,7 @@
                 tableName="aiUsers"
                 settingsTableName="aiSettings"
                 registerNeedApproval="false"
+                loginCaptcha="true"
                 bootstrapUsers="admin:member,admin:123456;tianlong:member,guest:123456;console_user:guest:;dongq:member:;xiaoming:member:"
                 bootstrapGroups="admin:0"/>
         <!-- DAG工作流模块 -->

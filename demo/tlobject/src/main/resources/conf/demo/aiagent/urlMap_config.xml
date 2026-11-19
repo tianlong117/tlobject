@@ -22,6 +22,10 @@
         <url  value="/register">
             <msg action="register" destination="webui" clientType="jsonClient"/>
         </url>
+        <!-- 验证码图片：二进制输出，模块自行写响应，不配 clientType -->
+        <url  value="/captcha">
+            <msg action="captcha" destination="webui"/>
+        </url>
         <url  value="/profile">
             <msg action="profile" destination="webui" clientType="jsonClient"/>
         </url>

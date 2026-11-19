@@ -21,7 +21,8 @@
     <modulesParams>
         <module name="controlCenter" configfile="controlCenter_web_config.xml"/>
         <module name="webui" userModule="dbUserModule"
-                uploadSizeMaxMB="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"/>
+                uploadSizeMaxMB="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"
+                captchaTtlSeconds="300"/>
         <!-- servletPath="/api/" → initServletDispatch 挂唯一 TLServletDispatch 到 /api/*
              （与 appConfig 的 tlobjectPath="/api" 配套，全部框架请求走它，仿 ltbgtadmin 模式；
               不使用 extraServlets 再造 dispatch 实例，避免线程 Map 竞争覆盖）

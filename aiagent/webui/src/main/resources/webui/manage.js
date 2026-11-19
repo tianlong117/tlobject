@@ -15,7 +15,7 @@ const state = {
     keyword: '', status: '', editing: null
   },
   registration: {
-    allowRegister: true, registerNeedApproval: false,
+    allowRegister: true, registerNeedApproval: false, loginCaptcha: true,
     available: true, persisted: false,
     updatedAt: 0, updatedBy: '',
     pending: [], total: 0, page: 1, pageSize: 20
@@ -846,12 +846,14 @@ async function loadRegisterSettings() {
     const g = state.registration;
     g.allowRegister = r.allowRegister !== false;
     g.registerNeedApproval = !!r.registerNeedApproval;
+    g.loginCaptcha = r.loginCaptcha !== false;
     g.available = r.available !== false;
     g.persisted = !!r.persisted;
     g.updatedAt = Number(r.updatedAt) || 0;
     g.updatedBy = r.updatedBy || '';
     $('#mRegAllow').checked = g.allowRegister;
     $('#mRegNeedApproval').checked = g.registerNeedApproval;
+    $('#mRegLoginCaptcha').checked = g.loginCaptcha;
     $('#mRegSave').disabled = !g.available;
     $('#mRegSettingsInfo').textContent = !g.available
       ? '设置存储不可用（aiSettings 表未声明或数据库不可用），修改不会持久化'
@@ -871,12 +873,14 @@ async function saveRegisterSettings() {
   try {
     const r = await apiJson('/api/registerSettingsUpdate', {
       allowRegister: $('#mRegAllow').checked,
-      registerNeedApproval: $('#mRegNeedApproval').checked
+      registerNeedApproval: $('#mRegNeedApproval').checked,
+      loginCaptcha: $('#mRegLoginCaptcha').checked
     });
     if (!r.success) throw new Error(r.error || '保存失败');
     const g = state.registration;
     g.allowRegister = r.allowRegister !== false;
     g.registerNeedApproval = !!r.registerNeedApproval;
+    g.loginCaptcha = r.loginCaptcha !== false;
     g.persisted = true;
     g.updatedAt = Number(r.updatedAt) || Date.now();
     g.updatedBy = r.updatedBy || '';

@@ -15,6 +15,7 @@ import cn.tianlong.tlobject.servletutils.clientinterface.TLWebChannel;
 import com.google.gson.Gson;
 
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -49,6 +50,8 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
  *   <li>userModule    — 用户模块名；配置后登录/注册/资料/管理走该模块，空则回退 passwords</li>
  *   <li>passwords     — 登录密码表 "uid:pwd;uid:pwd"（配置后登录必须匹配；不配则任意非空 userId 可登录）</li>
  *   <li>uploadSizeMaxMB — 上传大小上限（MB），默认 50；请求参数覆盖 uploadFile 模块的 fileSizeMax</li>
+ *   <li>captchaTtlSeconds — 验证码有效期（秒），30-1800，默认 300；
+ *       验证码开关在用户模块 ai_settings（管理页「注册管理」可改），不在本模块参数</li>
  * </ul>
  *
  * @author tianlong
@@ -68,6 +71,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private boolean subscribeToolProgress = true;
     /** 是否订阅工作流节点进度（false = 不注册总线订阅） */
     private boolean subscribeWorkflowProgress = true;
+    /** 验证码有效期（秒），范围 30-1800，默认 300；开关本身在用户模块 ai_settings（管理页可改） */
+    private int captchaTtlSeconds = 300;
 
     /**
      * 进度写 SSE 的专用单线程 writer：
@@ -180,6 +185,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (params.get("uploadSizeMaxMB") != null) {
             try { uploadSizeMaxMB = Integer.parseInt(params.get("uploadSizeMaxMB")); } catch (NumberFormatException ignored) {}
         }
+        if (params.get("captchaTtlSeconds") != null) {
+            try { captchaTtlSeconds = Integer.parseInt(params.get("captchaTtlSeconds").trim()); }
+            catch (NumberFormatException ignored) { }
+            if (captchaTtlSeconds < 30 || captchaTtlSeconds > 1800) {
+                putLog("captchaTtlSeconds 超出 30-1800，使用默认值 300", LogLevel.WARN, "params");
+                captchaTtlSeconds = 300;
+            }
+        }
         if (params.get("passwords") != null) {
             for (String entry : params.get("passwords").split(";")) {
                 int c = entry.indexOf(':');
@@ -251,6 +264,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 return doLogout(msg);
             case "register":
                 return doRegister(msg);
+            case "captcha":
+                return doCaptcha();
             case "profile":
                 return doProfile();
             case "profileUpdate":
@@ -737,12 +752,22 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("allowRegister", true);
         out.put("registerNeedApproval", false);
+        out.put("loginCaptcha", true);
         TLMsg r = callUserModule("getRegisterPolicy", null);
         if (r != null && r.parseBoolean("success", false)) {
             out.put("allowRegister", r.parseBoolean("allowRegister", true));
             out.put("registerNeedApproval", r.parseBoolean("registerNeedApproval", false));
+            out.put("loginCaptcha", r.parseBoolean("loginCaptcha", true));
         }
         return out;
+    }
+
+    /** 验证码开关以用户模块 ai_settings 为准（管理页运行期可改）；用户模块缺失时默认开启。 */
+    private boolean captchaEnabled() {
+        TLMsg r = callUserModule("getRegisterPolicy", null);
+        if (r != null && r.parseBoolean("success", false))
+            return r.parseBoolean("loginCaptcha", true);
+        return true;
     }
 
     /** 用户模块返回的存储故障映射为 503（服务暂不可用），其余失败保持既定状态码。 */
@@ -814,6 +839,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         Map<String, Object> policy = registerPolicy();
         out.put("allowRegister", policy.get("allowRegister"));
         out.put("registerNeedApproval", policy.get("registerNeedApproval"));
+        out.put("loginCaptcha", policy.get("loginCaptcha"));
         if (userId != null) {
             out.put("userId", userId);
             out.put("csrfToken", ensureCsrfToken(getRequest().getSession(true)));
@@ -826,7 +852,66 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         return outJson(out, null);
     }
 
+    /** 验证码图片（未登录可访问；loginCaptcha=false 时 404）。输出方式仿 doAvatar。 */
+    private TLMsg doCaptcha() {
+        HttpServletRequest req = getRequest();
+        HttpServletResponse resp = getResponse();
+        if (req == null || resp == null) return null;
+        if (!captchaEnabled()) {
+            resp.setStatus(404);
+            return null;
+        }
+        String code = TLCaptcha.randomCode();
+        TLCaptcha.issue(req.getSession(true), code,
+                System.currentTimeMillis() + captchaTtlSeconds * 1000L);
+        byte[] png;
+        try {
+            png = TLCaptcha.renderPng(code);
+        } catch (RuntimeException e) {
+            putLog("验证码图片生成失败: " + e, LogLevel.WARN);
+            resp.setStatus(500);
+            return null;
+        }
+        try {
+            resp.setContentType("image/png");
+            resp.setContentLength(png.length);
+            resp.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+            resp.setHeader("Pragma", "no-cache");
+            resp.setDateHeader("Expires", 0);
+            resp.setHeader("X-Content-Type-Options", "nosniff");
+            resp.getOutputStream().write(png);
+            resp.getOutputStream().flush();
+        } catch (Exception e) {
+            putLog("验证码输出失败: " + e, LogLevel.WARN);
+        }
+        return null;
+    }
+
+    /**
+     * 登录侧验证码校验：先消费注册成功的一次性登录通行证（注册时验证码已消费），
+     * 否则要求提交正确的 captcha。返回 null 表示通过；开关关闭/非请求线程不拦。
+     */
+    private TLCaptcha.Check checkLoginCaptcha(TLMsg msg) {
+        if (!captchaEnabled()) return null;
+        HttpServletRequest req = getRequest();
+        if (req == null) return null;
+        long now = System.currentTimeMillis();
+        if (TLCaptcha.takeLoginPass(req.getSession(false), now)) return null;
+        return TLCaptcha.verify(req.getSession(false),
+                msg.getStringParam("captcha", ""), true, now);
+    }
+
+    private TLMsg captchaFail(TLCaptcha.Check err) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", false);
+        out.put("error", err.message);
+        out.put("errorCode", err.code);
+        return outJson(out, 400);
+    }
+
     private TLMsg doLogin(TLMsg msg) {
+        TLCaptcha.Check captcha = checkLoginCaptcha(msg);
+        if (captcha != null) return captchaFail(captcha);
         String userId = msg.getParam("userId") != null ? String.valueOf(msg.getParam("userId")) : null;
         String password = msg.getParam("password") != null ? String.valueOf(msg.getParam("password")) : null;
         Map<String, Object> r = login(userId, password, clientIP());
@@ -875,6 +960,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     // ======================== 用户（注册/资料/管理） ========================
 
     private TLMsg doRegister(TLMsg msg) {
+        HttpServletRequest req = getRequest();
+        long now = System.currentTimeMillis();
+        boolean captchaOn = captchaEnabled();
+        if (captchaOn && req != null) {
+            TLCaptcha.Check captcha = TLCaptcha.verify(req.getSession(false),
+                    msg.getStringParam("captcha", ""), true, now);
+            if (captcha != null) return captchaFail(captcha);
+        }
         Map<String, Object> p = new LinkedHashMap<>();
         for (String k : new String[]{"userId", "password", "nickname", "bio", "email"}) {
             if (msg.containsParam(k)) p.put(k, msg.getParam(k));
@@ -882,7 +975,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         TLMsg r = callUserModule("register", p);
         if (r == null) return outJson(failMap("用户模块未启用"), null);
         Map<String, Object> out = authResult(r, true);
-        return outJson(out, Boolean.TRUE.equals(out.get("success")) ? null : clientStatus(r, 400));
+        if (Boolean.TRUE.equals(out.get("success"))) {
+            // 注册成功即消费了验证码：给紧随其后的自动登录一次性通行证（60s）
+            if (captchaOn && req != null)
+                TLCaptcha.markLoginPass(req.getSession(true), now);
+            return outJson(out, null);
+        }
+        return outJson(out, clientStatus(r, 400));
     }
 
     private TLMsg doProfile() {
@@ -1055,7 +1154,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             if (r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
             return outJson(out, clientStatus(r, 400));
         }
-        for (String k : new String[]{"allowRegister", "registerNeedApproval",
+        for (String k : new String[]{"allowRegister", "registerNeedApproval", "loginCaptcha",
                 "available", "persisted", "updatedAt", "updatedBy"})
             if (r.containsParam(k)) out.put(k, r.getParam(k));
         return outJson(out, null);
@@ -1067,7 +1166,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (!isAdmin(uid)) return outJson(failMap("需要管理员权限"), 403);
         Map<String, Object> p = new LinkedHashMap<>();
         p.put("operatorId", uid);   // 操作者只信会话
-        for (String k : new String[]{"allowRegister", "registerNeedApproval"})
+        for (String k : new String[]{"allowRegister", "registerNeedApproval", "loginCaptcha"})
             if (msg.containsParam(k)) p.put(k, msg.getParam(k));
         TLMsg r = callUserModule("setRegisterSettings", p);
         if (r == null) return outJson(failMap("用户模块未启用"), null);
@@ -1081,6 +1180,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         }
         out.put("allowRegister", r.parseBoolean("allowRegister", false));
         out.put("registerNeedApproval", r.parseBoolean("registerNeedApproval", false));
+        out.put("loginCaptcha", r.parseBoolean("loginCaptcha", true));
         if (r.containsParam("updatedAt")) out.put("updatedAt", r.getParam("updatedAt"));
         if (r.containsParam("updatedBy")) out.put("updatedBy", r.getStringParam("updatedBy", ""));
         return outJson(out, null);

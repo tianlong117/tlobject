@@ -26,6 +26,11 @@
         注册后需管理员审核，通过后即可登录
       </div>
     </div>
+    <!-- 验证码放在注册附加字段之后：登录页紧随密码；注册页在昵称下面（不隔开密码/确认密码） -->
+    <div id="captchaRow" class="captcha-row hidden">
+      <input id="loginCaptcha" maxlength="6" placeholder="验证码" autocomplete="off">
+      <img id="captchaImg" alt="验证码" title="点击刷新">
+    </div>
     <button id="loginBtn">登 录</button>
     <div id="loginErr" class="err hidden"></div>
   </div>

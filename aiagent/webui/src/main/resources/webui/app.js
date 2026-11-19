@@ -16,6 +16,7 @@ const state = {
   csrfToken: null,       // 会话级 CSRF token（登录 / /api/session 返回；状态变更请求随 X-CSRF-Token 发送）
   allowRegister: true,   // /api/session 返回；false=管理员关闭了自助注册（登录页隐藏注册页签）
   registerNeedApproval: false,  // 注册后需管理员审核（注册页签展示提示，注册成功不自动登录）
+  loginCaptcha: false,   // /api/session 返回；true=登录/注册需要图片验证码
   pendingAbandonSessionId: null,  // 断点弹框「放弃/丢弃」目标会话（pending_approval 或普通 checkpoint，见 promptCheckpoint）
   pendingAbandonIsApproval: false // 目标断点是否待批：true=abandonApproval（撤销审批），false=discardCheckpoint（仅丢弃断点）
 };
@@ -363,13 +364,16 @@ function showLogin() {
   $('#taskDrawer').classList.add('hidden');
   closeProfile();                                      // 函数声明 hoisting：定义在「个人资料」段
   setAuthMode('login');                                // 回到登录页签（上次停在注册页不能带过来）
+  applyCaptchaPolicy();                                // 回到登录页时换一张验证码
 }
 async function initSession() {
   try {
     const r = await fetch('/api/session').then(x => x.json());
     state.allowRegister = r.allowRegister !== false;
     state.registerNeedApproval = !!r.registerNeedApproval;
+    state.loginCaptcha = r.loginCaptcha === true;
     applyRegisterPolicy();
+    // 验证码由 showLogin 统一刷新（登录页显示时），避免 init+showLogin 连发两次图请求造成码/图错位
     if (r.loggedIn) {
       state.userId = r.userId;
       state.profile = r.user || null;
@@ -402,6 +406,28 @@ function applyRegisterPolicy() {
   if (!allow && authMode === 'register') setAuthMode('login');
 }
 
+/** 验证码策略（/api/session 返回）：关闭时不显示、不要求；开启时拉取新图 */
+function applyCaptchaPolicy() {
+  const row = $('#captchaRow');
+  if (!row) return;
+  row.classList.toggle('hidden', !state.loginCaptcha);
+  if (state.loginCaptcha) refreshCaptcha();
+}
+
+/** 换一张验证码并清空输入（服务端失败即作废，必须换图） */
+let captchaTimer = null;
+function refreshCaptcha() {
+  if (!state.loginCaptcha) return;
+  const input = $('#loginCaptcha');
+  if (input) input.value = '';
+  // 50ms 合并连发（多个 401/初始化重叠）——并发请求会让「显示图」与「session 存码」错位
+  clearTimeout(captchaTimer);
+  captchaTimer = setTimeout(() => {
+    const img = $('#captchaImg');
+    if (img) img.src = '/api/captcha?t=' + Date.now();
+  }, 50);
+}
+
 function setAuthMode(mode) {
   if (mode === 'register' && state.allowRegister === false) mode = 'login';   // 防御：隐藏页签不可进入
   authMode = mode;
@@ -416,13 +442,19 @@ async function doLogin() {
   const userId = $('#loginUser').value.trim();
   const password = $('#loginPwd').value;
   if (!userId) { $('#loginErr').textContent = '请输入用户ID'; $('#loginErr').classList.remove('hidden'); return; }
+  const captcha = state.loginCaptcha ? $('#loginCaptcha').value.trim() : '';
+  if (state.loginCaptcha && !captcha) {
+    $('#loginErr').textContent = '请输入验证码';
+    $('#loginErr').classList.remove('hidden');
+    return;
+  }
   try {
     if (authMode === 'register') {
       const pwd2 = $('#loginPwd2').value;
       if (password !== pwd2) throw new Error('两次输入的密码不一致');
-      const reg = await apiJson('/api/register', {
-        userId, password, nickname: $('#regNickname').value.trim()
-      });
+      const regBody = { userId, password, nickname: $('#regNickname').value.trim() };
+      if (state.loginCaptcha) regBody.captcha = captcha;
+      const reg = await apiJson('/api/register', regBody);
       if (!reg.success) throw new Error(reg.error || '注册失败');
       if (reg.pendingApproval) {
         // 需管理员审核：不自动登录（登录必然 pending_approval），停在登录页提示等待
@@ -430,12 +462,15 @@ async function doLogin() {
         const err = $('#loginErr');
         err.textContent = '注册成功，账号正在等待管理员审核';
         err.classList.remove('hidden');
+        refreshCaptcha();       // 注册已消费验证码，换新图供后续登录
         return;
       }
     }
     // 注册成功即切回登录页签再自动登录：自动登录失败时用户停在「登录」而非重复注册
     setAuthMode('login');
-    const r = await apiJson('/api/login', { userId, password });
+    const loginBody = { userId, password };
+    if (state.loginCaptcha) loginBody.captcha = captcha;
+    const r = await apiJson('/api/login', loginBody);
     state.userId = r.userId;
     state.profile = r;
     state.csrfToken = r.csrfToken || null;
@@ -464,6 +499,7 @@ async function doLogin() {
   } catch (e) {
     $('#loginErr').textContent = e.message;
     $('#loginErr').classList.remove('hidden');
+    refreshCaptcha();   // 服务端校验失败即作废验证码，必须换图
   }
 }
 async function doLogout() {
@@ -1784,6 +1820,8 @@ function bindEvents() {
   $('#loginPwd').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   $('#loginPwd2').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
   $('#regNickname').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#loginCaptcha').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  $('#captchaImg').onclick = refreshCaptcha;
   $('#logoutBtn').onclick = doLogout;
   $('#sendBtn').onclick = sendMessage;
   $('#stopBtn').onclick = stopChat;

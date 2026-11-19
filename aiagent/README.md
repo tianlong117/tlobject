@@ -1765,23 +1765,30 @@ High-risk tool operations require human approval before they are executed.
 - Table `ai_users` declared in `database_config.xml` (SQLite active / MySQL standby)
 - Seeds when the table is empty: `admin/123456`, `tianlong/123456`, `console_user` (no password), `dongq`/`xiaoming` (console-only)
 - Web: login/register/profile/avatar; Manage page -> Users / Registration (admin role)
-- Registration management (admin): enable/disable self-registration and require admin approval.
-  A pending account is `status=2` (approve → 1 / reject → 0; login returns `errorCode=pending_approval`).
-  Both switches persist in `ai_settings` (read/write via `BeanTable.getAll/replace`; a missing table
-  soft-fails and falls back to the `allowSelfRegister` / `registerNeedApproval` module params).
-  `/api/session` exposes `allowRegister`/`registerNeedApproval`; when approval is required the
-  registration UI shows a notice and does not auto-login.
+- Registration management (admin): enable/disable self-registration, require admin approval, and
+  enable/disable the login/registration captcha. A pending account is `status=2` (approve → 1 /
+  reject → 0; login returns `errorCode=pending_approval`). All three switches persist in
+  `ai_settings` (read/write via `BeanTable.getAll/replace`; a missing table soft-fails and falls
+  back to the `allowSelfRegister` / `registerNeedApproval` / `loginCaptcha` module params;
+  DB rows override the config params per key). `/api/session` exposes the flags; when approval is
+  required the registration UI shows a notice and does not auto-login.
 - PBKDF2 passwords, multi-role + group, status/last login, admin protections, audit logs
 - CSRF: same-origin `Origin`/`Referer` + session `X-CSRF-Token` (scripts must fetch it from `/api/login` or `/api/session`); session cookie `HttpOnly; SameSite=Lax`
 - Console `-u`: passwordless but validates existence/enabled; an invalid user enters the unlogged-in prompt (no exit) — `/login <userId>` retries, `/shutdown` stops the app
-- Self-test: `TLUserModuleSelfTest` (102 checks)
+- Self-test: `TLUserModuleSelfTest` (106 checks)
 
 ### Web Interaction Window (aiagent/webui)
 
 `AIStart -web` (or `aistart-web.bat`) starts both the console and the Web window in the same process:
 Open `http://localhost:58080/webui/chat.html` in a browser (change the port in the jettyServer parameter of `moduleFactory_chat_web_config.xml`).
 
-- Login: database-backed users (`ai_users` via `dbUserModule`); demo accounts admin/tianlong (password 123456), `console_user` has no password and cannot log in via the Web UI
+- Login: database-backed users (`ai_users` via `dbUserModule`); demo accounts admin/tianlong (password 123456), `console_user` has no password and cannot log in via the Web UI.
+  A 4-digit numeric image captcha (`/api/captcha`, JDK-drawn `TLCaptcha`, no third-party library) is
+  required for both login and registration. The switch lives in **Manage page -> Registration ->
+  "login/registration captcha"**, persisted in `ai_settings` and applied immediately (no restart);
+  the default comes from `dbUserModule.loginCaptcha` (config fallback), and the webui module's
+  `captchaTtlSeconds` controls the TTL. Captchas are session-based and invalidated on failure;
+  after a successful registration a 60s one-shot pass lets the automatic login skip the captcha
 - Chat: streaming (fetch-SSE) / non-streaming, the reasoning process can be collapsed, and the final line shows token statistics
 - Command panel (graphical; everything goes through the existing agentService actions):
   - Session: list/continue/switch/clear/checkpoint resume

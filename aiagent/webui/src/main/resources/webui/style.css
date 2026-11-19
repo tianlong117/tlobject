@@ -31,6 +31,12 @@ body {
 }
 .login-box button:hover { background: #2563eb; }
 .err { color: #f87171; font-size: 13px; }
+.captcha-row { display: flex; gap: 8px; align-items: center; }
+.captcha-row input { flex: 1; min-width: 0; }
+.captcha-row img {
+  width: 110px; height: 38px; border-radius: 6px; border: 1px solid #2a2f3d;
+  background: #f5f7fa; cursor: pointer;
+}
 
 /* ===== 布局 ===== */
 #chatView { display: flex; flex-direction: column; height: 100vh; }

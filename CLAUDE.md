@@ -187,18 +187,20 @@ Built-in modules extending `TLBaseModule`:
   管理页「用户管理」仅 `adminRoles`（默认 admin）可见可用；禁用用户下一次请求 401（显式 `found=false/status=0` 才判禁用，
   查询故障按在线处理，避免全局登出）。
   `getUserInfo` 采用 userid/role/group 契约，供 `TLAppAuthModule` 使用；未知/禁用/待审核回落 `defaultRole`（guest）。
-  **注册管理（2026-11-19）**：管理页新增「📝 注册管理」（`#registrationView`，仅 admin 可见）：可开关自助注册、开关「注册后需管理员审核」，
-  并列出待审核用户（通过→status=1 / 拒绝→status=0，复用 `/api/usersUpdate`）。
+  **注册管理（2026-11-19）**：管理页新增「📝 注册管理」（`#registrationView`，仅 admin 可见）：可开关自助注册、开关「注册后需管理员审核」、
+  开关「登录/注册需要验证码」，并列出待审核用户（通过→status=1 / 拒绝→status=0，复用 `/api/usersUpdate`）。
   用户状态三态：`0=禁用 / 1=启用 / 2=待审核`；登录 `status=2` 返回 `errorCode=pending_approval`（文案「账号正在等待管理员审核」，
   与 `disabled` 区分），`status!=1` 一律不能登录/无管理员权限；`updateUser` 归一化保留三态（未传 status 时保留原值，
   编辑待审核用户不会被静默启用），管理端 `createUser` 仍只产生 0/1。
-  两个开关持久化到 DB 新表 `ai_settings`（`setting_key/setting_value/updated_at/updated_by`，SQLite/MySQL 双声明，
-  老库靠 `CREATE TABLE IF NOT EXISTS` 自动建表）；`TLUserModule` 用 `BeanTable`（`TLDatabase.getBeanTable(settingsTableName, "setting_key", this)`）
+  注册/登录三个开关（`allowRegister`/`registerNeedApproval`/`loginCaptcha`）持久化到 DB 新表 `ai_settings`
+  （`setting_key/setting_value/updated_at/updated_by`，SQLite/MySQL 双声明，老库靠 `CREATE TABLE IF NOT EXISTS` 自动建表）；
+  `TLUserModule` 用 `BeanTable`（`TLDatabase.getBeanTable(settingsTableName, "setting_key", this)`）
   读写：`getAll` 读、`replace` 幂等 upsert；表缺失/DB 不可用时**软失败**（模块照常启动、用模块参数
-  `allowSelfRegister`/`registerNeedApproval` 兜底、管理页 `available=false` 禁保存）。
+  `allowSelfRegister`/`registerNeedApproval`/`loginCaptcha` 兜底、管理页 `available=false` 禁保存）。
   DB 有记录时覆盖模块参数（配置文件只是无记录时的默认值）。设置表名参数 `settingsTableName`（默认 `aiSettings`）。
   action：`getRegisterPolicy`（匿名只读，供 `/api/session` 返回登录页策略）、`getRegisterSettings`/`setRegisterSettings`（管理员，
-  后者 `synchronized` + 审计）。`/api/session` 无论是否登录都返回 `allowRegister`/`registerNeedApproval`；
+  后者 `synchronized` + 审计；三项均可部分更新）。`/api/session` 无论是否登录都返回
+  `allowRegister`/`registerNeedApproval`/`loginCaptcha`；
   注册成功响应带 `pendingApproval`/`status`，前端据此不自动登录并提示等待审核。
   表为空时按 `bootstrapUsers` 种子初始化（demo 含 admin/tianlong/console_user/dongq/xiaoming，等价旧配置迁移）；
   表非空后忽略配置。删除用户只删 `ai_users` 记录，不清理其 workspace/data/会话（数据保留，需人工清理）。
@@ -216,8 +218,23 @@ Built-in modules extending `TLBaseModule`:
   如首次登录）时放行。登录成功会轮换 token（旧 token 失效）。Jetty 会话 Cookie 显式 `HttpOnly; SameSite=Lax`
   （`sessionSameSite`/`sessionHttpOnly` 可配；配 `None` 但 connector 不含 https 时 WARN 并回退 `Lax`，
   浏览器拒绝无 Secure 的 SameSite=None）。DemoUserModule 已删除，aitest 不再声明用户模块。
-  守护：`TLUserModuleSelfTest`（102 项，`aiagent/user-java/src/test`）、`smoke/user_manage_check.py`（61 项）、
-  `smoke/chat_auth_check.py`（24 项）、`smoke/manage_page_check.py`（42 项回归）。
+  守护：`TLUserModuleSelfTest`（106 项，`aiagent/user-java/src/test`）、`smoke/user_manage_check.py`（61 项）、
+  `smoke/chat_auth_check.py`（30 项）、`smoke/manage_page_check.py`（42 项回归）。
+- **登录/注册验证码（2026-11-19）**：webui 登录页 4 位数字图片验证码，`TLCaptcha`（webui 模块内）用 JDK 自绘
+  （`BufferedImage`/`Graphics2D`/`ImageIO`，零第三方依赖）。**不要复用 servletutils 的 jcaptcha `CapchaHelper`**
+  （实际出图是词典单词、按 sessionId 存 key、API 老旧），也不要引入 Kaptcha/Hutool 等库——项目不 shade，
+  加依赖必须同步 `aistart_args.txt` + 5 个 bat 的真实 classpath，成本大于收益。
+  `/api/captcha` 匿名取图（二进制 PNG，无 clientType；`loginCaptcha=false` 时 404）；`/api/login` 与 `/api/register`
+  都校验，失败 400 + `captcha_required/captcha_expired/captcha_invalid`，失败即作废（前端换图）。
+  验证码存 HttpSession（`tlweb_captcha_code/expire`），默认 TTL 300s；`/api/session` 返回 `loginCaptcha`。
+  **注册成功后写 60s 一次性 `tlweb_captcha_login_pass`**：注册时验证码已消费，紧随的自动登录凭该 pass 通过，不再要求验证码。
+  **验证码开关在用户模块 `ai_settings`（`loginCaptcha`）**：管理页「注册管理」勾选/取消即时生效（无需重启）；
+  配置默认值在 `dbUserModule` 的 `loginCaptcha` 参数（默认 true），DB 有记录时优先。webui 模块只有 `captchaTtlSeconds`
+  （默认 300，30-1800）。关闭时前端隐藏整行、后端不校验、`/api/captcha` 404；`TLWebChatModule` 每次请求经
+  `getRegisterPolicy` 向用户模块取当前开关。
+  前端：登录/注册共用验证码行，点击图换图、空码不发请求、失败后换图并清空输入；`refreshCaptcha` 有 50ms 合并防并发错位。
+  已知边界：验证码是 session 级单码，同 session 多标签后刷新会顶掉旧图；分布式部署应改用 Redis（当前单实例）。
+  守护：`TLCaptchaSelfTest`（15 项）、`smoke/chat_auth_check.py`（30 项，含开关开/关路径）。
 - **用户 workspace 与路径审批（2026-11-07）**：agent 生成文件默认落 `workspace/{userId}`（系统属性 `tlobject.workspaceRoot` 可覆盖）；
   `file_operation`/`word` 的 `workspaceMode`、`code_execution`/`script_execution` 的 `workspaceMode`、
   MCP 的 `userWorkspaceScoped` 默认关闭，demo 配置已开启。`TLToolExecutor` 的 `pathGuard` 在执行前判定：

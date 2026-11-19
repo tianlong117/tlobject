@@ -59,6 +59,8 @@ public class TLUserModule extends TLBaseModule {
     protected String settingsTableName = "aiSettings";
     /** DB 无 settings 记录时的兜底；注册时是否进入待审核（status=2） */
     protected boolean registerNeedApproval = false;
+    /** DB 无 settings 记录时的兜底；登录/注册是否校验图片验证码 */
+    protected boolean loginCaptcha = true;
     protected int minPasswordLength = 6;
     protected int maxPasswordLength = 64;
     protected int maxAvatarBytes = 204800;
@@ -72,18 +74,21 @@ public class TLUserModule extends TLBaseModule {
 
     private static final String SETTING_ALLOW_REGISTER = "allowSelfRegister";
     private static final String SETTING_NEED_APPROVAL = "registerNeedApproval";
+    private static final String SETTING_LOGIN_CAPTCHA = "loginCaptcha";
 
-    /** 注册设置快照：成对读取两个开关，避免读到半新半旧的组合 */
+    /** 注册/登录设置快照：一次性读取全部开关，避免读到半新半旧的组合 */
     protected static class RegisterSettings {
         final boolean allowRegister;
         final boolean registerNeedApproval;
+        final boolean loginCaptcha;
         final long updatedAt;
         final String updatedBy;
         final boolean persisted;
-        RegisterSettings(boolean allowRegister, boolean registerNeedApproval,
+        RegisterSettings(boolean allowRegister, boolean registerNeedApproval, boolean loginCaptcha,
                          long updatedAt, String updatedBy, boolean persisted) {
             this.allowRegister = allowRegister;
             this.registerNeedApproval = registerNeedApproval;
+            this.loginCaptcha = loginCaptcha;
             this.updatedAt = updatedAt;
             this.updatedBy = updatedBy;
             this.persisted = persisted;
@@ -91,7 +96,7 @@ public class TLUserModule extends TLBaseModule {
     }
 
     protected volatile RegisterSettings registerSettings =
-            new RegisterSettings(true, false, 0L, "", false);
+            new RegisterSettings(true, false, true, 0L, "", false);
     /** 是否已成功从 DB 读过设置；false 时读操作会懒重试（DB 暂不可用场景） */
     protected volatile boolean settingsLoaded = false;
     protected final Object settingsLock = new Object();
@@ -492,13 +497,15 @@ public class TLUserModule extends TLBaseModule {
                     "setting_key", "setting_value", "updated_at", "updated_by"});
             boolean allow = allowSelfRegister;
             boolean need = registerNeedApproval;
+            boolean captcha = loginCaptcha;
             long updatedAt = 0L;
             String updatedBy = "";
             boolean persisted = false;
             if (rows != null) {
                 for (Map<String, Object> row : rows) {
                     String key = rowStr(row, "setting_key", "");
-                    if (!SETTING_ALLOW_REGISTER.equals(key) && !SETTING_NEED_APPROVAL.equals(key))
+                    if (!SETTING_ALLOW_REGISTER.equals(key) && !SETTING_NEED_APPROVAL.equals(key)
+                            && !SETTING_LOGIN_CAPTCHA.equals(key))
                         continue;
                     persisted = true;
                     long ts = toLong(row.get("updated_at"), 0L);
@@ -513,10 +520,11 @@ public class TLUserModule extends TLBaseModule {
                         continue;
                     }
                     if (SETTING_ALLOW_REGISTER.equals(key)) allow = value;
-                    else need = value;
+                    else if (SETTING_NEED_APPROVAL.equals(key)) need = value;
+                    else captcha = value;
                 }
             }
-            applyRegisterSettings(allow, need, updatedAt, updatedBy, persisted);
+            applyRegisterSettings(allow, need, captcha, updatedAt, updatedBy, persisted);
             return true;
         } catch (RuntimeException e) {
             putLog("注册设置读取失败，使用模块参数兜底: " + e, LogLevel.WARN, "settings");
@@ -540,10 +548,10 @@ public class TLUserModule extends TLBaseModule {
         }
     }
 
-    protected void applyRegisterSettings(boolean allow, boolean need,
+    protected void applyRegisterSettings(boolean allow, boolean need, boolean captcha,
                                          long updatedAt, String updatedBy, boolean persisted) {
         synchronized (settingsLock) {
-            registerSettings = new RegisterSettings(allow, need, updatedAt,
+            registerSettings = new RegisterSettings(allow, need, captcha, updatedAt,
                     updatedBy == null ? "" : updatedBy, persisted);
             settingsLoaded = true;
         }
@@ -551,7 +559,8 @@ public class TLUserModule extends TLBaseModule {
 
     private void resetRegisterSettingsFromParams() {
         synchronized (settingsLock) {
-            registerSettings = new RegisterSettings(allowSelfRegister, registerNeedApproval, 0L, "", false);
+            registerSettings = new RegisterSettings(allowSelfRegister, registerNeedApproval,
+                    loginCaptcha, 0L, "", false);
             settingsLoaded = false;
         }
     }
@@ -561,13 +570,14 @@ public class TLUserModule extends TLBaseModule {
         reloadRegisterSettings();
     }
 
-    /** 公开只读策略：仅两个布尔值，供 webui 登录页/会话接口使用。 */
+    /** 公开只读策略：注册/登录开关，供 webui 登录页/会话/验证码接口使用。 */
     private TLMsg getRegisterPolicy() {
         ensureRegisterSettings();
         RegisterSettings s = registerSettings;
         return createMsg().setParam("success", true)
                 .setParam("allowRegister", s.allowRegister)
-                .setParam("registerNeedApproval", s.registerNeedApproval);
+                .setParam("registerNeedApproval", s.registerNeedApproval)
+                .setParam("loginCaptcha", s.loginCaptcha);
     }
 
     /** 管理员读取：策略 + 存储可用性/最后修改元数据。 */
@@ -579,6 +589,7 @@ public class TLUserModule extends TLBaseModule {
         return createMsg().setParam("success", true)
                 .setParam("allowRegister", s.allowRegister)
                 .setParam("registerNeedApproval", s.registerNeedApproval)
+                .setParam("loginCaptcha", s.loginCaptcha)
                 .setParam("available", settingsStorageAvailable() && settingsLoaded)
                 .setParam("persisted", s.persisted)
                 .setParam("updatedAt", s.updatedAt)
@@ -594,13 +605,16 @@ public class TLUserModule extends TLBaseModule {
         }
         boolean hasAllow = msg.containsParam("allowRegister");
         boolean hasNeed = msg.containsParam("registerNeedApproval");
-        if (!hasAllow && !hasNeed) {
+        boolean hasCaptcha = msg.containsParam("loginCaptcha");
+        if (!hasAllow && !hasNeed && !hasCaptcha) {
             audit("setRegisterSettings", operator, "ai_settings", "denied:invalid_input");
-            return err("invalid_input", "缺少注册设置项");
+            return err("invalid_input", "缺少设置项");
         }
         Boolean allow = hasAllow ? parseStrictBoolean(msg.getParam("allowRegister")) : null;
         Boolean need = hasNeed ? parseStrictBoolean(msg.getParam("registerNeedApproval")) : null;
-        if ((hasAllow && allow == null) || (hasNeed && need == null))
+        Boolean captcha = hasCaptcha ? parseStrictBoolean(msg.getParam("loginCaptcha")) : null;
+        if ((hasAllow && allow == null) || (hasNeed && need == null)
+                || (hasCaptcha && captcha == null))
             return err("invalid_input", "设置项必须为 true/false");
         if (!settingsStorageAvailable()) {
             audit("setRegisterSettings", operator, "ai_settings", "error:storage_unavailable");
@@ -611,6 +625,8 @@ public class TLUserModule extends TLBaseModule {
             ok = false;
         if (need != null && !persistSetting(SETTING_NEED_APPROVAL, String.valueOf(need), operator))
             ok = false;
+        if (captcha != null && !persistSetting(SETTING_LOGIN_CAPTCHA, String.valueOf(captcha), operator))
+            ok = false;
         if (!ok) {
             audit("setRegisterSettings", operator, "ai_settings", "error");
             reloadRegisterSettings();   // 部分成功时尽力与 DB 对齐
@@ -619,13 +635,17 @@ public class TLUserModule extends TLBaseModule {
         RegisterSettings cur = registerSettings;
         applyRegisterSettings(allow != null ? allow : cur.allowRegister,
                 need != null ? need : cur.registerNeedApproval,
+                captcha != null ? captcha : cur.loginCaptcha,
                 System.currentTimeMillis(), operator, true);
         RegisterSettings s = registerSettings;
         audit("setRegisterSettings", operator, "ai_settings",
-                "ok:allowRegister=" + s.allowRegister + ",registerNeedApproval=" + s.registerNeedApproval);
+                "ok:allowRegister=" + s.allowRegister
+                        + ",registerNeedApproval=" + s.registerNeedApproval
+                        + ",loginCaptcha=" + s.loginCaptcha);
         return createMsg().setParam("success", true)
                 .setParam("allowRegister", s.allowRegister)
                 .setParam("registerNeedApproval", s.registerNeedApproval)
+                .setParam("loginCaptcha", s.loginCaptcha)
                 .setParam("updatedAt", s.updatedAt)
                 .setParam("updatedBy", s.updatedBy);
     }
@@ -740,6 +760,7 @@ public class TLUserModule extends TLBaseModule {
         allowSelfRegister = bool(p, "allowSelfRegister", allowSelfRegister);
         settingsTableName = str(p, "settingsTableName", settingsTableName);
         registerNeedApproval = bool(p, "registerNeedApproval", registerNeedApproval);
+        loginCaptcha = bool(p, "loginCaptcha", loginCaptcha);
         minPasswordLength = num(p, "minPasswordLength", minPasswordLength);
         maxAvatarBytes = num(p, "maxAvatarBytes", maxAvatarBytes);
         pbkdf2Iterations = num(p, "pbkdf2Iterations", pbkdf2Iterations);
