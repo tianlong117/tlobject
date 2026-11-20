@@ -153,6 +153,7 @@ Built-in modules extending `TLBaseModule`:
 - 工具截图与浏览器点击语义：`browser` 的 `click` 返回 `pageChanged`/`tabOpened`（自动接管 `target=_blank` 新标签），同一 selector+起始 URL 连续 3 次无变化直接 `ok=false`（旧实现每次都回 ok:true，模型会连点 8 次死链）；`navigate` 也回 `pageChanged`。**聊天界面不显示页面截图**：`ToolResultAppender` 推给 UI 的 `toolEventSink` 一律 `stripImageKeys`，历史 tool 文本也不再存 base64，WebUI `renderToolResult` 不再从 `screenshot_base64` 提图；模型侧仍按 `image_for_model` 注入（不要为了 UI 关掉图片）。守护：`smoke/agent/ToolEventSanitizeSmoke` + `aiagent/browser-java/src/test/.../BrowserClickSemanticsSelfTest`
 - `word` 技能（`.docx` 读/写/改，独立模块 `aiagent/word-java`）：**修改走"跨 run 最小重建"保格式**——Word 会把一段文字切成任意多个 run；只改命中区间的 run 文本、不新建不删 run，字体/加粗/字号才留得住。核心不变量：**`setRunText` 必须与 `XWPFRun.text()` 互逆**——`setText(v,0)` 只覆盖 `<w:t>[0]` 而 `text()` 拼接**全部** `<w:t>`，不删多余 `<w:t>` 就会死循环（实测 118K 字符/988MB）并让整段重写复制内容。"能否安全编辑"由**反编译 POI 5.5.1 `text()` 逐元素核对**得出：`br`/`cr`(→`
 `)、`tab`/`ptab`(→`	`)、`noBreakHyphen`(→U+2011)、`delText`、`footnoteReference`、`fldChar`、`ruby`、以及 rPr 里的 **`caps`/`smallCaps`**（5.x 起 `text()` 会转大写）都**破坏互逆** → 跳过并**指名元素**上报；而 `lastRenderedPageBreak`/`softHyphen`/`drawing`/`sym`/`pict` 实测**惰性、可安全编辑**（别一并拉黑——Word 每个分页处都插 `lastRenderedPageBreak`，误判会让大量段落无谓地不可编辑）。`mode=rewrite`/`set_paragraph`/`set_table_cell` 走**整段重写**路径，命中有害 run 时**拒绝执行并报错**——它**不是**"必成"的逃生舱：曾把模型文本写进域代码区、清空域结果，还报 `ok=true`；含 `w:sdt` 的段落同理（`getRuns()` 看不见它但 `getText()` 会带出来）。三处硬约束：① 标题必须**三重设定**（`pStyle` + `outlineLvl` + 直接格式），因为 `new XWPFDocument()` 没有 styles part，只写 `pStyle` 是悬空引用、Word 里会退化成正文；② `.docx` 白名单，`.doc` 明确报错要求另存；③ **userId 必须三通道读**（args → systemArgs → sessionId），执行器把 userId 放 systemArgs，只读 args 会让多用户文档目录静默塌缩到 `default`。排版默认值：`layout="chinese"`（默认）→ 一级标题居中 + 正文段落首行缩进 2 字符（直接格式写 pPr：`w:jc` + `w:ind firstLineChars=200/firstLine=420`，新建文档无 styles part 依然生效）；`layout="plain"` 不加对齐/缩进（标题三重设定、列表符号等既有格式化不变；适用英文文档/诗歌/在他人文档插段）；XML 配默认、单次调用可覆盖；列表与表格单元格不缩进。既有部署升级后 create/append/insert_paragraph 的输出会开始带排版——要关就在 fileAgent_config.xml 的 word skill 上配 `layout="plain"`
+- **word 格式动作（2026-11-20）**：新增 `format`（显式 run/段级参数：`fontName`/`fontSize`/`bold`/`italic`/`alignment`/`lineSpacing`/`firstLineIndentChars`/`spaceBefore`/`spaceAfter`；只改传入字段，run 级应用到目标段全部 run）、`copy_format`（`source` → `from..to`：段级只复制 `jc`/`spacing`/`ind`；run 级**整体复制源参考 run 的 `rPr`**（字体四槽/字号/加粗/斜体/颜色/下划线等）到目标段所有 run，会覆盖目标 run 的局部差异——这是"复制格式"语义，要保留局部差异用 `format` 只改指定字段；不复制 `pStyle`/编号/`sectPr`/域/书签/内容控件，文本不动）、`set_page`（四边距 cm→twips，缺省字段保留，作用于 body 级 `sectPr`，没有则创建一个）。`append` 新增 `headingFormatFrom`/`bodyFormatFrom`/`matchFormatFrom`、`insert_paragraph` 新增 `matchFormatFrom`，段落号均为**操作前**文档的 0 基编号，写入前统一校验、任一非法整体失败不落盘；标题块优先 heading→body→match，正文/列表优先 body→match，表格/分页不套用。新建段落与表格一律插在 body 级 `sectPr` **之前**（`WordFormatter.newParagraph`/`moveBeforeSectPr`；修复追加在节属性之后导致 Word 分节异常）。边界：run 级颜色/下划线/高亮/`rStyle` 无显式参数，页眉页脚/内容控件/域/分栏/复杂表格合并/任意 XML 仍走 codeAgent/python-docx。fileAgent.md 规则 6/7 与 master 的 fileAgent description 已同步（基础排版优先 word，不再动辄 python-docx）。守护：`WordFormatSelfTest`（27 项）+ `WordEngineSelfTest` 287 + `WordWorkspaceModeSelfTest` 25
 
 **记忆体系（三层）:**
 - `TLAiContext` — 会话对话记录（短期连续性），`getContextHistory()` 直接加载全部 messages
@@ -203,7 +204,8 @@ Built-in modules extending `TLBaseModule`:
   `allowRegister`/`registerNeedApproval`/`loginCaptcha`；
   注册成功响应带 `pendingApproval`/`status`，前端据此不自动登录并提示等待审核。
   表为空时按 `bootstrapUsers` 种子初始化（demo 含 admin/tianlong/console_user/dongq/xiaoming，等价旧配置迁移）；
-  表非空后忽略配置。删除用户只删 `ai_users` 记录，不清理其 workspace/data/会话（数据保留，需人工清理）。
+  表非空后忽略配置。普通「删除」只删 `ai_users` 记录，不清理其 workspace/data/会话（数据保留，需人工清理）；
+  需要连数据一起删时使用管理页「彻底删除」（见下条）。
   控制台 `-u` 保持免密但校验用户存在与启用；**校验失败不退出应用**（两种模式一致）：打印错误后进入
   「未登录」外壳提示符，可 `/login <用户ID>` 重新登录（同一用户保留当前 sessionId，换用户开新会话并清断点/附件）
   或 `/shutdown` 停止整个应用。`/quit`、`/exit` 只离开对话控制台（Web/Agent/定时与后台任务照常运行，回到未登录提示符）；
@@ -218,8 +220,22 @@ Built-in modules extending `TLBaseModule`:
   如首次登录）时放行。登录成功会轮换 token（旧 token 失效）。Jetty 会话 Cookie 显式 `HttpOnly; SameSite=Lax`
   （`sessionSameSite`/`sessionHttpOnly` 可配；配 `None` 但 connector 不含 https 时 WARN 并回退 `Lax`，
   浏览器拒绝无 Secure 的 SameSite=None）。DemoUserModule 已删除，aitest 不再声明用户模块。
-  守护：`TLUserModuleSelfTest`（106 项，`aiagent/user-java/src/test`）、`smoke/user_manage_check.py`（61 项）、
+  守护：`TLUserModuleSelfTest`（114 项，`aiagent/user-java/src/test`）、`smoke/user_manage_check.py`（66 项）、
   `smoke/chat_auth_check.py`（30 项）、`smoke/manage_page_check.py`（42 项回归）。
+- **彻底删除用户数据（2026-11-20）**：管理页用户行新增「彻底删除」（输入登录名确认；`/api/usersPurge`，管理员 + CSRF；
+  `doUsersPurge` 要求 `confirmUserId==userId`，普通「删除」保留为仅删账号）。编排器 `TLUserDataPurger`（user-java）：
+  预检（权限/确认名/自删/末位管理员/共享目录同名拒绝）→ 关 SSE/在线会话 → 停定时/后台任务并 unregister 引擎
+  （`TLScheduleTaskSkill`）→ 放弃待批审批并唤醒线程（`TLApprovalModule.approvalPurgeUser`）→ 停 Agent 运行态并等待
+  （`TLAiAgent`，`still_running` 超时即中止）→ 清记忆（DB `mem_key` 前缀 + 文件版 cache/pending/摘要 epoch 防复活）→
+  清 `ai_token_stats`/监控内存 → 删 `ai_sessions`/`ai_session_rounds`（**含 `task_*`**，不复用过滤 task 的 listSessionsMeta）→
+  清 `ai_inbox`/WebUI 内存表 → 删文件 → **最后**删 `ai_users`。
+  能力发现：`IUserDataPurgeable`（common，phase=tasks/runtime/memory）实现者经控制中心注册表发现；
+  Agent/技能/记忆均以家族名自注册。文件全删 `workspace/{uid}`、`data/{uid}`、`data/documents/{uid}`；
+  三个根与共享目录（`data/documents`、`data/traces`、`data/evals` 等）**不动**；用户名与共享目录同名时预检拒绝
+  （`ambiguous_user_id`）；symlink/junction 不跟随（realpath 校验）。任一关键步骤失败保留用户行并返回分项计数
+  （`partial=true`，可重试）；失败时保留 purging 门禁，目标登录/命令返回 409 `purge_in_progress`，防止半删状态被使用；
+  多实例部署不支持（运行态在单 JVM 内存）。守护：`TLUserModuleSelfTest` 114、`TLUserDataFilePurgerSelfTest` 13、
+  `smoke/user_manage_check.py` 66、真机隔离 E2E（独立 CWD + DB 副本 + 端口，覆盖 task_* 会话/共享哨兵/同名重建不继承/错误路径）。
 - **登录/注册验证码（2026-11-19）**：webui 登录页 4 位数字图片验证码，`TLCaptcha`（webui 模块内）用 JDK 自绘
   （`BufferedImage`/`Graphics2D`/`ImageIO`，零第三方依赖）。**不要复用 servletutils 的 jcaptcha `CapchaHelper`**
   （实际出图是词典单词、按 sessionId 存 key、API 老旧），也不要引入 Kaptcha/Hutool 等库——项目不 shade，

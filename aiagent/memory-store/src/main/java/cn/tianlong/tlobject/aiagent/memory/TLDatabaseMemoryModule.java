@@ -398,6 +398,91 @@ public class TLDatabaseMemoryModule extends TLBaseMemory {
         }
     }
 
+    // ======================== 用户级清理（彻底删除用户） ========================
+
+    /**
+     * 按用户删记忆：mem_key 前缀（含 namespace）+ session_id 兜底；清 cache 与摘要缓冲。
+     * 不复用 clearAll（空参 = 全库清空，语义危险）。
+     */
+    @Override
+    protected TLMsg purgeUser(String userId, List<String> sessionIds) {
+        if (userId == null || userId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "invalid_user_id");
+        if (memTable == null) memTable = TLDatabase.getTable("aiMemory", this);
+        if (memTable == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "memory_table_unavailable");
+        String prefix = buildScopedKey(userId + ":");
+        String pattern = likeEscape(prefix) + "%";
+        int dbEntries = 0;
+        boolean ok = true;
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("pat", pattern);
+            dbEntries += countRows("select count(*) as cnt from [table] where mem_key like ? escape '!'", p);
+            ok = deleteRows("delete from [table] where mem_key like ? escape '!'", p);
+            List<String> ids = sessionIds == null ? new ArrayList<>() : sessionIds;
+            for (int i = 0; i < ids.size(); i += 200) {
+                List<String> batch = ids.subList(i, Math.min(i + 200, ids.size()));
+                LinkedHashMap<String, Object> bp = new LinkedHashMap<>();
+                String in = placeholders(batch, bp);
+                dbEntries += countRows("select count(*) as cnt from [table] where session_id in (" + in + ")", bp);
+                ok = deleteRows("delete from [table] where session_id in (" + in + ")", bp) && ok;
+            }
+        } catch (Exception e) {
+            putLog("purgeUser memory failed: " + e, LogLevel.WARN, "purge");
+            return createMsg().setParam(RESULT, false).setParam("error", "memory_purge_failed");
+        }
+        int cacheCleared = 0;
+        synchronized (this) {
+            int before = cache.size();
+            cache.keySet().removeIf(k -> k.startsWith(prefix));
+            if (sessionIds != null && !sessionIds.isEmpty()) {
+                java.util.Set<String> ids = new java.util.HashSet<>(sessionIds);
+                java.util.Iterator<Map.Entry<String, TLMemoryEntry>> it = cache.entrySet().iterator();
+                while (it.hasNext()) {
+                    TLMemoryEntry e = it.next().getValue();
+                    Object sid = e.getMetadata() == null ? null : e.getMetadata().get("sessionId");
+                    if (sid != null && ids.contains(String.valueOf(sid))) it.remove();
+                }
+            }
+            cacheCleared = before - cache.size();
+        }
+        clearSummaryState(sessionIds);
+        return createMsg().setParam(RESULT, ok)
+                .setParam("dbEntries", dbEntries)
+                .setParam("cacheCleared", cacheCleared);
+    }
+
+    private int countRows(String sql, LinkedHashMap<String, Object> params) {
+        TLMsg r = sendToTable(memTable, createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, params));
+        List<Map<String, Object>> rows = getResultList(r);
+        if (rows == null || rows.isEmpty()) return 0;
+        Object v = rows.get(0).get("cnt");
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v)); } catch (NumberFormatException e) { return 0; }
+    }
+
+    private boolean deleteRows(String sql, LinkedHashMap<String, Object> params) {
+        TLMsg r = sendToTable(memTable, createMsg().setAction(DB_DELETE)
+                .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, params));
+        return r == null || r.parseBoolean(RESULT, true);
+    }
+
+    private static String placeholders(List<String> values, LinkedHashMap<String, Object> params) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < values.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('?');
+            params.put("s" + i, values.get(i));
+        }
+        return sb.toString();
+    }
+
+    private static String likeEscape(String s) {
+        return s.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+    }
+
     // ======================== Session管理 ========================
 
     private void ensureSession(String sessionId, String userId) {

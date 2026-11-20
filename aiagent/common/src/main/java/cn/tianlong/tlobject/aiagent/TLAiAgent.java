@@ -23,7 +23,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 创建日期：2026/7/4
  * 作者:tianlong
  */
-public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAgentCapable {
+public class TLAiAgent extends TLBaseModule
+        implements TLAiAgentParamString, IAgentCapable, IUserDataPurgeable {
 
     // ======================== 配置字段 ========================
 
@@ -2252,6 +2253,101 @@ public class TLAiAgent extends TLBaseModule implements TLAiAgentParamString, IAg
             llmProvider.clearSessionCacheStats(sessionId);
         }
         return putMsg(contextModuleName, ctxMsg);
+    }
+
+    // ======================== 彻底删除用户：运行态清理 ========================
+
+    @Override
+    public TLMsg purgeUserData(TLMsg request) {
+        if (!"runtime".equals(request.getStringParam("phase", "")))
+            return createMsg().setParam(RESULT, true).setParam("skipped", true);
+        return purgeSessionRuntime(
+                request.getStringParam("userId", ""),
+                request.getListParam("sessionIds", new java.util.ArrayList<>()),
+                request.getLongParam("waitMs", 5000L));
+    }
+
+    /**
+     * 停止并清理指定会话的运行态：stopChat → 等待 runCount 归零/线程退出 → 清 map/context。
+     * 等待超时返回 still_running 且不改动任何状态（数据删除必须等运行真正结束）。
+     */
+    private TLMsg purgeSessionRuntime(String userId, java.util.List<String> sessionIds, long waitMs) {
+        java.util.Set<String> targets = new java.util.LinkedHashSet<>();
+        for (String sid : sessionIds) if (sid != null && !sid.isEmpty()) targets.add(sid);
+        // 只对本实例真正持有运行态的会话调用 stopChat：否则每个 Agent 实例都会给别人的会话
+        // 写一个 cancelFlag（计数也会按"实例数×会话数"虚高）。
+        java.util.List<String> local = new java.util.ArrayList<>();
+        for (String sid : targets) {
+            if (getSessionRunCount(sid) > 0 || chatThreads.containsKey(sid)
+                    || cancelFlags.containsKey(sid) || sessionTokenUsage.containsKey(sid)
+                    || streamHandles.containsKey(sid) || pendingTaskInjections.containsKey(sid))
+                local.add(sid);
+        }
+        int stopped = 0;
+        for (String sid : local) {
+            try {
+                TLMsg stop = createMsg().setAction(AGENT_STOPCHAT).setParam(AI_P_SESSIONID, sid);
+                stopChat(this, stop);
+                stopped++;
+            } catch (Exception e) {
+                putLog("purge stopChat failed: " + sid + " " + e, LogLevel.WARN, "purge");
+            }
+        }
+        java.util.Set<String> waitSet = new java.util.LinkedHashSet<>(local);
+        long deadline = System.currentTimeMillis() + Math.max(0L, waitMs);
+        java.util.List<String> running = runningSessions(waitSet);
+        while (!running.isEmpty() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            running = runningSessions(waitSet);
+        }
+        if (!running.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "still_running")
+                    .setParam("stillRunning", running);
+        }
+        int cleared = 0;
+        for (String sid : targets) {
+            boolean any = false;
+            if (cancelFlags.remove(sid) != null) any = true;
+            if (sessionTokenUsage.remove(sid) != null) any = true;
+            if (pendingTaskInjections.remove(sid) != null) any = true;
+            if (streamHandles.remove(sid) != null) any = true;
+            Thread th = chatThreads.get(sid);
+            if (th != null && !th.isAlive()) {
+                chatThreads.remove(sid);
+                any = true;
+            }
+            if (sessionRunCounts.remove(sid) != null) any = true;
+            if (sessionRoundLocks.remove(sid) != null) any = true;
+            if (llmProvider != null) {
+                try { llmProvider.clearSessionCacheStats(sid); } catch (Exception ignored) { }
+            }
+            putMsg(contextModuleName, createMsg().setAction(CONTEXT_CLEAR)
+                    .setParam(AI_P_SESSIONID, sid));
+            if (any) cleared++;
+        }
+        putLog("Agent runtime purged: user=" + userId + " sessions=" + cleared, LogLevel.INFO, "purge");
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionsStopped", stopped)
+                .setParam("stateCleared", cleared);
+    }
+
+    private java.util.List<String> runningSessions(java.util.Set<String> targets) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String sid : targets) {
+            if (getSessionRunCount(sid) > 0) {
+                out.add(sid);
+                continue;
+            }
+            Thread th = chatThreads.get(sid);
+            if (th != null && th.isAlive()) out.add(sid);
+        }
+        return out;
     }
 
     /**

@@ -21,35 +21,49 @@ public final class WordMarkdownWriter {
      *                      false = plain，新段落不加任何对齐/缩进（= 旧行为）
      */
     public static void writeBlocks(XWPFDocument doc, List<WordMarkdown.Block> blocks, boolean chineseLayout) {
+        writeBlocks(doc, blocks, chineseLayout, null, null);
+    }
+
+    /**
+     * @param bodySource    正文/列表段落复制其格式（null=不复制）
+     * @param headingSource 标题块复制其格式（null=不复制）
+     */
+    public static void writeBlocks(XWPFDocument doc, List<WordMarkdown.Block> blocks,
+                                   boolean chineseLayout,
+                                   XWPFParagraph bodySource, XWPFParagraph headingSource) {
         for (WordMarkdown.Block b : blocks) {
             switch (b.type) {
                 case HEADING: {
-                    XWPFParagraph p = doc.createParagraph();
+                    XWPFParagraph p = WordFormatter.newParagraph(doc);
                     int lv = Math.max(1, Math.min(6, b.level));
                     applyHeading(p, lv, chineseLayout);
                     writeSpans(p, b.spans, lv);
+                    if (headingSource != null) WordFormatter.copyFormat(headingSource, p);
                     break;
                 }
                 case PARAGRAPH: {
-                    XWPFParagraph p = doc.createParagraph();
+                    XWPFParagraph p = WordFormatter.newParagraph(doc);
                     if (chineseLayout) applyFirstLineIndent(p);
                     writeSpans(p, b.spans);
+                    if (bodySource != null) WordFormatter.copyFormat(bodySource, p);
                     break;
                 }
                 case BULLET: {
-                    XWPFParagraph p = doc.createParagraph();
+                    XWPFParagraph p = WordFormatter.newParagraph(doc);
                     p.setStyle("ListParagraph");
                     XWPFRun r = p.createRun();
                     r.setText("• ");
                     writeSpans(p, b.spans);
+                    if (bodySource != null) WordFormatter.copyFormat(bodySource, p);
                     break;
                 }
                 case NUMBERED: {
-                    XWPFParagraph p = doc.createParagraph();
+                    XWPFParagraph p = WordFormatter.newParagraph(doc);
                     XWPFRun r = p.createRun();
                     // 保留源文档序号（新建文档无 numbering part，无法用自动编号；字面序号是可见性兜底）
                     r.setText((b.ordinal > 0 ? b.ordinal : 1) + ". ");
                     writeSpans(p, b.spans);
+                    if (bodySource != null) WordFormatter.copyFormat(bodySource, p);
                     break;
                 }
                 case TABLE: {
@@ -58,6 +72,7 @@ public final class WordMarkdownWriter {
                     int cols = 0;
                     for (List<String> r : b.rows) cols = Math.max(cols, r.size());
                     XWPFTable t = doc.createTable(rows, cols);
+                    WordFormatter.moveBeforeSectPr(doc, t.getCTTbl());
                     for (int i = 0; i < rows; i++) {
                         List<String> row = b.rows.get(i);
                         for (int j = 0; j < cols; j++) {
@@ -70,7 +85,7 @@ public final class WordMarkdownWriter {
                     break;
                 }
                 case PAGEBREAK: {
-                    XWPFParagraph p = doc.createParagraph();
+                    XWPFParagraph p = WordFormatter.newParagraph(doc);
                     p.createRun().addBreak(BreakType.PAGE);
                     break;
                 }

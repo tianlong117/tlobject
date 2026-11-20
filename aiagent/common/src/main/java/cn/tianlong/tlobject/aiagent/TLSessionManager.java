@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent;
 
 import cn.tianlong.tlobject.base.TLMsg;
 import cn.tianlong.tlobject.base.TLObjectFactory;
+import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.*;
 
@@ -299,6 +300,56 @@ public class TLSessionManager extends TLBaseSessionManager {
             java.util.Set<String> pins = loadPins(userId);
             if (pins.remove(sessionId)) savePins(userId, pins);
         } catch (Exception ignored) {}
+    }
+
+    // ======================== 用户级清理（彻底删除用户） ========================
+
+    @Override
+    protected TLMsg doListUserSessionIds(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        java.io.File dir = new java.io.File(getSessionStorePath(userId));
+        java.io.File[] files = dir.listFiles((d, n) -> n.endsWith(".json"));
+        if (files != null) {
+            for (java.io.File f : files) {
+                TLMsg meta = readLastLineMeta(f);
+                String sid = meta == null ? "" : meta.getStringParam("sessionId", "");
+                if (!sid.isEmpty()) ids.add(sid);
+            }
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionIds", new java.util.ArrayList<>(ids));
+    }
+
+    @Override
+    protected synchronized TLMsg doPurgeUserSessions(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        String dirPath = getSessionStorePath(userId);
+        java.io.File dir = new java.io.File(dirPath);
+        int sessions = 0;
+        boolean ok = true;
+        java.io.File[] files = dir.listFiles();
+        if (files != null) {
+            for (java.io.File f : files) {
+                if (!f.isFile()) continue;
+                if (f.getName().endsWith(".json")) sessions++;
+                if (!f.delete()) {
+                    ok = false;
+                    putLog("会话文件删除失败: " + f.getAbsolutePath(), LogLevel.WARN, "purge");
+                }
+            }
+        }
+        try {
+            if (dir.exists() && !dir.delete()) ok = false;   // 仅空目录；有子目录会失败并在失败里体现
+        } catch (Exception e) {
+            ok = false;
+        }
+        String abs = dir.getAbsolutePath();
+        roundSeqCounters.keySet().removeIf(k -> k.startsWith(abs));
+        fileLocks.keySet().removeIf(k -> k.startsWith(abs));
+        return createMsg().setParam(RESULT, ok)
+                .setParam("sessionsDeleted", sessions)
+                .setParam("roundsDeleted", 0);
     }
 
     @Override

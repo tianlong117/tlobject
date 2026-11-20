@@ -30,6 +30,7 @@ public class TLUserModuleSelfTest {
         testProfileFlows();
         testAdminFlows();
         testRegisterSettings();
+        testPurgeChecks();
         testPasswordValidation();
         System.out.println("[TLUserModuleSelfTest] pass=" + pass + " fail=" + fail);
         if (fail > 0) System.exit(1);
@@ -641,6 +642,53 @@ public class TLUserModuleSelfTest {
                         && setCaptcha.parseBoolean("loginCaptcha", false)
                         && call(m, "getRegisterPolicy").parseBoolean("loginCaptcha", false)
                         && adminCaptcha.parseBoolean("loginCaptcha", false));
+    }
+
+    static void testPurgeChecks() {
+        InMemoryUserModule m = seeded();
+        TLMsg ok = call(m, "purgeCheck", "operatorId", "admin", "userId", "tianlong",
+                "confirmUserId", "tianlong");
+        check("107 彻底删除预检通过", ok.parseBoolean("success", false)
+                && ok.parseBoolean("canPurge", false));
+
+        TLMsg mismatch = call(m, "purgeCheck", "operatorId", "admin", "userId", "tianlong",
+                "confirmUserId", "wrong");
+        check("108 确认名不匹配拒绝", "confirm_mismatch".equals(mismatch.getStringParam("errorCode", "")));
+
+        TLMsg nonAdmin = call(m, "purgeCheck", "operatorId", "tianlong", "userId", "console_user",
+                "confirmUserId", "console_user");
+        check("109 非管理员拒绝", "forbidden".equals(nonAdmin.getStringParam("errorCode", "")));
+
+        TLMsg self = call(m, "purgeCheck", "operatorId", "admin", "userId", "admin",
+                "confirmUserId", "admin");
+        check("110 不能彻底删除自己", "self_forbidden".equals(self.getStringParam("errorCode", "")));
+
+        TLMsg missing = call(m, "purgeCheck", "operatorId", "admin", "userId", "ghost",
+                "confirmUserId", "ghost");
+        check("111 不存在用户拒绝", "user_not_found".equals(missing.getStringParam("errorCode", "")));
+
+        TLMsg deleted = call(m, "purgeDeleteRecord", "operatorId", "admin", "userId", "tianlong",
+                "confirmUserId", "tianlong");
+        check("112 最后一步删除用户记录", deleted.parseBoolean("success", false)
+                && !m.rows.containsKey("tianlong"));
+
+        UserRecord race = new UserRecord();
+        race.userId = "race";
+        race.roles = "member";
+        race.status = 1;
+        m.insertRecord(race);
+        TLMsg pre = call(m, "purgeCheck", "operatorId", "admin", "userId", "race",
+                "confirmUserId", "race");
+        m.rows.remove("race");   // 模拟并发管理员已删除
+        TLMsg recheck = call(m, "purgeDeleteRecord", "operatorId", "admin", "userId", "race",
+                "confirmUserId", "race");
+        check("113 删除前重校验防并发", pre.parseBoolean("success", false)
+                && "user_not_found".equals(recheck.getStringParam("errorCode", "")));
+
+        TLMsg badConfirm = call(m, "purgeDeleteRecord", "operatorId", "admin", "userId", "console_user",
+                "confirmUserId", "nope");
+        check("114 删除步骤再次校验确认名", "confirm_mismatch".equals(badConfirm.getStringParam("errorCode", ""))
+                && m.rows.containsKey("console_user"));
     }
 
     static void testPasswordValidation() {

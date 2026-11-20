@@ -84,7 +84,10 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "(headings only — use this FIRST on a long document), tables, info, "
                     + "create/append (content is Markdown: # headings, - bullets, |a|b| tables, "
                     + "**bold**, --- page break), replace (find/replace, preserves formatting by "
-                    + "default), set_paragraph, "
+                    + "default), format (set font/size/bold/italic/alignment/line spacing/"
+                    + "first-line indent/space before/after on a paragraph range), "
+                    + "copy_format (copy direct formatting from a source paragraph to a target range), "
+                    + "set_page (page margins in cm), set_paragraph, "
                     + "insert_paragraph, delete_paragraph, set_table_cell, add_table_row, "
                     + "fill_template (replaces ${key}/{{key}} placeholders in body and tables). "
                     + "ONLY .docx is supported — .doc must be re-saved as .docx first. "
@@ -102,14 +105,26 @@ public class TLWordJavaSkill extends TLBaseSkill {
                     + "first-line indent - do NOT add leading spaces or indent characters yourself. "
                     + "Pass layout=\"plain\" for English documents, poetry, or content where no "
                     + "formatting is wanted. For poetry or any line-per-paragraph content, pass "
-                    + "lineMode=\"lines\" (default markdown joins consecutive lines into one paragraph). ";
+                    + "lineMode=\"lines\" (default markdown joins consecutive lines into one paragraph). "
+                    + "TO KEEP AN EXISTING DOCUMENT'S STYLE: read/outline first to get paragraph numbers, "
+                    + "then pass bodyFormatFrom/headingFormatFrom (or matchFormatFrom) to append, or use "
+                    + "copy_format on existing paragraphs — this copies direct formatting from a source "
+                    + "paragraph instead of guessing font sizes/margins. Paragraph numbers are 0-based "
+                    + "and refer to the document BEFORE the operation. copy_format/format do not change "
+                    + "text and do not copy pStyle/numbering/section properties. Use python-docx only "
+                    + "for unsupported complex content (fields, headers/footers, columns, arbitrary XML). ";
 
         if (parameterSchema == null || parameterSchema.isEmpty()) {
             parameterSchema = new LinkedHashMap<>();
             parameterSchema.put("action", prop("string",
                     "read(from?,to?) | outline | tables(index?) | info | create(path,content,overwrite?) | "
-                    + "append(path,content) | replace(path,find,replace,index?,mode?) | "
-                    + "set_paragraph(path,index,text) | insert_paragraph(path,index,text,style?,position?) | "
+                    + "append(path,content,bodyFormatFrom?,headingFormatFrom?,matchFormatFrom?) | "
+                    + "replace(path,find,replace,index?,mode?) | format(path,from,to,"
+                    + "fontName?,fontSize?,bold?,italic?,alignment?,lineSpacing?,"
+                    + "firstLineIndentChars?,spaceBefore?,spaceAfter?) | "
+                    + "copy_format(path,source,from,to) | set_page(path,"
+                    + "marginTop?,marginBottom?,marginLeft?,marginRight?) | "
+                    + "set_paragraph(path,index,text) | insert_paragraph(path,index,text,style?,position?,matchFormatFrom?) | "
                     + "delete_paragraph(path,index) | set_table_cell(path,table,row,col,text) | "
                     + "add_table_row(path,table,values?) | fill_template(path,data,output?)", true));
             // workspaceMode 在 params 解析后已确定：schema 只建一次，描述必须按生效模式给出
@@ -131,8 +146,25 @@ public class TLWordJavaSkill extends TLBaseSkill {
             parameterSchema.put("overwrite", prop("boolean", "create: allow overwriting an existing file"));
             parameterSchema.put("lineMode", prop("string", "create/append: markdown (default; consecutive lines join one paragraph) | lines (each non-empty line becomes its own paragraph; use for poetry/line-per-paragraph content)"));
             parameterSchema.put("backup", prop("boolean", "write a .bak.docx before modifying (default from config)"));
-            parameterSchema.put("from", prop("number", "read: first paragraph number (default 0)"));
-            parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end)"));
+            parameterSchema.put("from", prop("number", "read: first paragraph number (default 0); format/copy_format: first target paragraph (0-based)"));
+            parameterSchema.put("to", prop("number", "read: last paragraph number (-1 = end); format/copy_format: last target paragraph (default: from)"));
+            parameterSchema.put("source", prop("number", "copy_format: source paragraph number (0-based)"));
+            parameterSchema.put("matchFormatFrom", prop("number", "append/insert_paragraph: copy formatting from this paragraph (0-based, document state before the operation)"));
+            parameterSchema.put("bodyFormatFrom", prop("number", "append: body/list paragraphs copy formatting from this paragraph (0-based)"));
+            parameterSchema.put("headingFormatFrom", prop("number", "append: heading blocks copy formatting from this paragraph (0-based)"));
+            parameterSchema.put("fontName", prop("string", "format: font name applied to ascii/hAnsi/eastAsia/cs (e.g. 宋体)"));
+            parameterSchema.put("fontSize", prop("number", "format: font size in points"));
+            parameterSchema.put("bold", prop("boolean", "format: bold"));
+            parameterSchema.put("italic", prop("boolean", "format: italic"));
+            parameterSchema.put("alignment", prop("string", "format: left | center | right | justify"));
+            parameterSchema.put("lineSpacing", prop("number", "format: line spacing multiplier (e.g. 1.5)"));
+            parameterSchema.put("firstLineIndentChars", prop("number", "format: first-line indent in characters (0 = clear)"));
+            parameterSchema.put("spaceBefore", prop("number", "format: space before paragraph in points"));
+            parameterSchema.put("spaceAfter", prop("number", "format: space after paragraph in points"));
+            parameterSchema.put("marginTop", prop("number", "set_page: top margin in cm"));
+            parameterSchema.put("marginBottom", prop("number", "set_page: bottom margin in cm"));
+            parameterSchema.put("marginLeft", prop("number", "set_page: left margin in cm"));
+            parameterSchema.put("marginRight", prop("number", "set_page: right margin in cm"));
         }
 
         // path 描述随 workspaceMode 变化：parameterSchema 只在首建，而 setModuleParams 会被
@@ -174,7 +206,11 @@ public class TLWordJavaSkill extends TLBaseSkill {
             input = new LinkedHashMap<>();
             for (String k : new String[]{"action", "path", "content", "find", "replace", "index",
                     "mode", "text", "style", "position", "table", "row", "col", "values", "data",
-                    "output", "overwrite", "lineMode", "from", "to", "backup", "layout"}) {
+                    "output", "overwrite", "lineMode", "from", "to", "backup", "layout",
+                    "source", "matchFormatFrom", "bodyFormatFrom", "headingFormatFrom",
+                    "fontName", "fontSize", "bold", "italic", "alignment", "lineSpacing",
+                    "firstLineIndentChars", "spaceBefore", "spaceAfter",
+                    "marginTop", "marginBottom", "marginLeft", "marginRight"}) {
                 if (msg.containsParam(k)) input.put(k, msg.getParam(k));
             }
         }

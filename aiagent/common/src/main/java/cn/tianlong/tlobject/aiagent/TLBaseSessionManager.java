@@ -99,12 +99,31 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "loadRound":       return doLoadRound(fromWho, msg);
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
+            case "listUserSessionIds": return doListUserSessionIds(msg);
+            case "purgeUserSessions":  return doPurgeUserSessions(msg);
             case "setSessionTitle": return doSetSessionTitle(fromWho, msg);
             case "setSessionPinned": return doSetSessionPinned(fromWho, msg);
             case "discardOpenRound":
             case "discardPendingRound": return doDiscardPendingRound(fromWho, msg);
             default: return null;
         }
+    }
+
+    /**
+     * 列出某用户全部会话 id（**不过滤 task_***——彻底删除必须覆盖任务执行会话）。
+     * 默认存储不支持时返回空表；DB/文件实现覆盖。
+     */
+    protected TLMsg doListUserSessionIds(TLMsg msg) {
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionIds", new java.util.ArrayList<String>());
+    }
+
+    /**
+     * 按用户批量删除会话（含 task_*）；默认存储不支持。
+     * 返回 {success, sessionsDeleted, roundsDeleted}。
+     */
+    protected TLMsg doPurgeUserSessions(TLMsg msg) {
+        return createMsg().setParam(RESULT, false).setParam("error", "unsupported");
     }
 
     // ======================== Agent 通知处理 ========================

@@ -687,6 +687,9 @@ function renderUsers() {
     tdAct.appendChild(actBtn('编辑', () => openUserModal(user)));
     tdAct.appendChild(actBtn('重置密码', () => resetUserPassword(user)));
     tdAct.appendChild(actBtn(st === 1 ? '禁用' : st === 2 ? '通过' : '启用', () => toggleUser(user)));
+    const purge = actBtn('彻底删除', () => purgeUser(user));
+    purge.className = 'm-danger m-danger-strong';
+    tdAct.appendChild(purge);
     const del = actBtn('删除', () => deleteUser(user));
     del.className = 'm-danger';
     tdAct.appendChild(del);
@@ -803,12 +806,53 @@ async function resetUserPassword(user) {
 }
 
 async function deleteUser(user) {
-  if (!confirm('删除用户 ' + user.userId + '？此操作不可恢复。')) return;
+  if (!confirm('删除用户 ' + user.userId + ' 的账号记录？\n\n'
+      + '仅删除账号，其会话/记忆/工作空间/任务等数据会保留；'
+      + '如需连数据一起删除，请使用「彻底删除」。此操作不可恢复。')) return;
   try {
     const r = await apiJson('/api/usersDelete', { userId: user.userId });
     if (!r.success) throw new Error(r.error || '删除失败');
     await loadUsers();
   } catch (e) { userNotice(e.message, true); }
+}
+
+/** 彻底删除：输入登录名确认，误输入不发请求 */
+async function purgeUser(user) {
+  const typed = prompt('彻底删除用户 ' + user.userId + ' 的全部数据：\n'
+      + '会话历史、长期记忆、Token 统计、消息箱、定时/后台任务、审批、'
+      + 'workspace 与 data 目录。\n\n此操作不可恢复。请输入登录名确认：');
+  if (typed === null) return;
+  if (typed.trim() !== user.userId) {
+    userNotice('输入的用户名不匹配，未执行删除', true);
+    return;
+  }
+  try {
+    const r = await apiJson('/api/usersPurge', {
+      userId: user.userId, confirmUserId: typed.trim()
+    });
+    const counts = formatPurgeCounts(r.counts);
+    if (!r.success) {
+      // 先刷新列表再提示：loadUsers 会清空 notice，顺序反了成功/失败提示会被立刻擦掉
+      await loadUsers();
+      userNotice((r.error || '彻底删除未完成') + (counts ? '（已清理：' + counts + '）' : ''), true);
+      return;
+    }
+    await loadUsers();
+    userNotice('已彻底删除 ' + user.userId + (counts ? '：' + counts : ''));
+  } catch (e) { userNotice(e.message, true); }
+}
+
+function formatPurgeCounts(c) {
+  if (!c) return '';
+  const p = [];
+  const n = v => Number(v) || 0;
+  if (c.sessions) p.push('会话 ' + n(c.sessions.sessionsDeleted));
+  if (c.memory) p.push('记忆 ' + (n(c.memory.dbEntries) + n(c.memory.cacheCleared)));
+  if (c.tokenStats) p.push('Token 行 ' + n(c.tokenStats.rowsDeleted));
+  if (c.inbox) p.push('消息 ' + n(c.inbox.inboxRows));
+  if (c.tasks) p.push('任务 ' + n(c.tasks.recordsRemoved));
+  if (c.files) p.push('文件 ' + n(c.files.filesDeleted));
+  return p.join('，');
 }
 
 // ======================== 注册管理 ========================

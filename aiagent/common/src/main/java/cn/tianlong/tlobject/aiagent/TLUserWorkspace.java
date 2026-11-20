@@ -73,7 +73,7 @@ public final class TLUserWorkspace implements TLAiAgentParamString {
      */
     private static final Set<String> USER_DATA_SUBDIRS = Set.of(
             "uploads", "attachments", "longterm_memory", "tasks", "traces",
-            "session_store", "scheduled_tasks");
+            "session_store", "scheduled_tasks", "board");
 
     private TLUserWorkspace() {}
 

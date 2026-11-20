@@ -288,6 +288,8 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 return handleGrantPregrant(fromWho, msg);
             case APPROVAL_TASKSESSION:
                 return handleTaskSession(fromWho, msg);
+            case "approvalPurgeUser":
+                return handlePurgeUser(fromWho, msg);
             default:
                 return null;
         }
@@ -808,6 +810,83 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         traceStage(request.getSessionId(), request.getRootSessionId(), request.getRoundId(),
                 "approvalDecided", "id=" + approvalId + " abandoned", 0);
         return createMsg().setParam(RESULT, true).setParam(AI_P_APPROVAL_STATE, TLApprovalRequest.REJECTED);
+    }
+
+    /**
+     * 彻底删除用户：按 userId + 该用户 sessionIds 放弃未决审批（唤醒阻塞线程、关弹框），
+     * 并清授权/任务会话映射/拒绝记忆。返回各分项计数。
+     */
+    private TLMsg handlePurgeUser(Object fromWho, TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        java.util.List<String> sessionIds = msg.getListParam("sessionIds", new java.util.ArrayList<>());
+        java.util.Set<String> targets = new java.util.HashSet<>(sessionIds);
+        int abandoned = 0, grantsRemoved = 0, taskSessionsRemoved = 0, rejectionEntriesRemoved = 0;
+
+        for (Map.Entry<String, TLApprovalRequest> e : pendingApprovals.entrySet()) {
+            TLApprovalRequest req = e.getValue();
+            boolean match = (userId != null && !userId.isEmpty() && userId.equals(req.getUserId()))
+                    || targets.contains(req.getSessionId())
+                    || targets.contains(req.getRootSessionId());
+            if (!match) continue;
+            boolean pending;
+            synchronized (req) {
+                pending = TLApprovalRequest.PENDING.equals(req.getState());
+                if (pending) {
+                    req.setRejectionReason("用户账号已由管理员彻底删除");
+                    req.setState(TLApprovalRequest.REJECTED);
+                }
+            }
+            if (pending) {
+                ScheduledFuture<?> f = timeoutTasks.remove(e.getKey());
+                if (f != null) f.cancel(false);
+                signalDecision(e.getKey());       // 唤醒永久等待的 agent 线程
+                publishApprovalResolved(req);     // 其他窗口弹框关闭
+                abandoned++;
+            }
+            pendingApprovals.remove(e.getKey(), req);
+        }
+
+        synchronized (approvedGrants) {
+            java.util.Iterator<Map.Entry<String, ApprovalGrant>> it = approvedGrants.entrySet().iterator();
+            while (it.hasNext()) {
+                if (targets.contains(it.next().getValue().sessionId)) {
+                    it.remove();
+                    grantsRemoved++;
+                }
+            }
+        }
+        synchronized (taskSessionParents) {
+            java.util.Iterator<Map.Entry<String, String>> it = taskSessionParents.entrySet().iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, String> e = it.next();
+                if (targets.contains(e.getKey()) || targets.contains(e.getValue())) {
+                    it.remove();
+                    taskSessionsRemoved++;
+                }
+            }
+        }
+        synchronized (rejectedOps) {
+            java.util.Iterator<String> it = rejectedOps.keySet().iterator();
+            while (it.hasNext()) {
+                String key = it.next();
+                for (String sid : targets) {
+                    if (key.startsWith(sid + "|")) {
+                        it.remove();
+                        rejectionEntriesRemoved++;
+                        break;
+                    }
+                }
+            }
+        }
+        putLog("Approvals purged for user=" + userId + " sessions=" + targets.size()
+                + " abandoned=" + abandoned + " grants=" + grantsRemoved
+                + " taskSessions=" + taskSessionsRemoved
+                + " rejectedOps=" + rejectionEntriesRemoved, LogLevel.INFO, "purge");
+        return createMsg().setParam(RESULT, true)
+                .setParam("abandoned", abandoned)
+                .setParam("grantsRevoked", grantsRemoved)
+                .setParam("taskSessionsRemoved", taskSessionsRemoved)
+                .setParam("rejectionEntriesRemoved", rejectionEntriesRemoved);
     }
 
     /**

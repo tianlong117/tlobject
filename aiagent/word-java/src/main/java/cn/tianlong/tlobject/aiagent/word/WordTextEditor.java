@@ -402,7 +402,7 @@ public final class WordTextEditor {
             // 锚点是 body 最后一个元素时没有下一兄弟：toNextSibling 失败后游标仍停在锚点之前，
             // 再 insertNewParagraph 会把新段落到锚点**前面**（实测：末段后插跑到了文档开头，
             // 落盘 XML 也是错的）。此时改用末尾追加——句面等价，且 XML 位置正确（sectPr 之前）。
-            np = (c == null) ? doc.createParagraph() : doc.insertNewParagraph(c);
+            np = (c == null) ? WordFormatter.newParagraph(doc) : doc.insertNewParagraph(c);
         }
         if (np == null) throw new IllegalStateException("insertNewParagraph returned null");
 

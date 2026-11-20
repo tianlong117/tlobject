@@ -17,12 +17,24 @@
     <!-- Web UI 模块 + Jetty 参数 -->
     <modules>
         <module name="webui" classfile="cn.tianlong.tlobject.aiagent.webui.TLWebChatModule" singleton="true"/>
+        <!-- 彻底删除用户数据编排器（用户域模块；经控制中心注册表发现 Agent/技能/记忆的清理能力） -->
+        <module name="userDataPurger"
+                classfile="cn.tianlong.tlobject.aiagent.user.TLUserDataPurger"
+                singleton="true"/>
     </modules>
     <modulesParams>
         <module name="controlCenter" configfile="controlCenter_web_config.xml"/>
         <module name="webui" userModule="dbUserModule"
                 uploadSizeMaxMB="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"
-                captchaTtlSeconds="300"/>
+                captchaTtlSeconds="300" userDataPurger="userDataPurger"/>
+        <module name="userDataPurger"
+                userModule="dbUserModule"
+                sessionManager="dbSessionManager"
+                approvalModule="approvalGate"
+                agentMonitor="agentMonitor"
+                webui="webui"
+                dataRoot="./data"
+                purgeWaitMs="5000"/>
         <!-- servletPath="/api/" → initServletDispatch 挂唯一 TLServletDispatch 到 /api/*
              （与 appConfig 的 tlobjectPath="/api" 配套，全部框架请求走它，仿 ltbgtadmin 模式；
               不使用 extraServlets 再造 dispatch 实例，避免线程 Map 竞争覆盖）

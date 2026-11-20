@@ -657,6 +657,25 @@ Executes code snippets in a sandbox environment.
 - Python: requires `python3` installed on the system
 - JavaScript: uses the Java ScriptEngine (Nashorn/GraalJS)
 
+#### TLWordJavaSkill — Word Documents
+
+**Function name**: `word`
+**Module name**: `"wordJavaSkill"` (standalone module `aiagent/word-java`, POI 5.5.1)
+
+Read/write/edit `.docx`: body text, heading levels, tables, template placeholders, run-level formatting. `.docx` only (`.doc` must be re-saved as `.docx`).
+
+| Action | Description |
+|------|------|
+| `read` / `outline` / `tables` / `info` | Structured reading; `outline` returns headings only (use it first on long documents to get paragraph numbers) |
+| `create` / `append` | content is Markdown (`#` headings, `-` lists, `\|a\|b\|` tables, `**bold**`, `---` page break); `layout=chinese` (default) centers level-1 headings and indents body paragraphs by 2 characters, `plain` adds no alignment/indent |
+| `append` format sources | `headingFormatFrom` / `bodyFormatFrom` / `matchFormatFrom`: copy direct formatting from a source paragraph (paragraph numbers are 0-based and refer to the document **before** the operation); headings prefer heading→body→match, body/list paragraphs prefer body→match |
+| `format` | Explicitly set `fontName` / `fontSize` / `bold` / `italic` / `alignment` / `lineSpacing` / `firstLineIndentChars` / `spaceBefore` / `spaceAfter`; only the fields you pass are changed |
+| `copy_format` | `source` → `from..to`: copy the source paragraph's direct formatting (paragraph-level `jc`/`spacing`/`ind` plus the reference run's whole `rPr`) onto every run of the target paragraphs; does **not** copy `pStyle`, numbering or section properties, and never changes text |
+| `set_page` | `marginTop` / `marginBottom` / `marginLeft` / `marginRight` (cm); omitted fields keep their current value |
+| `replace` / `set_paragraph` / `insert_paragraph` / `delete_paragraph` / `set_table_cell` / `add_table_row` / `fill_template` | Text and table edits; text changes use minimal cross-run rebuilding to preserve formatting |
+
+**Limits**: headers/footers, content controls, field codes, columns, complex table merges and arbitrary XML are out of scope (use codeAgent/python-docx); `copy_format` intentionally overrides per-run differences in the target range — use `format` when you need to keep them. New paragraphs and tables are inserted before the body-level `sectPr` to avoid Word section glitches. See "User Workspace and Path Approval" for `workspaceMode`.
+
 ---
 
 
@@ -1425,7 +1444,7 @@ Everything below is a tool to it.
 
 | Sub-agent | Capability | Tools it uses |
 |-----------|------|-----------|
-| `fileAgent` | Read/write files, directory operations, Word .docx documents | MCP filesystem + `fileOperationSkill` + `word` (`aiagent/word-java`; .docx read/write/edit, formatting preserved on cross-run edits) |
+| `fileAgent` | Read/write files, directory operations, Word .docx documents | MCP filesystem + `fileOperationSkill` + `word` (`aiagent/word-java`; .docx read/write/edit, formatting preserved on cross-run edits; `format`/`copy_format`/`set_page` for basic layout, and `append` can copy source-paragraph formatting to keep the original document style) |
 | `codeAgent` | Write code, run scripts, do math | `codeExecutionSkill` + `scriptExecutionSkill` (Python/JS) |
 | `priceTeam` | A pricing team: hamburger agent + pizza agent in **parallel**, a supervisor agent reviews and summarizes | the `calculate_price` custom Skill |
 | `poemWorkflow` | Poetry workflow: two poets in different styles write **in parallel** → a critic reviews (DAG workflow) | workflow nodes reusing agents |
@@ -1774,8 +1793,9 @@ High-risk tool operations require human approval before they are executed.
   required the registration UI shows a notice and does not auto-login.
 - PBKDF2 passwords, multi-role + group, status/last login, admin protections, audit logs
 - CSRF: same-origin `Origin`/`Referer` + session `X-CSRF-Token` (scripts must fetch it from `/api/login` or `/api/session`); session cookie `HttpOnly; SameSite=Lax`
+- Purge user data (admin, `/api/usersPurge`, confirm by typing the login name): stops scheduled/background tasks and pending approvals, waits for running agents to finish, then deletes sessions (including `task_*`), memory, token stats, the inbox, and the `workspace`/`data`/`documents` trees — and **last** the account row. Shared directories and global traces are untouched; any critical failure keeps the account and returns per-step counts so the operation can be retried. The ordinary "Delete" button still removes only the account record.
 - Console `-u`: passwordless but validates existence/enabled; an invalid user enters the unlogged-in prompt (no exit) — `/login <userId>` retries, `/shutdown` stops the app
-- Self-test: `TLUserModuleSelfTest` (106 checks)
+- Self-test: `TLUserModuleSelfTest` (114 checks) + `TLUserDataFilePurgerSelfTest` (13 checks)
 
 ### Web Interaction Window (aiagent/webui)
 

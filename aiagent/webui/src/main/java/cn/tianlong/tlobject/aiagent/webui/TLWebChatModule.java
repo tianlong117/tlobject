@@ -67,6 +67,14 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private String serviceModule = "agentService";
     /** 用户模块名；空 = 未配置，登录回退旧 passwords 表（无默认模块，未配置不报错） */
     private String userModule = "";
+    /** 彻底删除用户数据的编排器模块名 */
+    private String userDataPurger = "userDataPurger";
+    /** 正在被彻底删除的用户：期间目标登录/命令一律拒绝，防"半删"状态被使用 */
+    private final java.util.Set<String> purgingUsers = ConcurrentHashMap.newKeySet();
+    /** 内部管理 action：普通用户经 /api/command 转发时一律拒绝 */
+    private static final java.util.Set<String> INTERNAL_ADMIN_ACTIONS = java.util.Set.of(
+            "purgeUser", "purgeUserLocal", "purgeUserSessions", "purgeSessions",
+            "approvalPurgeUser", "purgeUserData", "adminPurgeUser");
     /** 是否订阅工具实时进度（false = 不注册总线订阅） */
     private boolean subscribeToolProgress = true;
     /** 是否订阅工作流节点进度（false = 不注册总线订阅） */
@@ -114,6 +122,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             "chatStream", "events",
             "profile", "profileUpdate", "changePassword", "avatar",
             "users", "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword",
+            "usersPurge",
             "registerSettings", "registerSettingsUpdate");
     /** 需要 CSRF 防护的状态变更 web action（读接口/SSE 不在内）。 */
     private static final java.util.Set<String> CSRF_PROTECTED_ACTIONS = java.util.Set.of(
@@ -122,6 +131,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             "upload", "workspaceDelete", "workspaceMkdir", "workspaceUpload",
             "profileUpdate", "changePassword",
             "usersCreate", "usersUpdate", "usersDelete", "usersResetPassword",
+            "usersPurge",
             "registerSettingsUpdate",
             "setCurrentSession", "inboxAdd", "inboxRead", "inboxDelete");
     /** userId:sessionId → 流式 writer */
@@ -182,6 +192,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             subscribeWorkflowProgress = "true".equals(params.get("subscribeWorkflowProgress"));
         if (params.get("serviceModule") != null) serviceModule = params.get("serviceModule");
         if (params.get("userModule") != null) userModule = params.get("userModule");
+        if (params.get("userDataPurger") != null) userDataPurger = params.get("userDataPurger");
         if (params.get("uploadSizeMaxMB") != null) {
             try { uploadSizeMaxMB = Integer.parseInt(params.get("uploadSizeMaxMB")); } catch (NumberFormatException ignored) {}
         }
@@ -215,6 +226,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 e.put("error", "账号已被禁用或不存在，请重新登录");
                 e.put("errorCode", "account_disabled");
                 return outJson(e, 401);
+            }
+            if (purgingUsers.contains(uid)) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("success", false);
+                e.put("error", "账号数据正在被管理员删除");
+                e.put("errorCode", "purge_in_progress");
+                return outJson(e, 409);
             }
         }
         switch (msg.getAction()) {
@@ -280,6 +298,10 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
             case "usersDelete":
             case "usersResetPassword":
                 return doUserAdmin(msg);
+            case "usersPurge":
+                return doUsersPurge(msg);
+            case "purgeUserLocal":
+                return doPurgeUserLocal(msg);
             case "registerSettings":
                 return doRegisterSettings();
             case "registerSettingsUpdate":
@@ -411,6 +433,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
      */
     public Map<String, Object> handleCommand(String userId, String action, Map<String, Object> params) {
         if (action == null || action.isEmpty()) return failMap("缺少 action");
+        // 内部管理 action 不许经普通命令通道转发（防越权清用户数据）
+        if (INTERNAL_ADMIN_ACTIONS.contains(action)) return failMap("不支持的命令");
         // 会话占用声明（webui 自身逻辑，不转发 agentService）：
         // 无 owner / 同 login → 登记占用；被其他 login 占用且未 force → occupied；force → 踢旧 + 转移
         if ("claimSession".equals(action)) {
@@ -823,8 +847,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
     private TLMsg doSession() {
         String userId = currentUserId();
         Map<String, Object> out = new LinkedHashMap<>();
-        if (userId != null && !isUserActive(userId)) {
-            // 禁用/删除的会话清理：关闭事件通道、清在线标记与清单缓存（刻意不释放 sessionLogin、
+        if (userId != null && (purgingUsers.contains(userId) || !isUserActive(userId))) {
+            // 禁用/删除/正在彻底删除的会话清理：关闭事件通道、清在线标记与清单缓存（刻意不释放 sessionLogin、
             // 不处理待批审批——账号已失效，重登会被登录层拒绝）
             closeEventsChannel(userId);
             currentSessionByUser.remove(userId);
@@ -914,6 +938,13 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (captcha != null) return captchaFail(captcha);
         String userId = msg.getParam("userId") != null ? String.valueOf(msg.getParam("userId")) : null;
         String password = msg.getParam("password") != null ? String.valueOf(msg.getParam("password")) : null;
+        if (userId != null && purgingUsers.contains(userId.trim())) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("success", false);
+            e.put("error", "账号数据正在被管理员删除");
+            e.put("errorCode", "purge_in_progress");
+            return outJson(e, 409);
+        }
         Map<String, Object> r = login(userId, password, clientIP());
         if (Boolean.TRUE.equals(r.get("success"))) {
             try { getRequest().changeSessionId(); } catch (Exception ignored) { }
@@ -1136,6 +1167,113 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (r.containsParam("users")) out.put("users", toJsonable(r.getParam("users")));
         if (r.containsParam("user")) out.put("user", toJsonable(r.getParam("user")));
         return outJson(out, null);
+    }
+
+    // ======================== 彻底删除用户数据（管理员） ========================
+
+    private TLMsg doUsersPurge(TLMsg msg) {
+        String uid = currentUserId();
+        if (uid == null) return notLogin();
+        if (!isAdmin(uid)) return outJson(failMap("需要管理员权限"), 403);
+        String target = msg.getStringParam("userId", "").trim();
+        String confirm = msg.getStringParam("confirmUserId", "").trim();
+        if (target.isEmpty()) return outJson(failMap("缺少 userId"), 400);
+        if (!confirm.equals(target)) return outJson(failMap("确认用户名不匹配"), 400);
+        TLMsg r = callPurger("purgeUser", target, confirm, uid);
+        if (r == null) return outJson(failMap("用户数据清理模块未启用"), 503);
+        boolean ok = r.parseBoolean("success", false);
+        boolean partial = r.parseBoolean("partial", false);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("success", ok);
+        out.put("partial", partial);
+        if (!ok) {
+            out.put("error", r.getStringParam("error", "彻底删除失败"));
+            if (r.containsParam("errorCode")) out.put("errorCode", r.getStringParam("errorCode", ""));
+        }
+        if (r.containsParam("userId")) out.put("userId", r.getStringParam("userId", target));
+        if (r.containsParam("counts")) out.put("counts", toJsonable(r.getParam("counts")));
+        if (r.containsParam("warnings")) out.put("warnings", toJsonable(r.getParam("warnings")));
+        if (r.containsParam("failures")) out.put("failures", toJsonable(r.getParam("failures")));
+        return outJson(out, ok || partial ? null : purgeStatus(r));
+    }
+
+    private TLMsg callPurger(String action, String target, String confirm, String operator) {
+        if (userDataPurger == null || userDataPurger.isEmpty()) return null;
+        TLMsg m = createMsg().setAction(action)
+                .setParam("operatorId", operator)
+                .setParam("userId", target)
+                .setParam("confirmUserId", confirm)
+                .setSystemParam(IGNOREMODULEISNULL, true);
+        try { return putMsg(userDataPurger, m); } catch (Exception e) { return null; }
+    }
+
+    private Integer purgeStatus(TLMsg r) {
+        String code = r.getStringParam("errorCode", "");
+        if ("purge_in_progress".equals(code)) return 409;
+        if ("user_module_unavailable".equals(code) || "storage_error".equals(code)) return 503;
+        if ("forbidden".equals(code) || "self_forbidden".equals(code) || "last_admin".equals(code))
+            return 403;
+        return 400;
+    }
+
+    /**
+     * 编排器回调（仅内部 systemParam _internalPurge=true 可达；不配 urlMap）。
+     * begin 关入口+清在线态；data 删消息箱+任务会话引用；end 解除 purging。
+     */
+    private TLMsg doPurgeUserLocal(TLMsg msg) {
+        if (!Boolean.TRUE.equals(msg.getSystemParam("_internalPurge"))) return null;
+        String phase = msg.getStringParam("phase", "");
+        String userId = msg.getStringParam("userId", "");
+        if (userId.isEmpty()) return null;
+        // 内部消息：绝不能走 outJson（会占用当前 HTTP 请求的响应流，编排器也拿不到 RESULT）
+        if ("begin".equals(phase)) {
+            purgingUsers.add(userId);
+            closeEventsChannel(userId);
+            java.util.List<String> streamKeys = new java.util.ArrayList<>();
+            for (String k : streamWriters.keySet())
+                if (k.startsWith(userId + ":")) streamKeys.add(k);
+            for (String k : streamKeys) streamWriters.remove(k);
+            java.util.List<String> owned = new java.util.ArrayList<>();
+            for (Map.Entry<String, String> e : sessionOwner.entrySet())
+                if (userId.equals(e.getValue())) owned.add(e.getKey());
+            for (String sid : owned) {
+                sessionOwner.remove(sid);
+                sessionLogin.remove(sid);
+            }
+            currentSessionByUser.remove(userId);
+            clearTodoCacheOf(userId);
+            return createMsg().setParam(RESULT, true)
+                    .setParam("streamWritersClosed", streamKeys.size());
+        }
+        if ("data".equals(phase)) {
+            int inbox = inboxStore.countAll(userId);
+            boolean inboxOk = inboxStore.deleteAll(userId);
+            java.util.List<String> execs = new java.util.ArrayList<>();
+            for (Map.Entry<String, TaskSessionInfo> e : taskSessions.entrySet()) {
+                TaskSessionInfo info = e.getValue();
+                if (info != null && userId.equals(info.userId)) execs.add(e.getKey());
+            }
+            for (String exec : execs) {
+                taskSessions.remove(exec);
+                sessionOwner.remove(exec);
+                streamWriters.remove(userId + ":" + exec);
+            }
+            java.util.List<String> owned = new java.util.ArrayList<>();
+            for (Map.Entry<String, String> e : sessionOwner.entrySet())
+                if (userId.equals(e.getValue())) owned.add(e.getKey());
+            for (String sid : owned) sessionOwner.remove(sid);
+            currentSessionByUser.remove(userId);
+            clearTodoCacheOf(userId);
+            return createMsg().setParam(RESULT, inboxOk)
+                    .setParam("inboxRows", inbox)
+                    .setParam("inboxDeleted", inboxOk)
+                    .setParam("taskSessionsRemoved", execs.size());
+        }
+        if ("end".equals(phase)) {
+            purgingUsers.remove(userId);
+            return createMsg().setParam(RESULT, true);
+        }
+        return createMsg().setParam(RESULT, false).setParam("error", "unknown_phase");
     }
 
     // ======================== 注册管理（管理员） ========================
@@ -2291,6 +2429,40 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
                             "insert into [table] (user_id,source,task_id,text,is_read,created_at) values (?,?,?,?,?,?)")
                     .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+        }
+
+        int countAll(String userId) {
+            TLBaseModule t = tbl();
+            if (t == null || userId == null || userId.isEmpty()) return 0;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            TLMsg r = owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_QUERY)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "select count(*) as cnt from [table] where user_id=?")
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            Object row = firstRow(r);
+            if (row instanceof Map) {
+                Object c = ((Map<?, ?>) row).get("cnt");
+                if (c instanceof Number) return ((Number) c).intValue();
+            }
+            return 0;
+        }
+
+        /** 彻底删除用户：清空该用户消息箱；表不可用时视为无消息（返回 true）。 */
+        boolean deleteAll(String userId) {
+            TLBaseModule t = tbl();
+            if (t == null) return true;
+            if (userId == null || userId.isEmpty()) return false;
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("__uid", userId);
+            TLMsg r = owner.putMsg(t, owner.createMsg()
+                    .setAction(cn.tianlong.tlobject.base.TLParamString.DB_DELETE)
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_SQL,
+                            "delete from [table] where user_id=?")
+                    .setParam(cn.tianlong.tlobject.base.TLParamString.DB_P_PARAMS, p));
+            return r == null
+                    || r.parseBoolean(cn.tianlong.tlobject.base.TLParamString.RESULT, true);
         }
 
         int unreadCount(String userId) {

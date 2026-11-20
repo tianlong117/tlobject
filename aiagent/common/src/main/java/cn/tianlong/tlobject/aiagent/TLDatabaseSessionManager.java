@@ -331,6 +331,128 @@ public class TLDatabaseSessionManager extends TLBaseSessionManager {
         roundSeqCounters.remove(sessionId);
     }
 
+    // ======================== 用户级清理（彻底删除用户） ========================
+
+    @Override
+    protected TLMsg doListUserSessionIds(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        TLBaseModule st = ensureSessTable();
+        if (st == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "session_table_unavailable");
+        if (roundsTable == null) roundsTable = TLDatabase.getTable("aiSessionRounds", this);
+        java.util.LinkedHashSet<String> ids = new java.util.LinkedHashSet<>();
+        collectSessionIds(ids, st, userId);
+        if (roundsTable != null) collectSessionIds(ids, roundsTable, userId);
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionIds", new java.util.ArrayList<>(ids));
+    }
+
+    private void collectSessionIds(java.util.Set<String> ids, TLBaseModule table, String userId) {
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("uid", userId);
+            TLMsg r = putMsg(table, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, "select session_id from [table] where user_id=?")
+                    .setParam(DB_P_PARAMS, p));
+            java.util.List<java.util.Map<String, Object>> rows = getResultList(r);
+            if (rows == null) return;
+            for (java.util.Map<String, Object> row : rows) {
+                Object sid = row.get("session_id");
+                if (sid != null && !String.valueOf(sid).isEmpty()) ids.add(String.valueOf(sid));
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /**
+     * 按用户删会话：先按 user_id 批量删（含 task_*，不能用 listSessionsMeta），
+     * 再按 sessionIds 分批补删 user_id 为空/不一致的旧行。返回实际删除计数。
+     */
+    @Override
+    protected synchronized TLMsg doPurgeUserSessions(TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        java.util.List<String> sessionIds = msg.getListParam("sessionIds", new java.util.ArrayList<>());
+        TLBaseModule st = ensureSessTable();
+        if (st == null)
+            return createMsg().setParam(RESULT, false).setParam("error", "session_table_unavailable");
+        if (roundsTable == null) roundsTable = TLDatabase.getTable("aiSessionRounds", this);
+        int sessions = countRows(st, "select count(*) as cnt from [table] where user_id=?", userId);
+        int rounds = roundsTable == null ? 0
+                : countRows(roundsTable, "select count(*) as cnt from [table] where user_id=?", userId);
+        boolean ok = deleteRows(st, "delete from [table] where user_id=?", userId);
+        if (roundsTable != null)
+            ok = deleteRows(roundsTable, "delete from [table] where user_id=?", userId) && ok;
+        for (int i = 0; i < sessionIds.size(); i += 200) {
+            java.util.List<String> batch = sessionIds.subList(i, Math.min(i + 200, sessionIds.size()));
+            sessions += countRowsIn(st, batch);
+            rounds += roundsTable == null ? 0 : countRowsIn(roundsTable, batch);
+            ok = deleteRowsIn(st, batch) && ok;
+            if (roundsTable != null) ok = deleteRowsIn(roundsTable, batch) && ok;
+        }
+        for (String sid : sessionIds) roundSeqCounters.remove(sid);
+        return createMsg().setParam(RESULT, ok)
+                .setParam("sessionsDeleted", sessions)
+                .setParam("roundsDeleted", rounds);
+    }
+
+    private int countRows(TLBaseModule table, String sql, String userId) {
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("uid", userId);
+            return countResult(putMsg(table, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, p)));
+        } catch (Exception e) { return 0; }
+    }
+
+    private boolean deleteRows(TLBaseModule table, String sql, String userId) {
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            p.put("uid", userId);
+            TLMsg r = putMsg(table, createMsg().setAction(DB_DELETE)
+                    .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, p));
+            return r == null || r.parseBoolean(RESULT, true);
+        } catch (Exception e) { return false; }
+    }
+
+    private int countRowsIn(TLBaseModule table, java.util.List<String> ids) {
+        if (ids.isEmpty()) return 0;
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            String sql = "select count(*) as cnt from [table] where session_id in ("
+                    + placeholders(ids, p) + ")";
+            return countResult(putMsg(table, createMsg().setAction(DB_QUERY)
+                    .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, p)));
+        } catch (Exception e) { return 0; }
+    }
+
+    private boolean deleteRowsIn(TLBaseModule table, java.util.List<String> ids) {
+        if (ids.isEmpty()) return true;
+        try {
+            LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+            String sql = "delete from [table] where session_id in (" + placeholders(ids, p) + ")";
+            TLMsg r = putMsg(table, createMsg().setAction(DB_DELETE)
+                    .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, p));
+            return r == null || r.parseBoolean(RESULT, true);
+        } catch (Exception e) { return false; }
+    }
+
+    private static String placeholders(java.util.List<String> ids, LinkedHashMap<String, Object> params) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('?');
+            params.put("s" + i, ids.get(i));
+        }
+        return sb.toString();
+    }
+
+    private int countResult(TLMsg r) {
+        java.util.List<java.util.Map<String, Object>> rows = getResultList(r);
+        if (rows == null || rows.isEmpty()) return 0;
+        Object v = rows.get(0).get("cnt");
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v)); } catch (NumberFormatException e) { return 0; }
+    }
+
     // ======================== setSessionTitle ========================
 
     /**

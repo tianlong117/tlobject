@@ -1,5 +1,6 @@
 package cn.tianlong.tlobject.aiagent.skill.builtin;
 
+import cn.tianlong.tlobject.aiagent.IUserDataPurgeable;
 import cn.tianlong.tlobject.aiagent.TLBaseSkill;
 import cn.tianlong.tlobject.aiagent.TLConversationHistory;
 import cn.tianlong.tlobject.aiagent.TLPathSafety;
@@ -34,7 +35,7 @@ import java.util.*;
  *
  * 创建日期：2026/10/04 作者:tianlong
  */
-public class TLScheduleTaskSkill extends TLBaseSkill {
+public class TLScheduleTaskSkill extends TLBaseSkill implements IUserDataPurgeable {
 
     /** 定时任务引擎模块名（应用工厂里声明的 TLMsgTask 实例） */
     private String msgTaskModule = "taskScheduler";
@@ -1411,6 +1412,100 @@ public class TLScheduleTaskSkill extends TLBaseSkill {
             }
         }
         return fail("update 需要至少一个改动：enabled 或 cron/delay/unit/times/begin");
+    }
+
+    // ======================== 彻底删除用户：任务清理 ========================
+
+    @Override
+    public TLMsg purgeUserData(TLMsg request) {
+        if (!"tasks".equals(request.getStringParam("phase", "")))
+            return createMsg().setParam(RESULT, true).setParam("skipped", true);
+        return purgeUserTasks(request.getStringParam("userId", ""),
+                request.getLongParam("waitMs", 5000L));
+    }
+
+    /**
+     * 按 userId 停止并注销本技能全部任务，然后删除该用户的任务文件。
+     * 只删文件不停调度是不成立的（message 型任务仍会执行），必须先 stop + unregister。
+     * 返回 execSessions 供编排器并入运行态/会话清理。
+     */
+    private synchronized TLMsg purgeUserTasks(String userId, long waitMs) {
+        if (userId == null || userId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "invalid_user_id");
+        Map<String, TaskRecord> mine = recordsOf(userId);
+        java.util.List<String> execSessions = new java.util.ArrayList<>();
+        int stopped = 0;
+        for (TaskRecord rec : mine.values()) {
+            String fullId = rec.owner + "/" + rec.taskId;
+            if (!runningTasks.containsKey(fullId)) continue;
+            if (rec.execSession != null && !rec.execSession.isEmpty()) execSessions.add(rec.execSession);
+            stopTaskRun(rec);
+            stopped++;
+        }
+        long deadline = System.currentTimeMillis() + Math.max(0L, waitMs);
+        while (hasRunning(mine.keySet()) && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        java.util.List<String> still = runningOf(mine.keySet());
+        if (!still.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "still_running")
+                    .setParam("stillRunning", still)
+                    .setParam("execSessions", execSessions)
+                    .setParam("stopped", stopped);
+        }
+        // 注销引擎内存任务（失败即中止：不删文件、不删用户行，保留现场可重试）
+        java.util.List<String> failed = new java.util.ArrayList<>();
+        for (String fullId : mine.keySet()) {
+            TLMsg r = sendToEngine(createMsg().setAction("unRegistTask").setParam("taskid", fullId));
+            if (r == null || !Boolean.TRUE.equals(r.getParam(RESULT))) failed.add(fullId);
+        }
+        if (!failed.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "unregister_failed")
+                    .setParam("failed", failed)
+                    .setParam("execSessions", execSessions)
+                    .setParam("stopped", stopped);
+        }
+        // 清运行态索引残留（正常情况下 finishTask 已清；等待超时分支不会走到这里）
+        for (String sid : execSessions) runningBySession.remove(sid);
+        // 删持久化文件；失败则返回错误（下次重试幂等）
+        boolean fileDeleted = true;
+        File f = storageFile(userId);
+        if (f.exists() && !f.delete()) fileDeleted = false;
+        try {
+            File dir = f.getParentFile();
+            if (dir != null) dir.delete();   // 仅空目录
+        } catch (Exception ignored) { }
+        if (!fileDeleted) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "task_file_delete_failed")
+                    .setParam("execSessions", execSessions)
+                    .setParam("stopped", stopped);
+        }
+        putLog("User tasks purged: user=" + userId + " owner=" + ownerAgent
+                + " records=" + mine.size() + " stopped=" + stopped, LogLevel.INFO, "purge");
+        return createMsg().setParam(RESULT, true)
+                .setParam("stopped", stopped)
+                .setParam("unregistered", mine.size())
+                .setParam("recordsRemoved", mine.size())
+                .setParam("execSessions", execSessions);
+    }
+
+    private boolean hasRunning(java.util.Collection<String> fullIds) {
+        for (String id : fullIds) if (runningTasks.containsKey(id)) return true;
+        return false;
+    }
+
+    private java.util.List<String> runningOf(java.util.Collection<String> fullIds) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String id : fullIds) if (runningTasks.containsKey(id)) out.add(id);
+        return out;
     }
 
     // ======================== 持久化 ========================

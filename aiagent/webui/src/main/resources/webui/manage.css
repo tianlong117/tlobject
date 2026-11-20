@@ -114,6 +114,10 @@ body {
 }
 .m-danger:hover { background: #3b1d24; color: #fecaca; }
 .m-danger:disabled { opacity: .45; cursor: not-allowed; }
+.m-danger-strong {
+  background: #7f1d1d; border-color: #b91c1c; color: #fff;
+}
+.m-danger-strong:hover { background: #991b1b; color: #fff; }
 .m-empty { padding: 40px 16px; text-align: center; color: #6b7280; }
 
 .m-login { display: flex; align-items: center; justify-content: center; height: 100vh; }

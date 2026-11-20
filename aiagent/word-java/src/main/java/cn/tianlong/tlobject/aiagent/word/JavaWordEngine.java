@@ -1,6 +1,7 @@
 package cn.tianlong.tlobject.aiagent.word;
 
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
+import org.apache.poi.xwpf.usermodel.XWPFParagraph;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -80,6 +81,9 @@ public class JavaWordEngine {
                 case "set_table_cell":   return doSetTableCell(input);
                 case "add_table_row":    return doAddTableRow(input);
                 case "fill_template":    return doFillTemplate(input);
+                case "format":           return doFormat(input);
+                case "copy_format":      return doCopyFormat(input);
+                case "set_page":         return doSetPage(input);
                 default: return Result.fail("unknown action: " + action);
             }
         } catch (Exception e) {
@@ -199,8 +203,22 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         String content = toDocString(in.getOrDefault("content", ""));
         try (XWPFDocument doc = open(p)) {
+            // 格式来源段号指“操作前”的文档状态：先解析/校验，再写入
+            XWPFParagraph bodySrc = null, headSrc = null;
+            List<XWPFParagraph> ps = doc.getParagraphs();
+            if (in.containsKey("bodyFormatFrom"))
+                bodySrc = WordFormatter.paragraphAt(ps, requiredIndex(in, "bodyFormatFrom", ps.size()));
+            if (in.containsKey("headingFormatFrom"))
+                headSrc = WordFormatter.paragraphAt(ps, requiredIndex(in, "headingFormatFrom", ps.size()));
+            if (in.containsKey("matchFormatFrom")) {
+                XWPFParagraph any = WordFormatter.paragraphAt(ps,
+                        requiredIndex(in, "matchFormatFrom", ps.size()));
+                if (bodySrc == null) bodySrc = any;
+                if (headSrc == null) headSrc = any;
+            }
             WordMarkdownWriter.writeBlocks(doc,
-                    WordMarkdown.parse(content, linesMode(in)), cfg.chineseLayout);
+                    WordMarkdown.parse(content, linesMode(in)), cfg.chineseLayout,
+                    bodySrc, headSrc);
             save(doc, p);
         }
         return receipt("append", p, null);
@@ -255,11 +273,104 @@ public class JavaWordEngine {
         Path p = resolve(od(in, "path"), true);
         boolean before = !"after".equalsIgnoreCase(String.valueOf(in.getOrDefault("position", "before")));
         try (XWPFDocument doc = open(p)) {
-            WordTextEditor.insertParagraph(doc, oi(in, "index", -1),
+            int index = oi(in, "index", -1);
+            XWPFParagraph src = null;
+            if (in.containsKey("matchFormatFrom")) {
+                List<XWPFParagraph> ps0 = doc.getParagraphs();
+                src = WordFormatter.paragraphAt(ps0,
+                        requiredIndex(in, "matchFormatFrom", ps0.size()));
+            }
+            WordTextEditor.insertParagraph(doc, index,
                     requiredText(in), od(in, "style"), before, cfg.chineseLayout);
+            if (src != null) {
+                List<XWPFParagraph> ps = doc.getParagraphs();
+                int newIdx = before ? index : index + 1;
+                if (newIdx >= 0 && newIdx < ps.size())
+                    WordFormatter.copyFormat(src, ps.get(newIdx));
+            }
             save(doc, p);
         }
         return receipt("insert_paragraph", p, null);
+    }
+
+    // ================= 格式动作 =================
+
+    private Result doFormat(Map<String, Object> in) throws IOException {
+        Path p = resolve(od(in, "path"), true);
+        WordFormatter.FormatSpec spec = WordFormatter.FormatSpec.from(in);
+        if (!spec.any) return Result.fail("format: at least one format field is required");
+        try (XWPFDocument doc = open(p)) {
+            List<XWPFParagraph> ps = doc.getParagraphs();
+            int from = requiredIndex(in, "from", ps.size());
+            int to = in.containsKey("to") ? oi(in, "to", from) : from;
+            WordFormatter.checkRange(from, to, ps.size());
+            int runs = 0;
+            for (int i = from; i <= to; i++) runs += WordFormatter.apply(ps.get(i), spec);
+            save(doc, p);
+            Result r = receipt("format", p, null);
+            r.json.put("paragraphs", to - from + 1);
+            r.json.put("runs", runs);
+            return r;
+        }
+    }
+
+    private Result doCopyFormat(Map<String, Object> in) throws IOException {
+        Path p = resolve(od(in, "path"), true);
+        try (XWPFDocument doc = open(p)) {
+            List<XWPFParagraph> ps = doc.getParagraphs();
+            int source = requiredIndex(in, "source", ps.size());
+            int from = requiredIndex(in, "from", ps.size());
+            int to = in.containsKey("to") ? oi(in, "to", from) : from;
+            WordFormatter.checkRange(from, to, ps.size());
+            XWPFParagraph src = WordFormatter.paragraphAt(ps, source);
+            int runs = 0;
+            for (int i = from; i <= to; i++) runs += WordFormatter.copyFormat(src, ps.get(i));
+            save(doc, p);
+            Result r = receipt("copy_format", p, null);
+            r.json.put("source", source);
+            r.json.put("paragraphs", to - from + 1);
+            r.json.put("runs", runs);
+            return r;
+        }
+    }
+
+    private Result doSetPage(Map<String, Object> in) throws IOException {
+        Path p = resolve(od(in, "path"), true);
+        Double top = optionalCm(in, "marginTop");
+        Double bottom = optionalCm(in, "marginBottom");
+        Double left = optionalCm(in, "marginLeft");
+        Double right = optionalCm(in, "marginRight");
+        if (top == null && bottom == null && left == null && right == null)
+            return Result.fail("set_page: at least one margin is required");
+        try (XWPFDocument doc = open(p)) {
+            WordFormatter.setMargins(doc, top, bottom, left, right);
+            save(doc, p);
+            Result r = receipt("set_page", p, null);
+            Map<String, Object> margins = new LinkedHashMap<>();
+            if (top != null) margins.put("top", WordFormatter.cmToTwips(top));
+            if (bottom != null) margins.put("bottom", WordFormatter.cmToTwips(bottom));
+            if (left != null) margins.put("left", WordFormatter.cmToTwips(left));
+            if (right != null) margins.put("right", WordFormatter.cmToTwips(right));
+            r.json.put("margins", margins);
+            return r;
+        }
+    }
+
+    private static Double optionalCm(Map<String, Object> in, String key) {
+        if (!in.containsKey(key) || in.get(key) == null) return null;
+        try { return Double.parseDouble(String.valueOf(in.get(key)).trim()); }
+        catch (Exception e) {
+            throw new IllegalArgumentException(key + " must be a number (cm)");
+        }
+    }
+
+    /** 必填段落号（0 基）；缺 key/负数一律在写盘前失败。 */
+    private static int requiredIndex(Map<String, Object> in, String key, int size) {
+        if (!in.containsKey(key) || in.get(key) == null)
+            throw new IllegalArgumentException(key + " is required (0-based paragraph number)");
+        int idx = oi(in, key, -1);
+        if (idx < 0) throw new IllegalArgumentException(key + " must be >= 0");
+        return idx;
     }
 
     private Result doDeleteParagraph(Map<String, Object> in) throws IOException {

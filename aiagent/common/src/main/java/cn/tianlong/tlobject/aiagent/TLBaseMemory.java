@@ -19,7 +19,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * 创建日期：2026/7/4
  * 作者:tianlong
  */
-public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentParamString {
+public abstract class TLBaseMemory extends TLBaseModule
+        implements TLAiAgentParamString, IUserDataPurgeable {
 
     /** 记忆类型：shortTerm / longTerm */
     protected String memoryType = "shortTerm";
@@ -68,6 +69,13 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             new java.util.concurrent.atomic.AtomicBoolean(false);
     /** 最近一次 store 的 agentName（后台补批借用 agent LLM 用；无则退回 summaryProvider 自建） */
     protected volatile String lastAgentName;
+    /**
+     * 摘要写入闸门：彻底删除用户时递增 epoch；在途摘要线程/补批线程在落库前比对，
+     * 不一致即放弃，防止 purge 后被异步摘要复活。（summaryLock 同时保护摘要落库与清理）
+     */
+    protected final Object summaryLock = new Object();
+    protected final java.util.concurrent.atomic.AtomicLong summaryEpoch =
+            new java.util.concurrent.atomic.AtomicLong();
 
     public TLBaseMemory() {
         super();
@@ -193,6 +201,37 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
         return System.currentTimeMillis() + (exptimeMinutes * 60L * 1000L);
     }
 
+    // ======================== 用户级清理（彻底删除用户） ========================
+
+    /** 编排器入口：phase 不是 memory 时跳过（其他实例会处理对应 phase）。 */
+    @Override
+    public TLMsg purgeUserData(TLMsg request) {
+        if (!"memory".equals(request.getStringParam("phase", "")))
+            return createMsg().setParam(RESULT, true).setParam("skipped", true);
+        String userId = request.getStringParam("userId", "");
+        List<String> sessionIds = request.getListParam("sessionIds", new ArrayList<>());
+        return purgeUser(userId, sessionIds);
+    }
+
+    /** 按用户清理记忆（DB/文件子类实现）；默认不支持。 */
+    protected TLMsg purgeUser(String userId, List<String> sessionIds) {
+        return createMsg().setParam(RESULT, false).setParam("error", "unsupported");
+    }
+
+    /** 清摘要缓冲并递增 epoch（与摘要落库互斥）；sessionIds 为该用户的会话。 */
+    protected void clearSummaryState(java.util.Collection<String> sessionIds) {
+        synchronized (summaryLock) {
+            summaryEpoch.incrementAndGet();
+            if (sessionIds == null) return;
+            for (String sid : sessionIds) {
+                if (sid == null || sid.isEmpty()) continue;
+                summaryBuffer.remove(sid);
+                summaryCoverSeq.remove(sid);
+                summaryGenerating.remove(sid);
+            }
+        }
+    }
+
     // ======================== 会话摘要（攒批总结） ========================
 
     /**
@@ -216,9 +255,10 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
         // 生成阶段不持锁；异步模式下 store 只登记/起 daemon，不阻塞 chat 收尾。
         if (!hasSummaryBatch(sessionId, batch)) return;
         if (!summaryGenerating.add(sessionId)) return;
+        final long epoch = summaryEpoch.get();
         if (summaryAsync) {
             Thread t = new Thread(
-                    () -> runSummaryLoop(sessionId, userId, agentName, maxSeq, batch),
+                    () -> runSummaryLoop(sessionId, userId, agentName, maxSeq, batch, epoch),
                     "memory-summary-" + sessionId);
             t.setDaemon(true);
             try {
@@ -228,7 +268,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                 putLog("summary worker start failed: " + e, LogLevel.WARN);
             }
         } else {
-            runSummaryLoop(sessionId, userId, agentName, maxSeq, batch);
+            runSummaryLoop(sessionId, userId, agentName, maxSeq, batch, epoch);
         }
     }
 
@@ -245,9 +285,10 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
      * 失败保留缓冲并退出（下次 store 重试）。同步/异步共用，防两套逻辑漂移。
      */
     private void runSummaryLoop(String sessionId, String userId, String agentName,
-                                long fallbackCoverSeq, int batch) {
+                                long fallbackCoverSeq, int batch, long epoch) {
         try {
             while (true) {
+                if (epoch != summaryEpoch.get()) return;   // 用户数据已被彻底删除
                 List<String> snapshot;
                 long coverSeq;
                 synchronized (summaryBuffer) {
@@ -257,7 +298,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                     Long cs = summaryCoverSeq.get(sessionId);
                     coverSeq = cs != null ? cs : fallbackCoverSeq;
                 }
-                if (!generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq)) {
+                if (!generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq, epoch)) {
                     return;
                 }
             }
@@ -273,6 +314,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
     protected void maybeGenerateSummary(String sessionId, String userId, String agentName) {
         if (!summaryGenerating.add(sessionId)) return;
         try {
+            long epoch = summaryEpoch.get();
             List<String> snapshot;
             long coverSeq;
             synchronized (summaryBuffer) {
@@ -282,7 +324,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                 Long cs = summaryCoverSeq.get(sessionId);
                 coverSeq = cs != null ? cs : 0L;
             }
-            generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq);
+            generateSummaryFromSnapshot(sessionId, userId, agentName, snapshot, coverSeq, epoch);
         } finally {
             summaryGenerating.remove(sessionId);
         }
@@ -293,7 +335,7 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
      * @return true=已落库（可继续处理剩余满批碎片），false=失败（缓冲保留待重试）
      */
     private boolean generateSummaryFromSnapshot(String sessionId, String userId, String agentName,
-                                                List<String> snapshot, long coverSeq) {
+                                                List<String> snapshot, long coverSeq, long epoch) {
         TLLlmProvider provider = resolveSummaryProvider(agentName);
         if (provider == null) {
             putLog("summary provider unavailable, buffer kept (session=" + sessionId + ")", LogLevel.WARN);
@@ -316,22 +358,29 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
             meta.put("sessionId", sessionId);
             meta.put("coverSeq", coverSeq);
             sEntry.setMetadata(meta);
-            storeSummaryEntry(sEntry);
 
-            synchronized (summaryBuffer) {
-                List<String> buffer = summaryBuffer.get(sessionId);
-                if (buffer != null) {
-                    int n = Math.min(snapshot.size(), buffer.size());
-                    // 生成期间命中硬上限可能丢弃了快照头部——此时不能按长度盲删，否则会吞掉新碎片
-                    boolean samePrefix = n > 0 && buffer.subList(0, n).equals(snapshot.subList(0, n));
-                    if (samePrefix)
-                        buffer.subList(0, n).clear();
-                    else
-                        putLog("summary buffer changed during generation, skip trim (session=" + sessionId + ")",
-                                LogLevel.DEBUG);
-                    if (buffer.isEmpty()) {
-                        summaryBuffer.remove(sessionId);
-                        summaryCoverSeq.remove(sessionId);
+            synchronized (summaryLock) {
+                // 与 purge 互斥：LLM 调用期间用户被彻底删除 → 丢弃这次摘要，不落库
+                if (epoch != summaryEpoch.get()) {
+                    putLog("summary dropped after purge (session=" + sessionId + ")", LogLevel.DEBUG);
+                    return false;
+                }
+                storeSummaryEntry(sEntry);
+                synchronized (summaryBuffer) {
+                    List<String> buffer = summaryBuffer.get(sessionId);
+                    if (buffer != null) {
+                        int n = Math.min(snapshot.size(), buffer.size());
+                        // 生成期间命中硬上限可能丢弃了快照头部——此时不能按长度盲删，否则会吞掉新碎片
+                        boolean samePrefix = n > 0 && buffer.subList(0, n).equals(snapshot.subList(0, n));
+                        if (samePrefix)
+                            buffer.subList(0, n).clear();
+                        else
+                            putLog("summary buffer changed during generation, skip trim (session=" + sessionId + ")",
+                                    LogLevel.DEBUG);
+                        if (buffer.isEmpty()) {
+                            summaryBuffer.remove(sessionId);
+                            summaryCoverSeq.remove(sessionId);
+                        }
                     }
                 }
             }
@@ -481,12 +530,14 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                 summarySeedInProgress.set(false);
                 return;
             }
+            final long epoch = summaryEpoch.get();
             Thread t = new Thread(() -> {
                 try {
                     TLLlmProvider provider = resolveSummaryProvider(lastAgentName);
                     if (provider == null) return; // 下次再试
                     List<String> pending = new ArrayList<>(fragments);
                     while (!pending.isEmpty()) {
+                        if (epoch != summaryEpoch.get()) return;   // 用户数据已被彻底删除
                         int n = Math.min(summaryBatchSize, pending.size());
                         List<String> batch = new ArrayList<>(pending.subList(0, n));
                         pending = new ArrayList<>(pending.subList(n, pending.size()));
@@ -495,7 +546,10 @@ public abstract class TLBaseMemory extends TLBaseModule implements TLAiAgentPara
                             putLog("summary seed batch failed, remaining kept for retry (user=" + userId + ")", LogLevel.WARN);
                             return; // 剩余碎片下轮再试（未浓缩前照常召回）
                         }
-                        storeSummaryEntry(createSeedSummaryEntry(userId, summary));
+                        synchronized (summaryLock) {
+                            if (epoch != summaryEpoch.get()) return;
+                            storeSummaryEntry(createSeedSummaryEntry(userId, summary));
+                        }
                     }
                     putLog("Summary seed done for user: " + userId + " fragments=" + fragments.size(), LogLevel.INFO);
                 } catch (Exception e) {

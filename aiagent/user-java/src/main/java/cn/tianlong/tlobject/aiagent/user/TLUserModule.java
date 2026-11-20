@@ -126,6 +126,8 @@ public class TLUserModule extends TLBaseModule {
                 case "createUser": return createUser(msg);
                 case "updateUser": return updateUser(msg);
                 case "deleteUser": return deleteUser(msg);
+                case "purgeCheck": return purgeCheck(msg);
+                case "purgeDeleteRecord": return purgeDeleteRecord(msg);
                 case "resetPassword": return resetPassword(msg);
             }
             return null;
@@ -460,6 +462,56 @@ public class TLUserModule extends TLBaseModule {
         }
         audit("deleteUser", operator, userId, "ok");
         return createMsg().setParam("success", true);
+    }
+
+    // ======================== 彻底删除（账号部分，最后一步） ========================
+
+    /** 只读预检：权限/确认名/自删/末位管理员/目标存在；不动任何数据。 */
+    private TLMsg purgeCheck(TLMsg msg) {
+        String operator = msg.getStringParam("operatorId", "");
+        String userId = msg.getStringParam("userId", "").trim();
+        TLMsg denied = purgeDenied(operator, userId,
+                msg.getStringParam("confirmUserId", ""));
+        if (denied != null) return denied;
+        UserRecord u = findById(userId);
+        return createMsg().setParam("success", true).setParam("canPurge", true)
+                .setParam("userId", userId)
+                .setParam("nickname", nicknameOf(u))
+                .setParam("status", u.status)
+                .setParam("isAdmin", hasAdminRole(u));
+    }
+
+    /** 彻底删除最后一步：重校验（防 TOCTOU）后删除 ai_users；数据清理由编排器先行完成。 */
+    private synchronized TLMsg purgeDeleteRecord(TLMsg msg) {
+        String operator = msg.getStringParam("operatorId", "");
+        String userId = msg.getStringParam("userId", "").trim();
+        TLMsg denied = purgeDenied(operator, userId,
+                msg.getStringParam("confirmUserId", ""));
+        if (denied != null) {
+            audit("purgeUser", operator, userId,
+                    "denied:" + denied.getStringParam("errorCode", ""));
+            return denied;
+        }
+        if (!deleteRecord(userId)) {
+            audit("purgeUser", operator, userId, "error");
+            return err("storage_error", "删除用户记录失败，请稍后重试");
+        }
+        audit("purgeUser", operator, userId, "ok");
+        return createMsg().setParam("success", true).setParam("deleted", true);
+    }
+
+    /** 管理员/确认名/自删/末位管理员校验；通过返回 null。 */
+    private TLMsg purgeDenied(String operator, String userId, String confirmUserId) {
+        String denied = adminDenied(operator);
+        if (denied != null) return err("forbidden", denied);
+        if (userId == null || userId.isEmpty()) return err("invalid_input", "缺少 userId");
+        if (!userId.equals(confirmUserId)) return err("confirm_mismatch", "确认用户名不匹配");
+        if (operator.equals(userId)) return err("self_forbidden", "不能彻底删除自己");
+        UserRecord u = findById(userId);
+        if (u == null) return err("user_not_found", "用户不存在");
+        if (u.status == 1 && hasAdminRole(u) && countEnabledAdmins() <= 1)
+            return err("last_admin", "不能彻底删除最后一个启用管理员");
+        return null;
     }
 
     private TLMsg resetPassword(TLMsg msg) {

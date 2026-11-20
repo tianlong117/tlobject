@@ -286,6 +286,8 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
                 return getDbTokenUsage(fromWho, msg);
             case MONITOR_GETLASTROUNDAGENTUSAGE:
                 return getLastRoundAgentUsage(fromWho, msg);
+            case "purgeUser":
+                return purgeUser(fromWho, msg);
             default:
                 return null;
         }
@@ -801,5 +803,103 @@ public class TLAgentMonitor extends TLBaseModule implements TLAiAgentParamString
         }
 
         return createMsg().setParam(RESULT, true).setParam("count", snapshot.size());
+    }
+
+    /**
+     * 彻底删除用户：等待目标会话无运行 → 清内存统计（sessionStats/latestRounds/lastRoundStats）
+     * → 删 ai_token_stats（user_id + session_id 兜底）。
+     * 必须在 Agent 停止之后调用，否则后续 unregister→flushSessionToDb 会重新插入统计行。
+     */
+    private TLMsg purgeUser(Object fromWho, TLMsg msg) {
+        String userId = msg.getStringParam("userId", "");
+        java.util.List<String> sessionIds = msg.getListParam("sessionIds", new java.util.ArrayList<>());
+        long waitMs = msg.getLongParam("waitMs", 5000L);
+        java.util.Set<String> targets = new java.util.HashSet<>(sessionIds);
+        long deadline = System.currentTimeMillis() + Math.max(0L, waitMs);
+        java.util.List<String> running = runningOf(targets);
+        while (!running.isEmpty() && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(50L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            running = runningOf(targets);
+        }
+        if (!running.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "still_running")
+                    .setParam("stillRunning", running);
+        }
+        int memoryEntriesRemoved = 0;
+        for (Map.Entry<String, SessionStats> e : sessionStats.entrySet()) {
+            SessionStats s = e.getValue();
+            if (targets.contains(e.getKey()) || targets.contains(s.rootSessionId)
+                    || (userId != null && !userId.isEmpty() && userId.equals(s.userId))) {
+                if (sessionStats.remove(e.getKey(), s)) memoryEntriesRemoved++;
+            }
+        }
+        for (String sid : targets) {
+            if (latestRounds.remove(sid) != null) memoryEntriesRemoved++;
+            if (lastRoundStats.remove(sid) != null) memoryEntriesRemoved++;
+        }
+        int rowsDeleted = 0;
+        boolean ok = true;
+        if (persistTokenStats && tokenStatsTable != null) {
+            try {
+                LinkedHashMap<String, Object> p = new LinkedHashMap<>();
+                p.put("uid", userId);
+                rowsDeleted += countTokenRows(
+                        "select count(*) as cnt from [table] where user_id=?", p);
+                ok = deleteTokenRows("delete from [table] where user_id=?", p);
+                java.util.List<String> ids = new java.util.ArrayList<>(targets);
+                for (int i = 0; i < ids.size(); i += 200) {
+                    java.util.List<String> batch = ids.subList(i, Math.min(i + 200, ids.size()));
+                    LinkedHashMap<String, Object> bp = new LinkedHashMap<>();
+                    String in = tokenPlaceholders(batch, bp);
+                    rowsDeleted += countTokenRows(
+                            "select count(*) as cnt from [table] where session_id in (" + in + ")", bp);
+                    ok = deleteTokenRows("delete from [table] where session_id in (" + in + ")", bp) && ok;
+                }
+            } catch (Exception e) {
+                ok = false;
+                putLog("purgeUser token stats failed: " + e, LogLevel.WARN, "purge");
+            }
+        }
+        return createMsg().setParam(RESULT, ok)
+                .setParam("memoryEntriesRemoved", memoryEntriesRemoved)
+                .setParam("rowsDeleted", rowsDeleted);
+    }
+
+    private java.util.List<String> runningOf(java.util.Set<String> targets) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (Map.Entry<String, RunEntry> e : runningAgents.entrySet()) {
+            RunEntry re = e.getValue();
+            if (targets.contains(e.getKey()) || targets.contains(re.rootSessionId)) out.add(e.getKey());
+        }
+        return out;
+    }
+
+    private int countTokenRows(String sql, LinkedHashMap<String, Object> params) {
+        TLMsg q = putMsg(tokenStatsTable, createMsg().setAction(DB_QUERY)
+                .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, params));
+        Map<String, Object> row = firstRowOf(q);
+        return row == null ? 0 : (int) toLong(row.get("cnt"));
+    }
+
+    private boolean deleteTokenRows(String sql, LinkedHashMap<String, Object> params) {
+        TLMsg r = putMsg(tokenStatsTable, createMsg().setAction(DB_DELETE)
+                .setParam(DB_P_SQL, sql).setParam(DB_P_PARAMS, params));
+        return r == null || r.parseBoolean(RESULT, true);
+    }
+
+    private static String tokenPlaceholders(java.util.List<String> ids, LinkedHashMap<String, Object> params) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ids.size(); i++) {
+            if (i > 0) sb.append(',');
+            sb.append('?');
+            params.put("s" + i, ids.get(i));
+        }
+        return sb.toString();
     }
 }

@@ -504,6 +504,67 @@ public class TLLongTermMemoryModule extends TLBaseMemory {
         return count;
     }
 
+    // ======================== 用户级清理（彻底删除用户） ========================
+
+    @Override
+    protected TLMsg purgeUser(String userId, List<String> sessionIds) {
+        if (userId == null || userId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "invalid_user_id");
+        int cacheCleared = 0, pendingRemoved = 0;
+        synchronized (this) {
+            if (cache != null) {
+                int before = cache.size();
+                java.util.Iterator<Map.Entry<String, TLMemoryEntry>> it = cache.entrySet().iterator();
+                while (it.hasNext()) {
+                    if (userId.equals(extractUserId(it.next().getKey()))) it.remove();
+                }
+                cacheCleared = before - cache.size();
+            }
+            if (pendingWrites != null) {
+                for (TLMemoryEntry e : new ArrayList<>(pendingWrites)) {
+                    if (userId.equals(extractUserId(e.getKey())) && pendingWrites.remove(e))
+                        pendingRemoved++;
+                }
+            }
+            if (deletedKeys != null)
+                deletedKeys.removeIf(k -> userId.equals(extractUserId(k)));
+        }
+        clearSummaryState(sessionIds);
+        // 等在途 append/compact 结束（单线程 executor 的 barrier），再删文件，避免被写回
+        try {
+            if (writeExecutor != null && !writeExecutor.isShutdown()) {
+                java.util.concurrent.Future<?> barrier = writeExecutor.submit(() -> { });
+                barrier.get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }
+        } catch (Exception e) {
+            putLog("purgeUser memory wait barrier failed: " + e, LogLevel.WARN, "purge");
+        }
+        boolean fileRemoved = false;
+        synchronized (this) {
+            try {
+                Path file = getUserStorePath(userId);
+                fileRemoved = Files.deleteIfExists(file);
+                Path ltDir = file.getParent();
+                if (ltDir != null) {
+                    try { Files.deleteIfExists(ltDir); } catch (java.nio.file.DirectoryNotEmptyException ignored) { }
+                    Path userDir = ltDir.getParent();
+                    if (userDir != null) {
+                        try { Files.deleteIfExists(userDir); } catch (java.nio.file.DirectoryNotEmptyException ignored) { }
+                    }
+                }
+            } catch (Exception e) {
+                putLog("purgeUser memory file delete failed: " + e, LogLevel.WARN, "purge");
+                return createMsg().setParam(RESULT, false).setParam("error", "memory_file_delete_failed")
+                        .setParam("cacheCleared", cacheCleared)
+                        .setParam("pendingRemoved", pendingRemoved);
+            }
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam("cacheCleared", cacheCleared)
+                .setParam("pendingRemoved", pendingRemoved)
+                .setParam("fileRemoved", fileRemoved ? 1 : 0);
+    }
+
     /**
      * 调度增量持久化（异步追加写入pending entries）
      */
