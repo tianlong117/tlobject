@@ -65,8 +65,10 @@
         <rule name="run_script"
               statup="true"
               description="执行脚本需要审批（codeAgent/codingAgent）"/>
+        <!-- 可信本地渲染器：免审批；脚本的 --output 路径不再由审批兜底，
+             由 fileAgent 提示词约束写到 {{userWorkspace}}。 -->
         <rule name="mermaid-flowchart"
-              statup="true"
-              description="执行流程图渲染脚本需要审批"/>
+              statup="false"
+              description="执行流程图渲染脚本（已免审批）"/>
     </rules>
 </moduleConfig>

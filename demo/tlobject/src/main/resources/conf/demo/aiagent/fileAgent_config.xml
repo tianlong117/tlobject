@@ -14,6 +14,8 @@
              8192 让常规报告基本一次成型。子 agent 调用不走主 agent 的 maxTokens（executeAsTool 不透传），此处生效
              注：8192 为已验证值（evalCaseGenerator casesMaxTokens 同值） -->
         <defaultMaxTokens value="8192"/>
+        <!-- 流程图/Word 多步任务容易撞 10 轮上限；fileAgent 实测第 10 轮才完成渲染。 -->
+        <maxToolCallIterations value="30"/>
         <!-- HITL 审批由共享执行器全局启用（toolExecutor_config.xml 的 approvalModule=approvalGate），
              规则按工具名匹配，危险工具在本 agent 上天然被管 -->
         <!-- 不走意图缓存：带审批门禁的工具操作不得被学习/命中缓存 -->

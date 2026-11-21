@@ -3,6 +3,7 @@ name: mermaid-flowchart
 description: >-
   根据内容或 Markdown 文件生成流程图。支持三种输入：1) .mmd 文件直接渲染；2) .md 文件自动提取其中的 mermaid 代码块渲染，若无代码块则从标题与列表结构自动生成流程图；3) 纯文本（--text 或 .txt）自动转换为 Mermaid 流程图。输出 PNG/SVG/PDF，中文正常显示。当用户要求"画流程图""把这段流程生成图""根据 md 出图""流程图转图片"时使用。依赖 Node 环境下的 @mermaid-js/mermaid-cli（mmdc 命令），运行时通过 npx --no-install mmdc 调用。
   通过 mermaid-flowchart 工具调用，script_path 为 'mermaid_render.py'。
+  调用示例：script_path='mermaid_render.py'，arguments='--input <file>.mmd --output <file>.png --format png'（需要更清晰可加 --scale 3；纯文本输入用 --text）。
 ---
 
 # mermaid-flowchart

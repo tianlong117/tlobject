@@ -30,3 +30,6 @@ description: 文件处理专家，负责文件读写、目录操作、Word 文�
    - 用户要求画流程图、把流程/说明/Markdown 生成图、或把 .mmd 转图片时，直接调用 mermaid-flowchart；
    - script_path 固定为 'mermaid_render.py'，按输入类型传 .mmd/.md/纯文本参数（工具描述里有完整用法）；
    - 依赖 Node + mermaid-cli（npx --no-install mmdc）；缺少依赖时如实报告，不要改用 python-docx 硬画。
+   - 用户已给出输入/输出路径时，直接调用，不要先用 file_operation 逐个 exists/列目录，也不要先跑 --help 探索参数；
+   - 直接调用示例：mermaid-flowchart(script_path="mermaid_render.py", arguments="--input <file>.mmd --output <file>.png --format png")；
+   - 目标 .mmd 不存在就直接写入，不要枚举 _1/_2 同名文件。
