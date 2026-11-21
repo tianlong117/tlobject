@@ -65,7 +65,9 @@ public final class TLProcessNarration implements TLAiAgentParamString {
         }
         if (low.contains("list") && (low.contains("dir") || low.contains("file")))
             return "正在浏览目录" + suffix(arg);
-        if (low.contains("code_execution") || low.contains("script_execution")
+        if (low.contains("code_execution") || low.contains("script")
+                || low.contains("weibo") || low.contains("cloud_revenue")
+                || low.contains("mermaid")
                 || low.contains("execute") || low.contains("python")) {
             return "正在执行代码";
         }

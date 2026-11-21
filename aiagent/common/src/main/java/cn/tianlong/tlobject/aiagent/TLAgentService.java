@@ -262,6 +262,27 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
     /** 从注册表（控制中心/旧 moduleRegistry）按家族名查找模块实例 */
     private TLBaseModule findAgentInstance(String familyName) {
+        TLBaseModule exact = lookupExactModule(familyName);
+        if (exact != null) return exact;
+        // 短名回退：完整家族名未命中时，按 <任意前缀>:<短名> 唯一匹配 IAgentCapable。
+        // 目的：/install -s mermaid-flowchart fileAgent 这类简写也能用；多个同名 → 拒绝，不猜。
+        if (familyName == null || familyName.isEmpty() || familyName.indexOf(':') >= 0) return null;
+        TLMsg list = putMsgToRegistry(createMsg().setAction(REGISTRY_LIST));
+        if (list == null) return null;
+        Object raw = list.getParam(RESULT);
+        if (!(raw instanceof List)) return null;
+        List<String> candidates = matchAgentFamilyNames(familyName, (List<?>) raw);
+        if (candidates.size() == 1) return lookupExactModule(candidates.get(0));
+        if (candidates.size() > 1) {
+            putLog("targetAgent 短名有歧义: " + familyName + "，候选: " + candidates
+                    + "（请填完整家族名）", LogLevel.WARN);
+        }
+        return null;
+    }
+
+    /** 精确按家族名取注册表实例 */
+    private TLBaseModule lookupExactModule(String familyName) {
+        if (familyName == null || familyName.isEmpty()) return null;
         TLMsg result = putMsgToRegistry(createMsg().setAction(REGISTRY_GET)
                 .setParam(REGISTRY_P_KEY, familyName));
         if (result != null) {
@@ -269,6 +290,30 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
             if (inst instanceof TLBaseModule) return (TLBaseModule) inst;
         }
         return null;
+    }
+
+    /**
+     * 短名 → 完整家族名候选（仅 IAgentCapable，排除 skill/tool）。
+     * 精确同名候选排最前；调用方只在唯一候选时使用，多个 = 歧义拒绝。
+     * 包可见静态方法便于自测。
+     */
+    @SuppressWarnings("unchecked")
+    static List<String> matchAgentFamilyNames(String requested, List<?> registryItems) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        if (requested == null || requested.isEmpty() || registryItems == null) return new ArrayList<>();
+        String suffix = ":" + requested;
+        for (Object obj : registryItems) {
+            if (!(obj instanceof Map)) continue;
+            Map<String, Object> item = (Map<String, Object>) obj;
+            if (!(item.get(INSTANCE) instanceof IAgentCapable)) continue;   // 只匹配 Agent/Group/Workflow
+            Object keyObj = item.get(REGISTRY_P_KEY);
+            if (keyObj == null) continue;
+            String key = String.valueOf(keyObj);
+            if (key.equals(requested) || key.endsWith(suffix)) out.add(key);
+        }
+        List<String> list = new ArrayList<>(out);
+        if (list.remove(requested)) list.add(0, requested);   // 同名精确优先
+        return list;
     }
 
     /** 向控制中心注册表发消息；未配置 controlCenterName 时跳过。 */

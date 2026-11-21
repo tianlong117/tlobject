@@ -123,11 +123,11 @@
               <option value="agent">Agent</option>
               <option value="baseSkill">BaseSkill(Java类)</option>
             </select>
-            <input id="installName" placeholder="名称/目录">
+            <input id="installName" placeholder="名称/目录（skill 填目录名如 mermaid-flowchart；装到哪个 Agent 填右侧目标Agent）">
           </div>
           <div class="row">
             <input id="installRef" placeholder="sameClassAs 或 classFile(含. 的视为类名，可选)">
-            <input id="installTarget" placeholder="目标Agent (默认 aiagent_master)">
+            <input id="installTarget" placeholder="目标Agent (默认 aiagent_master；子Agent 可填家族名 aiagent_master:fileAgent 或唯一短名 fileAgent)">
           </div>
           <button class="primary" onclick="doInstall()">安装</button>
         </details>

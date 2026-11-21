@@ -629,13 +629,13 @@ Allows the LLM to read and write the local file system.
 
 #### User Workspace and Path Approval (workspaceMode)
 
-`file_operation` / `word` / `code_execution` / `script_execution` support `workspaceMode` (default `false`; enabled in the demo configs).
+`file_operation` / `word` / `code_execution` / script skills (`TLScriptExecutionSkill`) support `workspaceMode` (default `false`; enabled in the demo configs).
 
 - **Semantics**: relative paths and bare file names resolve to `workspace/{userId}`; absolute paths are used as-is, and out-of-workspace paths go through the executor `pathGuard` approval.
 - **User workspace**: `workspace/{userId}` (`userId` sanitized by `TLPathSafety`); the base root can be overridden with the `tlobject.workspaceRoot` system property (tests / special deployments).
-- **Path matrix**: own `workspace/{uid}`, `data/{uid}`, and `data/documents/{uid}` are allowed; other users' workspace/data are hard-denied without an approval prompt; everything else triggers `path_access` approval (once / round / session); `code_execution` and `script_execution` require approval on every call.
+- **Path matrix**: own `workspace/{uid}`, `data/{uid}`, and `data/documents/{uid}` are allowed; other users' workspace/data are hard-denied without an approval prompt; everything else triggers `path_access` approval (once / round / session); `code_execution` and script skills require approval on every call.
 - **Uploads**: web UI uploads and console `/img` imports live in `workspace/{uid}/uploads`; `data/{uid}/uploads` is the legacy location, migrated idempotently at startup by `TLUploadMigration` (triggered from `TLAiAgent.runStartMsg` — `attachmentStore` is lazy-loaded) and read-compatible by filename for old sessions. Uploads are never auto-cleaned.
-- **Execution**: under `workspaceMode` the subprocess CWD is the user workspace; `script_execution` switches CWD only when the script itself is inside the workspace (built-in skill scripts keep their original CWD).
+- **Execution**: under `workspaceMode` the subprocess CWD is the user workspace; script skills switch CWD only when the script itself is inside the workspace (built-in skill scripts keep their original CWD).
 - **MCP filesystem**: `userWorkspaceScoped=true` (default `false`) plus `pathRoot` (defaults to `tlobject.workspaceRoot`); relative paths are rewritten to `{uid}/...`, and cross-user or outside-`pathRoot` paths are rejected.
 
 
@@ -1414,6 +1414,13 @@ leaves the console and the Web server keeps running.
 
 (Type `/help` or `/?` at any time for the full list.)
 
+> **Installing a script skill** (Web UI install panel or console): `/install -s <dir> <targetAgent>`, e.g.
+> `/install -s mermaid-flowchart aiagent_master:fileAgent`. `targetAgent` accepts the full registry family name
+> or a unique short name. The skill directory must contain at least one supported script under `scripts/`
+> and a description source (`SKILL.md` / `<dir>.md` / `md/<dir>.md` frontmatter, or an explicit
+> `skillDescription`); the interpreter is auto-detected. The LLM function name defaults to the directory
+> name, and a duplicate function name on the same agent is rejected instead of silently overwritten.
+
 ### 3. Web UI
 
 `aistart-web.bat` also starts Jetty (port 8080 by default) in the same process. Open:
@@ -1818,7 +1825,8 @@ Open `http://localhost:58080/webui/chat.html` in a browser (change the port in t
   - Tracing: /trace, /stats, /stats all, /stats agent
 - Approval: approval requests are pushed to a browser dialog via SSE; you can edit the parameters before approving or rejecting
 - User isolation: the login identity is passed through to agentService, and sessions and memory under data/{uid}/ are isolated per user
-- Implementation: TLWebChatModule (business logic; API routed via TLServletDispatch + urlMap) + TLWebChatServlet (only `/` redirect and `/webui/*` static resources, mounted via TLJettyServer extraServlets), with static pages embedded in the jar classpath
+- Implementation: TLWebChatModule (business logic; API routed via TLServletDispatch + urlMap) + the generic servletutils `TLStaticFileServlet` (only `/` redirect and `/webui/*` static resources, mounted via TLJettyServer extraServlets with `?k=v` init parameters).
+- Static pages are application assets: `{configDir}/webui/` (demo source `demo/tlobject/src/main/resources/conf/demo/aiagent/webui/`, runtime `demo/tlobject/target/classes/conf/demo/aiagent/webui/`). The servlet checks the filesystem first and falls back to classpath `/webui/`; 404 JSON includes `staticRoot` / `looked`. Parameters: `root`, `fallbackClasspath`, `indexRedirect`, `welcomeFile`, `cacheControl`.
 
 
 ### Background Tasks and Parallel Sessions

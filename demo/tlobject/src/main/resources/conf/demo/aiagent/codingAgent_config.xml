@@ -43,7 +43,7 @@
         <skill name="scriptExecutionSkill"
                sameClassAs="scriptExecutionSkill"
                statup="true"
-               skillName="script_execution"
+               skillName="run_script"
                workspaceMode="true"
                maxExecutionTime="300"
                allowedScriptDir="."

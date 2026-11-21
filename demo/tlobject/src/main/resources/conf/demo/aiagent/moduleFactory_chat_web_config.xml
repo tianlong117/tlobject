@@ -38,12 +38,14 @@
         <!-- servletPath="/api/" → initServletDispatch 挂唯一 TLServletDispatch 到 /api/*
              （与 appConfig 的 tlobjectPath="/api" 配套，全部框架请求走它，仿 ltbgtadmin 模式；
               不使用 extraServlets 再造 dispatch 实例，避免线程 Map 竞争覆盖）
-             / 与 /webui/* 静态页由 TLWebChatServlet 服务 -->
+             静态页由通用 TLStaticFileServlet 服务：静态页属于应用资产，放在
+             {configDir}/webui/（root=webui）；文件系统未命中时回退 classpath /webui/（兼容 UI 打进 jar）。
+             "/" 映射只做 302 到首页。servlet 参数经 extraServlets 的 ?k=v&k2=v2 传递。 -->
         <module name="jettyServer"
                 port="58080"
                 connector="http"
                 servletPath="/api/"
-                extraServlets="/=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet;/webui/*=cn.tianlong.tlobject.aiagent.webui.TLWebChatServlet"/>
+                extraServlets="/=cn.tianlong.tlobject.servletutils.TLStaticFileServlet?indexRedirect=/webui/chat.html;/webui/*=cn.tianlong.tlobject.servletutils.TLStaticFileServlet?root=webui&amp;fallbackClasspath=/webui&amp;indexRedirect=/webui/chat.html"/>
     </modulesParams>
 
     <!-- 基础设施启动序列；应用模块序列与 webui/jettyServer 由控制中心 startMsg 编排

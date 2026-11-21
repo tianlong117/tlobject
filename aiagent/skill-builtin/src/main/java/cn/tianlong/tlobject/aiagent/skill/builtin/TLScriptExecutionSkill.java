@@ -14,7 +14,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 外部脚本执行 Skill。允许 LLM 调用 Python / Shell / 任意解释器脚本。
- * 函数名: script_execution
+ * 函数名: 由配置 skillName 决定（未配置时=模块名；热加载默认=脚本目录名）
  *
  * 与 TLCodeExecutionSkill 的区别：
  * - TLCodeExecutionSkill 执行内联代码片段
@@ -102,7 +102,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
         super.setModuleParams();
 
         if (skillName == null || skillName.isEmpty())
-            skillName = name;  // 默认用模块名，避免多个脚本 skill 共用 "script_execution" 冲突
+            skillName = name;  // 默认用模块名，避免多个脚本 skill 共用同一函数名
         if (skillDescription == null || skillDescription.isEmpty())
             skillDescription = "Execute an existing script file (.py, .sh, .js, etc.) and return its output. IMPORTANT: script_path must be a relative filename (e.g. 'process.py'), NOT a shell command.";
 
@@ -155,20 +155,36 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
      */
     @Override
     protected void loadSkillMd() {
-        // 显式配置优先，未配则在 allowedScriptDir 父目录自动发现
+        // 显式配置优先；未配置时在 allowedScriptDir 父目录（技能目录）按优先级自动发现。
+        // SKILL.md 是第三方技能的标准元数据文件；<目录名>.md 兼容 liantongyun.md 这类写法；
+        // <skillName>.md 保留旧行为。installer 生成的 SKILL.md 从这里真正进入 skillDescription。
         if (skillMdPath == null && allowedScriptDir != null && !allowedScriptDir.isEmpty()) {
             try {
-                java.nio.file.Path dir = java.nio.file.Paths.get(resolveScriptDir());
-                java.nio.file.Path parent = dir.getParent();
-                if (parent != null) {
-                    java.nio.file.Path namedMd = parent.resolve(skillName + ".md");
-                    if (java.nio.file.Files.exists(namedMd)) {
-                        skillMdPath = namedMd.toString();
-                    }
-                }
+                Path md = discoverSkillMd(Paths.get(resolveScriptDir()), name, skillName);
+                if (md != null) skillMdPath = md.toString();
             } catch (Exception ignored) {}
         }
         super.loadSkillMd();
+    }
+
+    /**
+     * 技能目录（scripts 的父目录）里的描述文件发现：
+     * SKILL.md → &lt;模块名&gt;.md → &lt;skillName&gt;.md。包可见静态方法便于自测。
+     */
+    static Path discoverSkillMd(Path scriptsDir, String moduleName, String skillName) {
+        if (scriptsDir == null) return null;
+        Path parent = scriptsDir.getParent();
+        if (parent == null) return null;
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(parent.resolve("SKILL.md"));
+        if (moduleName != null && !moduleName.isEmpty())
+            candidates.add(parent.resolve(moduleName + ".md"));
+        if (skillName != null && !skillName.isEmpty() && !skillName.equals(moduleName))
+            candidates.add(parent.resolve(skillName + ".md"));
+        for (Path p : candidates) {
+            if (Files.isRegularFile(p)) return p;
+        }
+        return null;
     }
 
     @Override

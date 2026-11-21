@@ -42,7 +42,7 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
  * <p>入口：框架路由（TLServletDispatch → TLWUrlMap → checkMsgAction 的
  * session/login/logout/command/chat/stopChat/upload/chatStream/events action，
  * 输出经 sseClient/jsonClient → out-interface）。静态页（/、/webui/*）由
- * TLWebChatServlet 直接服务，不经过本模块。</p>
+ * servletutils 的通用 TLStaticFileServlet 直接服务，不经过本模块。</p>
  *
  * <p>配置参数 (XML params):</p>
  * <ul>

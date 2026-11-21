@@ -17,9 +17,13 @@ import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
 import org.eclipse.jetty.util.thread.ThreadPool;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static java.lang.Thread.sleep;
 
@@ -44,7 +48,12 @@ public class TLJettyServerEE8 extends TLBaseModule {
     protected int maxThreads = 200;
     protected int idleTimeout = 30000;
     private TLServletDispatch servletdispatch;
-    /** 额外 servlet 注册：path=类名;path=类名（类需有 (String, TLObjectFactory) 构造或默认构造） */
+    /**
+     * 额外 servlet 注册：path=类名;path=类名（类需有 (String, TLObjectFactory) 构造或默认构造）。
+     * 类名后可跟 ?k=v&amp;k2=v2 传递 servlet init 参数（值按 URL 编码解码），
+     * 容器通过 getInitParameter 读取，例如：
+     * /webui/*=...TLStaticFileServlet?root=webui&amp;fallbackClasspath=/webui
+     */
     protected String extraServlets;
     /** 会话 Cookie 的 SameSite 属性（Lax/Strict/None），默认 Lax */
     protected String sessionSameSite = "Lax";
@@ -230,6 +239,7 @@ public class TLJettyServerEE8 extends TLBaseModule {
 
     /**
      * 注册额外 servlet（extraServlets 参数，格式 "path=类名;path=类名"）。
+     * 类名后可跟 "?k=v&amp;k2=v2" 传递 servlet init 参数（值 URL 编码，Servlet 用 getInitParameter 读）。
      * 优先使用 (String, TLObjectFactory) 构造器（同 TLServletDispatch 模式），失败回退默认构造器。
      */
     private void addExtraServlets(ServletContextHandler context) {
@@ -239,11 +249,41 @@ public class TLJettyServerEE8 extends TLBaseModule {
             if (pair.isEmpty()) continue;
             int eq = pair.indexOf('=');
             if (eq <= 0 || eq == pair.length() - 1) {
-                putLog("extraServlets 配置错误: " + pair + "（格式 path=类名）", LogLevel.WARN);
+                putLog("extraServlets 配置错误: " + pair + "（格式 path=类名[?k=v&...]）", LogLevel.WARN);
                 continue;
             }
             String path = pair.substring(0, eq).trim();
-            String cls = pair.substring(eq + 1).trim();
+            String spec = pair.substring(eq + 1).trim();
+            String cls = spec;
+            Map<String, String> initParams = new LinkedHashMap<>();
+            int q = spec.indexOf('?');
+            if (q >= 0) {
+                cls = spec.substring(0, q).trim();
+                for (String kv : spec.substring(q + 1).split("&")) {
+                    kv = kv.trim();
+                    if (kv.isEmpty()) continue;
+                    int kEq = kv.indexOf('=');
+                    if (kEq <= 0) {
+                        putLog("extraServlets 初始化参数错误: " + kv + "（格式 k=v）", LogLevel.WARN);
+                        continue;
+                    }
+                    try {
+                        String key = URLDecoder.decode(kv.substring(0, kEq), StandardCharsets.UTF_8).trim();
+                        String value = URLDecoder.decode(kv.substring(kEq + 1), StandardCharsets.UTF_8);
+                        if (key.isEmpty()) {
+                            putLog("extraServlets 初始化参数错误: " + kv + "（空参数名）", LogLevel.WARN);
+                            continue;
+                        }
+                        initParams.put(key, value);
+                    } catch (IllegalArgumentException e) {
+                        putLog("extraServlets 初始化参数解码失败: " + kv + " - " + e.getMessage(), LogLevel.WARN);
+                    }
+                }
+            }
+            if (cls.isEmpty()) {
+                putLog("extraServlets 配置错误: " + pair + "（类名为空）", LogLevel.WARN);
+                continue;
+            }
             try {
                 Class<?> clazz = Class.forName(cls);
                 Object servlet;
@@ -253,8 +293,12 @@ public class TLJettyServerEE8 extends TLBaseModule {
                 } catch (NoSuchMethodException nsme) {
                     servlet = clazz.getDeclaredConstructor().newInstance();
                 }
-                context.addServlet(new ServletHolder((javax.servlet.Servlet) servlet), path);
-                putLog("extra servlet: " + path + " -> " + cls, LogLevel.INFO);
+                ServletHolder holder = new ServletHolder((javax.servlet.Servlet) servlet);
+                for (Map.Entry<String, String> p : initParams.entrySet())
+                    holder.setInitParameter(p.getKey(), p.getValue());
+                context.addServlet(holder, path);
+                putLog("extra servlet: " + path + " -> " + cls
+                        + (initParams.isEmpty() ? "" : " 参数=" + initParams), LogLevel.INFO);
             } catch (Exception e) {
                 putLog("extraServlets 实例化失败: " + cls + " - " + e.getMessage(), LogLevel.ERROR);
             }

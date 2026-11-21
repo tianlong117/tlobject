@@ -7,6 +7,12 @@ import cn.tianlong.tlobject.utils.TLXmlConfigWriter;
 import org.xmlpull.v1.XmlPullParser;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -218,11 +224,21 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     if (module instanceof TLBaseSkill) {
                         TLBaseSkill skill = (TLBaseSkill) module;
                         String fnName = skill.getSkillName();
+                        // SKILL.md / 类默认描述在模块 setModuleParams 时已加载；优先用它，
+                        // 配置 skillDescription / 函数名只作兜底（否则模型只看到函数名）
+                        String desc = skill.getSkillDescription();
+                        if (desc == null || desc.isEmpty())
+                            desc = cfg.getOrDefault("skillDescription", fnName);
                         FunctionEntry fe = new FunctionEntry(fnName, SKILL_EXECUTE, "skill", skill,
-                                cfg.getOrDefault("skillDescription", fnName), null);
+                                desc, null);
                         try { fe.timeoutMs = Long.parseLong(cfg.getOrDefault("timeout", "0")) * 1000; }
                         catch (NumberFormatException ignored) {}
-                        functions.put(fnName, fe);
+                        FunctionEntry previous = functions.put(fnName, fe);
+                        if (previous != null && previous.module != skill) {
+                            putLog("重复的 LLM 函数名: " + fnName + "（模块 "
+                                    + (previous.module != null ? previous.module.getName() : "?")
+                                    + " 被 " + name + " 覆盖）；请给技能配置唯一 skillName", LogLevel.WARN);
+                        }
                     }
                 } catch (Exception e) { putLog("postInit skill failed: " + name, LogLevel.WARN); }
             }
@@ -357,15 +373,81 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
      */
     protected TLMsg hotLoadSkill(Object fromWho, TLMsg msg) {
         String skillDir = msg.getStringParam("skillDir", null);
-        if (skillDir == null || skillDir.isEmpty()) {
-            return createMsg().setParam(RESULT, false).setParam("error", "skillDir required");
+        String dirError = validateSkillDir(skillDir);
+        if (dirError != null) {
+            return createMsg().setParam(RESULT, false).setParam("error", dirError);
         }
-        // 目录名即模块名
+        // 目录名即模块名；LLM 函数名默认用目录名
+        // （旧默认 script_execution 会让同一 Agent 的多个脚本技能互相覆盖，见 checkFunctionNameConflict）
         String moduleName = skillDir;
-        String skillName = msg.getStringParam(AI_P_SKILLNAME, "script_execution");
-        String interpreter = msg.getStringParam("interpreter", "python");
+        String explicitSkillName = msg.getStringParam(AI_P_SKILLNAME, null);
+        String skillName;
+        if (explicitSkillName == null || explicitSkillName.trim().isEmpty()) {
+            skillName = defaultFunctionName(skillDir);
+            if (!skillName.equals(skillDir))
+                putLog("skillDir '" + skillDir + "' 含非函数名字符，LLM 函数名使用 '" + skillName + "'",
+                        LogLevel.INFO, AGENT_HOTLOADSKILL);
+        } else {
+            skillName = explicitSkillName.trim();
+            String fnError = validateFunctionName(skillName);
+            if (fnError != null)
+                return createMsg().setParam(RESULT, false).setParam("error", fnError);
+        }
+        String interpreter = msg.getStringParam("interpreter", null);
+        String skillDescription = msg.getStringParam("skillDescription", null);
         int maxExecutionTime = msg.getIntParam("maxExecutionTime", 120);
         boolean persist = msg.parseBoolean(HOTLOAD_P_PERSIST, true);
+
+        // 校验脚本目录与技能可用性（与 TLScriptExecutionSkill.resolveScriptDir 路径解析一致）
+        String base = moduleFactory == null ? null : moduleFactory.getConfigDir();
+        if (base == null || base.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "无法解析配置目录（moduleFactory/configDir 为空）");
+        }
+        // 修复 Windows "/D:/..." 问题
+        if (base.startsWith("/") && base.length() > 3 && base.charAt(2) == ':')
+            base = base.substring(1);
+        Path configPath;
+        Path skillPath;
+        Path scriptsPath;
+        try {
+            configPath = Paths.get(base);
+            skillPath = configPath.resolve("skills").resolve(skillDir).normalize();
+            scriptsPath = skillPath.resolve("scripts");
+        } catch (InvalidPathException e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "技能目录路径不合法: " + base + "skills/" + skillDir + "（" + e.getMessage() + "）");
+        }
+        try {
+            if (!Files.isDirectory(scriptsPath)) {
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "脚本目录不存在: " + scriptsPath);
+            }
+        } catch (SecurityException e) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "脚本目录不可读: " + scriptsPath);
+        }
+        // 1) scripts 下必须至少有一个可直接执行的脚本（不能只有空目录）
+        List<Path> scripts = findUsableScripts(scriptsPath);
+        if (scripts.isEmpty()) {
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "技能不可用: " + scriptsPath + " 下没有可执行脚本（支持 "
+                            + String.join("/", new TreeSet<>(SCRIPT_INTERPRETERS.keySet())) + "）");
+        }
+        // 2) 必须有描述来源：显式 skillDescription，或 SKILL.md / <目录名>.md / <skillName>.md / md/<目录名>.md
+        String descError = validateSkillDescription(skillPath, configPath, skillName, skillDescription);
+        if (descError != null) {
+            return createMsg().setParam(RESULT, false).setParam("error", "技能不可用: " + descError);
+        }
+        // 3) LLM 函数名冲突：同名条目指向别的模块时拒绝（同一模块重装放行，不静默覆盖）
+        String conflict = checkFunctionNameConflict(skillName, moduleName, functions);
+        if (conflict != null) {
+            return createMsg().setParam(RESULT, false).setParam("error", conflict);
+        }
+        // 4) 未显式指定解释器时，按第一个脚本扩展名自动识别
+        if (interpreter == null || interpreter.trim().isEmpty()) {
+            interpreter = interpreterFor(scripts.get(0));
+        }
 
         // 构建 skill 配置
         HashMap<String, String> cfg = new HashMap<>();
@@ -375,18 +457,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         cfg.put("interpreter", interpreter);
         cfg.put("maxExecutionTime", String.valueOf(maxExecutionTime));
         cfg.put("allowedScriptDir", "skills/" + skillDir + "/scripts");
-
-        // 校验脚本目录是否真实存在（与 TLScriptExecutionSkill.resolveScriptDir 路径解析一致）
-        String base = moduleFactory.getConfigDir();
-        // 修复 Windows "/D:/..." 问题
-        if (base.startsWith("/") && base.length() > 3 && base.charAt(2) == ':')
-            base = base.substring(1);
-        String resolvedDir = base + "skills/" + skillDir + "/scripts";
-        java.nio.file.Path scriptPath = java.nio.file.Paths.get(resolvedDir);
-        if (!java.nio.file.Files.isDirectory(scriptPath)) {
-            return createMsg().setParam(RESULT, false)
-                    .setParam("error", "脚本目录不存在: " + resolvedDir);
-        }
+        if (skillDescription != null && !skillDescription.trim().isEmpty())
+            cfg.put("skillDescription", skillDescription);
 
         // 注入本模块自己的 modulesClass/modulesParams（工具归工具模块管理）
         modulesClass.put(moduleName, cfg);
@@ -400,7 +472,15 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             // 与 registerFunction 等路径一致：functions 变更 + 失效标记须在写锁内原子完成
             functionsLock.writeLock().lock();
             try {
-                functions.put(skillName, new FunctionEntry(skillName, SKILL_EXECUTE, "skill", module, skillName, null));
+                // 重装/改名：清掉指向同一模块的旧函数名，避免一个模块暴露成两个工具
+                functions.entrySet().removeIf(e -> e.getValue().module != null
+                        && moduleName.equals(e.getValue().module.getName())
+                        && !skillName.equals(e.getKey()));
+                // SKILL.md / 显式 skillDescription 在模块 setModuleParams 时已进入 skillDescription；
+                // 模型工具描述必须用它，否则只看到函数名（本次可用性校验才真正生效）
+                String desc = skill.getSkillDescription();
+                if (desc == null || desc.isEmpty()) desc = skillName;
+                functions.put(skillName, new FunctionEntry(skillName, SKILL_EXECUTE, "skill", module, desc, null));
                 invalidateToolDefs();
             } finally {
                 functionsLock.writeLock().unlock();
@@ -410,7 +490,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             // 持久化（本模块的 configFile 即 owner 的配置文件，由工厂创建时注入）
             if (persist && configFile != null) {
                 try {
-                    writeSkillToConfig(moduleName, skillName, interpreter, maxExecutionTime, skillDir);
+                    writeSkillToConfig(moduleName, skillName, interpreter, maxExecutionTime, skillDir, skillDescription);
                 } catch (Exception e) {
                     putLog("persist skill config failed", LogLevel.ERROR, AGENT_HOTLOADSKILL);
                 }
@@ -418,6 +498,129 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             return createMsg().setParam(RESULT, true).setParam(MODULENAME, moduleName);
         }
         return createMsg().setParam(RESULT, false).setParam("error", "create skill failed: " + moduleName);
+    }
+
+    /**
+     * 校验 skillDir：必须是 skills 下的单一路径段（目录名）。合法返回 null，否则返回错误信息。
+     *
+     * <p>2026-11-21 事故：WebUI/控制台把技能列表里的家族名（fileAgents:mermaid-flowchart）
+     * 填进安装框，skillDir 直接拼进文件系统路径后在 Paths.get 抛 InvalidPathException，
+     * 安装动作以未捕获异常结束。这里在拼路径前拒绝所有非单段名，返回结构化错误。</p>
+     */
+    static String validateSkillDir(String skillDir) {
+        if (skillDir == null || skillDir.isEmpty()) return "skillDir required";
+        String s = skillDir.trim();
+        if (!s.equals(skillDir))
+            return "skillDir 不合法: '" + skillDir + "'（不能有首尾空白）";
+        if (s.indexOf(':') >= 0)
+            return "skillDir 不合法: '" + skillDir + "'。skillDir 只填 skills 下的目录名（如 mermaid-flowchart）；"
+                    + "要安装到指定 Agent，请把 Agent 的完整家族名（或唯一短名）放到 targetAgent 参数"
+                    + "（如 aiagent_master:fileAgent 或 fileAgent；WebUI 的「目标Agent」框；"
+                    + "控制台 /install -s mermaid-flowchart <agent家族名或短名>）";
+        if (!s.matches("[A-Za-z0-9][A-Za-z0-9._-]*"))
+            return "skillDir 不合法: '" + skillDir + "'（只允许字母/数字/下划线/连字符/点，"
+                    + "不能包含 : / \\ 等路径字符；填 skills 下的目录名）";
+        if (s.endsWith("."))
+            return "skillDir 不合法: '" + skillDir + "'（不能以点结尾，Windows 会吞掉尾点）";
+        if (s.matches("(?i)CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]"))
+            return "skillDir 不合法: '" + skillDir + "'（Windows 设备名不能作目录名）";
+        return null;
+    }
+
+    /** 默认 LLM 函数名：目录名净化成 [A-Za-z0-9_-]，最长 64（工具名规则）。 */
+    static String defaultFunctionName(String skillDir) {
+        String s = skillDir == null ? "" : skillDir.replaceAll("[^A-Za-z0-9_-]", "_");
+        if (s.isEmpty()) s = "script_skill";
+        return s.length() > 64 ? s.substring(0, 64) : s;
+    }
+
+    /** 显式 AI_P_SKILLNAME 校验：工具名规则，返回错误信息或 null。 */
+    static String validateFunctionName(String name) {
+        if (name == null || name.isEmpty()) return "LLM 函数名不能为空";
+        if (!name.matches("[A-Za-z0-9_-]+"))
+            return "LLM 函数名不合法: '" + name + "'（只允许字母/数字/下划线/连字符，不能带点号/路径字符）";
+        if (name.length() > 64)
+            return "LLM 函数名过长（最多 64 字符）: " + name;
+        return null;
+    }
+
+    /**
+     * 函数名冲突检查：同名条目指向不同模块时返回错误；同一模块（重装/重载）放行。
+     * 包可见静态便于自测。
+     */
+    static String checkFunctionNameConflict(String skillName, String moduleName,
+                                            Map<String, FunctionEntry> functions) {
+        if (skillName == null || skillName.isEmpty() || functions == null) return null;
+        FunctionEntry existing = functions.get(skillName);
+        if (existing == null) return null;
+        String existingModule = existing.module == null ? "" : existing.module.getName();
+        if (moduleName != null && moduleName.equals(existingModule)) return null;
+        String owner = existingModule.isEmpty() ? existing.name : existingModule;
+        return "LLM 函数名已存在: " + skillName + "（已被 " + existing.type + "「" + owner
+                + "」占用）；请用 AI_P_SKILLNAME 指定唯一函数名，或先卸载旧技能";
+    }
+
+    /** 脚本扩展名 → 解释器；与 TLSkillInstallerSkill 的安装器保持同一套（扩展名小写带点） */
+    private static final Map<String, String> SCRIPT_INTERPRETERS = Map.ofEntries(
+            Map.entry(".py", "python"), Map.entry(".sh", "bash"), Map.entry(".bash", "bash"),
+            Map.entry(".js", "node"), Map.entry(".mjs", "node"), Map.entry(".rb", "ruby"),
+            Map.entry(".pl", "perl"), Map.entry(".ps1", "powershell"), Map.entry(".bat", "cmd"),
+            Map.entry(".cmd", "cmd"), Map.entry(".r", "Rscript"), Map.entry(".lua", "lua"));
+
+    /** skills/&lt;dir&gt;/scripts 下可直接执行的脚本（仅直接子文件，按文件名排序）。 */
+    static List<Path> findUsableScripts(Path scriptsDir) {
+        List<Path> scripts = new ArrayList<>();
+        if (scriptsDir == null || !Files.isDirectory(scriptsDir)) return scripts;
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(scriptsDir)) {
+            for (Path p : stream) {
+                if (!Files.isRegularFile(p)) continue;
+                String fn = p.getFileName().toString().toLowerCase(Locale.ROOT);
+                int dot = fn.lastIndexOf('.');
+                if (dot >= 0 && SCRIPT_INTERPRETERS.containsKey(fn.substring(dot))) scripts.add(p);
+            }
+        } catch (IOException | SecurityException ignored) {
+        }
+        scripts.sort(Comparator.comparing(p -> p.getFileName().toString()));
+        return scripts;
+    }
+
+    /** 按脚本扩展名推断解释器（未知回落 python）。 */
+    static String interpreterFor(Path script) {
+        if (script == null) return "python";
+        String fn = script.getFileName().toString().toLowerCase(Locale.ROOT);
+        int dot = fn.lastIndexOf('.');
+        return dot < 0 ? "python" : SCRIPT_INTERPRETERS.getOrDefault(fn.substring(dot), "python");
+    }
+
+    /**
+     * 描述来源校验（安装可用性）：显式 skillDescription 直接通过；否则按 loader 的优先级检查
+     * SKILL.md → &lt;目录名&gt;.md → &lt;skillName&gt;.md → {configDir}/md/&lt;目录名&gt;.md，
+     * 第一个存在的文件必须带非空 frontmatter description，否则返回错误。
+     */
+    static String validateSkillDescription(Path skillDir, Path configDir, String skillName, String explicitDescription) {
+        if (explicitDescription != null && !explicitDescription.trim().isEmpty()) return null;
+        if (skillDir == null || skillDir.getFileName() == null) return "技能目录为空";
+        String dirName = skillDir.getFileName().toString();
+        List<Path> candidates = new ArrayList<>();
+        candidates.add(skillDir.resolve("SKILL.md"));
+        candidates.add(skillDir.resolve(dirName + ".md"));
+        if (skillName != null && !skillName.isEmpty() && !skillName.equals(dirName))
+            candidates.add(skillDir.resolve(skillName + ".md"));
+        if (configDir != null)
+            candidates.add(configDir.resolve("md").resolve(dirName + ".md"));
+        for (Path p : candidates) {
+            if (!Files.isRegularFile(p)) continue;
+            try {
+                String content = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+                String desc = TLMdFileLoader.parseFrontmatterDescription(content);
+                if (desc != null && !desc.trim().isEmpty()) return null;
+                return "描述文件缺少 frontmatter description: " + p;
+            } catch (IOException | SecurityException e) {
+                return "读取描述文件失败: " + p + "（" + e.getMessage() + "）";
+            }
+        }
+        return "缺少描述文件（skills/" + dirName + "/SKILL.md 或 " + dirName + ".md，或 md/"
+                + dirName + ".md 的 frontmatter description，或显式 skillDescription）";
     }
 
     /** 热卸载 skill：从 functions, owner 的 modulesClass/modulesParams 和配置文件中移除 */
@@ -500,7 +703,7 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
 
     /** 将 skill 配置写入 agent XML（DOM 操作，替换已有同名条目） */
     private void writeSkillToConfig(String moduleName, String skillName, String interpreter,
-                                     int maxExecutionTime, String skillDir) throws IOException {
+                                     int maxExecutionTime, String skillDir, String skillDescription) throws IOException {
         Map<String, String> attrs = new LinkedHashMap<>();
         attrs.put("sameClassAs", "scriptExecutionSkill");
         attrs.put("statup", "true");
@@ -508,6 +711,8 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
         if (interpreter != null) attrs.put("interpreter", interpreter);
         attrs.put("maxExecutionTime", String.valueOf(maxExecutionTime));
         attrs.put("allowedScriptDir", "skills/" + skillDir + "/scripts");
+        if (skillDescription != null && !skillDescription.trim().isEmpty())
+            attrs.put("skillDescription", skillDescription);
 
         try {
             TLXmlConfigWriter.addOrReplaceElement(configFile, "skills", "skill", moduleName, attrs);
@@ -619,8 +824,13 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
                     return createMsg().setParam(RESULT, false).setParam("error", "module name empty");
                 modules.put(name, module);
                 registerToRegistry(name, module, type);
-                String desc = "skill".equals(type) && module instanceof TLBaseSkill
-                        ? ((TLBaseSkill) module).getSkillDescription() : module.getName();
+                String desc;
+                if ("skill".equals(type) && module instanceof TLBaseSkill) {
+                    desc = ((TLBaseSkill) module).getSkillDescription();
+                    if (desc == null || desc.isEmpty()) desc = module.getName();
+                } else {
+                    desc = module.getName();
+                }
                 functions.put(name, new FunctionEntry(name, SKILL_EXECUTE, type, module,
                         desc, "agent".equals(type) ? buildDelegateParamSchema() : null));
                 invalidateToolDefs();
@@ -705,8 +915,14 @@ public class TLToolManager extends TLBaseModule implements TLAiAgentParamString 
             // 重建条目必须继承运行时状态：enabled 是用户显式开关（/enableskill 后重载不能复活），
             // timeoutMs 来自配置（丢了就变成"不限时"）；nativeName 同理（当前重载只走 skill/agent，
             // MCP 的 mcp 类型不经过这里，但保留以防将来放开）
+            // 技能重载刷新描述：改了 SKILL.md 后 /reload 应立即生效；新模块没描述才沿用旧值
+            String newDescription = old.description;
+            if ("skill".equals(old.type) && newModule instanceof TLBaseSkill) {
+                String d = ((TLBaseSkill) newModule).getSkillDescription();
+                if (d != null && !d.isEmpty()) newDescription = d;
+            }
             FunctionEntry newEntry = new FunctionEntry(fnKey, old.action, old.type, newModule,
-                    old.description, old.paramSchema, old.nativeName);
+                    newDescription, old.paramSchema, old.nativeName);
             newEntry.enabled = old.enabled;
             newEntry.timeoutMs = old.timeoutMs;
             functions.put(fnKey, newEntry);

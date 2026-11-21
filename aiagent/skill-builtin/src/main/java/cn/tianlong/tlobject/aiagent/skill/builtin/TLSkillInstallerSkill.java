@@ -274,7 +274,7 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
             TLMsg hotLoadMsg = createMsg()
                     .setAction(AGENT_HOTLOADSKILL)
                     .setParam("skillDir", skillName)
-                    .setParam(AI_P_SKILLNAME, "script_execution")
+                    .setParam(AI_P_SKILLNAME, skillName)
                     .setParam("interpreter", interpreter)
                     .setParam("maxExecutionTime", maxExecutionTime)
                     .setParam(HOTLOAD_P_PERSIST, "true");
@@ -291,7 +291,7 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
                                 + "解释器: " + interpreter + "\n"
                                 + "脚本: skills/" + skillName + "/scripts/" + fileName + "\n"
                                 + "SKILL.md: skills/" + skillName + "/SKILL.md\n"
-                                + "现在可以通过 script_execution 工具调用此 Skill，"
+                                + "现在可以通过 " + skillName + " 工具调用此 Skill，"
                                 + "script_path 参数使用 '" + fileName + "'。");
             } else {
                 String err = result != null ? result.getStringParam("error", "Agent 无响应") : "Agent 无响应";
@@ -323,7 +323,8 @@ public class TLSkillInstallerSkill extends TLBaseSkill {
         } else {
             sb.append("  ").append("执行 ").append(scriptFileName).append(" 脚本。\n");
         }
-        sb.append("  通过 script_execution 工具调用，script_path 为 '").append(scriptFileName).append("'。\n");
+        sb.append("  通过 ").append(skillName).append(" 工具调用，script_path 为 '")
+                .append(scriptFileName).append("'。\n");
         sb.append("---\n\n");
         sb.append("# ").append(skillName).append("\n\n");
         sb.append("执行 `").append(scriptFileName).append("` 脚本。\n\n");

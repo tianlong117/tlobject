@@ -1331,7 +1331,7 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
         // 4. 按操作名匹配
         String operation = extractOperation(toolName, args);
         if (operation == null) {
-            // 规则里配了具体操作、却提取不到操作名（如 script_execution/code_execution 的参数不在
+            // 规则里配了具体操作、却提取不到操作名（如脚本技能/code_execution 的参数不在
             // operation/method/action 三个键里），原来的 `operation != null && ...` 会直接判成
             // "不需审批" —— 规则配了 action 反而等于放行。这里取安全侧：提取不到就当需要审批。
             putLog("审批规则命中了工具 " + toolName + "，但提取不到操作名，按需要审批处理", LogLevel.WARN);
@@ -1375,7 +1375,6 @@ public class TLApprovalModule extends TLBaseModule implements TLAiAgentParamStri
                 // 导致 <rule name="http_request" action="POST"/> 永远匹配不上、请求被静默放行
                 Object method = args.get("method");
                 return method != null ? method.toString().toLowerCase() : null;
-            case "script_execution":
             case "scriptExecutionSkill":
                 // 无细分操作：返回 null，由调用方按"提取不到就需审批"处理（安全侧）
                 return null;
