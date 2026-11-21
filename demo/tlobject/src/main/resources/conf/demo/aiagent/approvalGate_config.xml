@@ -65,5 +65,8 @@
         <rule name="run_script"
               statup="true"
               description="执行脚本需要审批（codeAgent/codingAgent）"/>
+        <rule name="mermaid-flowchart"
+              statup="true"
+              description="执行流程图渲染脚本需要审批"/>
     </rules>
 </moduleConfig>
