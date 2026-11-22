@@ -6,7 +6,10 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 一轮 chat 的执行主体（瞬态 TLBaseModule：new，不 start/不注册/不读配置）。
@@ -41,6 +44,17 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     private int finalAssistantIdx = -1;
     /** 本轮因"清单未完成"被强制续跑的次数（上限 seed.todoGateMaxRetries） */
     private int todoGateRetries;
+    /** 本轮开始时间/工具错误计数：供 turnResult 输出契约（耗时、toolErrorCount） */
+    private final long turnStartTs = System.currentTimeMillis();
+    private int toolErrorCount;
+    private int toolCallCount;
+    /** 收敛门禁：相同 tool+args+result 连续重复 → 先提醒、再 no_progress 收尾 */
+    private boolean convergenceGateEnabled = true;
+    private int convergenceRepeatThreshold = 3;
+    private int convergenceMaxRepeats = 5;
+    private String lastBatchSignature;
+    private int convergenceRepeats;
+    private boolean convergenceReminded;
     /** 本轮瞬态 system 提醒（todo 收尾门禁）；只进发送视图，不落 history/会话存储 */
     private final List<TLConversationHistory> transientSystems = new ArrayList<>();
 
@@ -70,6 +84,15 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     protected TLBaseModule init() {
         // 瞬态对象：不从工厂/配置初始化；构造器已完成状态装配
         return this;
+    }
+
+    /** 由 Agent 在 run 前注入收敛门禁参数（测试可用默认值）。 */
+    void setConvergenceConfig(boolean enabled, int threshold, int maxRepeats) {
+        convergenceGateEnabled = enabled;
+        convergenceRepeatThreshold = Math.max(2, threshold);
+        convergenceMaxRepeats = Math.max(0, maxRepeats);
+        if (convergenceMaxRepeats > 0 && convergenceMaxRepeats < convergenceRepeatThreshold)
+            convergenceMaxRepeats = convergenceRepeatThreshold;
     }
 
     @Override
@@ -234,6 +257,10 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
             }
 
             TLMsg execResult = executeTasks(tasks);
+            if (execResult != null) {
+                toolErrorCount += countToolErrors(execResult);
+                toolCallCount += countToolCalls(execResult);
+            }
             if (execResult == null) {
                 putLog("toolExecutor returned null, no tool executed", LogLevel.ERROR);
                 history.remove(aMsgIdx);
@@ -242,6 +269,40 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 finalAssistantIdx = history.size() - 1;
                 return finish(new TurnOutcome.Completed(fail, iteration, tokens(),
                         reasoningOut(), finalAssistantIdx));
+            }
+
+            // 收敛门禁：同一批 tool+args+result 连续重复，说明模型在原地打转。
+            // 到阈值先注入提醒；到上限直接 no_progress 收尾。maxRepeats=0 只提醒不硬停。
+            if (convergenceGateEnabled && tasks != null && !tasks.isEmpty()) {
+                String batchSig = toolBatchSignature(tasks, execResult);
+                if (batchSig.equals(lastBatchSignature)) {
+                    convergenceRepeats++;
+                } else {
+                    lastBatchSignature = batchSig;
+                    convergenceRepeats = 1;
+                    convergenceReminded = false;
+                    // 行为已变化：撤掉上一条"无进展"提醒，避免旧提示继续误导模型
+                    transientSystems.removeIf(h -> h != null && h.getContent() != null
+                            && h.getContent().startsWith("【工具循环无进展】"));
+                }
+                if (convergenceRepeats >= convergenceRepeatThreshold && !convergenceReminded) {
+                    convergenceReminded = true;
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system,
+                            "【工具循环无进展】连续 " + convergenceRepeats
+                                    + " 次用相同参数调用相同工具且结果无变化。"
+                                    + "请停止重复：换参数/换工具，或基于已有信息作答。"));
+                    putLog("[turn:" + seed.roundId + "] convergence reminder at "
+                            + convergenceRepeats, LogLevel.INFO);
+                }
+                if (convergenceMaxRepeats > 0 && convergenceRepeats >= convergenceMaxRepeats) {
+                    String msg = "（检测到工具循环无进展：连续 " + convergenceRepeats
+                            + " 次相同参数调用相同工具且结果无变化，已停止。"
+                            + "请换一种方法或补充信息后重试。）";
+                    putLog("[turn:" + seed.roundId + "] convergence stop at "
+                            + convergenceRepeats, LogLevel.WARN);
+                    return finish(new TurnOutcome.NoProgress(msg, iteration, tokens()));
+                }
             }
 
             boolean execAborted = execResult.parseBoolean("aborted", false);
@@ -580,7 +641,73 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         return new TurnRecord(seed.identity(), seed.plan, seed.userMessage, history, msgStartIdx,
                 seed.resumeRoundMessages, seed.noHistory, seed.model, seed.temperature,
                 seed.maxTokens, seed.reasoningMode, seed.reasoningVisible,
-                iteration, tokens(), finalAssistantIdx, reasoningOut());
+                iteration, tokens(), finalAssistantIdx, reasoningOut(),
+                System.currentTimeMillis() - turnStartTs, toolErrorCount, toolCallCount);
+    }
+
+    /**
+     * 一轮工具批次的稳定签名：每个 tool 的 function+args+结果（终态/长度/hash）。
+     * 简单重复检测用它；结果内容变化（如轮询到新内容）会改变签名，不会被误判无进展。
+     */
+    private static String toolBatchSignature(List<TLToolExecutor.ToolTask> tasks, TLMsg execResult) {
+        Map<String, String> byCall = new HashMap<>();
+        Object resObj = execResult.getListParam("results", null);
+        if (resObj instanceof List) {
+            for (Object o : (List<?>) resObj) {
+                if (!(o instanceof TLToolExecutor.ToolResult)) continue;
+                TLToolExecutor.ToolResult tr = (TLToolExecutor.ToolResult) o;
+                String out = tr.output == null ? "" : tr.output;
+                byCall.put(tr.toolCallId,
+                        tr.finalStatus + "|" + out.length() + "|" + out.hashCode());
+            }
+        }
+        List<String> parts = new ArrayList<>();
+        for (TLToolExecutor.ToolTask t : tasks) {
+            String name = t.functionName != null && !t.functionName.isEmpty()
+                    ? t.functionName : (t.moduleName == null ? "" : t.moduleName);
+            parts.add(name + "|" + argSignature(t.args) + "|"
+                    + byCall.getOrDefault(t.toolCallId, "missing"));
+        }
+        Collections.sort(parts);
+        return String.join(";;", parts);
+    }
+
+    /** 参数规范化签名：Map 按 key 排序，避免键顺序不同导致相同调用漏检。 */
+    private static String argSignature(Object v) {
+        if (v == null) return "null";
+        if (v instanceof Map) {
+            List<String> parts = new ArrayList<>();
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet())
+                parts.add(String.valueOf(e.getKey()) + "=" + argSignature(e.getValue()));
+            Collections.sort(parts);
+            return "{" + String.join(",", parts) + "}";
+        }
+        if (v instanceof List) {
+            List<String> parts = new ArrayList<>();
+            for (Object o : (List<?>) v) parts.add(argSignature(o));
+            return "[" + String.join(",", parts) + "]";
+        }
+        return String.valueOf(v);
+    }
+
+    /** 本轮实际产生的工具结果条数（成功率分母；不含 pending/rejected 等控制态）。 */
+    private static int countToolCalls(TLMsg execResult) {
+        Object v = execResult.getListParam("results", null);
+        return v instanceof List ? ((List<?>) v).size() : 0;
+    }
+
+    /** 统计本轮工具结果里的错误/超时/中断条数（成功、待批、拒绝、跳过不计）。 */
+    private static int countToolErrors(TLMsg execResult) {
+        Object v = execResult.getListParam("results", null);
+        if (!(v instanceof List)) return 0;
+        int n = 0;
+        for (Object o : (List<?>) v) {
+            if (!(o instanceof TLToolExecutor.ToolResult)) continue;
+            String st = ((TLToolExecutor.ToolResult) o).finalStatus;
+            if (TOOL_STATUS_ERROR.equals(st) || TOOL_STATUS_TIMEOUT.equals(st)
+                    || TOOL_STATUS_ABORTED.equals(st)) n++;
+        }
+        return n;
     }
 
     private TurnOutcome.Tokens tokens() {

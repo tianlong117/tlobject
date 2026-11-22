@@ -108,6 +108,14 @@ public class TLAiAgent extends TLBaseModule
     protected boolean todoGateEnabled = true;
     /** 同一轮最多强制续跑次数（0=关闭），防止模型反复空转 */
     protected int todoGateMaxRetries = 2;
+    /** 收敛门禁：相同 tool+args+result 连续重复 → 先提醒、再 no_progress 收尾 */
+    protected boolean convergenceGateEnabled = true;
+    protected int convergenceRepeatThreshold = 3;
+    /** 0 = 只提醒不硬停 */
+    protected int convergenceMaxRepeats = 5;
+
+    /** 轮次级指标（进程内累计，重启清零） */
+    private final TLAgentMetrics turnMetrics = new TLAgentMetrics();
 
     /** 发送视图 token 预算（0=不限制）。消息按条数裁剪不按体量，超大单条/恢复巨量历史会超模型
      *  上下文 → 400 "maximum context length"；buildSendList 据此做发送视图级裁剪（不落 context）。
@@ -616,6 +624,23 @@ public class TLAiAgent extends TLBaseModule
                 try { contextViewSize = Integer.parseInt(params.get("contextViewSize")); }
                 catch (NumberFormatException ignored) {}
             }
+            if (params.get("convergenceGateEnabled") != null) {
+                convergenceGateEnabled = Boolean.parseBoolean(params.get("convergenceGateEnabled"));
+            }
+            if (params.get("convergenceRepeatThreshold") != null) {
+                try {
+                    int v = Integer.parseInt(params.get("convergenceRepeatThreshold").trim());
+                    if (v >= 2) convergenceRepeatThreshold = v;
+                } catch (NumberFormatException ignored) {}
+            }
+            if (params.get("convergenceMaxRepeats") != null) {
+                try {
+                    int v = Integer.parseInt(params.get("convergenceMaxRepeats").trim());
+                    if (v >= 0) convergenceMaxRepeats = v;
+                } catch (NumberFormatException ignored) {}
+            }
+            if (convergenceMaxRepeats > 0 && convergenceMaxRepeats < convergenceRepeatThreshold)
+                convergenceMaxRepeats = convergenceRepeatThreshold;
             if (params.get("contextTokenLimit") != null) {
                 try { contextTokenLimit = Long.parseLong(params.get("contextTokenLimit")); }
                 catch (NumberFormatException ignored) {}
@@ -1017,6 +1042,11 @@ public class TLAiAgent extends TLBaseModule
                 break;
             case AGENT_GETTOKENUSAGE:
                 returnMsg = getTokenUsage(fromWho, msg);
+                break;
+            case AGENT_GETTURNMETRICS:
+                returnMsg = createMsg().setParam(RESULT, true)
+                        .setParam("metrics", turnMetrics.snapshot())
+                        .setParam(AI_P_AGENTNAME, name);
                 break;
             case "getPromptCacheStats":
                 returnMsg = getPromptCacheStats(fromWho, msg);
@@ -1674,8 +1704,11 @@ public class TLAiAgent extends TLBaseModule
             TurnDeps turnDeps = new TurnDeps(getFactory(), this, llmProvider,
                     toolManager, toolExecutor, roles, roles, roles,
                     attachments, toolResultAppender, roles);
-            return new ChatTurn("turn:" + name + ":" + ctx.roundId,
-                    getFactory(), seed, turnDeps).run();
+            ChatTurn turn = new ChatTurn("turn:" + name + ":" + ctx.roundId,
+                    getFactory(), seed, turnDeps);
+            turn.setConvergenceConfig(convergenceGateEnabled,
+                    convergenceRepeatThreshold, convergenceMaxRepeats);
+            return turn.run();
         } catch (Exception e) {
             if (ctx == null) {
                 // 上下文构造失败（ctx 尚未建立）：没有会话状态可清理，错误按入口约定告知前端
@@ -1823,6 +1856,8 @@ public class TLAiAgent extends TLBaseModule
     private CommitResult commitTurn(ChatRunContext ctx, TurnRecord r, TurnOutcome outcome) {
         String sid = r.id.sessionId();
         String rid = r.id.roundId();
+        turnMetrics.record(outcome, r.iterations, r.durationMs,
+                r.toolErrorCount, r.toolCallCount);
 
         if (outcome instanceof TurnOutcome.Aborted a) {
             // 先清除中断标志，防止 log4j 在中断线程上写日志报错
@@ -1864,6 +1899,8 @@ public class TLAiAgent extends TLBaseModule
                     .setParam("iterations", a.iterations())
                     .setParam(AI_P_TOTALTOKENS, (int) tk[2])
                     .setParam(AI_P_TOTALTOKENS_TOTAL, (int) acc[2]);
+            ret.setParam("turnResult", TLTurnResult.build(a, rid, a.iterations(),
+                    r.durationMs, r.toolErrorCount, r.toolCallCount));
             return new CommitResult(ret, TurnOutcome.ABORTED_TEXT);
         }
 
@@ -1873,12 +1910,16 @@ public class TLAiAgent extends TLBaseModule
             traceStage(sid, r.id.rootSessionId(), rid, "roundEnd", "error", 0);
             TLMsg ret = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, f.error());
+            ret.setParam("turnResult", TLTurnResult.build(f, rid, r.iterations,
+                    r.durationMs, r.toolErrorCount, r.toolCallCount));
             return new CommitResult(ret, f.error());
         }
 
         if (outcome instanceof TurnOutcome.EarlyReturn e) {
             TLMsg ret = createMsg().setParam(RESULT, false)
                     .setParam(AI_P_RESPONSE, e.response());
+            ret.setParam("turnResult", TLTurnResult.build(e, rid, r.iterations,
+                    r.durationMs, r.toolErrorCount, r.toolCallCount));
             return new CommitResult(ret, e.response());
         }
 
@@ -1891,7 +1932,8 @@ public class TLAiAgent extends TLBaseModule
                 && r.history.get(r.finalAssistantIdx).getRole() == TLConversationHistory.Role.assistant) {
             r.history.get(r.finalAssistantIdx).setContent(guarded);
         }
-        if (outcome instanceof TurnOutcome.Truncated) {
+        if (outcome instanceof TurnOutcome.Truncated
+                || outcome instanceof TurnOutcome.NoProgress) {
             appendTruncatedFinalToHistory(r.history, guarded);
         }
 
@@ -1914,6 +1956,7 @@ public class TLAiAgent extends TLBaseModule
         else if (pending) roundOutcome = "pendingApproval";
         else if (outcome instanceof TurnOutcome.Clarified) roundOutcome = "clarified";
         else if (outcome instanceof TurnOutcome.Truncated) roundOutcome = "truncated";
+        else if (outcome instanceof TurnOutcome.NoProgress) roundOutcome = "noProgress";
         traceStage(sid, r.id.rootSessionId(), rid, "roundEnd", roundOutcome, 0,
                 raw != null ? raw : "", null);
 
@@ -1964,6 +2007,10 @@ public class TLAiAgent extends TLBaseModule
         if (outcome instanceof TurnOutcome.DirectAnswer) ret.setParam(AI_P_FINALANSWER, true);
         if (r.reasoning != null && !r.reasoning.isEmpty())
             ret.setParam(AI_P_REASONING, r.reasoning);
+
+        // 统一输出契约：不改用户可见正文，只给 API/评测/UI 一个稳定的结构化结果。
+        ret.setParam("turnResult", TLTurnResult.build(outcome, rid, r.iterations,
+                r.durationMs, r.toolErrorCount, r.toolCallCount));
 
         maybeGenerateSessionTitle(sid, r.id.userId(), r.userMessage,
                 !r.noHistory && r.plan == TurnPlan.NORMAL && r.msgStartIdx <= 1);

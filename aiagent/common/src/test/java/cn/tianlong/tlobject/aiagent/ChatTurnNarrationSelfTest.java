@@ -26,6 +26,10 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         runNullSinkCase();
         runDirectAnswerTodoGateCase();
         runDirectAnswerClarificationCase();
+        runToolErrorCountCase();
+        runConvergenceStopCase();
+        runConvergenceDisabledCase();
+        runConvergenceChangingResultCase();
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
@@ -157,6 +161,88 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         check("直出澄清：没有多余续跑", provider.idx == 1);
     }
 
+    /** 相同 tool+args+result 连续 5 次 → no_progress 收尾，不再请求第 6 轮。 */
+    private static void runConvergenceStopCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLToolCall tc = new TLToolCall("tc_repeat", "browser", new LinkedHashMap<>());
+        TLMsg[] responses = new TLMsg[6];
+        for (int i = 0; i < responses.length; i++) responses[i] = toolCallsResponse(tc);
+        QueueProvider provider = new QueueProvider(responses);
+        FakeCommitter committer = new FakeCommitter();
+
+        new ChatTurn("turn:test:convstop", seed(sink),
+                deps(provider, committer, toolExecuted)).run();
+
+        check("收敛：no_progress 收尾",
+                committer.lastOutcome instanceof TurnOutcome.NoProgress);
+        check("收敛：停在 maxRepeats=5", committer.lastOutcome != null
+                && committer.lastOutcome instanceof TurnOutcome.NoProgress np
+                && np.iterations() == 5);
+        check("收敛：没有请求第 6 轮", provider.idx == 5);
+    }
+
+    /** 关闭收敛门禁后，同样重复 5 次仍正常继续到第 6 轮终答。 */
+    private static void runConvergenceDisabledCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLToolCall tc = new TLToolCall("tc_repeat2", "browser", new LinkedHashMap<>());
+        TLMsg[] responses = new TLMsg[6];
+        for (int i = 0; i < 5; i++) responses[i] = toolCallsResponse(tc);
+        responses[5] = finalResponse("完成");
+        QueueProvider provider = new QueueProvider(responses);
+        FakeCommitter committer = new FakeCommitter();
+        ChatTurn turn = new ChatTurn("turn:test:convoff", seed(sink),
+                deps(provider, committer, toolExecuted));
+        turn.setConvergenceConfig(false, 3, 5);
+        turn.run();
+
+        check("关闭收敛：正常 Completed",
+                committer.lastOutcome instanceof TurnOutcome.Completed);
+        check("关闭收敛：请求到终答", provider.idx == 6);
+    }
+
+    /** 结果每次变化（轮询到新内容）不算无进展，不误杀。 */
+    private static void runConvergenceChangingResultCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLToolCall tc = new TLToolCall("tc_poll", "file_operation", new LinkedHashMap<>());
+        TLMsg[] responses = new TLMsg[6];
+        for (int i = 0; i < 5; i++) responses[i] = toolCallsResponse(tc);
+        responses[5] = finalResponse("完成");
+        QueueProvider provider = new QueueProvider(responses);
+        FakeCommitter committer = new FakeCommitter();
+
+        new ChatTurn("turn:test:convchange", seed(sink),
+                deps(provider, committer, toolExecuted,
+                        new FakeChangingExecutor(toolExecuted))).run();
+
+        check("结果变化：不误判 no_progress",
+                committer.lastOutcome instanceof TurnOutcome.Completed);
+        check("结果变化：请求到终答", provider.idx == 6);
+    }
+
+    /** 工具错误计数与耗时写入 TurnRecord（turnResult 契约的数据源）。 */
+    private static void runToolErrorCountCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLToolCall tc = new TLToolCall("tc_error", "browser", new LinkedHashMap<>());
+        QueueProvider provider = new QueueProvider(
+                toolCallsResponse(tc), finalResponse("完成"));
+        FakeCommitter committer = new FakeCommitter();
+
+        new ChatTurn("turn:test:errorcount", seed(sink),
+                deps(provider, committer, toolExecuted,
+                        new FakeToolExecutor(toolExecuted, true))).run();
+
+        check("toolErrorCount 统计 error", committer.lastRecord != null
+                && committer.lastRecord.toolErrorCount == 1);
+        check("toolCallCount 统计结果条数", committer.lastRecord != null
+                && committer.lastRecord.toolCallCount == 1);
+        check("durationMs 非负", committer.lastRecord != null
+                && committer.lastRecord.durationMs >= 0);
+    }
+
     private static List<TLConversationHistory> todoHistory() {
         List<TLConversationHistory> hist = new ArrayList<>();
         hist.add(new TLConversationHistory(TLConversationHistory.Role.user,
@@ -251,7 +337,13 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
 
     static class FakeToolExecutor extends TLBaseModule {
         private final boolean[] executed;
-        FakeToolExecutor(boolean[] executed) { super("fakeNarrationToolExecutor"); this.executed = executed; }
+        private final boolean errorResult;
+        FakeToolExecutor(boolean[] executed) { this(executed, false); }
+        FakeToolExecutor(boolean[] executed, boolean errorResult) {
+            super("fakeNarrationToolExecutor");
+            this.executed = executed;
+            this.errorResult = errorResult;
+        }
         @Override protected TLBaseModule init() { return this; }
 
         @Override protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
@@ -260,8 +352,12 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
             List<TLToolExecutor.ToolTask> tasks =
                     (List<TLToolExecutor.ToolTask>) msg.getListParam("tasks", List.of());
             List<TLToolExecutor.ToolResult> results = new ArrayList<>();
-            for (TLToolExecutor.ToolTask t : tasks)
-                results.add(new TLToolExecutor.ToolResult(t.toolCallId, "工具输出"));
+            for (TLToolExecutor.ToolTask t : tasks) {
+                TLToolExecutor.ToolResult tr =
+                        new TLToolExecutor.ToolResult(t.toolCallId, "工具输出");
+                if (errorResult) tr.finalStatus = TOOL_STATUS_ERROR;
+                results.add(tr);
+            }
             return createMsg().setParam(RESULT, true).setParam("results", results);
         }
     }
@@ -289,6 +385,28 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
                     .setParam(AI_P_FINALANSWER, true)
                     .setParam("finalResponse", text)
                     .setParam("results", results);
+        }
+    }
+
+    /** 每次返回不同结果，模拟轮询到新内容（用于收敛误杀防护）。 */
+    static class FakeChangingExecutor extends TLBaseModule {
+        private final boolean[] executed;
+        private int n;
+        FakeChangingExecutor(boolean[] executed) {
+            super("fakeChangingExecutor");
+            this.executed = executed;
+        }
+        @Override protected TLBaseModule init() { return this; }
+
+        @Override protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+            executed[0] = true;
+            @SuppressWarnings("unchecked")
+            List<TLToolExecutor.ToolTask> tasks =
+                    (List<TLToolExecutor.ToolTask>) msg.getListParam("tasks", List.of());
+            List<TLToolExecutor.ToolResult> results = new ArrayList<>();
+            for (TLToolExecutor.ToolTask t : tasks)
+                results.add(new TLToolExecutor.ToolResult(t.toolCallId, "out-" + (++n)));
+            return createMsg().setParam(RESULT, true).setParam("results", results);
         }
     }
 

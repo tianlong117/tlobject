@@ -25,6 +25,12 @@ final class TurnRecord {
     final TurnOutcome.Tokens tokens;
     final int finalAssistantIdx;
     final String reasoning;
+    /** 本轮端到端耗时（ChatTurn 开始 → 本次快照） */
+    final long durationMs;
+    /** 本轮工具执行终态为 error/timeout/aborted 的条数（供 turnResult 契约） */
+    final int toolErrorCount;
+    /** 本轮实际执行的工具结果条数（成功率分母） */
+    final int toolCallCount;
 
     TurnRecord(TurnIdentity id, TurnPlan plan, String userMessage,
                List<TLConversationHistory> history, int msgStartIdx,
@@ -32,7 +38,8 @@ final class TurnRecord {
                String model, double temperature, int maxTokens,
                String reasoningMode, boolean reasoningVisible,
                int iterations, TurnOutcome.Tokens tokens, int finalAssistantIdx,
-               String reasoning) {
+               String reasoning, long durationMs, int toolErrorCount,
+               int toolCallCount) {
         this.id = id;
         this.plan = plan;
         this.userMessage = userMessage;
@@ -50,6 +57,9 @@ final class TurnRecord {
         this.tokens = tokens;
         this.finalAssistantIdx = finalAssistantIdx;
         this.reasoning = reasoning;
+        this.durationMs = durationMs;
+        this.toolErrorCount = toolErrorCount;
+        this.toolCallCount = toolCallCount;
     }
 
     /** 本轮落盘消息 = 恢复轮原消息前缀 + 本轮增量；同一 roundId last-wins。 */

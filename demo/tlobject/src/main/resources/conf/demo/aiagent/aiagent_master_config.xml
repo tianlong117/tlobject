@@ -29,6 +29,11 @@
              默认 true/2。2026-11-14 事故：agent 长工具循环丢目标后，带着 4 个待办宣布"办妥了"。 -->
         <todoGateEnabled value="true"/>
         <todoGateMaxRetries value="2"/>
+        <!-- 收敛门禁：相同 tool+args+result 连续重复时，threshold 次注入提醒，
+             maxRepeats 次返回 no_progress 收尾；0=只提醒不硬停。结果变化会重置计数。 -->
+        <convergenceGateEnabled value="true"/>
+        <convergenceRepeatThreshold value="3"/>
+        <convergenceMaxRepeats value="5"/>
         <!-- defaultMemoryTopK: 记忆召回注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
         <!-- defaultMemoryStore: 默认长期记忆模块名 -->

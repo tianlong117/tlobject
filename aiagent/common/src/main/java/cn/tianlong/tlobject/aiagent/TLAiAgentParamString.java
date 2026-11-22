@@ -78,6 +78,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AGENT_CHECKPROVIDER = "checkProvider";
     /** 查询指定 session 的累计 token 用量 */
     String AGENT_GETTOKENUSAGE = "getTokenUsage";
+    /** 查询进程内轮次级指标（成功率/平均轮次/超限率/超时率等） */
+    String AGENT_GETTURNMETRICS = "getTurnMetrics";
     /** 上报单次 LLM 调用的 token 用量（→ agentMonitor 进程级累计） */
     String MONITOR_RECORDTOKENUSAGE = "recordTokenUsage";
     /** 查询进程级 token 总累计（→ agentMonitor） */

@@ -39,6 +39,10 @@ sealed interface TurnOutcome {
     record Truncated(String response, int iterations, Tokens tokens) implements TurnOutcome {
     }
 
+    /** 工具循环无进展（相同工具+参数+结果连续重复）而主动停止。 */
+    record NoProgress(String response, int iterations, Tokens tokens) implements TurnOutcome {
+    }
+
     record DirectAnswer(String response, int iterations, Tokens tokens,
                         int finalAssistantIdx) implements TurnOutcome {
     }
@@ -58,6 +62,7 @@ sealed interface TurnOutcome {
         if (this instanceof Clarified c) return c.response();
         if (this instanceof Timeout t) return t.response();
         if (this instanceof Truncated t) return t.response();
+        if (this instanceof NoProgress n) return n.response();
         if (this instanceof DirectAnswer d) return d.response();
         if (this instanceof EarlyReturn e) return e.response();
         if (this instanceof Failed f) return f.error();
@@ -73,6 +78,7 @@ sealed interface TurnOutcome {
         if (this instanceof Clarified c) return c.tokens();
         if (this instanceof Timeout t) return t.tokens();
         if (this instanceof Truncated t) return t.tokens();
+        if (this instanceof NoProgress n) return n.tokens();
         if (this instanceof DirectAnswer d) return d.tokens();
         return null;
     }

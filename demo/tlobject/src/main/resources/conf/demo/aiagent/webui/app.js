@@ -2329,12 +2329,12 @@ async function bgTaskDelete(tid) {
 let lastSessionsData = null;   // 最近一次 loadSessions 拉到的会话数据（null=尚未拉过）
 let lastSessionsError = null;  // 最近一次 loadSessions 的失败文案（非空时重渲染保留失败提示，不被顶成"加载中"）
 
-/** 行首状态图标：● 运行中（本地忙或服务端 running 计数）/ ○ 有未读 / 空格 */
+/** 行首状态图标：● 运行中（绿，本地忙或服务端 running 计数）/ ○ 有未读（蓝）/ ○ 空闲（灰）。
+ *  空闲也要有圆点：状态位常驻，运行/未读只改颜色，避免整列"什么都没有"看不出状态。 */
 function sessionStatusIcon(sid, srvRunning) {
   const v = state.sessions[sid];
   if ((v && v.busy) || srvRunning) return '●';
-  if (v && v.unread > 0) return '○';
-  return ' ';
+  return '○';
 }
 
 /** 会话行首名字的显示文本：标题 → 首句（截断约 22 字）→ 会话ID（优先级）。
@@ -2487,9 +2487,14 @@ function renderSessionList() {
     const ic = document.createElement('span');
     ic.className = 'sess-icon';
     ic.textContent = icon;
-    if (icon === '●') ic.style.color = '#4ade80';
-    else if (icon === '○') ic.style.color = '#93c5fd';
-    ic.title = icon === '●' ? '运行中' : (icon === '○' ? '有未读' : '');
+    if (icon === '●') {
+      ic.style.color = '#4ade80';
+      ic.title = '运行中';
+    } else {
+      const unread = state.sessions[sid] && state.sessions[sid].unread > 0;
+      ic.style.color = unread ? '#93c5fd' : '#6b7280';
+      ic.title = unread ? '有未读' : '空闲';
+    }
     const name = document.createElement('span');
     name.className = 'sess-sid';
     name.textContent = sessionDisplayName(s);

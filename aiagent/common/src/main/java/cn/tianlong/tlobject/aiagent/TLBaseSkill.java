@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -260,27 +261,102 @@ public abstract class TLBaseSkill extends TLBaseModule implements TLAiAgentParam
     protected abstract TLMsg execute(Object fromWho, TLMsg msg);
 
     /**
-     * 校验输入参数是否匹配parameterSchema。
+     * 执行前入参校验：required + 基础 type + enum + minimum/maximum。
+     *
+     * <p>只做不开销的声明式校验，不替代技能内部业务校验。返回 null=通过，否则为可直接
+     * 回喂模型的错误文案。执行器在审批/执行前调用，避免"参数类型错还去弹审批/白跑一轮"。</p>
+     *
+     * <p>兼容性：type=string 也接受 Map/List（部分技能把 JSON 对象序列化后当 string 用，
+     * 如 board 的 value）；未知 type 不拦截，避免自定义 schema 扩展被误杀。</p>
+     */
+    public String validateInput(Map<String, Object> input) {
+        if (parameterSchema == null || parameterSchema.isEmpty()) return null;
+        Map<String, Object> in = input == null ? new LinkedHashMap<>() : input;
+        for (Map.Entry<String, Object> entry : parameterSchema.entrySet()) {
+            String name = entry.getKey();
+            Object schemaDef = entry.getValue();
+            if (!(schemaDef instanceof Map)) continue;
+            Map<?, ?> def = (Map<?, ?>) schemaDef;
+            Object value = in.get(name);
+            boolean required = Boolean.TRUE.equals(def.get("required"));
+            if (value == null) {
+                if (required) return "缺少必填参数: " + name;
+                continue;
+            }
+            String type = def.get("type") == null ? "" : String.valueOf(def.get("type")).trim();
+            if (!type.isEmpty() && !typeMatches(type, value))
+                return "参数 " + name + " 类型应为 " + type + "，实际为 " + typeName(value);
+            Object enumDef = def.get("enum");
+            if (enumDef instanceof List) {
+                boolean ok = false;
+                for (Object allowed : (List<?>) enumDef) {
+                    if (sameValue(allowed, value)) { ok = true; break; }
+                }
+                if (!ok) return "参数 " + name + " 取值必须是 " + enumDef + " 之一";
+            }
+            if (value instanceof Number n) {
+                Object min = def.get("minimum");
+                Object max = def.get("maximum");
+                if (min instanceof Number minN && n.doubleValue() < minN.doubleValue())
+                    return "参数 " + name + " 不能小于 " + min;
+                if (max instanceof Number maxN && n.doubleValue() > maxN.doubleValue())
+                    return "参数 " + name + " 不能大于 " + max;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 校验输入参数是否匹配parameterSchema（SKILL_VALIDATE 动作入口）。
      */
     @SuppressWarnings("unchecked")
     protected TLMsg validate(Object fromWho, TLMsg msg) {
-        Map<String, Object> input = (Map<String, Object>) msg.getMapParam(AI_P_SKILLINPUT, new LinkedHashMap<>());
-        // 简易校验：检查required参数是否存在
-        for (Map.Entry<String, Object> entry : parameterSchema.entrySet()) {
-            String paramName = entry.getKey();
-            Object schemaDef = entry.getValue();
-            if (schemaDef instanceof Map) {
-                Map<String, Object> defMap = (Map<String, Object>) schemaDef;
-                if (Boolean.TRUE.equals(defMap.get("required"))) {
-                    if (!input.containsKey(paramName)) {
-                        return createMsg()
-                                .setParam(RESULT, false)
-                                .setParam("error", "Missing required parameter: " + paramName);
-                    }
-                }
-            }
-        }
+        Map<String, Object> input =
+                (Map<String, Object>) msg.getMapParam(AI_P_SKILLINPUT, new LinkedHashMap<>());
+        String error = validateInput(input);
+        if (error != null)
+            return createMsg().setParam(RESULT, false).setParam("error", error);
         return createMsg().setParam(RESULT, true);
+    }
+
+    private static boolean typeMatches(String type, Object value) {
+        switch (type.toLowerCase()) {
+            case "string":
+                // 兼容：部分技能声明 string，但接受 JSON 对象/数组（会自行序列化）
+                return value instanceof String || value instanceof Map || value instanceof List;
+            case "integer":
+                return value instanceof Number n
+                        && n.doubleValue() == Math.rint(n.doubleValue());
+            case "number":
+                return value instanceof Number;
+            case "boolean":
+                return value instanceof Boolean;
+            case "array":
+                return value instanceof List;
+            case "object":
+                return value instanceof Map;
+            case "any":
+                return true;
+            default:
+                return true;   // 未知/自定义 schema 扩展不拦截
+        }
+    }
+
+    private static String typeName(Object value) {
+        if (value == null) return "null";
+        if (value instanceof Map) return "object";
+        if (value instanceof List) return "array";
+        if (value instanceof Number) return "number";
+        if (value instanceof Boolean) return "boolean";
+        if (value instanceof String) return "string";
+        return value.getClass().getSimpleName();
+    }
+
+    private static boolean sameValue(Object a, Object b) {
+        if (a == null || b == null) return a == b;
+        if (a instanceof Number && b instanceof Number)
+            return ((Number) a).doubleValue() == ((Number) b).doubleValue();
+        return a.equals(b) || String.valueOf(a).equals(String.valueOf(b));
     }
 
     /**

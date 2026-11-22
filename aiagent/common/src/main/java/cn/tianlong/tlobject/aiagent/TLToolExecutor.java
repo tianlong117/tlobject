@@ -840,6 +840,23 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 return null;
             }
 
+            // 入参声明式校验：required/type/enum/范围不合法时直接回喂模型修正，
+            // 不弹审批、不执行、不计传输级健康失败（但计入 turnResult.toolErrorCount）。
+            if (task.module instanceof TLBaseSkill && SKILL_EXECUTE.equals(task.action)) {
+                String inputError = ((TLBaseSkill) task.module).validateInput(task.args);
+                if (inputError != null) {
+                    String toolLabel = task.functionName != null && !task.functionName.isEmpty()
+                            ? task.functionName : task.moduleName;
+                    putLog("<<< [Function] " + toolLabel + " 参数校验失败: " + inputError,
+                            LogLevel.WARN);
+                    finishTask(state, task, idx,
+                            new ToolResult(task.toolCallId,
+                                    "[参数错误] " + inputError + "（请修正参数后重试）"),
+                            TOOL_STATUS_ERROR, 0L, "参数校验失败");
+                    return null;
+                }
+            }
+
             // 健康度门禁：在审批之前短路，避免为已知坏工具反复弹审批。
             // 业务结果（RESULT=false/校验失败/审批拒绝）不计失败，见 finally 的记账条件。
             if (healthEnabled) {

@@ -71,6 +71,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         ACTION_REGISTRY.put("eval", "Agent评测");
         ACTION_REGISTRY.put("test", "运行单元测试 (list|<用例名>，空参数=全部)");
         ACTION_REGISTRY.put("getTokenUsage", "查询 Token 用量");
+        ACTION_REGISTRY.put("getTurnMetrics", "查询 Agent 轮次指标（成功率/平均轮次/超限率/超时率等）");
         ACTION_REGISTRY.put("getCacheStats", "查询 Prompt 缓存统计");
         ACTION_REGISTRY.put("checkProvider", "检查 LLM Provider 可用性");
         ACTION_REGISTRY.put("toolparam", "查看注册表内 Agent/Skill/Group 参数（/toolparam <家族名>）");
@@ -192,6 +193,7 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
 
             // ── 状态查询 ──
             case "getTokenUsage":   return doGetTokenUsage(fromWho, msg);
+            case "getTurnMetrics":  return doGetTurnMetrics(fromWho, msg);
             case "getCacheStats":   return doGetCacheStats(fromWho, msg);
             case "checkProvider":   return doCheckProvider(fromWho, msg);
 
@@ -2064,6 +2066,18 @@ public class TLAgentService extends TLBaseModule implements TLAiAgentParamString
         data.put(AI_P_COMPLETIONTOKENS_TOTAL, result.getIntParam(AI_P_COMPLETIONTOKENS_TOTAL, 0));
         data.put(AI_P_TOTALTOKENS_TOTAL, result.getIntParam(AI_P_TOTALTOKENS_TOTAL, 0));
         return ok("Token 用量", data);
+    }
+
+    @SuppressWarnings("unchecked")
+    private TLMsg doGetTurnMetrics(Object fromWho, TLMsg msg) {
+        TLMsg result = putSafe(targetAgent(msg),
+                createMsg().setAction(AGENT_GETTURNMETRICS));
+        if (result == null || !result.parseBoolean(RESULT, false))
+            return fail("无法获取轮次指标");
+        Object m = result.getParam("metrics");
+        Map<String, Object> data = m instanceof Map
+                ? (Map<String, Object>) m : new HashMap<>();
+        return ok("Agent 轮次指标", data);
     }
 
     private TLMsg doGetCacheStats(Object fromWho, TLMsg msg) {
