@@ -184,6 +184,8 @@ public class TLToolResultContractSelfTest implements TLAiAgentParamString {
         TLToolExecutor.ToolResult bad = run(ex, skill, "schema_tool", new LinkedHashMap<>());
         check("schema：非法参数不执行", skill.calls == 0);
         check("schema：标 error", TOOL_STATUS_ERROR.equals(bad.finalStatus));
+        check("schema：错误码 invalid_arguments",
+                ERRORCODE_INVALID_ARGUMENTS.equals(bad.errorCode));
         check("schema：回喂参数错误",
                 bad.output != null && bad.output.contains("参数错误")
                         && bad.output.contains("path"));

@@ -34,6 +34,11 @@
         <convergenceGateEnabled value="true"/>
         <convergenceRepeatThreshold value="3"/>
         <convergenceMaxRepeats value="5"/>
+        <!-- 工具参数连续 schema 失败：同一工具 2 次提醒，3 次返回 no_progress 收尾；
+             0=只提醒不硬停。成功/业务失败会清零该工具计数。 -->
+        <schemaFailureGateEnabled value="true"/>
+        <schemaFailureWarnThreshold value="2"/>
+        <schemaFailureMax value="3"/>
         <!-- defaultMemoryTopK: 记忆召回注入上下文的最大条数 -->
         <defaultMemoryTopK value="50"/>
         <!-- defaultMemoryStore: 默认长期记忆模块名 -->

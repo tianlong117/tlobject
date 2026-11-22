@@ -139,6 +139,8 @@ public interface TLAiAgentParamString extends TLParamString {
     String AI_P_ERRORCODE = "errorCode";
     /** 普通工具返回失败（RESULT=false）但未给显式错误码 */
     String ERRORCODE_TOOL = "tool_error";
+    /** 入参 schema 校验失败（模型给的参数不合法，工具未执行） */
+    String ERRORCODE_INVALID_ARGUMENTS = "invalid_arguments";
     /** 子 Agent chat 失败 */
     String ERRORCODE_AGENT = "agent_error";
     /** Agent 组 chat 失败 */

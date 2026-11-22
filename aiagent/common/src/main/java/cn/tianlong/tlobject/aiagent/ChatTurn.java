@@ -8,8 +8,10 @@ import cn.tianlong.tlobject.modules.LogLevel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 一轮 chat 的执行主体（瞬态 TLBaseModule：new，不 start/不注册/不读配置）。
@@ -55,6 +57,12 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     private String lastBatchSignature;
     private int convergenceRepeats;
     private boolean convergenceReminded;
+    /** schema 失败预算：同一工具连续参数不合法 → 提醒 / no_progress */
+    private boolean schemaFailureGateEnabled = true;
+    private int schemaFailureWarnThreshold = 2;
+    private int schemaFailureMax = 3;
+    private final Map<String, Integer> schemaFailureCounts = new HashMap<>();
+    private final Set<String> schemaWarnedTools = new HashSet<>();
     /** 本轮瞬态 system 提醒（todo 收尾门禁）；只进发送视图，不落 history/会话存储 */
     private final List<TLConversationHistory> transientSystems = new ArrayList<>();
 
@@ -93,6 +101,15 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         convergenceMaxRepeats = Math.max(0, maxRepeats);
         if (convergenceMaxRepeats > 0 && convergenceMaxRepeats < convergenceRepeatThreshold)
             convergenceMaxRepeats = convergenceRepeatThreshold;
+    }
+
+    /** 工具参数连续校验失败预算（0 = 只提醒不硬停）。 */
+    void setSchemaFailureConfig(boolean enabled, int warnThreshold, int maxFailures) {
+        schemaFailureGateEnabled = enabled;
+        schemaFailureWarnThreshold = Math.max(1, warnThreshold);
+        schemaFailureMax = Math.max(0, maxFailures);
+        if (schemaFailureMax > 0 && schemaFailureMax < schemaFailureWarnThreshold)
+            schemaFailureMax = schemaFailureWarnThreshold;
     }
 
     @Override
@@ -271,6 +288,13 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                         reasoningOut(), finalAssistantIdx));
             }
 
+            // 参数失败预算：同一工具连续 schema 不合法（模型换非法参数也能绕开收敛签名时兜底）
+            TurnOutcome schemaStop = checkSchemaFailures(execResult, tasks);
+            if (schemaStop != null) {
+                appendToolResults(tasks, resultsOf(execResult));
+                return finish(schemaStop);
+            }
+
             // 收敛门禁：同一批 tool+args+result 连续重复，说明模型在原地打转。
             // 到阈值先注入提醒；到上限直接 no_progress 收尾。maxRepeats=0 只提醒不硬停。
             if (convergenceGateEnabled && tasks != null && !tasks.isEmpty()) {
@@ -301,6 +325,7 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                             + "请换一种方法或补充信息后重试。）";
                     putLog("[turn:" + seed.roundId + "] convergence stop at "
                             + convergenceRepeats, LogLevel.WARN);
+                    appendToolResults(tasks, resultsOf(execResult));
                     return finish(new TurnOutcome.NoProgress(msg, iteration, tokens()));
                 }
             }
@@ -688,6 +713,60 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
             return "[" + String.join(",", parts) + "]";
         }
         return String.valueOf(v);
+    }
+
+    /**
+     * 工具参数连续 schema 失败预算。与收敛门禁互补：模型换不同非法参数时签名会变，
+     * 但同一工具连续被 schema 拒绝仍是无效循环——2 次提醒，3 次（默认）no_progress。
+     * 工具成功/业务失败会清零该工具计数。
+     */
+    private TurnOutcome checkSchemaFailures(TLMsg execResult,
+                                            List<TLToolExecutor.ToolTask> tasks) {
+        if (!schemaFailureGateEnabled || tasks == null || tasks.isEmpty()) return null;
+        Map<String, String> fnByCall = new HashMap<>();
+        for (TLToolExecutor.ToolTask t : tasks) {
+            if (t == null || t.toolCallId == null) continue;
+            String fn = t.functionName != null && !t.functionName.isEmpty()
+                    ? t.functionName : t.moduleName;
+            if (fn != null && !fn.isEmpty()) fnByCall.put(t.toolCallId, fn);
+        }
+        for (TLToolExecutor.ToolResult tr : resultsOf(execResult)) {
+            if (tr == null) continue;
+            String fn = fnByCall.get(tr.toolCallId);
+            if (fn == null || fn.isEmpty()) continue;
+            if (ERRORCODE_INVALID_ARGUMENTS.equals(tr.errorCode)) {
+                int n = schemaFailureCounts.merge(fn, 1, Integer::sum);
+                if (n >= schemaFailureWarnThreshold && schemaWarnedTools.add(fn)) {
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system,
+                            "【工具参数无效】工具 " + fn + " 已连续 " + n
+                                    + " 次参数校验失败。请不要再用相同/类似的错误参数重试；"
+                                    + "换工具、换方法，或基于已有信息作答。"));
+                    putLog("[turn:" + seed.roundId + "] schema failure reminder: "
+                            + fn + " x" + n, LogLevel.INFO);
+                }
+                if (schemaFailureMax > 0 && n >= schemaFailureMax) {
+                    String msg = "（工具 " + fn + " 的参数连续 " + n
+                            + " 次校验失败，已停止本轮。请修正工具选择/参数后重试。）";
+                    putLog("[turn:" + seed.roundId + "] schema failure stop: "
+                            + fn + " x" + n, LogLevel.WARN);
+                    return new TurnOutcome.NoProgress(msg, iteration, tokens());
+                }
+            } else {
+                schemaFailureCounts.remove(fn);
+                if (schemaWarnedTools.remove(fn)) {
+                    transientSystems.removeIf(h -> h != null && h.getContent() != null
+                            && h.getContent().startsWith("【工具参数无效】工具 " + fn));
+                }
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<TLToolExecutor.ToolResult> resultsOf(TLMsg execResult) {
+        Object v = execResult.getListParam("results", null);
+        return v instanceof List ? (List<TLToolExecutor.ToolResult>) v : new ArrayList<>();
     }
 
     /** 本轮实际产生的工具结果条数（成功率分母；不含 pending/rejected 等控制态）。 */

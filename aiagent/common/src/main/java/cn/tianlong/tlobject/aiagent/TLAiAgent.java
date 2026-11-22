@@ -113,6 +113,11 @@ public class TLAiAgent extends TLBaseModule
     protected int convergenceRepeatThreshold = 3;
     /** 0 = 只提醒不硬停 */
     protected int convergenceMaxRepeats = 5;
+    /** 工具参数连续 schema 失败预算 */
+    protected boolean schemaFailureGateEnabled = true;
+    protected int schemaFailureWarnThreshold = 2;
+    /** 0 = 只提醒不硬停 */
+    protected int schemaFailureMax = 3;
 
     /** 轮次级指标（进程内累计，重启清零） */
     private final TLAgentMetrics turnMetrics = new TLAgentMetrics();
@@ -641,6 +646,23 @@ public class TLAiAgent extends TLBaseModule
             }
             if (convergenceMaxRepeats > 0 && convergenceMaxRepeats < convergenceRepeatThreshold)
                 convergenceMaxRepeats = convergenceRepeatThreshold;
+            if (params.get("schemaFailureGateEnabled") != null) {
+                schemaFailureGateEnabled = Boolean.parseBoolean(params.get("schemaFailureGateEnabled"));
+            }
+            if (params.get("schemaFailureWarnThreshold") != null) {
+                try {
+                    int v = Integer.parseInt(params.get("schemaFailureWarnThreshold").trim());
+                    if (v >= 1) schemaFailureWarnThreshold = v;
+                } catch (NumberFormatException ignored) {}
+            }
+            if (params.get("schemaFailureMax") != null) {
+                try {
+                    int v = Integer.parseInt(params.get("schemaFailureMax").trim());
+                    if (v >= 0) schemaFailureMax = v;
+                } catch (NumberFormatException ignored) {}
+            }
+            if (schemaFailureMax > 0 && schemaFailureMax < schemaFailureWarnThreshold)
+                schemaFailureMax = schemaFailureWarnThreshold;
             if (params.get("contextTokenLimit") != null) {
                 try { contextTokenLimit = Long.parseLong(params.get("contextTokenLimit")); }
                 catch (NumberFormatException ignored) {}
@@ -1708,6 +1730,8 @@ public class TLAiAgent extends TLBaseModule
                     getFactory(), seed, turnDeps);
             turn.setConvergenceConfig(convergenceGateEnabled,
                     convergenceRepeatThreshold, convergenceMaxRepeats);
+            turn.setSchemaFailureConfig(schemaFailureGateEnabled,
+                    schemaFailureWarnThreshold, schemaFailureMax);
             return turn.run();
         } catch (Exception e) {
             if (ctx == null) {

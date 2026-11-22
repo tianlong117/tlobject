@@ -30,6 +30,8 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         runConvergenceStopCase();
         runConvergenceDisabledCase();
         runConvergenceChangingResultCase();
+        runSchemaFailureBudgetCase();
+        runSchemaFailureDisabledCase();
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
@@ -222,6 +224,58 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         check("结果变化：请求到终答", provider.idx == 6);
     }
 
+    /** 同一工具连续 schema 失败：不同非法参数绕开收敛签名，仍由失败预算 3 次收尾。 */
+    private static void runSchemaFailureBudgetCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLMsg[] responses = new TLMsg[4];
+        for (int i = 0; i < 3; i++) {
+            responses[i] = toolCallsResponse(new TLToolCall("tc_schema" + i,
+                    "file_operation", new LinkedHashMap<>(Map.of("i", i))));
+        }
+        responses[3] = finalResponse("换方法");
+        QueueProvider provider = new QueueProvider(responses);
+        FakeCommitter committer = new FakeCommitter();
+
+        new ChatTurn("turn:test:schemafail", seed(sink),
+                deps(provider, committer, toolExecuted,
+                        new FakeToolExecutor(toolExecuted, true, ERRORCODE_INVALID_ARGUMENTS))).run();
+
+        check("参数预算：no_progress 收尾",
+                committer.lastOutcome instanceof TurnOutcome.NoProgress);
+        check("参数预算：第 3 次即停", committer.lastOutcome != null
+                && committer.lastOutcome instanceof TurnOutcome.NoProgress np
+                && np.iterations() == 3);
+        check("参数预算：未请求第 4 轮", provider.idx == 3);
+        check("参数预算：终答点明参数失败",
+                committer.lastOutcome != null
+                        && committer.lastOutcome.response().contains("参数")
+                        && committer.lastOutcome.response().contains("file_operation"));
+    }
+
+    /** 关闭参数预算后，同样连续 schema 失败仍可继续到第 4 轮终答。 */
+    private static void runSchemaFailureDisabledCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        TLMsg[] responses = new TLMsg[4];
+        for (int i = 0; i < 3; i++) {
+            responses[i] = toolCallsResponse(new TLToolCall("tc_schema_off" + i,
+                    "file_operation", new LinkedHashMap<>(Map.of("i", i))));
+        }
+        responses[3] = finalResponse("换方法");
+        QueueProvider provider = new QueueProvider(responses);
+        FakeCommitter committer = new FakeCommitter();
+        ChatTurn turn = new ChatTurn("turn:test:schemaoff", seed(sink),
+                deps(provider, committer, toolExecuted,
+                        new FakeToolExecutor(toolExecuted, true, ERRORCODE_INVALID_ARGUMENTS)));
+        turn.setSchemaFailureConfig(false, 2, 3);
+        turn.run();
+
+        check("关闭参数预算：正常 Completed",
+                committer.lastOutcome instanceof TurnOutcome.Completed);
+        check("关闭参数预算：请求到终答", provider.idx == 4);
+    }
+
     /** 工具错误计数与耗时写入 TurnRecord（turnResult 契约的数据源）。 */
     private static void runToolErrorCountCase() {
         boolean[] toolExecuted = {false};
@@ -338,11 +392,16 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
     static class FakeToolExecutor extends TLBaseModule {
         private final boolean[] executed;
         private final boolean errorResult;
-        FakeToolExecutor(boolean[] executed) { this(executed, false); }
+        private final String errorCode;
+        FakeToolExecutor(boolean[] executed) { this(executed, false, null); }
         FakeToolExecutor(boolean[] executed, boolean errorResult) {
+            this(executed, errorResult, null);
+        }
+        FakeToolExecutor(boolean[] executed, boolean errorResult, String errorCode) {
             super("fakeNarrationToolExecutor");
             this.executed = executed;
             this.errorResult = errorResult;
+            this.errorCode = errorCode;
         }
         @Override protected TLBaseModule init() { return this; }
 
@@ -355,7 +414,10 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
             for (TLToolExecutor.ToolTask t : tasks) {
                 TLToolExecutor.ToolResult tr =
                         new TLToolExecutor.ToolResult(t.toolCallId, "工具输出");
-                if (errorResult) tr.finalStatus = TOOL_STATUS_ERROR;
+                if (errorResult) {
+                    tr.finalStatus = TOOL_STATUS_ERROR;
+                    tr.errorCode = errorCode;
+                }
                 results.add(tr);
             }
             return createMsg().setParam(RESULT, true).setParam("results", results);

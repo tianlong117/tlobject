@@ -849,9 +849,10 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             ? task.functionName : task.moduleName;
                     putLog("<<< [Function] " + toolLabel + " 参数校验失败: " + inputError,
                             LogLevel.WARN);
-                    finishTask(state, task, idx,
-                            new ToolResult(task.toolCallId,
-                                    "[参数错误] " + inputError + "（请修正参数后重试）"),
+                    ToolResult schemaError = new ToolResult(task.toolCallId,
+                            "[参数错误] " + inputError + "（请修正参数后重试）");
+                    schemaError.errorCode = ERRORCODE_INVALID_ARGUMENTS;
+                    finishTask(state, task, idx, schemaError,
                             TOOL_STATUS_ERROR, 0L, "参数校验失败");
                     return null;
                 }
