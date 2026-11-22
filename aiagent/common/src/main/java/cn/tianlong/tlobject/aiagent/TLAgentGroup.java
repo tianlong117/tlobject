@@ -474,6 +474,8 @@ public class TLAgentGroup extends TLBaseModule implements TLAiAgentParamString, 
         TLMsgUtils.copySystemParamIfNotEmpty(msg, chatMsg, AI_P_ROUNDID);
         TLMsg result = chat(fromWho, chatMsg);
         TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, result != null ? result.getStringParam(AI_P_RESPONSE, "") : "");
+        // 结构化结果契约：组 chat 的 RESULT 如实上抛（串行中止/无成员等失败不再被吞成成功文本）
+        TLResultContract.apply(result, ret, ERRORCODE_GROUP);
         if (directOutput) ret.setParam(AI_P_FINALANSWER, true);
         return ret;
     }

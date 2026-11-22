@@ -230,7 +230,7 @@
                sameClassAs="agentWorkflow"
                statup="true"
                configfile="poemWorkflow_config.xml"
-               description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。"/>
+               description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。只返回文本，不写文件；若用户还要求输出 Word/Excel/文件，返回后必须继续委托 fileAgent。"/>
 
         <agent name="dbAgent"
                sameClassAs="aiagent"
@@ -273,6 +273,16 @@
                statup="true"
                skillName="todo"
                skillDescription="维护当前任务的多步清单。operation=write 全量重写清单（items 为 [{text,status}]，status: pending/in_progress/completed/failed；每完成一步就带完整列表重写一次）；operation=read 读回当前清单（任务接续/对齐进度时先读）。多步任务开始时，把计划清单写入。"/>
+
+        <!-- 会话历史只读检索：当前会话更早轮次的托底（不受上下文 50/40 窗口限制）。
+             用户提“之前/上次/刚才那个会话里你给的…”时，先 search 再 read，再交给 word/fileAgent。
+             不提供 sessionId 参数：身份只认 systemArgs 的当前会话。 -->
+        <skill name="sessionHistorySkill"
+               sameClassAs="sessionHistorySkill"
+               statup="true"
+               skillName="session_history"
+               sessionManager="dbSessionManager"
+               skillDescription="只读检索当前会话的历史轮次（更早的对话，包括已被上下文窗口裁掉的内容）。当用户提到“之前/上次/刚才/那个会话里你给的…”且当前上下文看不到原文，或要求导出/复用/继续加工旧回答时使用。operation=search 用 1-3 个关键词查找；operation=read 用 roundSeq 或 roundId 读回该轮原文。只查当前会话，不能跨会话；不要用它查工作区文件或外部信息。"/>
 
         <!-- 共享黑板（可选）：跨工具调用/跨子 Agent/跨任务读写中间产物。
              默认注释；取消注释即接线，skillName=board。身份由执行器 systemArgs 注入，
@@ -429,6 +439,8 @@
 如果任务只需单步完成（如纯知识问答、简单计算、单次查询），直接回答。
 
 如果需要调用 2 个及以上工具（包括 delegate_to_*、skill、msgTool），应先判断：子任务是否已有现成的 Agent 可直接委托？有则直接并行委托。若子任务之间无现成 Agent 对应、需要编排未知流程，再使用任务规划工具进行分解，按清单逐步执行并更新进度。
+有先后依赖的多步交付（例如「先写内容，再输出 Word/Excel/文件」）必须先建 todo 清单，把「生成内容」和「写入文件」拆成独立项；不要因为每一步都有现成 Agent，就只调一个 Agent 后直接收尾。poemWorkflow 只返回文本，不写文件。
+用户提到「之前/上次/刚才/那个会话里你给的…」且当前上下文看不到原文时，先调 session_history（先 search 再 read）取回原文，再导出或回答；不要凭记忆猜，也不要用搜工作区文件替代。查不到就如实说明并请用户补关键词。
 
 委托与验收纪律：
 - 委托子 agent 时，任务描述里写明该步的「完成判据」（要满足的具体条目）；收到结果后逐条对照判据核对，不满足就让其补做，不要直接采信。

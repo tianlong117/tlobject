@@ -105,6 +105,12 @@ public interface TLAiAgentParamString extends TLParamString {
     /** 取消指定 session 的所有进行中工具执行 */
     String TODOOLECANCEL = "toolExecCancel";
 
+    // ======================== 会话历史只读检索 ========================
+    /** sessionManager → 按关键词检索当前会话的历史轮次（session_history 工具托底） */
+    String SESSION_SEARCHHISTORY = "searchHistory";
+    /** sessionManager → 读取指定轮次的原文（默认最后一条 assistant） */
+    String SESSION_READHISTORYROUND = "readHistoryRound";
+
     // ======================== 工具实时进度 ========================
     /** 执行器 → Agent：单个工具的进度状态回调 */
     String TOOL_PROGRESS = "onToolProgress";
@@ -122,6 +128,21 @@ public interface TLAiAgentParamString extends TLParamString {
     String TOOL_STATUS_ERROR = "error";
     String TOOL_STATUS_SKIPPED = "skipped";
     String TOOL_STATUS_CLARIFIED = "clarified";
+
+    // ======================== 结构化结果契约 ========================
+    /**
+     * 工具/子 Agent 结果的结构化错误码（{@code RESULT=false} 时附带）。
+     * 由框架在边界处填充，不依赖 LLM 自报；LLM 可见的输出文本不受影响。
+     */
+    String AI_P_ERRORCODE = "errorCode";
+    /** 普通工具返回失败（RESULT=false）但未给显式错误码 */
+    String ERRORCODE_TOOL = "tool_error";
+    /** 子 Agent chat 失败 */
+    String ERRORCODE_AGENT = "agent_error";
+    /** Agent 组 chat 失败 */
+    String ERRORCODE_GROUP = "group_error";
+    /** 工作流未完成（有失败/超时节点） */
+    String ERRORCODE_WORKFLOW = "workflow_error";
 
     // ======================== LLM Provider动作 ========================
     /** 发送completion请求（非流式） */

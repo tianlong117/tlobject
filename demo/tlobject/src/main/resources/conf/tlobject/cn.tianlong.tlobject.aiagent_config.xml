@@ -32,6 +32,11 @@
         <!-- 任务清单技能（函数名 todo）：write 全量重写 / read 读回；落盘 data/{userId}/tasks/{sessionId}.md -->
         <module name="todoSkill" classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLTodoSkill"
                 singleton="true"/>
+        <!-- 会话历史只读检索技能（函数名通常 session_history）：当前会话更早轮次的托底查询。
+             检索/读取委托给 SessionManager，DB 版与文件版通用。 -->
+        <module name="sessionHistorySkill"
+                classfile="cn.tianlong.tlobject.aiagent.skill.builtin.TLSessionHistorySkill"
+                singleton="true"/>
         <!-- 跨 Agent/跨任务共享黑板（session/user 作用域；可选）。
              模块本身只在 boardSkill 被接线/直接调用时才实例化，默认不影响现有应用。 -->
         <module name="sharedBoard" classfile="cn.tianlong.tlobject.aiagent.board.TLSharedBoard"

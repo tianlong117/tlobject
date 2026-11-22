@@ -97,6 +97,8 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
             case "listSessions":    return doListSessions(fromWho, msg);
             case "loadSession":     return doLoadSession(fromWho, msg);
             case "loadRound":       return doLoadRound(fromWho, msg);
+            case SESSION_SEARCHHISTORY: return doSearchHistory(fromWho, msg);
+            case SESSION_READHISTORYROUND: return doReadHistoryRound(fromWho, msg);
             case "continueSession": return doContinueSession(fromWho, msg);
             case "deleteSession":   return doDeleteSession(fromWho, msg);
             case "listUserSessionIds": return doListUserSessionIds(msg);
@@ -403,6 +405,243 @@ public abstract class TLBaseSessionManager extends TLBaseModule implements TLAiA
         result.setParam("history", history);
         result.setParam("count", history.size());
         return result;
+    }
+
+    /**
+     * 只读检索当前会话历史轮次（session_history 工具的托底层）。
+     *
+     * <p>不经过模型上下文窗口，直接从已保存的轮次里找——这就是"老记录托底"。
+     * 按角色权重 + 正文长度排序：助手长回答优先于用户短句/工具输出，避免最近的
+     * "我在找可能的爱"这类过程轮次把原始答案挤出结果。</p>
+     *
+     * <p>输入：sessionId/userId（当前会话，由 skill 从 systemArgs 注入）、query、
+     * limit（默认 5）、maxSnippetChars（默认 400）、role（assistant 默认 / user /
+     * tool / any）、excludeRoundId（排除当前进行中的轮次，防止匹配用户本轮提问）。</p>
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doSearchHistory(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", "");
+        String query = msg.getStringParam("query", "").trim();
+        String roleFilter = msg.getStringParam("role", "assistant").trim().toLowerCase(Locale.ROOT);
+        String excludeRoundId = msg.getStringParam("excludeRoundId", "");
+        int limit = msg.getIntParam("limit", 5);
+        int maxSnippetChars = msg.getIntParam("maxSnippetChars", 400);
+        if (sessionId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 必填");
+        if (query.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "query 必填");
+        if (limit <= 0) limit = 5;
+        if (limit > 50) limit = 50;
+        if (maxSnippetChars < 80) maxSnippetChars = 80;
+        if (maxSnippetChars > 2000) maxSnippetChars = 2000;
+
+        List<Map<String, Object>> rounds = loadRoundData(sessionId, userId);
+        if (rounds == null) rounds = new ArrayList<>();
+        String needle = query.toLowerCase(Locale.ROOT);
+
+        List<Map<String, Object>> matches = new ArrayList<>();
+        for (Map<String, Object> round : rounds) {
+            if (!excludeRoundId.isEmpty()
+                    && excludeRoundId.equals(strOf(round.get("roundId")))) continue;
+            if (!roundBelongsToUser(round, userId)) continue;
+            Object msgsObj = round.get("messages");
+            if (!(msgsObj instanceof List)) continue;
+            for (int i = 0; i < ((List<?>) msgsObj).size(); i++) {
+                Object o = ((List<?>) msgsObj).get(i);
+                if (!(o instanceof TLConversationHistory)) continue;
+                TLConversationHistory h = (TLConversationHistory) o;
+                if (h.getRole() == null || h.getRole() == TLConversationHistory.Role.system
+                        || h.getRole() == TLConversationHistory.Role.reasoning) continue;
+                if (!roleAllowed(roleFilter, h.getRole())) continue;
+                String content = h.getContent();
+                if (content == null || content.isEmpty()) continue;
+                if (!containsQuery(content, needle)) continue;
+
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("sessionId", sessionId);
+                r.put("roundSeq", roundSeqOf(round));
+                r.put("roundId", strOf(round.get("roundId")));
+                r.put("role", h.getRole().name());
+                r.put("messageIndex", i);
+                r.put("userMessage", strOf(round.get("userMessage")));
+                r.put("createdAt", firstNonNull(round.get("createdAt"), round.get("created_at")));
+                r.put("contentLength", content.length());
+                r.put("_content", content);   // 仅用于排序/片段，返回给 skill 前移除
+                matches.add(r);
+            }
+        }
+        matches.sort((a, b) -> {
+            int ra = roleWeight(strOf(a.get("role"))), rb = roleWeight(strOf(b.get("role")));
+            if (ra != rb) return Integer.compare(rb, ra);
+            int la = (Integer) a.get("contentLength"), lb = (Integer) b.get("contentLength");
+            if (la != lb) return Integer.compare(lb, la);
+            return Integer.compare(intOf(b.get("roundSeq")), intOf(a.get("roundSeq")));
+        });
+
+        List<Map<String, Object>> results = new ArrayList<>();
+        for (Map<String, Object> m : matches) {
+            if (results.size() >= limit) break;
+            String content = (String) m.remove("_content");
+            m.put("snippet", snippet(content, needle, maxSnippetChars));
+            results.add(m);
+        }
+        return createMsg().setParam(RESULT, true)
+                .setParam("results", results)
+                .setParam("totalMatches", matches.size())
+                .setParam("limit", limit);
+    }
+
+    /**
+     * 读取指定轮次的原文。默认取该轮最后一条非空 assistant（导出场景的答案正文）；
+     * messageIndex 可指定具体消息。只读，长度按 maxChars 截断并显式标记。
+     */
+    @SuppressWarnings("unchecked")
+    private TLMsg doReadHistoryRound(Object fromWho, TLMsg msg) {
+        String sessionId = msg.getStringParam("sessionId", "");
+        String userId = msg.getStringParam("userId", "");
+        String roundId = msg.getStringParam("roundId", "");
+        int wantedSeq = msg.getIntParam("roundSeq", -1);
+        int messageIndex = msg.getIntParam("messageIndex", -1);
+        int maxChars = msg.getIntParam("maxChars", 20000);
+        if (sessionId.isEmpty())
+            return createMsg().setParam(RESULT, false).setParam("error", "sessionId 必填");
+        if (roundId.isEmpty() && wantedSeq < 0)
+            return createMsg().setParam(RESULT, false).setParam("error", "roundId 或 roundSeq 必填");
+        if (maxChars <= 0) maxChars = 20000;
+        if (maxChars > 200000) maxChars = 200000;
+
+        List<Map<String, Object>> rounds = loadRoundData(sessionId, userId);
+        if (rounds == null) rounds = new ArrayList<>();
+        Map<String, Object> target = null;
+        for (Map<String, Object> r : rounds) {
+            if (!roundBelongsToUser(r, userId)) continue;
+            if (!roundId.isEmpty()) {
+                if (roundId.equals(strOf(r.get("roundId")))) { target = r; break; }
+            } else if (roundSeqOf(r) == wantedSeq) {
+                target = r; break;
+            }
+        }
+        if (target == null)
+            return createMsg().setParam(RESULT, false)
+                    .setParam("error", "轮次不存在: " + (roundId.isEmpty() ? wantedSeq : roundId));
+
+        List<TLConversationHistory> msgs = new ArrayList<>();
+        Object msgsObj = target.get("messages");
+        if (msgsObj instanceof List) {
+            for (Object o : (List<?>) msgsObj)
+                if (o instanceof TLConversationHistory) msgs.add((TLConversationHistory) o);
+        }
+        int idx = messageIndex;
+        if (idx >= 0) {
+            if (idx >= msgs.size())
+                return createMsg().setParam(RESULT, false)
+                        .setParam("error", "messageIndex 越界: " + idx + "，该轮共 " + msgs.size() + " 条");
+        } else {
+            idx = lastIndexOfRole(msgs, TLConversationHistory.Role.assistant);
+            if (idx < 0) idx = lastNonEmptyNonSystem(msgs);
+        }
+        if (idx < 0)
+            return createMsg().setParam(RESULT, false).setParam("error", "该轮没有可读取的正文");
+
+        TLConversationHistory h = msgs.get(idx);
+        String content = h.getContent() == null ? "" : h.getContent();
+        boolean truncated = content.length() > maxChars;
+        if (truncated)
+            content = content.substring(0, maxChars) + "\n…(已截断，原 " + content.length() + " 字符)";
+        return createMsg().setParam(RESULT, true)
+                .setParam("sessionId", sessionId)
+                .setParam("roundSeq", roundSeqOf(target))
+                .setParam("roundId", strOf(target.get("roundId")))
+                .setParam("userMessage", strOf(target.get("userMessage")))
+                .setParam("createdAt", firstNonNull(target.get("createdAt"), target.get("created_at")))
+                .setParam("role", h.getRole() == null ? "" : h.getRole().name())
+                .setParam("messageIndex", idx)
+                .setParam("messageCount", msgs.size())
+                .setParam("content", content)
+                .setParam("truncated", truncated);
+    }
+
+    private static boolean roleAllowed(String filter, TLConversationHistory.Role role) {
+        if (filter == null || filter.isEmpty() || "any".equals(filter)) return true;
+        return filter.equals(role.name().toLowerCase(Locale.ROOT));
+    }
+
+    private static int roleWeight(String role) {
+        if ("assistant".equalsIgnoreCase(role)) return 3;
+        if ("user".equalsIgnoreCase(role)) return 2;
+        if ("tool".equalsIgnoreCase(role)) return 1;
+        return 0;
+    }
+
+    private static boolean roundBelongsToUser(Map<String, Object> round, String userId) {
+        if (userId == null || userId.isEmpty()) return true;
+        String roundUser = strOf(round.get("userId"));
+        return roundUser.isEmpty() || roundUser.equals(userId);
+    }
+
+    private static boolean containsQuery(String text, String needle) {
+        String lower = text.toLowerCase(Locale.ROOT);
+        if (lower.contains(needle)) return true;
+        String[] tokens = needle.split("\\s+");
+        if (tokens.length <= 1) return false;
+        for (String t : tokens)
+            if (!t.isEmpty() && !lower.contains(t)) return false;
+        return true;
+    }
+
+    private static String snippet(String text, String needle, int max) {
+        String lower = text.toLowerCase(Locale.ROOT);
+        int pos = lower.indexOf(needle);
+        if (pos < 0) {
+            for (String t : needle.split("\\s+")) {
+                if (!t.isEmpty()) {
+                    pos = lower.indexOf(t);
+                    if (pos >= 0) break;
+                }
+            }
+        }
+        if (pos < 0) pos = 0;
+        int start = Math.max(0, pos - 80);
+        int end = Math.min(text.length(), start + max);
+        if (end - start < max) start = Math.max(0, end - max);
+        String s = text.substring(start, end);
+        if (start > 0) s = "…" + s;
+        if (end < text.length()) s = s + "…";
+        return s;
+    }
+
+    private static int lastIndexOfRole(List<TLConversationHistory> msgs,
+                                       TLConversationHistory.Role role) {
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            TLConversationHistory h = msgs.get(i);
+            if (h != null && h.getRole() == role
+                    && h.getContent() != null && !h.getContent().isEmpty()) return i;
+        }
+        return -1;
+    }
+
+    private static int lastNonEmptyNonSystem(List<TLConversationHistory> msgs) {
+        for (int i = msgs.size() - 1; i >= 0; i--) {
+            TLConversationHistory h = msgs.get(i);
+            if (h != null && h.getRole() != TLConversationHistory.Role.system
+                    && h.getRole() != TLConversationHistory.Role.reasoning
+                    && h.getContent() != null && !h.getContent().isEmpty()) return i;
+        }
+        return -1;
+    }
+
+    private static int intOf(Object v) {
+        if (v instanceof Number) return ((Number) v).intValue();
+        try { return Integer.parseInt(String.valueOf(v)); } catch (Exception e) { return 0; }
+    }
+
+    private static String strOf(Object v) {
+        return v == null ? "" : String.valueOf(v);
+    }
+
+    private static Object firstNonNull(Object a, Object b) {
+        return a != null ? a : b;
     }
 
     /** 继续历史会话 */

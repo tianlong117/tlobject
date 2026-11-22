@@ -1126,6 +1126,9 @@ public class TLAiAgent extends TLBaseModule
         TLMsg result = chat(fromWho, chatMsg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
         TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, output);
+        // 结构化结果契约：子 agent 失败不能只表现为一段文本——把 RESULT/errorCode
+        // 带回工具边界，执行器才能标记错误供编排/排障使用（输出文本保持不变）。
+        TLResultContract.apply(result, ret, ERRORCODE_AGENT);
         // 直出标志：自身配置 directOutput，或下游已传 finalAnswer（链式传播——a→b→c 委托链中 c 的直出意图逐层上递）
         if (directOutput || (result != null && result.parseBoolean(AI_P_FINALANSWER, false))) {
             ret.setParam(AI_P_FINALANSWER, true);
@@ -1681,7 +1684,9 @@ public class TLAiAgent extends TLBaseModule
                 if (sink != null) {
                     try { sink.onError(error); } catch (Throwable ignored) { /* sink 自带兜底 */ }
                 }
-                return createMsg().setParam(RESULT, false).setParam(AI_P_RESPONSE, error);
+                return createMsg().setParam(RESULT, false)
+                        .setParam(AI_P_ERRORCODE, ERRORCODE_AGENT)
+                        .setParam(AI_P_RESPONSE, error);
             }
             if (ctx.cancelled() || e instanceof InterruptedException) {
                 Thread.interrupted();
@@ -1693,6 +1698,7 @@ public class TLAiAgent extends TLBaseModule
             putLog("Chat error: " + e.toString(), LogLevel.ERROR);
             handleRunError(ctx, "Agent error: " + e.getMessage());
             return createMsg().setParam(RESULT, false)
+                    .setParam(AI_P_ERRORCODE, ERRORCODE_AGENT)
                     .setParam(AI_P_RESPONSE, "Agent error: " + e.getMessage());
         } finally {
             if (ctx != null) {

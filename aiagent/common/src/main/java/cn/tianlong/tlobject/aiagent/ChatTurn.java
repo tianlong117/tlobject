@@ -312,8 +312,31 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 @SuppressWarnings("unchecked")
                 List<TLToolExecutor.ToolResult> execResultsF =
                         (List<TLToolExecutor.ToolResult>) execResult.getListParam("results", null);
-                appendToolResults(tasks, execResultsF);
                 String finalResponse = execResult.getStringParam("finalResponse", "");
+                // 清单门禁：directOutput 工具/子工作流（如 poemWorkflow）不能在清单未完成时
+                // 把整轮短路成直出——否则 master 计划里的后续步骤（如生成 docx）永远不会执行。
+                // 2026-11-22 webchat_tianlong_1795259265324：写诗直出后停在第 1 项，Word 未生成。
+                String todoReminder = unfinishedTodoReminder();
+                boolean clarification = looksLikeClarification(finalResponse);
+                if (todoReminder != null && !clarification
+                        && todoGateRetries < seed.todoGateMaxRetries) {
+                    todoGateRetries++;
+                    transientSystems.clear();
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system, todoReminder));
+                    appendToolResults(tasks, execResultsF);
+                    deps.committer.checkpoint(record());
+                    putLog("[turn:" + seed.roundId + "] todo gate 拦截直出：清单未完成，继续执行 ("
+                            + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
+                    continue;
+                }
+                if (todoReminder != null && !clarification) {
+                    finalResponse = finalResponse
+                            + "\n\n（注意：任务清单仍有未完成项，详见任务清单。）";
+                    putLog("[turn:" + seed.roundId + "] todo gate 重试用尽，直出但标注未完成",
+                            LogLevel.WARN);
+                }
+                appendToolResults(tasks, execResultsF);
                 history.add(new TLConversationHistory(TLConversationHistory.Role.assistant,
                         finalResponse.isEmpty() ? "（无输出）" : finalResponse));
                 finalAssistantIdx = history.size() - 1;

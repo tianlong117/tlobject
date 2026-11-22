@@ -2,6 +2,7 @@ package cn.tianlong.tlobject.aiagent.workflow;
 
 import cn.tianlong.tlobject.aiagent.IAgentCapable;
 import cn.tianlong.tlobject.aiagent.TLAiAgentParamString;
+import cn.tianlong.tlobject.aiagent.TLResultContract;
 import cn.tianlong.tlobject.base.IObject;
 import cn.tianlong.tlobject.base.TLBaseModule;
 import cn.tianlong.tlobject.base.TLModuleConfig;
@@ -420,7 +421,10 @@ public class TLAgentWorkflow extends TLBaseModule
         applyToolTask(msg);
         TLMsg result = doWorkflow(msg);
         String output = result != null ? result.getStringParam(AI_P_RESPONSE, "") : "";
-        TLMsg ret = createMsg().setParam(RESULT, true).setParam(AI_P_SKILLOUTPUT, output);
+        TLMsg ret = createMsg().setParam(AI_P_SKILLOUTPUT, output);
+        // 结构化结果契约：doWorkflow 的 RESULT 只在全部完成时为 true——
+        // 此前无条件写 true，失败工作流在父 agent 侧被当成成功文本。
+        TLResultContract.apply(result, ret, ERRORCODE_WORKFLOW);
         if (directOutput) ret.setParam(AI_P_FINALANSWER, true);
         return ret;
     }

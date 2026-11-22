@@ -24,6 +24,8 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         runModelContentCase();
         runFinalOnlyCase();
         runNullSinkCase();
+        runDirectAnswerTodoGateCase();
+        runDirectAnswerClarificationCase();
 
         System.out.println("\n结果: " + passed + " 通过, " + failed + " 失败");
         if (failed > 0) System.exit(1);
@@ -111,19 +113,85 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         check("NullStreamSink：Completed", committer.lastOutcome instanceof TurnOutcome.Completed);
     }
 
+    /** 直出工具带未完成清单：不能短路收尾，必须继续下一轮（2026-11-22 Word 事故）。 */
+    private static void runDirectAnswerTodoGateCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        QueueProvider provider = new QueueProvider(
+                toolCallsResponse(new TLToolCall("tc_direct", "poemWorkflow", new LinkedHashMap<>())),
+                finalResponse("继续执行并生成 docx"));
+        FakeCommitter committer = new FakeCommitter();
+        List<TLConversationHistory> hist = todoHistory();
+
+        new ChatTurn("turn:test:directgate", seed(sink, hist, 1),
+                deps(provider, committer, toolExecuted,
+                        new FakeDirectExecutor(toolExecuted, "诗文本"))).run();
+
+        check("直出门禁：没有短路成 DirectAnswer",
+                committer.lastOutcome instanceof TurnOutcome.Completed);
+        check("直出门禁：继续了第二轮 LLM", provider.idx == 2);
+        check("直出门禁：终答来自第二轮",
+                committer.lastOutcome != null
+                        && committer.lastOutcome.response().contains("继续执行并生成 docx"));
+        check("直出门禁：未把直出文本重复写成 assistant 消息",
+                committer.lastRecord != null && committer.lastRecord.history.stream()
+                        .noneMatch(h -> h.getRole() == TLConversationHistory.Role.assistant
+                                && "诗文本".equals(h.getContent())));
+    }
+
+    /** 直出内容是澄清问句：允许收尾，不硬续跑。 */
+    private static void runDirectAnswerClarificationCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        QueueProvider provider = new QueueProvider(
+                toolCallsResponse(new TLToolCall("tc_direct2", "fileAgent", new LinkedHashMap<>())));
+        FakeCommitter committer = new FakeCommitter();
+        List<TLConversationHistory> hist = todoHistory();
+
+        new ChatTurn("turn:test:directclarify", seed(sink, hist, 1),
+                deps(provider, committer, toolExecuted,
+                        new FakeDirectExecutor(toolExecuted, "要生成 docx 吗？"))).run();
+
+        check("直出澄清：按 DirectAnswer 正常收尾",
+                committer.lastOutcome instanceof TurnOutcome.DirectAnswer);
+        check("直出澄清：没有多余续跑", provider.idx == 1);
+    }
+
+    private static List<TLConversationHistory> todoHistory() {
+        List<TLConversationHistory> hist = new ArrayList<>();
+        hist.add(new TLConversationHistory(TLConversationHistory.Role.user,
+                "来两首诗并输出到 word 文件"));
+        List<TLToolCall> calls = new ArrayList<>();
+        calls.add(new TLToolCall("call_todo", "todo", new LinkedHashMap<>()));
+        hist.add(new TLConversationHistory(TLConversationHistory.Role.assistant, calls));
+        hist.add(new TLConversationHistory("call_todo", "todo",
+                "任务清单（2 项：1 进行中 / 1 待执行）：\n- [~] 写诗\n- [ ] 生成 docx\n"));
+        return hist;
+    }
+
     private static TurnSeed seed(StreamSink sink) {
+        return seed(sink, new ArrayList<>(), 2);
+    }
+
+    private static TurnSeed seed(StreamSink sink, List<TLConversationHistory> history,
+                                 int todoGateMaxRetries) {
         TLMsg req = new TLMsg().setParam(AI_P_USERMESSAGE, "hi");
         return new TurnSeed(req, "s1", "s1", "r1", "u1", "agent", "hi",
-                TurnPlan.NORMAL, new ArrayList<>(), 0, null, null,
+                TurnPlan.NORMAL, history, 0, null, null,
                 new ArrayList<>(), "test-model", 0.0, 0,
-                "off", false, false, false, 10, 0, true, 2,
+                "off", false, false, false, 10, 0, true, todoGateMaxRetries,
                 sink, () -> false, null);
     }
 
     private static TurnDeps deps(QueueProvider provider, FakeCommitter committer,
                                  boolean[] toolExecuted) {
+        return deps(provider, committer, toolExecuted, new FakeToolExecutor(toolExecuted));
+    }
+
+    private static TurnDeps deps(QueueProvider provider, FakeCommitter committer,
+                                 boolean[] toolExecuted, TLBaseModule executor) {
         AttachmentPipeline attachments = new AttachmentPipeline(null);
-        return new TurnDeps(null, null, provider, new FakeToolManager(), new FakeToolExecutor(toolExecuted),
+        return new TurnDeps(null, null, provider, new FakeToolManager(), executor,
                 (history, memory, roundStartIdx) -> new ArrayList<>(history),
                 committer, new FakeObserver(), attachments,
                 new ToolResultAppender(attachments), null);
@@ -195,6 +263,32 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
             for (TLToolExecutor.ToolTask t : tasks)
                 results.add(new TLToolExecutor.ToolResult(t.toolCallId, "工具输出"));
             return createMsg().setParam(RESULT, true).setParam("results", results);
+        }
+    }
+
+    /** 模拟 directOutput 工具/子工作流：直接返回 finalAnswer + finalResponse。 */
+    static class FakeDirectExecutor extends TLBaseModule {
+        private final boolean[] executed;
+        private final String text;
+        FakeDirectExecutor(boolean[] executed, String text) {
+            super("fakeDirectExecutor");
+            this.executed = executed;
+            this.text = text;
+        }
+        @Override protected TLBaseModule init() { return this; }
+
+        @Override protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+            executed[0] = true;
+            @SuppressWarnings("unchecked")
+            List<TLToolExecutor.ToolTask> tasks =
+                    (List<TLToolExecutor.ToolTask>) msg.getListParam("tasks", List.of());
+            List<TLToolExecutor.ToolResult> results = new ArrayList<>();
+            for (TLToolExecutor.ToolTask t : tasks)
+                results.add(new TLToolExecutor.ToolResult(t.toolCallId, text));
+            return createMsg().setParam(RESULT, true)
+                    .setParam(AI_P_FINALANSWER, true)
+                    .setParam("finalResponse", text)
+                    .setParam("results", results);
         }
     }
 

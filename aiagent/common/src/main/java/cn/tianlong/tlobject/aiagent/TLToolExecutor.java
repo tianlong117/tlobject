@@ -104,6 +104,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
         public String state;                // null=正常, "pending", "rejected", "clarified"
         public String stateExtra;           // rejectReason / clarificationQuestion
         public String approvalId;           // 审批请求 ID（pending 状态）
+        /** 执行终态（done/skipped/error/aborted/timeout/rejected/pending/unknown），供编排与 trace；
+         *  state 只表达控制态（pending/rejected/final 等），二者不是一回事 */
+        public String finalStatus;
+        /** 结构化错误码：RESULT=false 时由边界/执行器填充（tool_error/agent_error/...），成功为 null */
+        public String errorCode;
 
         public ToolResult() {}
         public ToolResult(String toolCallId, String output) {
@@ -572,6 +577,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                             : "执行未返回结果";
                     ToolResult fallback = new ToolResult(missTask.toolCallId,
                             "[未完成] " + missName + " 未返回结果（" + missReason + "）");
+                    fallback.finalStatus = TOOL_STATUS_ERROR;
                     // 与 worker 的迟到结果并发：谁先写入谁收口，输的一方不再发第二条终态事件
                     ToolResult raced = state.results.putIfAbsent(i, fallback);
                     if (raced != null) {
@@ -632,8 +638,11 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                     else if (doneTask.moduleName != null && !doneTask.moduleName.isEmpty())
                         doneTool = doneTask.moduleName;
                 }
+                String traceText = "tool=" + doneTool + " state=" + toolState;
+                if (tr.errorCode != null && !tr.errorCode.isEmpty())
+                    traceText += " code=" + tr.errorCode;
                 traceStage(state.agentName, sessionId, rootSessionId, roundId, "toolEnd",
-                        "tool=" + doneTool + " state=" + toolState, System.currentTimeMillis() - startTs);
+                        traceText, System.currentTimeMillis() - startTs);
             }
 
             response.setParam("results", results);
@@ -751,6 +760,7 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
             putLog("late tool result ignored (idx already finalized): idx=" + idx, LogLevel.DEBUG);
             return;
         }
+        if (result != null && status != null) result.finalStatus = status;
         if (status != null) st.finalStatuses.put(idx, status);
         notifyProgress(st, task, idx, status, durationMs, message);
     }
@@ -1037,6 +1047,17 @@ public class TLToolExecutor extends TLBaseModule implements TLAiAgentParamString
                 finishTask(state, task, idx,
                         new ToolResult(task.toolCallId, output, "rejected", reason),
                         TOOL_STATUS_REJECTED, elapsed, reason);
+                return null;
+            }
+            // 结构化结果契约：业务失败（RESULT=false）不再记为 done。LLM 看到的文本照旧，
+            // 但 ToolResult.finalStatus/errorCode 如实标记，供编排/排障/trace 识别；
+            // 业务失败不是传输级故障，不参与工具健康度熔断计数。
+            if (!TLResultContract.succeeded(result)) {
+                String code = TLResultContract.errorCode(result, ERRORCODE_TOOL);
+                ToolResult tr = new ToolResult(task.toolCallId, output);
+                tr.errorCode = code;
+                putLog("<<< [Function] " + functionName + " 返回失败: " + code, LogLevel.WARN);
+                finishTask(state, task, idx, tr, TOOL_STATUS_ERROR, elapsed, "工具返回失败");
                 return null;
             }
             boolean finalResult = result != null
