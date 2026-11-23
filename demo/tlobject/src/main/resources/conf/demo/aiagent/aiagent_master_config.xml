@@ -261,12 +261,7 @@
         <skill name="viewImageSkill"
                sameClassAs="viewImageSkill"
                statup="true"/>
-        <skill name="liantongyun"
-               sameClassAs="scriptExecutionSkill"
-               statup="true"
-               interpreter="python"
-               maxExecutionTime="120"
-               allowedScriptDir="skills/liantongyun/scripts"/>
+
         <skill name="skillmd_test"
                classfile="cn.tianlong.java.demo.aiagent.skills.TLSkillMdTestSkill"
                configfile="skillmd_test_config.xml"
