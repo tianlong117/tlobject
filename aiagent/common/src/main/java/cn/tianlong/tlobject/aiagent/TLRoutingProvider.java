@@ -112,6 +112,9 @@ public class TLRoutingProvider extends TLLlmProvider {
             cfg.remove("simpleModel");  cfg.remove("complexModel");
             cfg.remove("simpleKeywords"); cfg.remove("complexKeywords");
             cfg.remove("classfile");
+            // 启动自检只由最外层 Provider 做一次：checkProvider 会打真实请求，
+            // 克隆给 delegate 会让 cache→routing→openAi 链每层各 ping 一次（启动时三次 deepseek）。
+            cfg.remove("checkProviderOnStartup");
             cfg.put("sameClassAs", delegateProviderName);
 
             modulesClass.put(delegateName, cfg);

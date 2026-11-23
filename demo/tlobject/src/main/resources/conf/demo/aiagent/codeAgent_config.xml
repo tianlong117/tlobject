@@ -4,7 +4,8 @@
     <!-- 内置 code_execution + run_script 两个技能 -->
 
     <params>
-        <defaultLlmProvider value="openAiProvider"/>
+        <!-- 借主控 Provider：避免子 agent 自建一份 DeepSeek 实例（启动时多余的初始化） -->
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <!-- 关思考：DeepSeek thinking 模式要求 assistant 的 reasoning_content 必须回传（旧 Provider 不回传会在工具回合后 400）；任务类 agent 预算留给正文 -->
         <reasoningMode value="disabled"/>
         <defaultSkillPackageName value="cn.tianlong.tlobject.aiagent.skill.builtin"/>
@@ -21,6 +22,8 @@
         <intentCache value="false"/>
     </params>
 
+    <!-- 借主控 Provider（aiagent_master:openAiProvider）；如需独立 key/模型再解注释，
+         并把 defaultLlmProvider 改回 openAiProvider
     <providers>
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
@@ -28,7 +31,7 @@
                   apiKey="sk-your-api-key"
                   apiBaseUrl="https://api.deepseek.com"
                   defaultModel="deepseek-v4-flash"/>
-    </providers>
+    </providers-->
 
     <skills>
         <skill name="codeExecutionSkill"

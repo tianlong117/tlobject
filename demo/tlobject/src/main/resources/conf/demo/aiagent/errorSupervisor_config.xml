@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <moduleConfig>
     <!-- ===== Error Supervisor Agent 配置 =====
-         标准 Agent，有自己的 Provider、Skill、子Agent。
+         标准 Agent；Provider 借主控（aiagent_master:openAiProvider），
          通过目标 agent 的 afterMsgTable 钩入 chat 返回结果，
          审查输出质量，发现未解决的错误时自动触发修正循环。
 
@@ -9,7 +9,8 @@
     -->
 
     <params>
-        <defaultLlmProvider value="openAiProvider"/>
+        <!-- 借主控 Provider：避免监管 Agent 自建一份 DeepSeek 实例（启动时多余的初始化） -->
+        <defaultLlmProvider value="aiagent_master:openAiProvider"/>
         <!-- 关思考：DeepSeek thinking 模式要求 assistant 的 reasoning_content 必须回传（旧 Provider 不回传会在工具回合后 400）；任务类 agent 预算留给正文 -->
         <reasoningMode value="disabled"/>
 
@@ -20,7 +21,8 @@
         <correctionPromptTemplate value="你之前的回答存在问题，请修正。&#10;&#10;原始请求：{{userMessage}}&#10;&#10;你的回答：{{response}}&#10;&#10;审查意见：{{suggestion}}&#10;&#10;请根据审查意见重新处理。如果确实无法完成，请诚实告知用户原因。"/>
     </params>
 
-    <!-- Provider：可独立配置 apiKey/apiBaseUrl/model，用便宜模型降成本 -->
+    <!-- 借主控 Provider；原独立 Provider（可单独配便宜模型/超时）保留在下面，需要时解注释，
+         并把 defaultLlmProvider 改回 openAiProvider
     <providers>
         <provider name="openAiProvider"
                   sameClassAs="openAiProvider"
@@ -30,7 +32,7 @@
                   defaultModel="deepseek-v4-flash"
                   connTimeOut="30"
                   readTimeOut="120"/>
-    </providers>
+    </providers-->
 
     <!-- Skills（可选）：监管时可调用的辅助 skill -->
     <!--

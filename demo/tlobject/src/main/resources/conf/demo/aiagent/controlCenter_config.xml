@@ -18,7 +18,6 @@
         <msg action="getModule" destination="moduleFactory" moduleName="agentService"/>
         <msg action="getModule" destination="moduleFactory" moduleName="chatConsole"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputGuard"/>
-        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="approvalGate"/>
         <msg action="getModule" destination="moduleFactory" moduleName="appAuthModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="outputValidator"/>
@@ -26,6 +25,8 @@
         <msg action="getModule" destination="moduleFactory" moduleName="auth"/>
         <msg action="getModule" destination="moduleFactory" moduleName="dbUserModule"/>
         <msg action="getModule" destination="moduleFactory" moduleName="aiagent_master"/>
+        <!-- errorSupervisor 借主控 Provider（aiagent_master:openAiProvider），必须在其后创建 -->
+        <msg action="getModule" destination="moduleFactory" moduleName="errorSupervisor"/>
         <msg action="getModule" destination="moduleFactory" moduleName="mockProvider"/>
         <msg action="getModule" destination="moduleFactory" moduleName="testEchoSkill"/>
         <msg action="getModule" destination="moduleFactory" moduleName="testSleepSkill"/>

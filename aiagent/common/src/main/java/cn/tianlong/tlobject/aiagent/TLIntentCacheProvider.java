@@ -193,6 +193,8 @@ public class TLIntentCacheProvider extends TLLlmProvider {
             if (delegateFromLegacyParam) cfg.remove(AI_P_DELEGATEPROVIDER);
             cfg.remove("intentCacheMax");
             cfg.remove("classfile");
+            // 启动自检只由最外层 Provider 做一次（同 TLRoutingProvider：delegate 不自检）
+            cfg.remove("checkProviderOnStartup");
             cfg.put("sameClassAs", delegateProviderName);
 
             modulesClass.put(delegateName, cfg);
