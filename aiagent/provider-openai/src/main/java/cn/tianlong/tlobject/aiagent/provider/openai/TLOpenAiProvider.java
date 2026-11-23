@@ -311,7 +311,7 @@ public class TLOpenAiProvider extends TLLlmProvider {
                 result.setParam("totalTokens", usage.has("total_tokens")
                         ? usage.get("total_tokens").getAsInt() : 0);
                 // 推理 token：推理模型下它会和正文抢 max_tokens，是"content 为空"的第一现场证据
-                // 注意: 部分网关（如联通云 aigw）会显式返回 "completion_tokens_details": null，直接 getAsJsonObject 会 ClassCastException
+                // 注意: 部分网关（如某些 OpenAI 兼容网关）会显式返回 "completion_tokens_details": null，直接 getAsJsonObject 会 ClassCastException
                 if (usage.has("completion_tokens_details") && !usage.get("completion_tokens_details").isJsonNull()) {
                     JsonObject details = usage.getAsJsonObject("completion_tokens_details");
                     if (details != null && details.has("reasoning_tokens")) {

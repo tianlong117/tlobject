@@ -1457,7 +1457,6 @@ Everything below is a tool to it.
 | `poemWorkflow` | Poetry workflow: two poets in different styles write **in parallel** → a critic reviews (DAG workflow) | workflow nodes reusing agents |
 | `planTask` | Break a complex request into a 3-7 step executable list | — |
 | `dbAgent` | Database queries and operations | the database module |
-| `cloudRevenueAgent` | Cloud revenue reporting (a real business sample) | `scriptExecutionSkill` |
 
 **Master-level Skills**:
 

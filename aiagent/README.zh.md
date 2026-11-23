@@ -1373,7 +1373,6 @@ Web 端口在 `moduleFactory_chat_web_config.xml` 的 `port` 属性。
 | `poemWorkflow` | 诗歌工作流：两个不同风格的诗人**并行**创作 → 诗人评判（DAG 工作流） | 工作流节点复用 agent |
 | `planTask` | 把复杂需求拆成 3-7 步可执行清单 | — |
 | `dbAgent` | 数据库查询与操作 | 数据库模块 |
-| `cloudRevenueAgent` | 联通云收入统计（真实业务样例） | `scriptExecutionSkill` |
 
 **主控直属 Skill**：
 

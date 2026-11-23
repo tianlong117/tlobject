@@ -69,7 +69,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
 
     /**
      * workspaceMode=true：脚本位于 workspace/{userId} 内时子进程 CWD 切到该 workspace；
-     * 脚本在 workspace 外保持原 CWD（内置技能脚本如 browser/desktop/cloudRevenue 依赖它）。
+     * 脚本在 workspace 外保持原 CWD（内置技能脚本如 browser/desktop 依赖它）。
      * 默认 false = 旧行为。
      */
     private boolean workspaceMode = false;

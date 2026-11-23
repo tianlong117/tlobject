@@ -110,7 +110,7 @@
 
 - 脚本位置仍按 `allowedScriptDir` 查找（内置技能脚本不受影响）；
 - **仅当解析后的脚本位于 `workspace/{uid}` 内时**，`ProcessBuilder.directory()` 设为 `workspace/{uid}`；
-- 脚本在 workspace 之外（browser/desktop/联通云等内置技能脚本）时保持原 CWD，避免破坏依赖相对路径的既有脚本。
+- 脚本在 workspace 之外（browser/desktop 等内置技能脚本）时保持原 CWD，避免破坏依赖相对路径的既有脚本。
 
 这样“在 workspace 里生成/运行的脚本”默认以 workspace 为 CWD；内置技能脚本行为不变。
 
@@ -232,8 +232,7 @@ public final class TLUserWorkspace {
 - `codeAgent_config.xml`：`code_execution`、`script_execution` 均 `workspaceMode=true`。
 - `hamburgerAgent_config.xml` / `pizzaAgent_config.xml` / `poetc_config.xml`：MCP `userWorkspaceScoped=true`。
 - 主 agent system prompt：加入第 5.3 节三条规则。
-- **不开启**：`cloudRevenueAgent` 的 `script_execution`（联通云脚本依赖其自身工作目录语义），以及
-  `browser`/`desktop` 等内置技能。它们的脚本位于 workspace 之外，`script_execution`
+- **不开启**：`browser`/`desktop` 等内置技能。它们的脚本位于 workspace 之外，`script_execution`
   的动态 CWD 规则本身也会保持原行为。
 
 ### 6.3 生效
