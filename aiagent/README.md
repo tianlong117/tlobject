@@ -1466,7 +1466,6 @@ Everything below is a tool to it.
 | `browser` | Browser automation: open pages, click, fill forms, screenshot. Three forms: ephemeral / persistent (default) / real-browser takeover |
 | `desktop` | Desktop GUI automation: mouse, keyboard, screen capture. Two implementations: Java (default, plain JDK Robot, zero dependencies) / Python (fallback, pyautogui) |
 | `skillInstallerSkill` | **Let the LLM install Skills itself** — turn a script into a new Skill by asking |
-| `liantongyun` | A cloud-business script (business sample) |
 | `skillmd_test` | Demonstration: a Skill that is nothing but an md file |
 
 Built-in Skills (`http_request` / `file_operation` / `code_execution`) are attached per sub-agent as needed;
@@ -1594,7 +1593,7 @@ conf/demo/aiagent/
 ├── approvalGate_config.xml           # HITL approval: rules keyed by tool function name
 ├── sessionManager_config.xml         # Session store (file-based or database-based)
 ├── md/                               # Agent persona & job description (frontmatter + body = systemPrompt)
-└── skills/                           # Skills with scripts (browser / desktop / liantongyun)
+└── skills/                           # Skills with scripts (browser / desktop)
 ```
 
 Key points:

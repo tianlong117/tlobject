@@ -232,8 +232,8 @@ public final class TLUserWorkspace {
 - `codeAgent_config.xml`：`code_execution`、`script_execution` 均 `workspaceMode=true`。
 - `hamburgerAgent_config.xml` / `pizzaAgent_config.xml` / `poetc_config.xml`：MCP `userWorkspaceScoped=true`。
 - 主 agent system prompt：加入第 5.3 节三条规则。
-- **不开启**：`cloudRevenueAgent` 的 `script_execution`（联通云脚本依赖其自身工作目录语义）、主 agent 的
-  `liantongyun` 脚本技能、`browser`/`desktop` 等内置技能。它们的脚本位于 workspace 之外，`script_execution`
+- **不开启**：`cloudRevenueAgent` 的 `script_execution`（联通云脚本依赖其自身工作目录语义），以及
+  `browser`/`desktop` 等内置技能。它们的脚本位于 workspace 之外，`script_execution`
   的动态 CWD 规则本身也会保持原行为。
 
 ### 6.3 生效

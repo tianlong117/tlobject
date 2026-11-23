@@ -1382,7 +1382,6 @@ Web 端口在 `moduleFactory_chat_web_config.xml` 的 `port` 属性。
 | `browser` | 浏览器自动化：打开网页、点击、填表、截图。三种形态：ephemeral / 持久化（默认） / 接管真实浏览器 |
 | `desktop` | 桌面 GUI 自动化：鼠标、键盘、截屏。两版实现：Java（默认，纯 JDK Robot，零依赖）/ Python（备选，pyautogui） |
 | `skillInstallerSkill` | **让 LLM 自己装 Skill**：一句话把脚本注册成新 Skill |
-| `liantongyun` | 联通云业务脚本（业务样例） |
 | `skillmd_test` | 演示：只靠一个 md 文件即成为可用 Skill |
 
 **浏览器三种形态（browser skill）**
@@ -1507,7 +1506,7 @@ conf/demo/aiagent/
 ├── approvalGate_config.xml           # HITL 审批：按工具函数名配规则
 ├── sessionManager_config.xml         # 会话存储（文件版 / 数据库版二选一）
 ├── md/                               # Agent 的人设与职责（frontmatter + 正文即 systemPrompt）
-└── skills/                           # 带脚本的 Skill（browser / desktop / liantongyun）
+└── skills/                           # 带脚本的 Skill（browser / desktop）
 ```
 
 要点：

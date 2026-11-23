@@ -156,7 +156,7 @@ public class TLScriptExecutionSkill extends TLBaseSkill {
     @Override
     protected void loadSkillMd() {
         // 显式配置优先；未配置时在 allowedScriptDir 父目录（技能目录）按优先级自动发现。
-        // SKILL.md 是第三方技能的标准元数据文件；<目录名>.md 兼容 liantongyun.md 这类写法；
+        // SKILL.md 是第三方技能的标准元数据文件；<目录名>.md 兼容旧式 <技能名>.md 写法；
         // <skillName>.md 保留旧行为。installer 生成的 SKILL.md 从这里真正进入 skillDescription。
         if (skillMdPath == null && allowedScriptDir != null && !allowedScriptDir.isEmpty()) {
             try {
