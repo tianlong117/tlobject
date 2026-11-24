@@ -8,6 +8,7 @@ import cn.tianlong.tlobject.servletutils.TLServletDispatch;
 import cn.tianlong.tlobject.utils.TLDataUtils;
 import org.eclipse.jetty.http.HttpCookie;
 import org.eclipse.jetty.http.HttpVersion;
+import org.eclipse.jetty.http.pathmap.PathSpec;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.ee8.servlet.DefaultServlet;        // ✅ 改为 ee8
 import org.eclipse.jetty.ee8.servlet.ServletContextHandler; // ✅ 改为 ee8
@@ -19,11 +20,14 @@ import org.eclipse.jetty.util.thread.ThreadPool;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 
 import static java.lang.Thread.sleep;
 
@@ -59,6 +63,16 @@ public class TLJettyServerEE8 extends TLBaseModule {
     protected String sessionSameSite = "Lax";
     /** 会话 Cookie 是否带 HttpOnly，默认 true */
     protected boolean sessionHttpOnly = true;
+    /** 访问日志：文件路径，或 "stdout" 输出到控制台；未配置则关闭（默认关闭） */
+    protected String accessLog;
+    /** 访问日志格式：未配置=NCSA；extended=NCSA+Referer/User-Agent；其它值按 Jetty 格式串原样使用 */
+    protected String accessLogFormat;
+    /** 访问日志忽略路径，分号分隔（Jetty path spec，如 /api/events;/webui/*） */
+    protected String accessLogIgnorePaths;
+    /** 访问日志是否追加写，默认 true（仅文件模式） */
+    protected boolean accessLogAppend = true;
+    /** 访问日志保留天数，>0 且文件名含 yyyy_MM_dd 时生效（仅文件模式） */
+    protected int accessLogRetainDays = 0;
 
     public TLJettyServerEE8() {
         super();
@@ -107,6 +121,16 @@ public class TLJettyServerEE8 extends TLBaseModule {
                 sessionSameSite = params.get("sessionSameSite").trim();
             if (params.get("sessionHttpOnly") != null)
                 sessionHttpOnly = Boolean.parseBoolean(params.get("sessionHttpOnly"));
+            if (params.get("accessLog") != null && !params.get("accessLog").trim().isEmpty())
+                accessLog = params.get("accessLog").trim();
+            if (params.get("accessLogFormat") != null && !params.get("accessLogFormat").trim().isEmpty())
+                accessLogFormat = params.get("accessLogFormat").trim();
+            if (params.get("accessLogIgnorePaths") != null && !params.get("accessLogIgnorePaths").trim().isEmpty())
+                accessLogIgnorePaths = params.get("accessLogIgnorePaths").trim();
+            if (params.get("accessLogAppend") != null && !params.get("accessLogAppend").trim().isEmpty())
+                accessLogAppend = Boolean.parseBoolean(params.get("accessLogAppend").trim());
+            if (params.get("accessLogRetainDays") != null && !params.get("accessLogRetainDays").trim().isEmpty())
+                accessLogRetainDays = Integer.parseInt(params.get("accessLogRetainDays").trim());
         }
     }
 
@@ -126,6 +150,111 @@ public class TLJettyServerEE8 extends TLBaseModule {
         server.setHandler(context);
         if (!(context instanceof WebAppContext)) {
             initServletDispatch(context);
+        }
+        initAccessLog();
+    }
+
+    /**
+     * 访问日志初始化（accessLog 未配置时保持关闭）。
+     * 文件模式用 Jetty RequestLogWriter（支持按天滚动）；stdout 模式每请求打印一行。
+     * 路径/格式错误只记 ERROR 并禁用访问日志，不影响 server 启动。
+     */
+    private void initAccessLog() {
+        if (accessLog == null || accessLog.trim().isEmpty())
+            return;
+        String target = accessLog.trim();
+        String format = resolveAccessLogFormat();
+        CustomRequestLog requestLog = null;
+        String resolvedFile = null;
+        try {
+            if ("stdout".equalsIgnoreCase(target)) {
+                requestLog = new CustomRequestLog(new StdoutRequestLogWriter(), format);
+            } else {
+                // 相对路径按进程 CWD 解析（不修改 user.dir）
+                Path logPath = Paths.get(target).toAbsolutePath();
+                if (logPath.getParent() != null)
+                    Files.createDirectories(logPath.getParent()); // Jetty 不创建父目录
+                RequestLogWriter writer = new RequestLogWriter(logPath.toString());
+                writer.setAppend(accessLogAppend);
+                writer.setTimeZone(TimeZone.getDefault().getID()); // 按本地时区切日（Jetty 默认 GMT 零点）
+                if (accessLogRetainDays > 0) {
+                    if (logPath.getFileName().toString().toLowerCase(Locale.ROOT).contains("yyyy_mm_dd"))
+                        writer.setRetainDays(accessLogRetainDays);
+                    else
+                        putLog("accessLogRetainDays 仅对文件名含 yyyy_MM_dd 的滚动日志生效，已忽略: " + logPath, LogLevel.WARN);
+                }
+                requestLog = new CustomRequestLog(writer, format);
+            }
+            String[] ignorePaths = parseAccessLogIgnorePaths();
+            if (ignorePaths != null)
+                requestLog.setIgnorePaths(ignorePaths);
+            // 预启动验证：requestLog 在 server.start() 时才真正打开文件/解析忽略路径，
+            // 出错会导致整个 server 启动失败——这里先验证，失败只禁用访问日志。
+            // 启动后保持运行并交给 server 管理（server.start() 对已启动 bean 幂等），
+            // 避免文件被打开两次；server.stop() 会关闭 writer。
+            requestLog.start();
+            if (requestLog.getWriter() instanceof RequestLogWriter)
+                resolvedFile = ((RequestLogWriter) requestLog.getWriter()).getDatedFilename();
+            server.setRequestLog(requestLog);
+            putLog("Jetty 访问日志: " + (resolvedFile == null ? "stdout" : resolvedFile)
+                    + "，格式: " + format
+                    + (ignorePaths == null ? "" : "，忽略路径: " + String.join(";", ignorePaths)), LogLevel.INFO);
+        } catch (Exception e) {
+            if (requestLog != null) {
+                try {
+                    requestLog.stop();
+                } catch (Exception ignored) {
+                }
+            }
+            putLog("Jetty 访问日志初始化失败，已禁用: " + target + " - " + e.getMessage(), LogLevel.ERROR);
+        }
+    }
+
+    private String resolveAccessLogFormat() {
+        if (accessLogFormat == null || accessLogFormat.trim().isEmpty())
+            return defaultAccessLogFormat();
+        String fmt = accessLogFormat.trim();
+        if ("extended".equalsIgnoreCase(fmt))
+            return defaultAccessLogFormat() + " \"%{Referer}i\" \"%{User-Agent}i\"";
+        return fmt;
+    }
+
+    /**
+     * 默认 NCSA 格式：本地时区 + 英文月份，观感与 Apache/Python 访问日志一致。
+     * 不能直接用 CustomRequestLog.NCSA_FORMAT——它固定 GMT，且 %t 用 JVM 默认 Locale
+     * （中文系统会输出「24/11月/2026」，日志分析工具无法解析）。
+     */
+    private String defaultAccessLogFormat() {
+        String tz = TimeZone.getDefault().getID();
+        return "%{client}a - %u %{dd/MMM/yyyy:HH:mm:ss ZZZ|" + tz + "|en}t \"%r\" %s %O";
+    }
+
+    private String[] parseAccessLogIgnorePaths() {
+        if (accessLogIgnorePaths == null || accessLogIgnorePaths.trim().isEmpty())
+            return null;
+        ArrayList<String> valid = new ArrayList<>();
+        ArrayList<String> paths = TLDataUtils.splitStrToList(accessLogIgnorePaths, ";");
+        if (paths != null) {
+            for (String path : paths) {
+                path = path.trim();
+                if (path.isEmpty())
+                    continue;
+                try {
+                    PathSpec.from(path); // 用 Jetty 自身规则校验，非法 spec 会让 CustomRequestLog 启动失败
+                    valid.add(path);
+                } catch (IllegalArgumentException e) {
+                    putLog("accessLogIgnorePaths 配置无效，已忽略: " + path + " - " + e.getMessage(), LogLevel.WARN);
+                }
+            }
+        }
+        return valid.isEmpty() ? null : valid.toArray(new String[0]);
+    }
+
+    /** stdout 访问日志写入器：每条一行，println 内部同步 */
+    private static class StdoutRequestLogWriter implements RequestLog.Writer {
+        @Override
+        public void write(String requestEntry) {
+            System.out.println(requestEntry);
         }
     }
 
