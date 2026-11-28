@@ -54,6 +54,7 @@ function switchSessionView(sid) {
   state.sessionId = sid;
   localStorage.setItem('tlweb_session', sid);
   $('#sessionId').value = sid;
+  updateSessionTitleHeader();   // 顶栏显示名称（列表数据未到时回落「新会话」，renderSessionList 会再刷）
   const v = viewOf(sid);
   v.unread = 0;
   state.currentBox = v.box;
@@ -1830,6 +1831,7 @@ function bindEvents() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   });
   $('#streamToggle').onchange = e => { state.streamEnabled = e.target.checked; };
+  // 隐藏输入：保留"按会话ID切换"的程序化入口（顶栏已改为显示会话标题）
   $('#sessionId').onchange = e => {
     const v = e.target.value.trim();
     if (v && v !== state.sessionId) { switchSessionView(v); toast('已切换会话ID: ' + v, 'ok'); }
@@ -2347,6 +2349,23 @@ function sessionDisplayName(s) {
   return s.sessionId;
 }
 
+/** 顶栏会话标题：标题 → 首句 → 「新会话」；完整标题/首句/ID/Agent 放 tooltip（ID 不再直接展示）。 */
+function updateSessionTitleHeader() {
+  const el = $('#sessionTitle');
+  if (!el) return;
+  const sid = state.sessionId;
+  const s = (lastSessionsData || []).find(x => x && x.sessionId === sid);
+  let name = s ? sessionDisplayName(s) : '';
+  if (!name || name === sid) name = '新会话';
+  el.textContent = name;
+  const tip = [];
+  if (s && s.title) tip.push('标题：' + s.title);
+  if (s && s.userMessage) tip.push('首句：' + s.userMessage);
+  if (sid) tip.push('会话ID：' + sid);
+  if (s && s.agentName) tip.push('Agent：' + s.agentName);
+  el.title = tip.join('\n');
+}
+
 /** 置顶会话：服务端按 userId 存储（跨设备共享），lastSessionsData 上的 pinned 标记为权威。 */
 function pinnedSessionSet() {
   const set = new Set();
@@ -2461,6 +2480,7 @@ function openSessionMenu(btn, sid) {
 function renderSessionList() {
   const box = $('#sessionsBox');
   if (!box) return;
+  updateSessionTitleHeader();   // 列表刷新/标题事件/切会话后同步顶栏名称
   const keep = box.scrollTop;   // 整块重建前存滚动位置，重建后恢复（否则重绘后跳回顶部）
   if (lastSessionsData === null) {
     // 拉取失败时保留失败文案，不被后续重渲染（switchSessionView/setBusy 等）顶成"加载中"
@@ -2510,16 +2530,15 @@ function renderSessionList() {
     }
     l1.appendChild(name);
     row.appendChild(l1);
-    // 第二行：Agent · 最后活动 · 轮次 · 状态
+    // 第二行：最后活动 · 轮次 · 状态（主 Agent 名是恒定噪音，不再常显；悬停 tooltip 保留）
     const bits = [];
-    if (s.agentName) bits.push(s.agentName);
     if (s.savedAt) bits.push(fmtTs(s.savedAt));
     bits.push((s.count == null ? 0 : s.count) + '条');
     if (s.state) bits.push(s.state);
     const meta = document.createElement('div');
     meta.className = 'sess-meta';
     meta.textContent = bits.join(' · ');
-    meta.title = meta.textContent;
+    meta.title = (s.agentName ? 'Agent：' + s.agentName + '\n' : '') + meta.textContent;
     row.appendChild(meta);
     // 第三行：常用操作只留「切换 / 改名」，其余收进「更多」菜单
     const ops = document.createElement('div');

@@ -253,6 +253,9 @@ header {
 }
 header .brand { font-weight: bold; font-size: 15px; }
 header .tag { color: var(--accent-text); background: var(--tag-bg); padding: 2px 8px; border-radius: 10px; }
+header .sess { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+header .sess .sess-label { color: var(--text-dim2); }
+header .sess .sess-title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 header .sess input { background: var(--bg-input); border: 1px solid var(--border); color: var(--text); padding: 4px 8px; border-radius: 5px; }
 header .toggle { color: var(--text-dim2); }
 header .conn { color: var(--ok); font-size: 16px; }

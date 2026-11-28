@@ -127,6 +127,10 @@ body.mobile #mobileMore .sess {
   display: flex; align-items: center; gap: 8px; padding: 8px 12px;
   color: var(--text-dim2); font-size: 13px;
 }
+body.mobile #mobileMore .sess .sess-title {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; color: var(--text);
+}
 body.mobile #mobileMore .sess input {
   flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border);
   border-radius: 6px; padding: 8px; color: var(--text);

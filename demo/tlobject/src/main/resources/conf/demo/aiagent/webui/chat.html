@@ -73,7 +73,8 @@
       <img id="userAvatar" class="user-avatar hidden" alt="">
       <span id="userName"></span>
     </button>
-    <span class="sess">会话 <input id="sessionId" size="26" title="当前会话ID（可改，改后按新ID开新会话）"></span>
+    <!-- 顶栏显示会话标题；ID 作为隐藏输入保留（程序化按 ID 切换/冒烟脚本仍可用） -->
+    <span class="sess"><span class="sess-label">会话</span><span id="sessionTitle" class="sess-title"></span><input id="sessionId" type="hidden"></span>
     <label class="toggle"><input type="checkbox" id="streamToggle" checked> 流式</label>
     <span id="connState" class="conn" title="事件通道连接状态">●</span>
     <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
