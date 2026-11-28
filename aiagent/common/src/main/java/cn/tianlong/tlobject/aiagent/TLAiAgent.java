@@ -88,6 +88,13 @@ public class TLAiAgent extends TLBaseModule
     /** 中断轮的终态文案：既回 UI，也作为 assistant 消息落盘（重登视图/下一轮上下文都能看到本轮已中断） */
     private static final String ABORTED_FINAL = "⏹ 已中断";
 
+    /** 模板变量正则（{{var}}）：Pattern 线程安全，静态复用 */
+    private static final java.util.regex.Pattern VAR_PATTERN =
+            java.util.regex.Pattern.compile("\\{\\{(\\w+)\\}\\}");
+    /** 模板变量 {{now}} 的日期格式：DateTimeFormatter 线程安全，可静态复用 */
+    private static final java.time.format.DateTimeFormatter VAR_DATE_FMT =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
     /** 是否把工具进度状态发布到 msgBus（UI 订阅）；默认关闭，主 agent 配 true，子 agent 不配 */
     protected boolean toolProgressToBus = false;
 
@@ -158,8 +165,6 @@ public class TLAiAgent extends TLBaseModule
     /** 会话级 worker 线程：sessionId → 执行 doChat 的线程；stopChat 用于 interrupt + 定位其派生进程 */
     private final Map<String, Thread> chatThreads = new ConcurrentHashMap<>();
 
-    /** 当前线程正在执行的 doChat 的根会话 ID（ThreadLocal，供 spawn 点透传给子 agent） */
-    private final ThreadLocal<String> currentRootSessionId = new ThreadLocal<>();
     /** 当前 chat 的 userId（供 sessionUpdated 等消息传给 SessionManager，实现用户隔离） */
     private final ThreadLocal<String> currentChatUserId = new ThreadLocal<>();
 
@@ -1334,7 +1339,6 @@ public class TLAiAgent extends TLBaseModule
         }
         ctx.lockAcquired = !alreadyOwned;
 
-        currentRootSessionId.set(ctx.rootSid);
         currentChatUserId.set(ctx.userId);
 
         // IGNOREMODULEISNULL：监控是可选模块，未配置时不能走 putMsg 的默认
@@ -1385,13 +1389,11 @@ public class TLAiAgent extends TLBaseModule
                 .setParam("maxTokens", ctx.maxTokens)
                 .setParam("userMessage", ctx.userMessage));
 
-        // 模板变量替换（LLMINPUT 分支也覆盖）
-        java.text.SimpleDateFormat dateFmt = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-        String nowStr = dateFmt.format(new java.util.Date());
-        java.util.regex.Pattern varPattern = java.util.regex.Pattern.compile("\\{\\{(\\w+)\\}\\}");
+        // 模板变量替换（LLMINPUT 分支也覆盖）；日期/正则静态复用（均线程安全）
+        String nowStr = java.time.LocalDateTime.now().format(VAR_DATE_FMT);
         for (TLConversationHistory h : ctx.history) {
             if (h.getContent() == null || h.getContent().isEmpty()) continue;
-            java.util.regex.Matcher m = varPattern.matcher(h.getContent());
+            java.util.regex.Matcher m = VAR_PATTERN.matcher(h.getContent());
             StringBuffer sb = new StringBuffer();
             while (m.find()) {
                 String value = resolveVar(m.group(1), msg, sessionId, nowStr);
@@ -1638,16 +1640,15 @@ public class TLAiAgent extends TLBaseModule
                 streamHandles.remove(ctx.sessionId, currentHandle);
             }
             // monitor 注册、ThreadLocal 上下文同样属于"持锁的这一层"：重入层不能替外层注销，
-            // 否则外层后续循环拿不到 rootSessionId/userId、监控也提前消失
+            // 否则外层后续的 trace 拿不到 userId、监控也提前消失
             if (ctx.monitorRegistered) {
                 putMsg(M_AGENTMONITOR, createMsg().setAction("unregister")
                         .setParam(AI_P_SESSIONID, ctx.sessionId)
                         .setSystemParam(IGNOREMODULEISNULL, true));
             }
             // 同一线程还嵌套着别的会话（本线程仍持有其他会话锁）时，ThreadLocal 归最外层清理，
-            // 内层提前 remove 会让外层后半程读不到 rootSessionId/userId
+            // 内层提前 remove 会让外层后半程的 trace 读不到 userId
             if (!chatThreads.containsValue(Thread.currentThread())) {
-                currentRootSessionId.remove();
                 currentChatUserId.remove();
             }
         }
@@ -3521,8 +3522,8 @@ public class TLAiAgent extends TLBaseModule
         if (m.contains("r1") || m.contains("reasoner")) return "native";
         if ((m.contains("v3") || m.contains("v4") || m.contains("v5")) && m.contains("deepseek"))
             return "native";
-        // Claude Extended Thinking 模型
-        if (m.contains("fable-5") || m.contains("opus-4")) return "native";
+        // Claude Extended Thinking 模型：按家族名匹配（曾写死 fable-5/opus-4，新版本号会漏判）
+        if (m.contains("fable") || m.contains("opus")) return "native";
         // OpenAI o-series
         if (m.contains("o1") || m.contains("o3") || m.contains("o4")) return "native";
         // 其余模型走 prompt 引导
@@ -3541,7 +3542,8 @@ public class TLAiAgent extends TLBaseModule
     /** 查询指定 session 的累计 token 用量 */
     protected TLMsg getTokenUsage(Object fromWho, TLMsg msg) {
         String sessionId = msg.getStringParam(AI_P_SESSIONID, "default");
-        long[] a = sessionTokenUsage.getOrDefault(sessionId, new long[3]);
+        // getOrDefault 返回 map 内部数组；clone 后再读，避免与 accumulate 就地累加并发时读到混合快照
+        long[] a = sessionTokenUsage.getOrDefault(sessionId, new long[3]).clone();
         return createMsg().setParam(RESULT, true).setParam(AI_P_SESSIONID, sessionId)
                 .setParam(AI_P_PROMPTTOKENS_TOTAL, (int) a[0])
                 .setParam(AI_P_COMPLETIONTOKENS_TOTAL, (int) a[1])

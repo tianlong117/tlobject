@@ -208,10 +208,11 @@ public class TLClaudeProvider extends TLLlmProvider {
 
         // thinking (Claude Extended Thinking)
         // - reasoningMode=native|auto 时显式开启
-        // - Claude Fable 5 / Opus 4 强制要求 thinking 参数（API 硬约束），即使 off 也发最小 budget
+        // - Claude Fable / Opus 家族强制要求 thinking 参数（API 硬约束），即使 off 也发最小 budget
+        //   按家族名匹配（曾写死 fable-5/opus-4，新版本号会漏判）
         String reasoningMode = msg.getStringParam(AI_P_REASONING_MODE, "off");
         String model = getEffectiveModel(msg);
-        boolean isThinkingModel = model != null && (model.contains("fable-5") || model.contains("opus-4"));
+        boolean isThinkingModel = model != null && (model.contains("fable") || model.contains("opus"));
         boolean shouldEnableThinking = "native".equals(reasoningMode) || "auto".equals(reasoningMode) || isThinkingModel;
 
         if (shouldEnableThinking) {
