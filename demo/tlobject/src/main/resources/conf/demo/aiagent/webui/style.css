@@ -33,6 +33,10 @@
   --accent-text: #93c5fd;
   --link: #58a6ff;
   --link-hover: #79b8ff;
+  /* 主按钮（左栏「＋ 新会话」）：暗色饱和深蓝底+浅字；浅色改亮一档实心蓝+白字（见 light 覆盖） */
+  --btn-primary-bg: var(--accent-deep);
+  --btn-primary-border: var(--accent-deep);
+  --btn-primary-text: var(--text);
   /* 语义色 */
   --ok: #4ade80;
   --err: #f87171;
@@ -127,6 +131,9 @@ html[data-theme="light"] {
   --accent-text: #1d4ed8;
   --link: #1d4ed8;
   --link-hover: #1e40af;
+  --btn-primary-bg: #2563eb;
+  --btn-primary-border: #2563eb;
+  --btn-primary-text: #ffffff;
   --ok: #16a34a;
   --err: #dc2626;
   --warn: #b45309;
@@ -392,6 +399,20 @@ main { display: flex; flex: 1; min-height: 0; }
 .md-body table { border-collapse: collapse; min-width: 50%; font-size: 13px; }
 .md-body th, .md-body td { border: 1px solid var(--border); padding: 4px 9px; text-align: left; }
 .md-body th { background: var(--bg-th); color: var(--text-em); }
+/* AI 消息操作条：气泡外面、气泡正下方的独立一行（左对齐）——功能按钮不混进模型回复正文，
+   以后加其它功能（重新生成/导出…）往这一行加按钮即可 */
+.msg-actions { align-self: flex-start; display: flex; align-items: center; gap: 6px; margin: -6px 0 0 4px; }
+.msg-copy-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 20px; padding: 0;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 4px;
+  color: var(--text-dim2); cursor: pointer;
+  opacity: .55; transition: opacity .12s ease;
+}
+.msg-actions:hover .msg-copy-btn, .msg-copy-btn:hover { opacity: 1; }
+.msg-copy-btn:hover { color: var(--accent-text); border-color: var(--border-hover); }
+.msg-copy-btn.copied { opacity: 1; color: var(--ok); }
+@media (hover: none) { .msg-copy-btn { opacity: .7; } }
 .msg .stopped { margin-top: 6px; color: var(--text-dim); font-size: 12px; }
 .chat-input { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--border); align-items: flex-end; }
 .chat-input textarea {
@@ -464,7 +485,7 @@ header button.ghost.on { color: var(--accent-text); border-color: var(--accent);
   color: var(--text); font-size: 13px; cursor: pointer;
 }
 .btn-row button:hover, .row button:hover, details.mini button:hover { background: var(--bg-hover); }
-.btn-row button.primary, .row button.primary { background: var(--accent-deep); border-color: var(--accent-deep); }
+.btn-row button.primary, .row button.primary { background: var(--btn-primary-bg); border-color: var(--btn-primary-border); color: var(--btn-primary-text); }
 .row { display: flex; gap: 6px; margin-bottom: 8px; }
 .row input, details.mini input {
   flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border); color: var(--text);

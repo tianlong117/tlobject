@@ -599,6 +599,7 @@ function appendMsg(role, content, box, withLinks = true, markdown = false) {
   }
   if (role === 'ai' && withLinks) linkifyDownloads(d);
   (box || curBox()).appendChild(d);
+  if (markdown && role === 'ai') attachActions(d);   // 气泡下方的操作条（复制…）
   scrollChat(box);
   return d;
 }
@@ -639,6 +640,97 @@ function linkifyDownloads(el, skipPaths) {
     if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
     parent.replaceChild(frag, node);
   });
+}
+
+/** ===== AI 消息操作条（复制等） =====
+ * 挂在 AI 气泡外面、气泡正下方的独立一行（左对齐）——功能按钮不混进模型回复正文，
+ * 以后加别的功能（重新生成/导出…）往这一行加按钮即可。
+ * 每条回复一个复制按钮：点击复制整条回复的纯文本，1.2s 内图标变 ✓。
+ * 剪贴板：安全上下文（https/localhost）走 navigator.clipboard；
+ * 局域网 http 没有该 API，回退 textarea + execCommand。 */
+const MD_COPY_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">'
+    + '<rect x="5.5" y="5.5" width="8.5" height="8.5" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/>'
+    + '<path d="M10.5 3.2V3a1.5 1.5 0 0 0-1.5-1.5H3A1.5 1.5 0 0 0 1.5 3v6A1.5 1.5 0 0 0 3 10.5h.3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>';
+const MD_CHECK_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">'
+    + '<path d="M3 8.5l3.2 3L13 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+function attachActions(msgEl) {
+  if (!msgEl) return;
+  const body = msgEl.querySelector('.md-body');
+  if (!body) return;
+  let row = msgEl._actionsRow;
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'msg-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'msg-copy-btn';
+    btn.title = '复制本条回复';
+    btn.setAttribute('aria-label', '复制本条回复');
+    btn.innerHTML = MD_COPY_ICON;
+    btn.addEventListener('click', ev => {
+      ev.stopPropagation();
+      const text = copyTextOf(body);
+      if (!text) return;
+      writeClipboard(text).then(ok => {
+        if (!ok) { toast('复制失败：剪贴板不可用', 'err'); return; }
+        btn.innerHTML = MD_CHECK_ICON;
+        btn.classList.add('copied');
+        btn.title = '已复制';
+        clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(() => {
+          btn.innerHTML = MD_COPY_ICON;
+          btn.classList.remove('copied');
+          btn.title = '复制本条回复';
+        }, 1200);
+      });
+    });
+    row.appendChild(btn);
+    msgEl._actionsRow = row;
+  }
+  // 紧跟在本条消息（及其下载框）之后；消息被 keepAnswerLast 挪到末尾时操作条同步跟随
+  let anchor = msgEl;
+  while (anchor.nextElementSibling && anchor.nextElementSibling.classList.contains('dl-box')) {
+    anchor = anchor.nextElementSibling;
+  }
+  if (anchor.nextElementSibling !== row) anchor.insertAdjacentElement('afterend', row);
+}
+/** 取回复的纯文本：克隆后剔除操作按钮，行内「下载」链接还原成原始文件路径（复制不该丢信息），
+ *  挂到屏外真实布局里取 innerText——列表/换行/表格的换行语义才对。 */
+function copyTextOf(block) {
+  const clone = block.cloneNode(true);
+  clone.querySelectorAll('.msg-copy-btn').forEach(n => n.remove());
+  clone.querySelectorAll('a.dl-link').forEach(a => {
+    let p = a.textContent || '';
+    try { p = new URL(a.href, location.origin).searchParams.get('path') || p; } catch (e) { /* 保持原文 */ }
+    a.replaceWith(p);
+  });
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-9999px;top:0;white-space:pre-wrap;';
+  holder.appendChild(clone);
+  document.body.appendChild(holder);
+  const text = (clone.innerText || clone.textContent || '').trim();
+  holder.remove();
+  return text;
+}
+/** 写剪贴板：返回 Promise<boolean>。https/localhost 用异步 Clipboard API，其它回退 execCommand。 */
+function writeClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).then(() => true, () => legacyCopyText(text));
+  }
+  return Promise.resolve(legacyCopyText(text));
+}
+function legacyCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;';
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  ta.remove();
+  return ok;
 }
 
 /** 本轮生成文件（sid → 路径数组）：工具结果里抽出来，收尾时在答复下方渲染下载框。 */
@@ -1052,6 +1144,7 @@ function renderAnswerNow(holder) {
   if (holder.md) holder.md.innerHTML = renderChatMarkdown(holder.raw || '');
   holder.el.classList.add('md-rendered');
   keepAnswerLast(holder);
+  attachActions(holder.el);     // 先定好气泡位置再挂操作条，保证它始终在气泡下方
   scrollChat(holder.box);
 }
 function applyAnswerChunk(holder, text) {
@@ -1168,6 +1261,7 @@ function finishAssistantMsg(holder, evt) {
   meta.textContent = info;
   holder.el.appendChild(meta);
   if (files.length) renderDownloadBox(holder.el, files);
+  attachActions(holder.el);     // 气泡可能被移到末尾、下载框刚插入——操作条跟到最后
   scrollChat(holder.box);
 }
 function scrollChat(box) {
@@ -1256,6 +1350,7 @@ async function plainChat(msg) {
         meta.textContent = 'tokens 输入 ' + r.tokens.prompt + ' / 输出 ' + r.tokens.completion + ' / 合计 ' + r.tokens.total;
         holder.el.appendChild(meta);
       }
+      attachActions(holder.el);   // 非流式终答：气泡下方的操作条
       scrollChat(holder.box);
     } else {
       holder.el.remove();
@@ -1405,6 +1500,7 @@ async function streamChat(msg, opts) {
       stopped.className = 'stopped';
       stopped.textContent = '（已停止）';
       holder.el.appendChild(stopped);
+      attachActions(holder.el);   // 抢停的回复也保留操作条（复制已收到的部分）
       scrollChat(holder.box);
     } else {
       holder.el.remove();
