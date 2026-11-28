@@ -459,6 +459,15 @@ main { display: flex; flex: 1; min-height: 0; }
 #uploadBar button.ub-clear { background: none; border: 1px solid var(--border); color: var(--err);
   padding: 2px 8px; border-radius: 8px; cursor: pointer; }
 #uploadBar button.ub-clear:hover { border-color: var(--err); }
+/* ===== 拖拽上传浮层（拖文件进入页面时盖满视口提示松开；pointer-events:none 不挡 drop） ===== */
+.drop-overlay { position: fixed; inset: 0; z-index: 150; display: flex; align-items: center;
+  justify-content: center; background: var(--backdrop); pointer-events: none; }
+.drop-overlay .drop-hint { display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 42px; border: 2px dashed var(--accent); border-radius: 14px;
+  background: var(--bg-card); box-shadow: 0 8px 30px var(--shadow-strong); }
+.drop-overlay .drop-icon { font-size: 30px; line-height: 1.2; }
+.drop-overlay .drop-title { font-size: 16px; color: var(--text-strong); }
+.drop-overlay .drop-sub { font-size: 12px; color: var(--text-dim); }
 
 /* ===== 命令面板 ===== */
 /* 命令面板：默认隐藏（顶栏 ⚙ 设置 / 🐞 调试 两个入口）；宽度走 flex-basis（JS 拖动改写），flex 不涨不缩防被压 */

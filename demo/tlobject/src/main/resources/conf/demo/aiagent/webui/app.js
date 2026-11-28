@@ -1539,15 +1539,18 @@ function ensureSessionListed(sid) {
 
 // ======================== 文件上传 ========================
 const UPLOAD_MAX_MB = 50;   // 与后端 uploadSizeMaxMB 保持一致
-async function uploadFiles(files) {
-  const sid = state.sessionId;   // 附件归上传发起时的会话（上传期间切走也不会串到别的会话）
+/** 上传一批文件。opts.sid 指定归属会话（拖拽分批时固定发起时会话）；opts.silentOk 不弹成功提示。
+ *  返回本次成功保存的文件数（失败 0）。 */
+async function uploadFiles(files, opts) {
+  opts = opts || {};
+  const sid = opts.sid || state.sessionId;   // 附件归上传发起时的会话（上传期间切走也不会串到别的会话）
   // 本地立即校验大小：超限文件不发请求，直接提示（大文件不上传，省流量）
   const over = files.filter(f => f.size > UPLOAD_MAX_MB * 1024 * 1024);
   const okFiles = files.filter(f => f.size <= UPLOAD_MAX_MB * 1024 * 1024);
   if (over.length) {
     toast('以下文件超过 ' + UPLOAD_MAX_MB + 'MB 限制，已跳过：' + over.map(f => f.name).join('、'), 'err');
   }
-  if (!okFiles.length) return;
+  if (!okFiles.length) return 0;
   const fd = new FormData();
   // 不同字段名 file_0/file_1...：uploadFile 的 filenames 是 Map<fieldName, savedName>，同 key 会互相覆盖
   okFiles.forEach((f, i) => fd.append('file_' + i, f));
@@ -1561,19 +1564,100 @@ async function uploadFiles(files) {
     });
   } catch (e) {
     toast('上传失败：' + (e.name === 'AbortError' ? '上传超时（120秒）' : e.message), 'err');
-    return;
+    return 0;
   } finally { clearTimeout(timer); }
   let data = null;
   try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
-  if (resp.status === 401) { showLogin(); toast('未登录', 'err'); return; }
+  if (resp.status === 401) { showLogin(); toast('未登录', 'err'); return 0; }
   if (!resp.ok || !data || data.success !== true) {
     toast((data && data.error) || ('上传失败 HTTP ' + resp.status), 'err');
-    return;
+    return 0;
   }
   const saved = data.filenames || [];
   okFiles.forEach((f, i) => { if (saved[i] != null) viewOf(sid).uploads.push({ name: f.name, saved: saved[i] }); });
   renderUploadBar();
-  toast('上传成功 ' + saved.length + ' 个文件', 'ok');
+  if (!opts.silentOk) toast('上传成功 ' + saved.length + ' 个文件', 'ok');
+  return saved.length;
+}
+
+/** ===== 拖拽上传：拖文件到页面任意位置松开即上传 =====
+ * 一次最多 50 个（超出取前 50 并提示，不拒绝整批）；按批 10 个发请求——单个 multipart
+ * 不会过大、也避开 120s 上传超时；整批归属发起时的会话。子浮层动态创建，
+ * chat/mobile 两页共用 app.js 自动生效；未登录不显示提示也不接收。 */
+const DROP_MAX_FILES = 50;
+const DROP_BATCH_SIZE = 10;
+let dropDepth = 0;                 // dragenter/leave 计数：子元素间移动不闪
+let dropHideTimer = null;          // 兜底：1.2s 没有新的 dragover 就收起（拖出窗口漏 dragleave 时不卡浮层）
+function armDropHide() {
+  clearTimeout(dropHideTimer);
+  dropHideTimer = setTimeout(() => { dropDepth = 0; showDropOverlay(false); }, 1200);
+}
+function dragHasFiles(e) {
+  const t = e.dataTransfer && e.dataTransfer.types;
+  return !!t && Array.prototype.indexOf.call(t, 'Files') >= 0;
+}
+function inChatView() {
+  const v = $('#chatView');
+  return !!v && !v.classList.contains('hidden');
+}
+function showDropOverlay(on) {
+  let ov = $('#dropOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'dropOverlay';
+    ov.className = 'drop-overlay hidden';
+    ov.innerHTML = '<div class="drop-hint"><div class="drop-icon">📥</div>'
+        + '<div class="drop-title">松开鼠标上传文件</div>'
+        + '<div class="drop-sub">一次最多 ' + DROP_MAX_FILES + ' 个 · 单个文件 ≤ ' + UPLOAD_MAX_MB + 'MB</div></div>';
+    document.body.appendChild(ov);
+  }
+  ov.classList.toggle('hidden', !on);
+}
+async function uploadDroppedFiles(files) {
+  const sid = state.sessionId;       // 分批期间切会话也不串号
+  let list = files;
+  if (list.length > DROP_MAX_FILES) {
+    toast('一次最多上传 ' + DROP_MAX_FILES + ' 个文件，已取前 ' + DROP_MAX_FILES + ' 个', 'info');
+    list = list.slice(0, DROP_MAX_FILES);
+  }
+  let ok = 0;
+  for (let i = 0; i < list.length; i += DROP_BATCH_SIZE) {
+    ok += (await uploadFiles(list.slice(i, i + DROP_BATCH_SIZE), { sid, silentOk: true })) || 0;
+  }
+  if (ok) toast('上传成功 ' + ok + ' 个文件', 'ok');
+  else toast('没有文件上传成功', 'err');
+}
+function bindFileDrop() {
+  window.addEventListener('dragenter', e => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    if (!inChatView()) return;
+    dropDepth++;
+    showDropOverlay(true);
+    armDropHide();
+  });
+  window.addEventListener('dragover', e => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();                    // 必须拦：否则放手时浏览器直接打开文件
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    if (inChatView()) armDropHide();
+  });
+  window.addEventListener('dragleave', e => {
+    if (!dragHasFiles(e)) return;
+    dropDepth = Math.max(0, dropDepth - 1);
+    if (!dropDepth) { clearTimeout(dropHideTimer); showDropOverlay(false); }
+  });
+  window.addEventListener('drop', e => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();                    // 阻止默认打开文件
+    dropDepth = 0;
+    clearTimeout(dropHideTimer);
+    showDropOverlay(false);
+    const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
+    if (!files.length) return;
+    if (!inChatView()) { toast('请先登录再上传文件', 'err'); return; }
+    uploadDroppedFiles(files);
+  });
 }
 function renderUploadBar() {
   const bar = $('#uploadBar');
@@ -1592,6 +1676,7 @@ function bindUpload() {
     if (files.length) uploadFiles(files);
   });
   $('#clearUploads').onclick = () => { viewOf(state.sessionId).uploads = []; renderUploadBar(); };
+  bindFileDrop();                        // 拖文件到页面任意位置即上传（一次最多 50 个）
 }
 
 // ======================== 任务清单条（todo 技能 → msgBus todoEvent → SSE） ========================
