@@ -3,6 +3,32 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1b1e27">
+<script src="/webui/theme.js"></script>
+<script>
+/* 手机进入移动版的轻量分流（纯前端，UA 优先）：
+   - UA 明确是手机（userAgentData.mobile / Mobi / iPhone 等）→ 跳 mobile.html（保留 query/hash）
+   - localStorage.tlweb_view === 'desktop' 时让位，并给一个「手机版」浮动入口
+   - 不含 Android 平板/iPad（无 Mobile 标记），它们留在电脑版 */
+(function () {
+  try {
+    var forced = localStorage.getItem('tlweb_view') === 'desktop';
+    var ua = navigator.userAgent || '';
+    var mobile = (navigator.userAgentData && navigator.userAgentData.mobile === true)
+      || /Mobi|Android.*Mobile|iPhone|iPod|Windows Phone|HarmonyOS|IEMobile|BlackBerry|Opera Mini/i.test(ua);
+    if (!mobile) return;
+    if (!forced) { location.replace('/webui/mobile.html' + location.search + location.hash); return; }
+    document.addEventListener('DOMContentLoaded', function () {
+      var a = document.createElement('a');
+      a.className = 'mobile-link';
+      a.href = '/webui/mobile.html' + location.search + location.hash;
+      a.textContent = '📱 手机版';
+      a.addEventListener('click', function () { try { localStorage.setItem('tlweb_view', 'mobile'); } catch (e) { /* 忽略 */ } });
+      document.body.appendChild(a);
+    });
+  } catch (e) { /* localStorage 不可用：按桌面版继续 */ }
+})();
+</script>
 <title>AI Agent Web</title>
 <link rel="stylesheet" href="/webui/style.css">
 </head>
@@ -22,7 +48,7 @@
     <div id="registerFields" class="hidden">
       <input id="loginPwd2" type="password" placeholder="确认密码（至少 6 位）" autocomplete="new-password">
       <input id="regNickname" maxlength="32" placeholder="昵称（可选）">
-      <div id="regApprovalHint" class="hidden" style="font-size:12px;color:#8b96a8;margin:4px 0;">
+      <div id="regApprovalHint" class="hidden hint">
         注册后需管理员审核，通过后即可登录
       </div>
     </div>
@@ -34,6 +60,8 @@
     <button id="loginBtn">登 录</button>
     <div id="loginErr" class="err hidden"></div>
   </div>
+  <!-- 未登录也能切换主题（固定右上角，见 style.css #loginView .theme-toggle） -->
+  <button class="theme-toggle" type="button" aria-label="切换到浅色主题">☀</button>
 </div>
 
 <!-- ===== 主界面 ===== -->
@@ -56,6 +84,7 @@
     <button id="manageBtn" class="ghost" title="管理（工作空间等，新标签打开）" onclick="window.open('/webui/manage.html','_blank')">🗂 管理</button>
     <button id="debugBtn" class="ghost" title="调试面板（评测/测试、追踪）">🐞 调试</button>
     <button id="settingsBtn" class="ghost" title="设置面板（Agent/Skill、MCP）">⚙ 设置</button>
+    <button id="themeBtn" class="ghost theme-toggle" type="button" aria-label="切换到浅色主题">☀</button>
     <button id="logoutBtn" class="ghost">退出</button>
   </header>
   <main>

@@ -1,0 +1,188 @@
+/* ===== 移动端布局（仅 mobile.html，全部规则限定 body.mobile，不污染 PC） =====
+   颜色全部复用 style.css 的主题变量，移动页自动同时支持深/浅色。
+   结构：header（汉堡 + 🤖 + 头像 + 连接灯 + 主题 + 更多）｜会话栏=左抽屉｜聊天区满宽｜设置面板=全屏浮层。 */
+
+/* ---------- 视口高度（iOS 键盘/地址栏由 mobile.js 写 --app-h） ---------- */
+html { height: 100%; }
+body.mobile {
+  height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
+  overscroll-behavior-y: contain;          /* 防下拉刷新打断流式 */
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+body.mobile #chatView,
+body.mobile #loginView {
+  height: 100vh; height: 100dvh; height: var(--app-h, 100dvh);
+}
+
+/* ---------- 顶栏 ---------- */
+body.mobile header {
+  gap: 8px;
+  padding: calc(6px + env(safe-area-inset-top))
+           max(10px, env(safe-area-inset-right))
+           6px
+           max(10px, env(safe-area-inset-left));
+  flex-wrap: nowrap; overflow: hidden;
+}
+body.mobile header .brand { flex: none; font-size: 16px; }
+body.mobile header .user-tag { flex: none; padding: 2px 6px; }
+body.mobile header .user-tag #userName { display: none; }
+body.mobile header .conn { flex: none; }
+body.mobile header .theme-toggle { flex: none; }
+body.mobile .mobile-ico-btn {
+  flex: none; min-width: 40px; min-height: 40px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: 8px; background: none;
+  color: var(--text-dim2); font-size: 18px; line-height: 1; cursor: pointer;
+}
+body.mobile #mobileMoreBtn { margin-left: auto; }
+
+/* ---------- 会话栏 → 左抽屉 ---------- */
+body.mobile #sessionPane {
+  position: fixed; top: 0; bottom: 0; left: 0; z-index: 70;
+  width: min(86vw, 320px); max-width: 100vw;
+  transform: translateX(-100%); transition: transform .22s ease;
+  padding-top: env(safe-area-inset-top);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 30px var(--shadow-strong);
+}
+body.mobile.drawer-open #sessionPane { transform: none; }
+body.mobile #drawerBackdrop { position: fixed; inset: 0; z-index: 65; background: var(--backdrop); }
+body.mobile #sessionPane .sess-tools button { flex: 1; min-height: 40px; }
+body.mobile #sessionPane .sess-tools button.primary { flex: 1 0 100%; }
+body.mobile .sess-row { padding: 8px; }
+body.mobile .sess-ops button { min-height: 34px; padding: 4px 10px; font-size: 12px; }
+body.mobile .sess-menu { min-width: 160px; }
+body.mobile .sess-menu button { min-height: 44px; }
+
+/* ---------- 聊天区满宽 ---------- */
+body.mobile #chatPane { margin-right: 0; border-right: none; }
+body.mobile #msgList { padding: 12px 10px; overscroll-behavior: contain; }
+body.mobile .msg { max-width: 92%; font-size: 15px; }
+body.mobile .msg.tool-result,
+body.mobile .tool-progress,
+body.mobile .workflow-progress,
+body.mobile .task-card,
+body.mobile .dl-box { max-width: 100%; }
+body.mobile .msg .browser-shot,
+body.mobile .msg .attach-thumbs .browser-shot { max-height: 200px; }
+body.mobile .md-table-wrap,
+body.mobile .md-body pre { -webkit-overflow-scrolling: touch; }
+body.mobile .md-body table { min-width: max-content; }
+
+/* ---------- 输入区（吸底 + 安全区 + 16px 防 iOS 聚焦放大） ---------- */
+body.mobile .chat-input {
+  gap: 6px;
+  padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+}
+body.mobile .chat-input textarea { font-size: 16px; padding: 8px 10px; }
+body.mobile .chat-btns { gap: 6px; }
+body.mobile .chat-btns button { min-height: 42px; padding: 8px 14px; }
+body.mobile #bgToggleWrap { font-size: 11px; }
+body.mobile input, body.mobile textarea, body.mobile select { font-size: 16px; }
+
+/* ---------- 任务清单 / 上传条 ---------- */
+body.mobile #todoBar .todo-items { max-height: 108px; }
+body.mobile #uploadBar { padding: 6px 10px; }
+body.mobile .ub-chip { max-width: 46vw; }
+
+/* ---------- 设置/调试面板 → 全屏 ---------- */
+body.mobile #panelPane {
+  position: fixed; inset: 0; z-index: 90; width: 100%; flex: none;
+  background: var(--bg-page);
+  padding-top: env(safe-area-inset-top);
+}
+body.mobile #panelResizer { display: none; }
+body.mobile #tabBar { padding-right: 44px; }   /* 给浮动关闭按钮让位 */
+body.mobile #tabBar button { min-height: 44px; }
+body.mobile .mobile-panel-close {
+  position: absolute; top: calc(env(safe-area-inset-top) + 8px); right: 8px; z-index: 2;
+  width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-card); color: var(--text-dim2); font-size: 15px; line-height: 1; cursor: pointer;
+}
+body.mobile .tab-panel {
+  padding: 12px calc(12px + env(safe-area-inset-right))
+           calc(12px + env(safe-area-inset-bottom))
+           calc(12px + env(safe-area-inset-left));
+}
+
+/* ---------- 「更多」底部弹层（低频顶栏按钮移入这里，ID 不变） ---------- */
+body.mobile #mobileMore {
+  position: fixed; left: 8px; right: 8px;
+  bottom: calc(8px + env(safe-area-inset-bottom)); z-index: 95;
+  max-height: calc(100dvh - 16px); max-height: calc(var(--app-h, 100dvh) - 16px); overflow-y: auto;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 12px 40px var(--shadow-strong); padding: 8px;
+}
+body.mobile #mobileMore .more-title { color: var(--text-dim); font-size: 12px; padding: 6px 10px 8px; }
+body.mobile #mobileMore button,
+body.mobile #mobileMore .toggle {
+  display: flex; align-items: center; width: 100%; min-height: 44px;
+  padding: 10px 12px; background: none; border: none; border-radius: 8px;
+  color: var(--text); font-size: 14px; text-align: left; cursor: pointer;
+}
+body.mobile #mobileMore button:hover { background: var(--bg-hover); }
+body.mobile #mobileMore button.on { color: var(--accent-text); }
+body.mobile #mobileMore .sess {
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  color: var(--text-dim2); font-size: 13px;
+}
+body.mobile #mobileMore .sess input {
+  flex: 1; min-width: 0; background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; color: var(--text);
+}
+body.mobile #mobileMore .toggle { gap: 6px; }
+body.mobile #mobileMore .toggle input { accent-color: var(--accent); }
+
+/* ---------- 弹框：全宽 + 视口内滚动 + 大按钮 ---------- */
+body.mobile .modal { padding: 8px; }
+body.mobile .modal-box {
+  width: 100%; max-width: none; padding: 14px; border-radius: 12px;
+  max-height: 88vh; max-height: calc(100dvh - 16px); max-height: calc(var(--app-h, 100dvh) - 16px);
+}
+body.mobile .modal-box.wide { width: 100%; }
+body.mobile .modal-backdrop { padding: 8px; }
+body.mobile #profileModal .modal-box {
+  width: 100%; max-width: none;
+  max-height: calc(100dvh - 16px); max-height: calc(var(--app-h, 100dvh) - 16px);
+}
+body.mobile .modal-box .btn-row button { min-height: 44px; }
+body.mobile .modal-box.wide table.tbl { font-size: 12px; }
+
+/* ---------- 后台任务抽屉 / Toast ---------- */
+body.mobile #taskDrawer {
+  left: 8px; right: 8px; bottom: calc(84px + env(safe-area-inset-bottom));
+  width: auto; max-height: 56vh; max-height: 56dvh;
+}
+body.mobile #toastBox { left: 8px; right: 8px; top: calc(8px + env(safe-area-inset-top)); }
+body.mobile .toast { max-width: 100%; }
+
+/* ---------- 登录页 ---------- */
+/* align-items:flex-start：键盘压缩视口时表单从顶部开始，可滚动到底部输入框（居中会裁掉顶部） */
+body.mobile #loginView {
+  align-items: flex-start;
+  padding: calc(56px + env(safe-area-inset-top)) 12px calc(16px + env(safe-area-inset-bottom));
+  overflow-y: auto;
+}
+body.mobile .login-box { width: min(100%, 380px); padding: 22px; }
+body.mobile #loginView .theme-toggle { top: calc(10px + env(safe-area-inset-top)); right: 10px; }
+body.mobile .mobile-desktop-link {
+  display: block; margin-top: 10px; text-align: center;
+  color: var(--text-dim); font-size: 12px; text-decoration: underline;
+}
+
+/* ---------- 滚动条：移动端隐藏（不占位、不扎眼） ---------- */
+body.mobile ::-webkit-scrollbar { width: 0; height: 0; }
+body.mobile * { scrollbar-width: none; }
+
+/* ---------- 触屏：去掉粘滞 hover 效果 ---------- */
+@media (hover: none) {
+  body.mobile .sess-row:hover { border-color: var(--border); }
+  body.mobile .sess-row.cur:hover { border-color: var(--accent); }
+  body.mobile .sess-ops button:hover { background: var(--bg-sub); }
+  body.mobile .btn-row button:hover, body.mobile .row button:hover { background: var(--bg-sub); }
+  body.mobile header button.ghost:hover { color: var(--text-dim2); border-color: var(--border); }
+  body.mobile header button.ghost.on:hover { color: var(--accent-text); border-color: var(--accent); }
+  body.mobile .chat-btns button:hover { background: var(--accent); }
+  body.mobile .chat-btns button.danger:hover { background: var(--danger); }
+}

@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<!-- 移动端：覆盖刘海安全区；interactive-widget 让软键盘压缩视口（Chromium） -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1b1e27">
+<script src="/webui/theme.js"></script>
+<title>AI Agent Web</title>
+<link rel="stylesheet" href="/webui/style.css">
+<link rel="stylesheet" href="/webui/mobile.css">
+</head>
+<!-- 与 chat.html 保持 DOM/ID 同步：新增元素/弹框两边都要加（app.js 按 ID 绑定，缺一个功能就静默失效）。
+     本页不含 UA 分流脚本（避免与 chat.html 互相跳转死循环）。 -->
+<body class="mobile">
+
+<!-- ===== 登录视图 ===== -->
+<div id="loginView">
+  <div class="login-box">
+    <h1>🤖 AI Agent Web</h1>
+    <p class="sub">消息框架 Web 交互窗口</p>
+    <div class="login-tabs">
+      <button id="tabLogin" class="active" type="button">登录</button>
+      <button id="tabRegister" type="button">注册</button>
+    </div>
+    <input id="loginUser" placeholder="用户ID" autocomplete="username">
+    <input id="loginPwd" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+    <div id="registerFields" class="hidden">
+      <input id="loginPwd2" type="password" placeholder="确认密码（至少 6 位）" autocomplete="new-password">
+      <input id="regNickname" maxlength="32" placeholder="昵称（可选）">
+      <div id="regApprovalHint" class="hidden hint">
+        注册后需管理员审核，通过后即可登录
+      </div>
+    </div>
+    <!-- 验证码放在注册附加字段之后：登录页紧随密码；注册页在昵称下面（不隔开密码/确认密码） -->
+    <div id="captchaRow" class="captcha-row hidden">
+      <input id="loginCaptcha" maxlength="6" placeholder="验证码" autocomplete="off">
+      <img id="captchaImg" alt="验证码" title="点击刷新">
+    </div>
+    <button id="loginBtn">登 录</button>
+    <div id="loginErr" class="err hidden"></div>
+  </div>
+  <!-- 未登录也能切换主题（固定右上角，见 style.css #loginView .theme-toggle） -->
+  <button class="theme-toggle" type="button" aria-label="切换到浅色主题">☀</button>
+</div>
+
+<!-- ===== 主界面 ===== -->
+<div id="chatView" class="hidden">
+  <header>
+    <span class="brand">🤖 AI Agent Web</span>
+    <button id="userTag" class="tag user-tag" type="button" title="个人资料">
+      <span id="userInitial" class="user-initial hidden"></span>
+      <img id="userAvatar" class="user-avatar hidden" alt="">
+      <span id="userName"></span>
+    </button>
+    <span class="sess">会话 <input id="sessionId" size="26" title="当前会话ID（可改，改后按新ID开新会话）"></span>
+    <label class="toggle"><input type="checkbox" id="streamToggle" checked> 流式</label>
+    <span id="connState" class="conn" title="事件通道连接状态">●</span>
+    <button id="tasksBtn" class="ghost" title="定时任务（查看/暂停/恢复/删除）">📋 定时任务</button>
+    <button id="bgTasksBtn" class="ghost" title="后台任务（跨会话查看/停止/删除）">🚀 后台任务</button>
+    <button id="autoBtn" class="ghost" title="自动运行：本会话内工具调用免审批">🔒 自动运行</button>
+    <button id="permBtn" class="ghost" title="审批授权管理（查看/撤销）">🛡 授权</button>
+    <button id="inboxBtn" class="ghost" title="消息箱（离线任务结果与通知）">🔔 消息箱<span id="inboxBadge" class="badge hidden">0</span></button>
+    <button id="manageBtn" class="ghost" title="管理（工作空间等，新标签打开）" onclick="window.open('/webui/manage.html','_blank')">🗂 管理</button>
+    <button id="debugBtn" class="ghost" title="调试面板（评测/测试、追踪）">🐞 调试</button>
+    <button id="settingsBtn" class="ghost" title="设置面板（Agent/Skill、MCP）">⚙ 设置</button>
+    <button id="themeBtn" class="ghost theme-toggle" type="button" aria-label="切换到浅色主题">☀</button>
+    <button id="logoutBtn" class="ghost">退出</button>
+  </header>
+  <main>
+    <!-- 左侧常驻会话栏：会话列表 + 状态标记（● 运行中 / ○ 未读）+ 新会话（原先在右侧"会话"Tab 里） -->
+    <aside id="sessionPane">
+      <div class="btn-row sess-tools">
+        <button class="primary" onclick="newSession()">＋ 新会话</button>
+        <button onclick="refreshSessionList()">刷新</button>
+        <button onclick="resumeCheckpoint()">断点恢复</button>
+      </div>
+      <div id="sessionsBox" class="box"></div>
+    </aside>
+
+    <!-- 聊天窗口 -->
+    <section id="chatPane">
+      <div id="msgList"></div>
+      <!-- 任务清单条（todo 技能经 msgBus todoEvent 推送；无清单整条隐藏，按会话隔离） -->
+      <div id="todoBar" class="hidden">
+        <div class="todo-head"><span id="todoSummary"></span><span class="todo-toggle" id="todoToggle">▾</span></div>
+        <div class="todo-items" id="todoItems"></div>
+      </div>
+      <!-- 上传成功文件名条 -->
+      <div id="uploadBar" class="hidden">
+        <span class="ub-label">📎 已上传</span>
+        <span id="uploadChips"></span>
+        <button id="clearUploads" type="button" class="ub-clear">✕ 清除</button>
+      </div>
+      <div class="chat-input">
+        <textarea id="chatInput" rows="2" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <div class="chat-btns">
+          <button id="attachBtn" type="button" title="上传文件（可多选，单个 ≤50MB）">📎</button>
+          <label id="bgToggleWrap" title="把这条消息挂到后台执行（不阻塞对话）">
+            <input type="checkbox" id="bgToggle"> 后台执行
+          </label>
+          <button id="sendBtn">发送</button>
+          <button id="stopBtn" class="hidden danger">■ 停止</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 命令面板（默认隐藏：顶栏「⚙ 设置」「🐞 调试」两个入口，Tab 栏只显示对应功能组；左边缘拖宽，双击复位 420） -->
+    <aside id="panelPane" class="hidden">
+      <div id="panelResizer" title="拖动调整宽度（双击复位）"></div>
+      <nav id="tabBar">
+        <button data-tab="tab-agents" data-group="settings" class="active">Agent/Skill</button>
+        <button data-tab="tab-mcp" data-group="settings">MCP</button>
+        <button data-tab="tab-config" data-group="settings">配置</button>
+        <button data-tab="tab-trace" data-group="debug">追踪</button>
+        <button data-tab="tab-eval" data-group="debug">评测/测试</button>
+      </nav>
+
+      <section id="tab-agents" class="tab-panel active">
+        <div class="btn-row">
+          <button class="primary" onclick="loadAgents()">Agents</button>
+          <button onclick="loadSkills()">Skills</button>
+        </div>
+        <div id="agentsBox" class="box"></div>
+        <div id="opMsg" class="box"></div>
+        <!-- 参数查看 / 卸载 / 重载 已并入列表每行的"操作"列（参数自动带家族名，无需手输） -->
+        <details class="mini">
+          <summary>安装</summary>
+          <div class="row">
+            <select id="installType">
+              <option value="skill">Skill(脚本目录)</option>
+              <option value="agent">Agent</option>
+              <option value="baseSkill">BaseSkill(Java类)</option>
+            </select>
+            <input id="installName" placeholder="名称/目录（skill 填目录名如 mermaid-flowchart；装到哪个 Agent 填右侧目标Agent）">
+          </div>
+          <div class="row">
+            <input id="installRef" placeholder="sameClassAs 或 classFile(含. 的视为类名，可选)">
+            <input id="installTarget" placeholder="目标Agent (默认 aiagent_master；子Agent 可填家族名 aiagent_master:fileAgent 或唯一短名 fileAgent)">
+          </div>
+          <button class="primary" onclick="doInstall()">安装</button>
+        </details>
+      </section>
+
+      <section id="tab-mcp" class="tab-panel">
+        <div class="row">
+          <input id="mcpKw" placeholder="搜索关键词 (空=全部精选)">
+          <button class="primary" onclick="mcpSearch()">搜索</button>
+        </div>
+        <div id="mcpSearchBox" class="box"></div>
+        <div class="btn-row">
+          <button onclick="mcpList()">已安装列表</button>
+        </div>
+        <div id="mcpListBox" class="box"></div>
+      </section>
+
+      <section id="tab-config" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="loadReloadables()">刷新</button>
+        </div>
+        <div id="reloadablesBox" class="box"></div>
+      </section>
+
+      <section id="tab-eval" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="evalCmd('suite')">suite 全部</button>
+          <button onclick="evalCmd('list')">list 用例</button>
+          <button onclick="evalCmd('quick')">quick 自检</button>
+        </div>
+        <div class="row">
+          <input id="evalCase" placeholder="caseId"><button onclick="evalCmd('run')">run</button>
+          <input id="evalAgent" placeholder="agent(可选)"><button onclick="evalCmd('cascade')">cascade</button>
+        </div>
+        <div id="evalBox" class="box"></div>
+        <hr>
+        <div class="btn-row">
+          <button class="primary" onclick="testCmd('list')">测试用例列表</button>
+          <button onclick="testCmd('all')">运行全部</button>
+        </div>
+        <div class="row">
+          <input id="testCase" placeholder="用例名 (如 basicChat)"><button onclick="testCmd('one')">运行</button>
+        </div>
+        <div id="testBox" class="box"></div>
+      </section>
+
+      <section id="tab-trace" class="tab-panel">
+        <div class="btn-row">
+          <button class="primary" onclick="doTrace()">/trace 环节记录</button>
+          <button onclick="doTraceLlm()">/trace llm 完整链路</button>
+          <button onclick="doStats()">/stats 会话统计</button>
+          <button onclick="doStatsAll()">/stats all</button>
+          <button onclick="doStatsAgent()">/stats agent</button>
+        </div>
+        <div id="traceBox" class="box"></div>
+        <div id="replayResult" class="box"></div>
+      </section>
+    </aside>
+  </main>
+</div>
+
+<!-- ===== 审批弹框 ===== -->
+<div id="approvalModal" class="modal hidden">
+  <div class="modal-box">
+    <span id="apCloseBtn" class="modal-x" title="关闭（按拒绝处理）">✕</span>
+    <h3 id="apTitle"></h3>
+    <div id="apDesc" class="ap-desc"></div>
+    <label class="lbl">工具参数（可编辑后批准）</label>
+    <textarea id="apArgs" rows="6" spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button class="ok" id="apApproveBtn">✓ 批准</button>
+      <button id="apApproveRoundBtn" title="本轮内同规则不再询问">✓ 本轮不再问</button>
+      <button id="apApproveSessionBtn" title="本会话内同规则不再询问">✓ 本会话不再问</button>
+      <button class="no" id="apRejectBtn">✗ 拒绝</button>
+    </div>
+    <input id="apReason" placeholder="拒绝原因（可选）">
+    <div id="apMsg" class="err hidden"></div>
+  </div>
+</div>
+
+<!-- ===== 定时任务浮层（顶栏 📋 打开）===== -->
+<div id="tasksModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>📋 定时任务</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadTasks()">刷新</button>
+    </div>
+    <div id="tasksBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeTasks()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 后台任务浮层（顶栏 🚀 打开；跨会话查看全部后台任务）===== -->
+<div id="bgTasksModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🚀 后台任务</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadBgTasks()">刷新</button>
+    </div>
+    <div id="bgTasksBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeBgTasks()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 消息箱浮层（顶栏 🔔 打开）===== -->
+<div id="inboxModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🔔 消息箱</h3>
+    <div id="inboxCats" class="inbox-cats"></div>
+    <div class="btn-row">
+      <button class="primary" onclick="loadInbox()">刷新</button>
+      <button onclick="readAllInbox()">全部已读</button>
+      <button onclick="deleteReadInbox()">删除已读</button>
+      <button class="inbox-clear" onclick="clearInbox()">清空</button>
+    </div>
+    <div id="inboxBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeInbox()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 审批授权面板（顶栏 🛡 打开）===== -->
+<div id="permModal" class="modal hidden">
+  <div class="modal-box wide">
+    <h3>🛡 审批授权</h3>
+    <div class="btn-row">
+      <button class="primary" onclick="loadPermissions()">刷新</button>
+      <button onclick="clearPermissions()">清空本会话授权</button>
+    </div>
+    <div id="permBox" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closePermissions()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<div id="paramModal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="pmTitle"></h3>
+    <div id="pmBody" style="max-height:60vh;overflow:auto;"></div>
+    <div class="btn-row">
+      <button class="ok" onclick="closeParam()">关 闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 通用确认弹框（confirmDialog() 动态填入，评测等"点了就会真的跑"的操作先问一句） ===== -->
+<div id="confirmModal" class="modal hidden">
+  <div class="modal-box">
+    <h3 id="cfTitle"></h3>
+    <div id="cfText" class="ap-desc"></div>
+    <div class="btn-row">
+      <button class="ok" id="cfOkBtn">确 定</button>
+      <button class="no" id="cfCancelBtn">取 消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 断点恢复提示（登录后检测到上次未正常结束的会话，仿命令行启动提示） ===== -->
+<div id="checkpointModal" class="modal hidden">
+  <div class="modal-box">
+    <h3>⚠ 检测到上次未正常结束的会话</h3>
+    <div id="cpDesc" class="ap-desc"></div>
+    <div class="btn-row">
+      <button class="ok" id="cpResumeBtn">▶ 恢复执行</button>
+      <button id="cpAbandonBtn" class="no hidden" title="待批断点：撤销审批并丢弃断点；普通断点：永久丢弃（下次登录不再提示）">🗑 放弃该操作</button>
+      <button class="no" id="cpIgnoreBtn" title="本次忽略（下次登录仍提示）">忽略，开始新对话</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 后台任务详情抽屉（body 级：会话 box 与侧栏重建都不影响它） ===== -->
+<div id="taskDrawer" class="hidden">
+  <div class="td-head"><span id="taskDrawerTitle"></span>
+    <button id="tdStop">停止</button><button id="tdClose">✕</button></div>
+  <pre id="taskDrawerBody"></pre>
+</div>
+
+<!-- ===== 个人资料弹框 ===== -->
+<div id="profileModal" class="modal-backdrop hidden">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span>个人资料</span>
+      <button id="profileClose" class="modal-x" type="button">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="pf-label">头像</label>
+      <div class="pf-avatar-row">
+        <img id="pfAvatar" class="pf-avatar" alt="">
+        <input id="pfAvatarFile" type="file" accept="image/png,image/jpeg,image/webp">
+      </div>
+      <label class="pf-label">昵称</label>
+      <input id="pfNickname" maxlength="32">
+      <label class="pf-label">一句话介绍</label>
+      <input id="pfBio" maxlength="200">
+      <label class="pf-label">邮箱</label>
+      <input id="pfEmail" type="email" maxlength="128">
+      <div id="pfMsg" class="err hidden"></div>
+      <button id="pfSave" class="modal-primary" type="button">保存资料</button>
+      <hr class="pf-hr">
+      <label class="pf-label">修改密码</label>
+      <input id="pfOldPwd" type="password" placeholder="旧密码">
+      <input id="pfNewPwd" type="password" placeholder="新密码（至少 6 位）">
+      <input id="pfNewPwd2" type="password" placeholder="确认新密码">
+      <button id="pfChangePwd" class="modal-secondary" type="button">修改密码</button>
+    </div>
+  </div>
+</div>
+
+<div id="toastBox"></div>
+<input type="file" id="fileInput" multiple hidden>
+
+<script src="/webui/app.js"></script>
+<script src="/webui/mobile.js"></script>
+</body>
+</html>

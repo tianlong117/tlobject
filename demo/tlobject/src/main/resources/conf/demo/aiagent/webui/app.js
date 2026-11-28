@@ -1614,8 +1614,8 @@ function openEvents() {
       scheduleRenderSessionList();
     }
   };
-  es.onopen = () => { $('#connState').textContent = '●'; $('#connState').style.color = '#4ade80'; };
-  es.onerror = () => { $('#connState').textContent = '○'; $('#connState').style.color = '#f87171'; };
+  es.onopen = () => { $('#connState').textContent = '●'; $('#connState').classList.remove('err'); };
+  es.onerror = () => { $('#connState').textContent = '○'; $('#connState').classList.add('err'); };
   state.events = es;
 }
 
@@ -2224,7 +2224,7 @@ function renderBgTasks(rows) {
       + '<td title="' + esc(p) + '"><b>' + name + '</b><div class="sess-meta">' + content + '</div></td>'
       + '<td>' + esc(t.status || '') + '</td>'
       + '<td>' + esc(start) + '</td>'
-      + '<td>' + esc(dur) + (running ? ' <span style="color:#4ade80">●</span>' : '') + '</td>'
+      + '<td>' + esc(dur) + (running ? ' <span class="dot-ok">●</span>' : '') + '</td>'
       + '<td>'
       + '<button onclick="bgTaskView(\'' + esc(t.taskId) + '\')">查看</button> '
       + (running ? '<button onclick="bgTaskStop(\'' + esc(t.taskId) + '\')">停止</button> ' : '')
@@ -2488,11 +2488,11 @@ function renderSessionList() {
     ic.className = 'sess-icon';
     ic.textContent = icon;
     if (icon === '●') {
-      ic.style.color = '#4ade80';
+      ic.classList.add('run');
       ic.title = '运行中';
     } else {
       const unread = state.sessions[sid] && state.sessions[sid].unread > 0;
-      ic.style.color = unread ? '#93c5fd' : '#6b7280';
+      ic.classList.add(unread ? 'unread' : 'idle');
       ic.title = unread ? '有未读' : '空闲';
     }
     const name = document.createElement('span');
@@ -3587,7 +3587,7 @@ async function loadPermissions() {
     box.innerHTML = '';
     list.forEach(g => {
       const row = document.createElement('div');
-      row.style.cssText = 'border-bottom:1px solid #2a2f3d;padding:8px 4px;';
+      row.className = 'perm-row';
       const scope = g.scope === 'session' ? '本会话' : '本轮';
       const revokeCmd = { sub: 'revoke', userId: state.userId, sessionId: g.sessionId, ruleId: g.ruleId };
       if (g.operation && g.operation !== '*') revokeCmd.operation = g.operation;
@@ -3595,9 +3595,8 @@ async function loadPermissions() {
         + ' <span class="muted">session=' + esc(g.sessionId) + '</span> ';
       const btn = document.createElement('button');
       btn.textContent = '撤销';
-      // 行内小按钮：本行不在 .btn-row/.row 里（拿不到样式表规则），内联沿用 .sess-ops/table.tbl 的同款深色小按钮
-      btn.style.cssText = 'padding:2px 8px;font-size:12px;border-radius:4px;'
-        + 'border:1px solid #2a2f3d;background:#232838;color:#d8dde6;cursor:pointer;';
+      // 行内小按钮：本行不在 .btn-row/.row 里（拿不到结构样式），用 style.css 的 .perm-btn（随主题变色）
+      btn.className = 'perm-btn';
       btn.onclick = async () => {
         const rr = await apiCommand('permissions', revokeCmd);
         toast(rr.message || rr.error, rr.success ? 'ok' : 'err');
