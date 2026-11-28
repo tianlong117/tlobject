@@ -109,10 +109,11 @@ function fmtAgo(ts) {
   if (s < 86400) return Math.floor(s / 3600) + ' 小时前';
   return Math.floor(s / 86400) + ' 天前';
 }
-function toast(msg, kind) {
+function toast(msg, kind, opts) {
   const box = $('#toastBox');
   const t = document.createElement('div');
   t.className = 'toast ' + (kind || 'info');
+  if (opts && opts.center) t.classList.add('toast-center');   // 屏幕正中央（重要但无需打断操作的提示）
   t.textContent = msg;
   box.appendChild(t);
   setTimeout(() => t.remove(), 4000);
@@ -1609,7 +1610,9 @@ async function uploadFiles(files, opts) {
   try { data = await resp.json(); } catch (e) { /* 非 JSON 响应 */ }
   if (resp.status === 401) { showLogin(); toast('未登录', 'err'); return 0; }
   if (!resp.ok || !data || data.success !== true) {
-    toast((data && data.error) || ('上传失败 HTTP ' + resp.status), 'err');
+    const errMsg = (data && data.error) || ('上传失败 HTTP ' + resp.status);
+    // 文件数超限（服务端 uploadMaxFiles）用居中提示，和前端超量提示一致
+    toast(errMsg, 'err', /一次最多上传/.test(errMsg) ? { center: true } : undefined);
     return 0;
   }
   const saved = data.filenames || [];
@@ -1652,11 +1655,14 @@ function showDropOverlay(on) {
   }
   ov.classList.toggle('hidden', !on);
 }
-async function uploadDroppedFiles(files) {
+/** 一次选/拖多个文件的统一入口（拖拽与 📎 选文件共用）：50 上限 + 分批上传 + 居中超量提示。 */
+async function uploadManyFiles(files) {
   const sid = state.sessionId;       // 分批期间切会话也不串号
   let list = files;
   if (list.length > DROP_MAX_FILES) {
-    toast('一次最多上传 ' + DROP_MAX_FILES + ' 个文件，已取前 ' + DROP_MAX_FILES + ' 个', 'info');
+    // 居中提示：视线在页面中间，右上角 toast 容易错过
+    toast('一次最多上传 ' + DROP_MAX_FILES + ' 个文件，已取前 ' + DROP_MAX_FILES + ' 个', 'info',
+        { center: true });
     list = list.slice(0, DROP_MAX_FILES);
   }
   let ok = 0;
@@ -1695,7 +1701,7 @@ function bindFileDrop() {
     const files = (e.dataTransfer && e.dataTransfer.files) ? Array.from(e.dataTransfer.files) : [];
     if (!files.length) return;
     if (!inChatView()) { toast('请先登录再上传文件', 'err'); return; }
-    uploadDroppedFiles(files);
+    uploadManyFiles(files);
   });
 }
 function renderUploadBar() {
@@ -1712,7 +1718,8 @@ function bindUpload() {
   $('#fileInput').addEventListener('change', () => {
     const files = Array.from($('#fileInput').files || []);
     $('#fileInput').value = '';          // 允许连续选择同一文件
-    if (files.length) uploadFiles(files);
+    // 与拖拽同一套：50 上限 + 分批 + 居中超量提示（选超了不会整批被服务端拒绝）
+    if (files.length) uploadManyFiles(files);
   });
   $('#clearUploads').onclick = () => { viewOf(state.sessionId).uploads = []; renderUploadBar(); };
   bindFileDrop();                        // 拖文件到页面任意位置即上传（一次最多 50 个）

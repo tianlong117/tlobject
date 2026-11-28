@@ -105,6 +105,8 @@ public interface TLParamString {
     final String UPLOADFILE_SAVEFILE = "saveFile";
     final String UPLOADFILE_PARSEREQUEST = "parseRequest";
     final String UPLOADFILE_P_FILESIZE = "filesize";
+    /** 单次上传允许的文件数上限（请求参数/模块配置同键；<=0 不限）；超限 saveFile 不落任何文件直接拒绝 */
+    final String UPLOADFILE_P_FILECOUNTMAX = "fileCountMax";
     final String UPLOADFILE_P_FILETYPES = "fileTypes";
     final String UPLOADFILE_P_FILEPATH = "filePath";
     final String UPLOADFILE_P_NEWFILENAME = "newFileName";

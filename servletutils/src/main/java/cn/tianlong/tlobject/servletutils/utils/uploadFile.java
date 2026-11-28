@@ -33,6 +33,8 @@ public class uploadFile extends TLWServModule {
     protected String fileTypes[];
     protected String filePath = "/uploads";
     protected int fileSizeMax = 0;
+    /** 单次上传文件数上限（模块配置；请求参数 fileCountMax 可覆盖；<=0 不限） */
+    protected int fileCountMax = 0;
     protected String charset = UTF8;
 
     public uploadFile() {
@@ -60,7 +62,10 @@ public class uploadFile extends TLWServModule {
             filePath = params.get(UPLOADFILE_P_FILEPATH);
         if (params.get(UPLOADFILE_R_FILESIZEMAX) != null && !params.get(UPLOADFILE_R_FILESIZEMAX).isEmpty())
             fileSizeMax = Integer.parseInt(params.get(UPLOADFILE_R_FILESIZEMAX)) * 1024 * 1024;
-
+        if (params.get(UPLOADFILE_P_FILECOUNTMAX) != null && !params.get(UPLOADFILE_P_FILECOUNTMAX).isEmpty()) {
+            try { fileCountMax = Integer.parseInt(params.get(UPLOADFILE_P_FILECOUNTMAX).trim()); }
+            catch (NumberFormatException ignored) { }
+        }
     }
 
     @Override
@@ -156,9 +161,14 @@ public class uploadFile extends TLWServModule {
         }
         // 文件数只统计文件项：items 里还混着普通表单字段（1 文件 + 3 字段会误判成多文件，
         // 单文件被命名成 xxx_0.ext）
-        int fileNums = 0;
-        for (FileItem item : items) {
-            if (item != null && !item.isFormField()) fileNums++;
+        int fileNums = countFileItems(items);
+        // 单次上传文件数上限：必须在写盘前判定——超限整批拒绝，不能先落一部分再报错。
+        // 只置标志位 + 上限值（与 fileSizeMax 同款；不要再写 "error" 文案，
+        // 那会覆盖同名的 ERROR 布尔标志，parseBoolean 读回 false）
+        int maxCount = resolveFileCountMax(fileCountMax, msg.getParam(UPLOADFILE_P_FILECOUNTMAX));
+        if (maxCount > 0 && fileNums > maxCount) {
+            return returnMsg.setParam(UPLOADFILE_R_ERROR, true)
+                    .setParam(UPLOADFILE_P_FILECOUNTMAX, maxCount);
         }
         // 本次新写入的文件：后续任一文件校验/写入失败时清理，避免"磁盘有文件但业务拿不到"
         List<File> written = new ArrayList<>();
@@ -298,6 +308,28 @@ public class uploadFile extends TLWServModule {
         msg.setParam(UPLOADFILE_R_UPLOADITEMS, items);
         TLMsg sreturnMsg = saveFile(fromWho, msg);
         return sreturnMsg.setParam(UPLOADFILE_R_UPLOADPARAMS, returnMsg.getParam(UPLOADFILE_R_UPLOADPARAMS));
+    }
+
+    /** 统计 items 中的文件项数量（普通表单字段不计）。 */
+    static int countFileItems(List<FileItem> items) {
+        int n = 0;
+        if (items == null) return 0;
+        for (FileItem item : items) {
+            if (item != null && !item.isFormField()) n++;
+        }
+        return n;
+    }
+
+    /** 解析单次上传文件数上限：请求参数优先（Number 或字符串），其次模块配置；<=0 表示不限。 */
+    static int resolveFileCountMax(int moduleMax, Object msgParam) {
+        int max = moduleMax;
+        if (msgParam instanceof Number)
+            max = ((Number) msgParam).intValue();
+        else if (msgParam != null) {
+            try { max = Integer.parseInt(String.valueOf(msgParam).trim()); }
+            catch (NumberFormatException ignored) { }
+        }
+        return max;
     }
 
     private boolean ifFileTypePermit(String[] fileTypes, String filetyp) {

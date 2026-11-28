@@ -25,7 +25,7 @@
     <modulesParams>
         <module name="controlCenter" configfile="controlCenter_web_config.xml"/>
         <module name="webui" userModule="dbUserModule"
-                uploadSizeMaxMB="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"
+                uploadSizeMaxMB="50" uploadMaxFiles="50" subscribeToolProgress="true" subscribeWorkflowProgress="true"
                 captchaTtlSeconds="300" userDataPurger="userDataPurger"/>
         <module name="userDataPurger"
                 userModule="dbUserModule"

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILECOUNTMAX;
 import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILESIZE;
 import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_P_FILEPATH;
 import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_R_ERROR;
@@ -50,6 +51,7 @@ import static cn.tianlong.tlobject.servletutils.TLParamString.UPLOADFILE_UPLOAD;
  *   <li>userModule    — 用户模块名；配置后登录/注册/资料/管理走该模块，空则回退 passwords</li>
  *   <li>passwords     — 登录密码表 "uid:pwd;uid:pwd"（配置后登录必须匹配；不配则任意非空 userId 可登录）</li>
  *   <li>uploadSizeMaxMB — 上传大小上限（MB），默认 50；请求参数覆盖 uploadFile 模块的 fileSizeMax</li>
+ *   <li>uploadMaxFiles — 单次请求最多文件数，默认 50（0=不限）；经 uploadFile 的 fileCountMax 在写盘前校验</li>
  *   <li>captchaTtlSeconds — 验证码有效期（秒），30-1800，默认 300；
  *       验证码开关在用户模块 ai_settings（管理页「注册管理」可改），不在本模块参数</li>
  * </ul>
@@ -109,6 +111,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                     new java.util.concurrent.ThreadPoolExecutor.DiscardOldestPolicy());
     /** 上传大小上限（MB），请求参数覆盖 uploadFile 模块的 fileSizeMax 配置 */
     private int uploadSizeMaxMB = 50;
+    /** 单次请求最多文件数（0=不限），经 uploadFile 的 fileCountMax 在写盘前校验 */
+    private int uploadMaxFiles = 50;
     /** uid:pwd 表（配置了才做密码校验） */
     private final Map<String, String> passwords = new HashMap<>();
     /**
@@ -195,6 +199,9 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         if (params.get("userDataPurger") != null) userDataPurger = params.get("userDataPurger");
         if (params.get("uploadSizeMaxMB") != null) {
             try { uploadSizeMaxMB = Integer.parseInt(params.get("uploadSizeMaxMB")); } catch (NumberFormatException ignored) {}
+        }
+        if (params.get("uploadMaxFiles") != null) {
+            try { uploadMaxFiles = Integer.parseInt(params.get("uploadMaxFiles").trim()); } catch (NumberFormatException ignored) {}
         }
         if (params.get("captchaTtlSeconds") != null) {
             try { captchaTtlSeconds = Integer.parseInt(params.get("captchaTtlSeconds").trim()); }
@@ -1384,6 +1391,7 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
         try {
             TLMsg r = putMsg("uploadFile", createMsg().setAction(UPLOADFILE_UPLOAD)
                     .setParam(UPLOADFILE_P_FILESIZE, uploadSizeMaxMB * 1024 * 1024)   // int 字节，覆盖模块默认 1MB
+                    .setParam(UPLOADFILE_P_FILECOUNTMAX, uploadMaxFiles)              // 单次文件数上限（0=不限），写盘前整批拒绝
                     .setParam(UPLOADFILE_P_FILEPATH, targetDir.toString()));          // 不传 fileTypes → 无类型限制（内置危险扩展名黑名单仍生效）
             if (r == null) return outJson(failMap("上传模块无响应"), null);
             if (r.parseBoolean(UPLOADFILE_R_ERROR, false)) {
@@ -1391,6 +1399,8 @@ public class TLWebChatModule extends TLWServModule implements TLAiAgentParamStri
                 e.put("success", false);
                 if (r.containsParam(UPLOADFILE_R_FILESIZEMAX))
                     e.put("error", "文件超过大小限制(" + uploadSizeMaxMB + "MB)");
+                else if (r.containsParam(UPLOADFILE_P_FILECOUNTMAX))
+                    e.put("error", "一次最多上传 " + uploadMaxFiles + " 个文件");
                 else if (r.containsParam(UPLOADFILE_R_FILETYPE))
                     e.put("error", "forbidden".equals(r.getStringParam(UPLOADFILE_R_FILETYPE, ""))
                             ? "文件类型不允许（危险扩展名）" : "文件类型不允许: " + r.getStringParam(UPLOADFILE_R_FILETYPE, ""));
