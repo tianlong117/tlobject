@@ -235,7 +235,7 @@
                sameClassAs="agentWorkflow"
                statup="true"
                configfile="poemWorkflow_config.xml"
-               description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。只返回文本，不写文件；若用户还要求输出 Word/Excel/文件，返回后必须继续委托 fileAgent。"/>
+               description="诗歌创作工作流，两个不同风格的诗人并行创作后汇总。当用户要求写诗、创作诗歌时使用此Agent。只返回文本，不写文件。本 Agent 是直出工具（调用后本轮立即结束）：若用户还要求输出 Word/Excel/文件，调用后系统会要求你继续用 fileAgent 生成文件；也可以先自行创作诗句，再单独委托 fileAgent。"/>
 
         <agent name="dbAgent"
                sameClassAs="aiagent"

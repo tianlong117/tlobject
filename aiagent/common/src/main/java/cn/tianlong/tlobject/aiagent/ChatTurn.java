@@ -6,6 +6,7 @@ import cn.tianlong.tlobject.base.TLObjectFactory;
 import cn.tianlong.tlobject.modules.LogLevel;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,6 +47,19 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
     private int finalAssistantIdx = -1;
     /** 本轮因"清单未完成"被强制续跑的次数（上限 seed.todoGateMaxRetries） */
     private int todoGateRetries;
+    /** 本轮是否调用过文件类工具（fileAgent/word 等）：文件交付门禁用 */
+    private boolean fileToolCalled;
+    /** 文件交付门禁：用户要求文件但直出/终答未生成文件时的续跑次数 */
+    private int fileDeliverableGateRetries;
+    /**
+     * 文件交付门禁上限：directOutput 工具（如 poemWorkflow）会让本轮立即收尾，
+     * 系统提示里"返回后继续委托 fileAgent"在机制上不可能执行；用户明确要文件时
+     * 最多强制续跑两次，仍无文件工具就如实标注未生成（2026-11-28 Word 事故）。
+     */
+    private static final int FILE_DELIVERABLE_GATE_MAX_RETRIES = 2;
+    /** 视为"能产出文件"的工具名（小写；另含任何名称里带 file 的工具） */
+    private static final Set<String> FILE_DELIVERABLE_TOOL_NAMES = new HashSet<>(Arrays.asList(
+            "fileagent", "word", "file_operation", "codeagent", "codingagent"));
     /** 本轮开始时间/工具错误计数：供 turnResult 输出契约（耗时、toolErrorCount） */
     private final long turnStartTs = System.currentTimeMillis();
     private int toolErrorCount;
@@ -220,10 +234,33 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                             + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
                     continue;
                 }
+                // 文件交付门禁：用户明确要文件、但本轮还没调用过文件工具 → 草稿入史后续跑。
+                // 典型：directOutput 工具刚结束一轮后模型直接写"已生成"却没有文件工具调用。
+                // 清单未完成时由 todo 门禁优先（清单里通常已含文件项），避免两套门禁叠加续跑。
+                String fileReminder = fileDeliverableReminder();
+                boolean fileGateApplies = fileReminder != null && todoReminder == null
+                        && !finalAnswerStreamed && !clarification;
+                if (fileGateApplies && fileDeliverableGateRetries < FILE_DELIVERABLE_GATE_MAX_RETRIES) {
+                    fileDeliverableGateRetries++;
+                    // 草稿必须进 history：续跑后模型要在它的基础上生成文件，不能丢内容
+                    history.add(new TLConversationHistory(
+                            TLConversationHistory.Role.assistant, finalResponse));
+                    transientSystems.clear();
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system, fileReminder));
+                    putLog("[turn:" + seed.roundId + "] file gate 触发：要求文件但未调用文件工具，继续执行 ("
+                            + fileDeliverableGateRetries + "/" + FILE_DELIVERABLE_GATE_MAX_RETRIES + ")", LogLevel.INFO);
+                    continue;
+                }
                 if (todoReminder != null && !finalAnswerStreamed && !clarification) {
                     // 重试用尽：不伪装完成，终答明确标注仍有未完成项
                     finalResponse = finalResponse + "\n\n（注意：任务清单仍有未完成项，详见任务清单。）";
                     putLog("[turn:" + seed.roundId + "] todo gate 重试用尽，收尾但标注未完成", LogLevel.WARN);
+                }
+                if (fileGateApplies) {
+                    // 重试用尽：不把纯文本伪装成已交付文件
+                    finalResponse = finalResponse + "\n\n（注意：用户要求输出文件，但本轮未生成文件。）";
+                    putLog("[turn:" + seed.roundId + "] file gate 重试用尽，收尾但标注未生成文件", LogLevel.WARN);
                 }
                 // 流式/非流式统一存带截断提示的 finalResponse：否则非流式的下一轮 LLM
                 // 不知道自己上一答被截断，与流式上下文语义分叉（返回给调用方的已是 finalResponse）。
@@ -271,6 +308,13 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                 finalAssistantIdx = history.size() - 1;
                 return finish(new TurnOutcome.Completed(fail, iteration, tokens(),
                         reasoningOut(), finalAssistantIdx));
+            }
+            // 文件交付门禁：记录本轮是否已调用文件类工具（跨迭代累计）
+            for (TLToolExecutor.ToolTask t : tasks) {
+                if (t != null && isFileDeliverableTool(t.functionName)) {
+                    fileToolCalled = true;
+                    break;
+                }
             }
 
             TLMsg execResult = executeTasks(tasks);
@@ -416,10 +460,34 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
                             + todoGateRetries + "/" + seed.todoGateMaxRetries + ")", LogLevel.INFO);
                     continue;
                 }
+                // 文件交付门禁：即使用户没建清单，直出也不能吞掉"输出到 Word/文件"的第二步。
+                // directOutput 让本轮立即结束，模型没机会再调 fileAgent；这里回注直出结果并续跑。
+                // 清单未完成时由 todo 门禁优先（清单里通常已含文件项），避免两套门禁叠加续跑。
+                // 2026-11-28 webchat_tianlong_1795439788398：poemWorkflow 直出诗，Word 未生成。
+                String fileReminder = fileDeliverableReminder();
+                boolean fileGateApplies = fileReminder != null && todoReminder == null && !clarification;
+                if (fileGateApplies && fileDeliverableGateRetries < FILE_DELIVERABLE_GATE_MAX_RETRIES) {
+                    fileDeliverableGateRetries++;
+                    transientSystems.clear();
+                    transientSystems.add(new TLConversationHistory(
+                            TLConversationHistory.Role.system, fileReminder));
+                    appendToolResults(tasks, execResultsF);
+                    deps.committer.checkpoint(record());
+                    putLog("[turn:" + seed.roundId + "] file gate 拦截直出：要求文件但未调用文件工具，继续执行 ("
+                            + fileDeliverableGateRetries + "/" + FILE_DELIVERABLE_GATE_MAX_RETRIES + ")", LogLevel.INFO);
+                    continue;
+                }
                 if (todoReminder != null && !clarification) {
                     finalResponse = finalResponse
                             + "\n\n（注意：任务清单仍有未完成项，详见任务清单。）";
                     putLog("[turn:" + seed.roundId + "] todo gate 重试用尽，直出但标注未完成",
+                            LogLevel.WARN);
+                }
+                if (fileGateApplies) {
+                    // 重试用尽：不能把纯文本伪装成已交付文件
+                    finalResponse = finalResponse
+                            + "\n\n（注意：用户要求输出文件，但本轮未生成文件。）";
+                    putLog("[turn:" + seed.roundId + "] file gate 重试用尽，直出但标注未生成文件",
                             LogLevel.WARN);
                 }
                 appendToolResults(tasks, execResultsF);
@@ -553,6 +621,51 @@ final class ChatTurn extends TLBaseModule implements TLAiAgentParamString {
         if (items == null) return null;
         return "【任务清单未完成】\n" + items
                 + "请继续执行，不要现在收尾。若确实无法完成，请把对应项标为 failed 并在最终答复里说明原因。";
+    }
+
+    /**
+     * 本轮用户是否明确要求把内容交付成文件（"输出/导出/保存/写到…" + word/docx/excel/pdf/文件等）。
+     * 只认强信号：普通的"读取这个 word 文件"不算；明确的否定（不要文件）也不算。
+     * 用于文件交付门禁——directOutput 工具收尾时检查是否漏了文件步骤。
+     */
+    static boolean looksLikeFileDeliverableRequest(String text) {
+        if (text == null || text.isEmpty()) return false;
+        String t = text.toLowerCase();
+        if (t.contains("不要文件") || t.contains("不用文件") || t.contains("无需文件")
+                || t.contains("不需要文件") || t.contains("不要输出到文件")
+                || t.contains("别生成文件")) return false;
+        return java.util.regex.Pattern.compile(
+                "(输出|导出|保存|写入|写到|放到|存到|生成|做成|转成|整理成|汇总成|总结成|另存为|下载)"
+                        + "[^。！？\\n]{0,15}(word|docx|excel|xlsx|ppt|pptx|pdf|txt|md|csv|文档|文件)"
+                        + "|(save|export|write|output|generate|convert)[^.!?\\n]{0,30}"
+                        + "(word|docx|excel|xlsx|ppt|pptx|pdf|txt|file|document)")
+                .matcher(t).find();
+    }
+
+    /** 是否文件类工具（fileAgent / word / file_operation / codeAgent / 任何名字带 file 的工具）。 */
+    private static boolean isFileDeliverableTool(String functionName) {
+        if (functionName == null || functionName.isEmpty()) return false;
+        String n = functionName.toLowerCase();
+        return FILE_DELIVERABLE_TOOL_NAMES.contains(n) || n.contains("file");
+    }
+
+    /** 文件交付门禁提醒：仅在"用户要文件 + 本轮没调过文件工具 + 本 agent 有文件工具"时有值。 */
+    private String fileDeliverableReminder() {
+        if (fileToolCalled) return null;
+        if (!looksLikeFileDeliverableRequest(seed.userMessage)) return null;
+        if (!hasFileDeliverableTool()) return null;   // 无文件工具的子 agent 不硬续跑
+        return "【文件交付未完成】用户本轮明确要求输出文件（Word/Excel/文档等），"
+                + "但还没有调用任何文件工具。请立即使用 fileAgent（或 word 技能）把上面的内容"
+                + "写成用户要求的文件；生成成功后再终答，并在终答中给出文件路径。"
+                + "不要把纯文本当作已交付文件。";
+    }
+
+    /** 本 agent 的可用工具里是否有文件类工具（避免在无文件能力的子 agent 里空转两次）。 */
+    private boolean hasFileDeliverableTool() {
+        for (TLFunctionDefinition def : toolDefs) {
+            if (def != null && isFileDeliverableTool(def.getName())) return true;
+        }
+        return false;
     }
 
     private long[] lastUsage = new long[3];

@@ -26,6 +26,9 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
         runNullSinkCase();
         runDirectAnswerTodoGateCase();
         runDirectAnswerClarificationCase();
+        runFileIntentDetectionCase();
+        runDirectAnswerFileIntentGateCase();
+        runDirectAnswerFileIntentExhaustedCase();
         runToolErrorCountCase();
         runConvergenceStopCase();
         runConvergenceDisabledCase();
@@ -143,6 +146,74 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
                 committer.lastRecord != null && committer.lastRecord.history.stream()
                         .noneMatch(h -> h.getRole() == TLConversationHistory.Role.assistant
                                 && "诗文本".equals(h.getContent())));
+    }
+
+    /** 文件交付意图识别：只认"输出动词 + 文件类型"的强信号。 */
+    private static void runFileIntentDetectionCase() {
+        check("文件意图：输出到 word 文件",
+                ChatTurn.looksLikeFileDeliverableRequest("来两首爱情诗。输出到一个word文件"));
+        check("文件意图：保存为 docx",
+                ChatTurn.looksLikeFileDeliverableRequest("保存到 workspace/a.docx"));
+        check("文件意图：英文 save as word",
+                ChatTurn.looksLikeFileDeliverableRequest("save it as a word document"));
+        check("文件意图：读取 word 不算",
+                !ChatTurn.looksLikeFileDeliverableRequest("读取这个word文件"));
+        check("文件意图：纯写诗不算",
+                !ChatTurn.looksLikeFileDeliverableRequest("来两首爱情诗"));
+        check("文件意图：网页总结不算",
+                !ChatTurn.looksLikeFileDeliverableRequest("总结下这个网页的内容"));
+        check("文件意图：明确不要文件不算",
+                !ChatTurn.looksLikeFileDeliverableRequest("来两首诗，不要文件，直接回复"));
+        check("文件意图：完成后直接回复仍属文件交付",
+                ChatTurn.looksLikeFileDeliverableRequest("输出到 word 文件，完成后直接回复我"));
+    }
+
+    /** 直出 + 用户要文件：不能立即收尾，必须续跑并调用文件工具（2026-11-28 Word 事故）。 */
+    private static void runDirectAnswerFileIntentGateCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        QueueProvider provider = new QueueProvider(
+                toolCallsResponse(new TLToolCall("tc_poem", "poemWorkflow", new LinkedHashMap<>())),
+                toolCallsResponse(new TLToolCall("tc_file", "fileAgent",
+                        new LinkedHashMap<>(Map.of("task", "把诗写到 word 文件")))),
+                finalResponse("已生成 word 文件：workspace/tianlong/poem.docx"));
+        FakeCommitter committer = new FakeCommitter();
+        String userMsg = "来两首爱情诗。输出到一个word文件";
+
+        new ChatTurn("turn:test:filegate", seed(sink, new ArrayList<>(), 2, userMsg),
+                deps(provider, committer, toolExecuted,
+                        new FakeDirectThenFileExecutor(toolExecuted, "诗文本"))).run();
+
+        check("文件门禁：没有短路成 DirectAnswer",
+                committer.lastOutcome instanceof TurnOutcome.Completed);
+        check("文件门禁：续跑到文件工具与终答", provider.idx == 3);
+        check("文件门禁：终答来自文件工具之后",
+                committer.lastOutcome != null
+                        && committer.lastOutcome.response().contains("poem.docx"));
+        check("文件门禁：fileAgent 已执行并落历史",
+                committer.lastRecord != null && committer.lastRecord.history.stream()
+                        .anyMatch(h -> "fileAgent".equals(h.getName())));
+    }
+
+    /** 直出 + 要文件但模型始终不调文件工具：最多续跑两次，终答如实标注未生成。 */
+    private static void runDirectAnswerFileIntentExhaustedCase() {
+        boolean[] toolExecuted = {false};
+        RecordingSink sink = new RecordingSink(toolExecuted);
+        QueueProvider provider = new QueueProvider(
+                toolCallsResponse(new TLToolCall("tc_poem2", "poemWorkflow", new LinkedHashMap<>())),
+                finalResponse("好的，诗已经写好了"),
+                finalResponse("诗在上面"));
+        FakeCommitter committer = new FakeCommitter();
+        String userMsg = "来两首爱情诗。输出到一个word文件";
+
+        new ChatTurn("turn:test:filegatex", seed(sink, new ArrayList<>(), 2, userMsg),
+                deps(provider, committer, toolExecuted,
+                        new FakeDirectExecutor(toolExecuted, "诗文本"))).run();
+
+        check("文件门禁用尽：终止且不无限续跑", provider.idx == 3);
+        check("文件门禁用尽：终答标注未生成文件",
+                committer.lastOutcome != null
+                        && committer.lastOutcome.response().contains("未生成文件"));
     }
 
     /** 直出内容是澄清问句：允许收尾，不硬续跑。 */
@@ -315,10 +386,18 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
 
     private static TurnSeed seed(StreamSink sink, List<TLConversationHistory> history,
                                  int todoGateMaxRetries) {
-        TLMsg req = new TLMsg().setParam(AI_P_USERMESSAGE, "hi");
-        return new TurnSeed(req, "s1", "s1", "r1", "u1", "agent", "hi",
+        return seed(sink, history, todoGateMaxRetries, "hi");
+    }
+
+    private static TurnSeed seed(StreamSink sink, List<TLConversationHistory> history,
+                                 int todoGateMaxRetries, String userMessage) {
+        TLMsg req = new TLMsg().setParam(AI_P_USERMESSAGE, userMessage);
+        List<TLFunctionDefinition> toolDefs = new ArrayList<>();
+        // 文件交付门禁要求本 agent 有文件类工具；测试提供一个 fileAgent 工具定义
+        toolDefs.add(new TLFunctionDefinition("fileAgent", "文件读写与生成", null));
+        return new TurnSeed(req, "s1", "s1", "r1", "u1", "agent", userMessage,
                 TurnPlan.NORMAL, history, 0, null, null,
-                new ArrayList<>(), "test-model", 0.0, 0,
+                toolDefs, "test-model", 0.0, 0,
                 "off", false, false, false, 10, 0, true, todoGateMaxRetries,
                 sink, () -> false, null);
     }
@@ -421,6 +500,38 @@ public class ChatTurnNarrationSelfTest implements TLAiAgentParamString {
                 results.add(tr);
             }
             return createMsg().setParam(RESULT, true).setParam("results", results);
+        }
+    }
+
+    /** 模拟"先直出诗、再调文件工具"：poemWorkflow 直出；fileAgent 正常返回文件路径。 */
+    static class FakeDirectThenFileExecutor extends TLBaseModule {
+        private final boolean[] executed;
+        private final String directText;
+        FakeDirectThenFileExecutor(boolean[] executed, String directText) {
+            super("fakeDirectThenFileExecutor");
+            this.executed = executed;
+            this.directText = directText;
+        }
+        @Override protected TLBaseModule init() { return this; }
+
+        @Override protected TLMsg checkMsgAction(Object fromWho, TLMsg msg) {
+            executed[0] = true;
+            @SuppressWarnings("unchecked")
+            List<TLToolExecutor.ToolTask> tasks =
+                    (List<TLToolExecutor.ToolTask>) msg.getListParam("tasks", List.of());
+            List<TLToolExecutor.ToolResult> results = new ArrayList<>();
+            boolean hasFile = false;
+            for (TLToolExecutor.ToolTask t : tasks) {
+                boolean file = t.functionName != null && t.functionName.toLowerCase().contains("file");
+                if (file) hasFile = true;
+                results.add(new TLToolExecutor.ToolResult(t.toolCallId,
+                        file ? "已写入 workspace/tianlong/poem.docx" : directText));
+            }
+            TLMsg ret = createMsg().setParam(RESULT, true).setParam("results", results);
+            if (!hasFile) {
+                ret.setParam(AI_P_FINALANSWER, true).setParam("finalResponse", directText);
+            }
+            return ret;
         }
     }
 
