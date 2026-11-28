@@ -223,7 +223,7 @@ A complete agent framework built on the message-object model: user input → LLM
 - Tool system: built-in skills (HTTP / file / code execution / browser / desktop GUI) + custom skills + MCP marketplace + message tools (msgTool)
 - Three-tier memory: conversation context, short-term (TTL), long-term (file/DB, hierarchical summaries, optional embedding recall)
 - Multi-agent orchestration: sub-agent delegation, agent groups, workflow DAGs, error-self-healing supervisor
-- Engineering features: HITL approval gate, Evals harness, session persistence & checkpoint resume, token statistics, web UI (`webui`), `/test` mock regression
+- Engineering features: HITL approval gate, Evals harness, session persistence & checkpoint resume, token statistics, web UI (`webui`, mobile page and dark/light themes), `/test` mock regression
 - Full documentation (~1,300 lines, in Chinese, with architecture diagrams / core classes / extension guide): **`aiagent/README.zh.md`**
 
 ---

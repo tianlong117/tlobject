@@ -131,7 +131,7 @@ Memory injection goes through **AOP message hooks**: automatic recall before cha
 - **Deterministic self-testing**: 40 test scenarios driven by a Mock Provider, with no network and no Key, and reproducible results — change code without fear of regressions
 - **Evals evaluation system**: JSON cases + three types of Judge (exact / LLM / constraint), supporting batch regression
 - **Session system**: multi-user data isolation, checkpoint resume, token statistics, `/trace` full-chain tracing
-- **Web UI (webui)**: browser chat + screenshot visualization + session management, same-origin with the framework and zero extra dependencies
+- **Web UI (webui)**: browser chat + screenshot visualization + session management + mobile page and dark/light themes, same-origin with the framework and zero extra dependencies
 
 > From "calling an LLM once" to "enterprise-grade multi-agent orchestration", it is one gradual path: get it running with Mock first → go live with a real Key → add tools as needed → then add orchestration and approval. No step overturns the previous one.
 
@@ -1423,11 +1423,15 @@ leaves the console and the Web server keeps running.
 
 ### 3. Web UI
 
-`aistart-web.bat` also starts Jetty (port 8080 by default) in the same process. Open:
+`aistart-web.bat` also starts Jetty (port 58080 by default) in the same process. Open:
 
 ```
 http://localhost:58080/webui/chat.html
 ```
+
+Phone browsers opening `http://<host>:58080/` are redirected to the mobile page
+(`/webui/mobile.html`); the ☀/🌙 button at the top switches between dark and light themes
+(per-device, default dark).
 
 Default accounts `admin` / `tianlong` (password `123456` for both), stored in the database table
 `ai_users` (`dbUserModule`); the Web port is the `port` attribute in `moduleFactory_chat_web_config.xml`.
@@ -1441,6 +1445,8 @@ Default accounts `admin` / `tianlong` (password `123456` for both), stored in th
 | Session management | Switch / continue / delete sessions; per-user isolation, occupation detection, targeted kick-off |
 | File upload | Attach files from the chat box (50MB default limit) |
 | Checkpoint resume | Resume an unfinished mid-loop checkpoint from the session list |
+| Mobile | Phones get `/webui/mobile.html`: sessions move into a drawer, low-frequency actions go to a "More" sheet, the settings panel is full-screen, and the soft keyboard is handled |
+| Dark / light theme | ☀/🌙 toggle in the header and on the login page; default dark, remembered per device; `manage.html` stays dark |
 
 Console and web UI **share the same agentService** — two shells over one set of actions.
 
@@ -1823,6 +1829,21 @@ Open `http://localhost:58080/webui/chat.html` in a browser (change the port in t
   - Tracing: /trace, /stats, /stats all, /stats agent
 - Approval: approval requests are pushed to a browser dialog via SSE; you can edit the parameters before approving or rejecting
 - User isolation: the login identity is passed through to agentService, and sessions and memory under data/{uid}/ are isolated per user
+- Mobile: `mobile.html` + `mobile.css` + `mobile.js` share the same DOM as `chat.html` and reuse the same
+  `app.js`. The session pane becomes a left drawer, low-frequency header actions move into a bottom
+  "More" sheet, the settings/debug panel goes full-screen, and `visualViewport` handles the soft keyboard.
+  Opening `/webui/chat.html` from a phone UA automatically redirects to `/webui/mobile.html`
+  (query/hash preserved); `localStorage.tlweb_view='desktop'` forces the desktop page (a floating
+  "Mobile" entry appears at the top-left), and the mobile "More" sheet / login page also link back to
+  the desktop page. Android tablets and iPads without the `Mobile` token stay on the desktop page.
+- Themes: `style.css` uses CSS variables for the whole palette (dark values unchanged) with
+  `html[data-theme="light"]` overrides; `theme.js` reads `localStorage.tlweb_theme` synchronously in
+  `<head>` to avoid a flash of the wrong theme. The header and login page have a ☀/🌙 toggle; the
+  default is dark and the choice is remembered per device. `manage.html` stays dark.
+- Static files: `mobile.html` / `mobile.css` / `mobile.js` / `theme.js` live next to `chat.html` /
+  `style.css` under `{configDir}/webui/`. When adding dialogs/elements, keep the DOM/ID sets of
+  `chat.html` and `mobile.html` in sync (`smoke/webui_mobile_check.py` asserts the drift). Smoke tests:
+  `python smoke/webui_theme_check.py` (37) / `python smoke/webui_mobile_check.py` (32).
 - Implementation: TLWebChatModule (business logic; API routed via TLServletDispatch + urlMap) + the generic servletutils `TLStaticFileServlet` (only `/` redirect and `/webui/*` static resources, mounted via TLJettyServer extraServlets with `?k=v` init parameters).
 - Static pages are application assets: `{configDir}/webui/` (demo source `demo/tlobject/src/main/resources/conf/demo/aiagent/webui/`, runtime `demo/tlobject/target/classes/conf/demo/aiagent/webui/`). The servlet checks the filesystem first and falls back to classpath `/webui/`; 404 JSON includes `staticRoot` / `looked`. Parameters: `root`, `fallbackClasspath`, `indexRedirect`, `welcomeFile`, `cacheControl`.
 

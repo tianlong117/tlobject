@@ -124,7 +124,7 @@ Agent 世界继承父框架的哲学：**每个组件都是独立、自由、平
 - **确定性自测**：Mock Provider 驱动的 12 个测试场景，无网络、无 Key、结果可复现——改代码不怕回归
 - **Evals 评测体系**：JSON 用例 + 三类 Judge（精确 / LLM / 约束），可批量回归
 - **会话体系**：多用户数据隔离、断点续传、Token 统计、`/trace` 全链追踪
-- **Web 交互界面（webui）**：浏览器聊天 + 截图可视化 + 会话管理，与框架同源零额外依赖
+- **Web 交互界面（webui）**：浏览器聊天 + 截图可视化 + 会话管理 + 移动端页面/深浅主题，与框架同源零额外依赖
 
 > 从"调用一次 LLM"到"企业级多 Agent 编排"，是同一条渐进的路：Mock 先跑通 → 换真实 Key 上线 → 按需加工具 → 再上编排与审批。每一步都不推翻前一步。
 
@@ -1340,11 +1340,14 @@ aistart-web.bat
 
 ### 三、Web 界面
 
-`aistart-web.bat` 在同一进程里再起一个 Jetty（默认 8080），浏览器打开：
+`aistart-web.bat` 在同一进程里再起一个 Jetty（默认 58080），浏览器打开：
 
 ```
 http://localhost:58080/webui/chat.html
 ```
+
+手机浏览器打开 `http://<主机>:58080/` 会自动进入移动版（`/webui/mobile.html`）；顶栏 ☀/🌙
+切换深色/浅色，选择按设备记在浏览器，默认深色。
 
 默认账号 `admin` / `tianlong`（密码都是 `123456`），存数据库表 `ai_users`（`dbUserModule`）；
 Web 端口在 `moduleFactory_chat_web_config.xml` 的 `port` 属性。
@@ -1358,6 +1361,8 @@ Web 端口在 `moduleFactory_chat_web_config.xml` 的 `port` 属性。
 | 会话管理 | 多会话切换、继续、删除；多用户数据隔离、占用检测与定向踢下线 |
 | 文件上传 | 聊天框可传文件（默认上限 50MB） |
 | 断点续跑 | 会话列表里恢复未完成的 mid-loop 断点 |
+| 移动端 | 手机自动进入 `/webui/mobile.html`：会话栏改左抽屉、低频功能收进「更多」、设置面板全屏、适配软键盘 |
+| 深/浅主题 | 顶栏与登录页 ☀/🌙 切换，默认深色、按设备记忆；管理工作台 `manage.html` 保持深色 |
 
 控制台与 Web 界面**共用同一个 agentService**，只是两个 UI 壳——所有命令走同一批 action。
 
@@ -1729,7 +1734,24 @@ MCP（Model Context Protocol）工具包市场：将外部 MCP 服务器安装�
   - 追踪：/trace、/stats、/stats all、/stats agent
 - 审批：审批请求经 SSE 推送到浏览器弹框——「批准」/「✓ 本轮不再问」/「✓ 本会话不再问」三档，可编辑参数后批准；顶栏 🔒 自动运行开关（本会话全部免审批）+ 🛡 授权面板（查看/撤销/清空本会话授权）
 - 用户隔离：登录身份透传 agentService，data/{uid}/ 会话与记忆按用户隔离
-- 实现：TLWebChatModule（业务）+ TLWebChatServlet（IO 适配，TLJettyServer extraServlets 挂载），静态页内嵌 jar classpath
+- 移动端：`mobile.html` + `mobile.css` + `mobile.js`，与 `chat.html` 同构 DOM 并复用同一份 `app.js`；
+  会话栏改左抽屉、低频顶栏按钮收进「更多」底部弹层、设置/调试面板全屏，`visualViewport` 适配软键盘。
+  手机访问 `/webui/chat.html` 时按 UA 自动跳 `/webui/mobile.html`（保留 query/hash）；
+  `localStorage.tlweb_view='desktop'` 可强制电脑版（左上角出现「手机版」返回入口），移动版「更多」
+  与登录页也有「电脑版」入口。不带 `Mobile` 标记的 Android 平板与 iPad 留在电脑版。
+- 深浅主题：`style.css` 全色板 CSS 变量化（暗色值不变），`html[data-theme="light"]` 覆盖；`theme.js`
+  在 head 同步读 `localStorage.tlweb_theme` 防首帧闪烁；顶栏与登录页 ☀/🌙 切换，默认深色、按设备记忆；
+  `manage.html` 保持深色。
+- 静态文件：`mobile.html`/`mobile.css`/`mobile.js`/`theme.js` 与 `chat.html`/`style.css` 同目录
+  `{configDir}/webui/`；新增弹框/元素时 `chat.html` 与 `mobile.html` 的 DOM/ID 要同步
+  （`smoke/webui_mobile_check.py` 有结构漂移断言）。冒烟：`python smoke/webui_theme_check.py`（37）/
+  `python smoke/webui_mobile_check.py`（32）
+- 实现：TLWebChatModule（业务，API 经 TLServletDispatch + urlMap 路由）+ servletutils 的通用 `TLStaticFileServlet`
+  （仅 `/` 重定向与 `/webui/*` 静态资源，TLJettyServer extraServlets 挂载；`extraServlets` 支持 `path=类名?k=v&k2=v2` 传 init 参数）
+- 静态页属于应用：放各 app 自己的配置目录 `{configDir}/webui/`。demo 源目录是
+  `demo/tlobject/src/main/resources/conf/demo/aiagent/webui/`，运行期实际读
+  `demo/tlobject/target/classes/conf/demo/aiagent/webui/`（改源文件需 `process-resources`/`compile`；
+  改 target 副本因每请求实时读盘 + no-cache，刷新即生效）
 
 ### 后台任务与多会话并行
 

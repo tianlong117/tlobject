@@ -224,7 +224,7 @@ public class startup extends TLAppStartUp {
 - 工具体系：内置 Skill（HTTP / 文件 / 代码执行 / 浏览器 / 桌面 GUI）+ 自定义 Skill + MCP 工具市场 + 消息工具（msgTool）
 - 三级记忆：会话上下文、短期记忆（TTL）、长期记忆（文件/DB，摘要分层 + 向量召回可选）
 - 多 Agent 编排：子 Agent 委托、Agent 组、工作流 DAG、错误自愈监管
-- 工程能力：HITL 人工审批门禁、Evals 评测体系、会话持久化与断点恢复、Token 统计、Web 交互界面（webui）、`/test` Mock 回归测试
+- 工程能力：HITL 人工审批门禁、Evals 评测体系、会话持久化与断点恢复、Token 统计、Web 交互界面（webui，含移动端页面与深浅主题）、`/test` Mock 回归测试
 - 详细文档（约 1300 行，含架构图/核心类/扩展开发）：**`aiagent/README.zh.md`**
 
 ---
