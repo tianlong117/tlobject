@@ -227,6 +227,17 @@ body {
   font-size: 15px; cursor: pointer;
 }
 .login-box button:hover { background: var(--accent-hover); }
+/* 密码框「眼睛」：按钮绝对定位在输入框右端；特异度压过 .login-box button 的主按钮样式 */
+.login-box .pwd-wrap { position: relative; display: flex; }
+.login-box .pwd-wrap input { width: 100%; padding-right: 42px; }
+.login-box button.pwd-eye {
+  position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+  width: 32px; height: 32px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; border-radius: 6px;
+  color: var(--text-dim2); cursor: pointer;
+}
+.login-box button.pwd-eye:hover { background: var(--bg-sub); color: var(--accent-text); }
 .err { color: var(--err); font-size: 13px; }
 .captcha-row { display: flex; gap: 8px; align-items: center; }
 .captcha-row input { flex: 1; min-width: 0; }

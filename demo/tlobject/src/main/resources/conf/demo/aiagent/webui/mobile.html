@@ -24,9 +24,16 @@
       <button id="tabRegister" type="button">注册</button>
     </div>
     <input id="loginUser" placeholder="用户ID" autocomplete="username">
-    <input id="loginPwd" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+    <!-- 密码框右侧「眼睛」：点击切换明文/密文（图标与行为在 app.js bindPasswordEyes） -->
+    <div class="pwd-wrap">
+      <input id="loginPwd" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+      <button type="button" class="pwd-eye" data-pwd="loginPwd" title="显示密码" aria-label="显示密码"></button>
+    </div>
     <div id="registerFields" class="hidden">
-      <input id="loginPwd2" type="password" placeholder="确认密码（至少 6 位）" autocomplete="new-password">
+      <div class="pwd-wrap">
+        <input id="loginPwd2" type="password" placeholder="确认密码（至少 6 位）" autocomplete="new-password">
+        <button type="button" class="pwd-eye" data-pwd="loginPwd2" title="显示密码" aria-label="显示密码"></button>
+      </div>
       <input id="regNickname" maxlength="32" placeholder="昵称（可选）">
       <div id="regApprovalHint" class="hidden hint">
         注册后需管理员审核，通过后即可登录

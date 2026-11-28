@@ -365,7 +365,46 @@ function showLogin() {
   $('#taskDrawer').classList.add('hidden');
   closeProfile();                                      // 函数声明 hoisting：定义在「个人资料」段
   setAuthMode('login');                                // 回到登录页签（上次停在注册页不能带过来）
+  resetPasswordEyes();                                 // 密码框回到密文态（登出/401 后不残留明文显示）
   applyCaptchaPolicy();                                // 回到登录页时换一张验证码
+}
+
+/* ===== 密码框「眼睛」：点击切换明文/密文 =====
+ * 登录页/注册页的密码输入框右侧按钮（chat.html、mobile.html 同构）。
+ * 默认密文；显示时图标带斜杠、title/aria-label 变「隐藏密码」。 */
+const PWD_EYE_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">'
+    + '<path d="M1.6 8S3.9 4 8 4s6.4 4 6.4 4-2.3 4-6.4 4S1.6 8 1.6 8Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+    + '<circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/></svg>';
+const PWD_EYE_OFF_ICON = '<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">'
+    + '<path d="M1.6 8S3.9 4 8 4s6.4 4 6.4 4-2.3 4-6.4 4S1.6 8 1.6 8Z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>'
+    + '<circle cx="8" cy="8" r="2" fill="none" stroke="currentColor" stroke-width="1.3"/>'
+    + '<path d="M3 13L13 3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>';
+function setPwdEyeState(btn, visible) {
+  btn.innerHTML = visible ? PWD_EYE_OFF_ICON : PWD_EYE_ICON;
+  const label = visible ? '隐藏密码' : '显示密码';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+function bindPasswordEyes() {
+  document.querySelectorAll('.pwd-eye').forEach(btn => {
+    const input = document.getElementById(btn.dataset.pwd);
+    if (!input) return;
+    setPwdEyeState(btn, false);
+    btn.addEventListener('click', () => {
+      const toVisible = input.type === 'password';
+      input.type = toVisible ? 'text' : 'password';
+      setPwdEyeState(btn, toVisible);
+      input.focus();
+      try { input.setSelectionRange(input.value.length, input.value.length); } catch (e) { /* 忽略 */ }
+    });
+  });
+}
+function resetPasswordEyes() {
+  document.querySelectorAll('.pwd-eye').forEach(btn => {
+    const input = document.getElementById(btn.dataset.pwd);
+    if (input) input.type = 'password';
+    setPwdEyeState(btn, false);
+  });
 }
 async function initSession() {
   try {
@@ -2140,6 +2179,7 @@ function bindEvents() {
   };
   bindUpload();
   bindTodoBar();
+  bindPasswordEyes();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
